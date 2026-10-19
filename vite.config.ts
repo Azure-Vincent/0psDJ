@@ -5,6 +5,8 @@ import react from '@vitejs/plugin-react';
 export default defineConfig({
   base: './',
   plugins: [react()],
+  // Single offline bundle for the desktop app; code-splitting brings no benefit from file://.
+  build: { chunkSizeWarningLimit: 1500 },
   test: {
     globals: true,
     environment: 'node',
