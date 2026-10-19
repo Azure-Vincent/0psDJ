@@ -4,7 +4,7 @@ export type ConceptId =
   | 'dns.resolution' | 'dns.zone' | 'net.arp' | 'net.routing' | 'net.icmp' | 'tcp.handshake'
   | 'fw.stateful' | 'fw.persistence' | 'svc.systemd' | 'svc.listening' | 'ssh.kex' | 'ssh.hostkeys'
   | 'ssh.userauth' | 'ssh.authorized-keys' | 'linux.permissions' | 'ssh.config' | 'ssh.authz' | 'logs.journal'
-  | 'net.cidr' | 'fw.path' | 'net.dhcp' | 'net.nat';
+  | 'net.cidr' | 'fw.path' | 'net.dhcp' | 'net.nat' | 'net.vlan' | 'net.ipv6' | 'net.ndp';
 
 export type CauseCategory = 'Name resolution' | 'Network path' | 'Firewall' | 'Service' | 'Configuration' | 'Authentication' | 'Authorization' | 'Permissions' | 'Client' | 'Cryptography' | 'Persistence';
 
@@ -36,6 +36,8 @@ export interface HttpGoal {
   fromHost: string;
   fromUser: string;
   url: string;
+  /** Extra curl options, e.g. "-6" to require IPv6. */
+  curlFlags?: string;
 }
 
 /** Name resolution (getent hosts) on a host must return the expected address. */

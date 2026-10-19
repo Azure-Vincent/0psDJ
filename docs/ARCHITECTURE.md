@@ -31,9 +31,11 @@ exists today (✅ implemented, 🟡 partial, ⏳ planned).
 └──────────────────────────────────────────────────────────────────────────────────────────────────────┘
 
 engine/
-  net/ip.ts            IPv4 + CIDR math
-  config/              parsers that real admins edit: sshd_config, nftables, BIND zones, ifupdown, resolv.conf, hosts
-  sim/network.ts       hop-by-hop forwarding: routing (LPM), ARP, TTL, conntrack, nft hooks, ICMP errors, captures
+  net/ip.ts, ip6.ts    IPv4 / IPv6 address and prefix math (RFC 5952 text form, EUI-64, solicited-node)
+  config/              parsers that real admins edit: sshd_config, nftables, BIND zones, ifupdown(2), dhcpd.conf, resolv.conf, hosts
+  sim/network.ts       hop-by-hop forwarding (IPv4 + IPv6): routing (LPM), ARP / Neighbor Discovery, TTL, conntrack, nft hooks, NAT, ICMP/ICMPv6 errors, captures
+  sim/l2.ts            switch: VLAN-aware bridge state, cabling, broadcast domains derived from port membership and tagging
+  sim/slaac.ts, dhcp.ts router discovery / SLAAC (radvd) and DHCP (dhcpd, dhclient)
   sim/tcp.ts           3-way handshake, RST, SYN retransmission/backoff, data segments, FIN teardown
   sim/dns.ts           glibc-like stub resolver (hosts → resolv.conf servers, search list) + authoritative answers
   sim/services.ts      systemd-like lifecycle: start/stop/reload/enable, ExecStartPre tests, bind(), boot
@@ -138,9 +140,10 @@ Scenario { id, title, difficulty, ticket, briefing[], goals[] { localUser, user,
            constraints[] (security/persistence checks), concepts[] }
 Cause   { id, title, category, signature (evidence it produces), check (how to test), concept }
 
-World   { hosts{}, segments{}, clock, counter, sessions[] }
+World   { hosts{}, segments{}, links[] (cables), clock, counter, sessions[] }
 Host    { fs{path: {type, mode, owner, group, content}},  users{},            // persistent
-          ifaces[], routes[], neighbors[], nft, conntrack[], services{}, ipForward,   // runtime
+          ifaces[] {address, addrs6[], vlan?, segment (derived)}, routes[], routes6[],
+          neighbors[], nft, conntrack[], nat[], services{}, ipForward, ip6Forward, bridge?,   // runtime
           journal[], capture[] }
 
 Progress { lessons{visited[]}, concepts{id: {correct, incorrect, misconceptions[]}},
@@ -209,7 +212,7 @@ OpenSSH 9.2 negotiation and authentication flow and its log lines, StrictModes
 path checks, glibc resolver order and search list, BIND zone parsing and SERVFAIL
 on load errors, systemd enable/active semantics.
 
-Simplified: IPv4 only; one TCP segment per SSH message, no congestion control or
+Simplified: one IPv4 address per interface; no spanning tree, DHCPv6, DAD, MLD or privacy addresses; one TCP segment per SSH message, no congestion control or
 window dynamics; cryptographic values are synthetic (fingerprints are genuine
 SHA-256 of synthetic key blobs); `tcpdump` shows a buffer of recent traffic
 instead of live capture (terminals are not concurrent); a subset of each tool's
@@ -228,7 +231,8 @@ options is implemented and unsupported options say so.
 | 3b | **Module A**: "IP networking" and "TCP, UDP and DNS" lessons with subnetting practice, route lookup, encapsulation explorer, resolver tracer, 14 traced runs, 6 networking tickets; engine: nginx `listen` parsing and bind errors, `ip addr add/del`, ICMP host-unreachable from non-forwarding routers, `traceroute -q`, `nginx -t/-s reload` | ✅ |
 | 3c | **DHCP and NAT**: ISC dhcpd model (dhcpd.conf parser, allocation order, lease file, INTERFACESv4), dhclient DORA with real BOOTP bytes, broadcast delivery on the segment; nftables nat chains (masquerade, snat/dnat with ports), per-flow translation reversed for replies, conntrack listing; Internet segment (rtr01 eth2, ext01) and DHCP laptop ws02; two lessons with allocation simulator and NAT inspector, 8 traced runs, 6 tickets with per-ticket terminals | ✅ |
 | 3d | Packaging: electron-builder configuration (AppImage/tar.gz, portable exe/zip, dmg/zip), app icon, CI building unsigned executables on Linux, Windows and macOS | ✅ |
-| 3e | Remaining Module A topics: VLANs, IPv6/ND, MTU/PMTUD, TLS; DHCP relay and renewal timers; Lab 1 as a guided multi-step lab | ⏳ |
+| 3e | **VLANs and IPv6**: switch sw01 as a VLAN-aware Linux bridge (ifupdown2 bridge-access/bridge-vids/bridge-pvid, `bridge` command, per-VLAN MAC learning) with cabling (`World.links`); broadcast domains derived from port membership and host tagging (VLAN sub-interfaces); 802.1Q in tcpdump/PCAP; dual-stack engine (addresses incl. link-local, IPv6 routing table, Neighbor Discovery through nftables, ICMPv6 errors, separate IPv6 forwarding), radvd + SLAAC, AAAA records and RFC 6724 ordering, Happy Eyeballs in curl and sequential fallback in ssh; two lessons, 10 traced runs, VLAN and IPv6 explorers, 6 tickets | ✅ |
+| 3f | Remaining Module A topics: MTU/PMTUD, TLS; DHCP relay and renewal, DHCPv6; Lab 1 as a guided multi-step lab | ⏳ |
 | 4 | Infrastructure Builder (drag-and-drop topology on top of the same `World` model; packet tracing and firewall decisions already exist in the engine) | ⏳ |
 | 5 | Windows/AD track: Windows host model (services, Defender Firewall, event log), DNS SRV, Kerberos AS/TGS exchange visualisation, NTLM, LDAP; RDP lesson; Lab 2 | ⏳ |
 | 6 | pfSense model (WAN/LAN/DMZ, NAT, state table, logs); Lab 3 | ⏳ |

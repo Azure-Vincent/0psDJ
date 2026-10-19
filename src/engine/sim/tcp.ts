@@ -6,7 +6,7 @@
 
 import type { AppLayer, Host, Packet, TcpFlag, World } from '../types';
 import { seededInt } from '../util/sha256';
-import { type Delivery, makeRst, nextId, sourceAddress, transmit } from './network';
+import { type Delivery, icmpMeaning, makeRst, nextId, sourceAddress, transmit } from './network';
 import { findListener } from './services';
 import { activeRecorder } from './trace';
 
@@ -167,10 +167,12 @@ export function tcpConnect(world: World, client: Host, dstIp: string, dport: num
     } else if (d.status === 'rejected' && d.rst?.delivered) {
       return fail('ECONNREFUSED', `${d.reason}: TCP RST sent by firewall`);
     } else if (d.error?.delivered) {
-      const code = d.error.packet.icmp!;
-      if (code.type === 3 && code.code === 3) return fail('ECONNREFUSED', `ICMP port unreachable from ${d.error.packet.src}`);
-      if (code.type === 3 && code.code === 0) return fail('ENETUNREACH', `ICMP network unreachable from ${d.error.packet.src}`);
-      if (code.type === 3) return fail('EHOSTUNREACH', `ICMP ${code.description} from ${d.error.packet.src}`);
+      const e = d.error.packet;
+      const m = icmpMeaning(e);
+      const icmp = e.src.includes(':') ? 'ICMPv6' : 'ICMP';
+      if (m === 'port') return fail('ECONNREFUSED', `${icmp} port unreachable from ${e.src}`);
+      if (m === 'net') return fail('ENETUNREACH', `${icmp} network unreachable from ${e.src}`);
+      if (m === 'host' || m === 'admin') return fail('EHOSTUNREACH', `${icmp} ${e.icmp!.description} from ${e.src}`);
       // time exceeded during connect is a soft error: keep retrying
     }
 

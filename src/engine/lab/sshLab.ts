@@ -152,6 +152,7 @@ table inet filter {
 		ct state invalid drop
 		iif "lo" accept
 		meta l4proto icmp accept
+		meta l4proto ipv6-icmp accept
 		tcp dport 22 accept
 		tcp dport { 80, 443 } accept
 	}
@@ -174,6 +175,7 @@ table inet filter {
 		ct state established,related accept
 		iif "lo" accept
 		meta l4proto icmp accept
+		meta l4proto ipv6-icmp accept
 		iifname "eth0" tcp dport 22 accept
 	}
 	chain forward {
@@ -217,6 +219,114 @@ host printer01 {
 }
 `;
 
+/** sw01: VLAN-aware Linux bridge (ifupdown2 syntax, as on Debian with ifupdown2 or Cumulus Linux). */
+export const SW01_INTERFACES = `# sw01 - access switch for the office and server networks (ifupdown2)
+# VLAN 10 office, VLAN 20 servers, VLAN 30 development (IPv6 pilot)
+
+auto lo
+iface lo inet loopback
+
+# Access ports
+auto swp1
+iface swp1
+    alias ws01
+    bridge-access 10
+
+auto swp2
+iface swp2
+    alias ws02 (hot desk)
+    bridge-access 10
+
+auto swp3
+iface swp3
+    alias ns1
+    bridge-access 10
+
+auto swp4
+iface swp4
+    alias rtr01 eth0 (office gateway)
+    bridge-access 10
+
+auto swp5
+iface swp5
+    alias rtr01 eth1 (server gateway)
+    bridge-access 20
+
+auto swp6
+iface swp6
+    alias srv01
+    bridge-access 20
+
+# Trunk to rtr01 eth3: VLAN 30 tagged (router-on-a-stick)
+auto swp7
+iface swp7
+    alias rtr01 eth3 (trunk)
+    bridge-vids 30
+
+auto swp8
+iface swp8
+    alias dev01
+    bridge-access 30
+
+auto br0
+iface br0
+    bridge-vlan-aware yes
+    bridge-ports swp1 swp2 swp3 swp4 swp5 swp6 swp7 swp8
+    bridge-vids 10 20 30
+    bridge-pvid 1
+    bridge-stp yes
+`;
+
+export const RADVD_CONF = `# /etc/radvd.conf - IPv6 router advertisements (NET-40: IPv6 pilot on the dev VLAN)
+interface eth3.30 {
+    AdvSendAdvert on;
+    MinRtrAdvInterval 30;
+    MaxRtrAdvInterval 100;
+    prefix 2001:db8:30::/64 {
+        AdvOnLink on;
+        AdvAutonomous on;
+    };
+};
+`;
+
+export const RTR01_INTERFACES = `# This file describes the network interfaces available on your system
+# and how to activate them. For more information, see interfaces(5).
+
+source /etc/network/interfaces.d/*
+
+# The loopback network interface
+auto lo
+iface lo inet loopback
+
+# eth0: office LAN (sw01 swp4, VLAN 10 untagged)
+auto eth0
+iface eth0 inet static
+    address 10.0.10.1/24
+
+# eth1: server network (sw01 swp5, VLAN 20 untagged)
+auto eth1
+iface eth1 inet static
+    address 10.0.20.1/24
+iface eth1 inet6 static
+    address 2001:db8:20::1/64
+
+# eth2: Internet uplink
+auto eth2
+iface eth2 inet static
+    address 203.0.113.2/24
+    gateway 203.0.113.1
+
+# eth3: trunk to sw01 swp7; VLAN 30 (development) as sub-interface eth3.30
+auto eth3
+iface eth3 inet manual
+
+auto eth3.30
+iface eth3.30 inet static
+    address 10.0.30.1/24
+iface eth3.30 inet6 static
+    address 2001:db8:30::1/64
+`;
+
 export const CORP_ZONE = `; corp.lab - authoritative zone, managed on ns1
 $TTL 3600
 $ORIGIN corp.lab.
@@ -228,9 +338,11 @@ $ORIGIN corp.lab.
                 300 )      ; negative-caching TTL
 @       IN NS   ns1.corp.lab.
 ns1     IN A    10.0.10.53
+dev01   IN A    10.0.30.25
 rtr01   IN A    10.0.10.1
 ws01    IN A    10.0.10.25
 srv01   IN A    10.0.20.10
+srv01   IN AAAA 2001:db8:20::10
 www     IN CNAME srv01
 `;
 
@@ -274,28 +386,46 @@ export function buildSshLab(): World {
     lan10: { id: 'lan10', name: 'Office LAN', cidr: '10.0.10.0/24', vlan: 10 },
     srv20: { id: 'srv20', name: 'Server network', cidr: '10.0.20.0/24', vlan: 20 },
     wan: { id: 'wan', name: 'Internet uplink (documentation range TEST-NET-3)', cidr: '203.0.113.0/24' },
+    dev30: { id: 'dev30', name: 'Development VLAN (IPv6 pilot)', cidr: '10.0.30.0/24', cidr6: '2001:db8:30::/64', vlan: 30 },
   };
+  world.segments.srv20.cidr6 = '2001:db8:20::/64';
+  // Cabling: every office and server NIC goes to a port of the switch sw01.
+  world.links = [
+    ['ws01', 'eth0', 'swp1'], ['ws02', 'eth0', 'swp2'], ['ns1', 'eth0', 'swp3'], ['rtr01', 'eth0', 'swp4'],
+    ['rtr01', 'eth1', 'swp5'], ['srv01', 'eth0', 'swp6'], ['rtr01', 'eth3', 'swp7'], ['dev01', 'eth0', 'swp8'],
+  ].map(([host, iface, port]) => ({ a: { host, iface }, b: { host: 'sw01', iface: port } }));
   const t = world.clock;
+
+  // ---- sw01: VLAN-aware switch ----------------------------------------------
+  const sw = createHost(world, {
+    id: 'sw01', hostname: 'sw01', domain: 'corp.lab', role: 'Access switch (Linux bridge with VLAN filtering)', kind: 'switch',
+    ifaces: Array.from({ length: 8 }, (_, k) => ({ name: `swp${k + 1}`, mac: `52:54:00:5e:00:${(k + 1).toString(16).padStart(2, '0')}`, segment: null })),
+    services: [],
+  });
+  writeFile(sw, '/etc/network/interfaces', SW01_INTERFACES, t);
+  writeFile(sw, '/etc/resolv.conf', '', t);
 
   // ---- rtr01 -------------------------------------------------------------
   const rtr = createHost(world, {
     id: 'rtr01', hostname: 'rtr01', domain: 'corp.lab', role: 'Router / inter-VLAN gateway', kind: 'router',
     ifaces: [
-      { name: 'eth0', mac: '52:54:00:a1:00:01', segment: 'lan10' },
-      { name: 'eth1', mac: '52:54:00:a1:00:02', segment: 'srv20' },
+      { name: 'eth0', mac: '52:54:00:a1:00:01', segment: null },
+      { name: 'eth1', mac: '52:54:00:a1:00:02', segment: null },
       { name: 'eth2', mac: '52:54:00:a1:00:03', segment: 'wan' },
+      { name: 'eth3', mac: '52:54:00:a1:00:04', segment: null },
     ],
-    services: ['nftables'],
+    services: ['nftables', 'radvd'],
   });
-  writeFile(rtr, '/etc/network/interfaces', staticInterfaces([{ name: 'eth0', address: '10.0.10.1/24' }, { name: 'eth1', address: '10.0.20.1/24' }, { name: 'eth2', address: '203.0.113.2/24', gateway: '203.0.113.1' }]), t);
-  writeFile(rtr, '/etc/sysctl.d/99-router.conf', '# Enable IPv4 forwarding between eth0 (LAN) and eth1 (servers)\nnet.ipv4.ip_forward=1\n', t);
+  writeFile(rtr, '/etc/network/interfaces', RTR01_INTERFACES, t);
+  writeFile(rtr, '/etc/sysctl.d/99-router.conf', '# Enable IPv4 forwarding between eth0 (LAN) and eth1 (servers)\nnet.ipv4.ip_forward=1\n# IPv6 routing for the pilot (NET-40)\nnet.ipv6.conf.all.forwarding=1\n', t);
+  writeFile(rtr, '/etc/radvd.conf', RADVD_CONF, t);
   writeFile(rtr, '/etc/nftables.conf', RTR01_NFT, t, { mode: 0o755 });
   writeFile(rtr, '/etc/resolv.conf', 'search corp.lab\nnameserver 10.0.10.53\n', t);
 
   // ---- ns1 ---------------------------------------------------------------
   const ns1 = createHost(world, {
     id: 'ns1', hostname: 'ns1', domain: 'corp.lab', role: 'DNS server (BIND 9, authoritative for corp.lab)',
-    ifaces: [{ name: 'eth0', mac: '52:54:00:b2:00:35', segment: 'lan10' }],
+    ifaces: [{ name: 'eth0', mac: '52:54:00:b2:00:35', segment: null }],
     services: ['nftables', 'named', 'dhcpd'],
   });
   writeFile(ns1, '/etc/dhcp/dhcpd.conf', DHCPD_CONF, t);
@@ -310,10 +440,10 @@ export function buildSshLab(): World {
   // ---- srv01 -------------------------------------------------------------
   const srv = createHost(world, {
     id: 'srv01', hostname: 'srv01', domain: 'corp.lab', role: 'Linux application server (sshd, nginx)',
-    ifaces: [{ name: 'eth0', mac: '52:54:00:c3:00:0a', segment: 'srv20' }],
+    ifaces: [{ name: 'eth0', mac: '52:54:00:c3:00:0a', segment: null }],
     services: ['nftables', 'ssh', 'nginx'],
   });
-  writeFile(srv, '/etc/network/interfaces', staticInterfaces([{ name: 'eth0', address: '10.0.20.10/24', gateway: '10.0.20.1' }]), t);
+  writeFile(srv, '/etc/network/interfaces', staticInterfaces([{ name: 'eth0', address: '10.0.20.10/24', gateway: '10.0.20.1' }]) + 'iface eth0 inet6 static\n    address 2001:db8:20::10/64\n    gateway 2001:db8:20::1\n', t);
   writeFile(srv, '/etc/resolv.conf', 'search corp.lab\nnameserver 10.0.10.53\n', t);
   writeFile(srv, '/etc/nftables.conf', SRV01_NFT, t, { mode: 0o755 });
   writeFile(srv, '/etc/ssh/sshd_config', DEBIAN_SSHD_CONFIG, t);
@@ -333,7 +463,7 @@ export function buildSshLab(): World {
   // ---- ws01 --------------------------------------------------------------
   const ws = createHost(world, {
     id: 'ws01', hostname: 'ws01', domain: 'corp.lab', role: 'Administrator workstation (ssh client)',
-    ifaces: [{ name: 'eth0', mac: '52:54:00:d4:00:19', segment: 'lan10' }],
+    ifaces: [{ name: 'eth0', mac: '52:54:00:d4:00:19', segment: null }],
     services: ['nftables'],
   });
   writeFile(ws, '/etc/network/interfaces', staticInterfaces([{ name: 'eth0', address: '10.0.10.25/24', gateway: '10.0.10.1' }]), t);
@@ -347,7 +477,7 @@ export function buildSshLab(): World {
   // ---- ws02: DHCP client laptop -------------------------------------------
   const ws2 = createHost(world, {
     id: 'ws02', hostname: 'ws02', domain: 'corp.lab', role: 'Laptop (DHCP client)',
-    ifaces: [{ name: 'eth0', mac: '52:54:00:d4:00:42', segment: 'lan10' }],
+    ifaces: [{ name: 'eth0', mac: '52:54:00:d4:00:42', segment: null }],
     services: ['nftables'],
   });
   writeFile(ws2, '/etc/network/interfaces', '# The primary network interface\nauto lo\niface lo inet loopback\n\nauto eth0\niface eth0 inet dhcp\n', t);
@@ -365,8 +495,19 @@ export function buildSshLab(): World {
   writeFile(ext, '/etc/nginx/nginx.conf', 'user www-data;\nworker_processes auto;\nhttp {\n    server {\n        listen 80 default_server;\n        root /var/www/html;\n    }\n}\n', t);
   addUser(ext, { name: 'guest', uid: 1000, gid: 1000, primaryGroup: 'guest', groups: [], home: '/home/guest', shell: '/bin/bash', gecos: 'Internet user', password: 'ext01-guest' }, t);
 
-  // Boot everything (order matters: ns1 must serve DHCP before ws02 boots).
-  for (const h of [rtr, ns1, srv, ws, ws2, ext]) bootHost(world, h);
+  // ---- dev01: developer workstation on VLAN 30 (dual-stack, SLAAC) ---------
+  const dev = createHost(world, {
+    id: 'dev01', hostname: 'dev01', domain: 'corp.lab', role: 'Developer workstation (VLAN 30, IPv4 + IPv6 SLAAC)',
+    ifaces: [{ name: 'eth0', mac: '52:54:00:e7:00:1e', segment: null }],
+    services: ['nftables'],
+  });
+  writeFile(dev, '/etc/network/interfaces', staticInterfaces([{ name: 'eth0', address: '10.0.30.25/24', gateway: '10.0.30.1' }]) + '# IPv6: stateless autoconfiguration from the router advertisements\niface eth0 inet6 auto\n', t);
+  writeFile(dev, '/etc/resolv.conf', 'search corp.lab\nnameserver 10.0.10.53\n', t);
+  addUser(dev, { name: 'erin', uid: 1000, gid: 1000, primaryGroup: 'erin', groups: ['sudo'], home: '/home/erin', shell: '/bin/bash', gecos: 'Erin Developer', password: 'dev01-erin' }, t);
+
+  // Boot everything. Order matters: the switch first (it creates the VLANs),
+  // ns1 must serve DHCP before ws02 boots, rtr01 must advertise before dev01.
+  for (const h of [sw, rtr, ns1, srv, ws, ws2, ext, dev]) bootHost(world, h);
 
   // History: alice connected yesterday-style earlier today, accepting the host key.
   world.clock += 60_000;

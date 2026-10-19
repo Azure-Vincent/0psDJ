@@ -12,6 +12,7 @@ function proto(f: CapturedFrame): string {
   if (p.app?.protocol === 'DNS') return 'DNS';
   if (p.app?.protocol === 'DHCP') return 'DHCP';
   if (p.app?.protocol === 'DATA') return p.tcp?.sport === 80 || p.tcp?.dport === 80 ? 'HTTP' : 'DATA';
+  if (p.icmp && p.src.includes(':')) return 'ICMPv6';
   return p.proto.toUpperCase();
 }
 
@@ -20,6 +21,8 @@ function info(f: CapturedFrame): string {
   const p = f.ip!;
   if (p.app) return p.app.info;
   if (p.tcp) return `${p.tcp.sport} → ${p.tcp.dport} [${p.tcp.flags.join(', ')}] Seq=${p.tcp.seq} ${p.tcp.flags.includes('ACK') ? `Ack=${p.tcp.ack} ` : ''}Win=${p.tcp.window} Len=${p.tcp.len}`;
+  if (p.icmp?.nd?.target) return `${p.icmp.description} ${p.icmp.type === 135 ? `for ${p.icmp.nd.target}` : `${p.icmp.nd.target} is at ${p.icmp.nd.lladdr}`}`;
+  if (p.icmp?.nd?.prefixes) return `${p.icmp.description} from ${p.icmp.nd.lladdr}, prefix ${p.icmp.nd.prefixes.map((x) => x.prefix).join(', ')}`;
   if (p.icmp) return `${p.icmp.description}${p.icmp.id !== undefined ? ` id=${p.icmp.id}, seq=${p.icmp.seq}` : ''}${p.icmp.quoted ? ` (for ${p.icmp.quoted.proto.toUpperCase()} ${p.icmp.quoted.dst}:${p.icmp.quoted.dport ?? ''})` : ''}`;
   if (p.udp) return `${p.udp.sport} → ${p.udp.dport} Len=${p.udp.len}`;
   return '';
@@ -100,7 +103,7 @@ export function PacketLab() {
           {!selected ? <div className="muted">Select a packet to see its layers and bytes.</div> : (
             <>
               <h3 style={{ marginTop: 0 }}>Frame {sel! + 1}: {frameBytes(selected).length} bytes on wire ({selected.dir === 'in' ? 'received' : 'sent'} on {selected.iface})</h3>
-              <PacketLayers packet={selected.ip} arp={selected.arp} l2={[{ src: selected.srcMac, dst: selected.dstMac, note: selected.iface }]} />
+              <PacketLayers packet={selected.ip} arp={selected.arp} vlan={selected.vlan} l2={[{ src: selected.srcMac, dst: selected.dstMac, note: selected.iface }]} />
               <details className="layer" open><summary>Bytes</summary><div style={{ padding: 8 }}><HexDump bytes={frameBytes(selected)} /></div></details>
             </>
           )}

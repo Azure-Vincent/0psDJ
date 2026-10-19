@@ -7,10 +7,11 @@
 import { parseHostsFile, parseResolvConf } from '../config/netconf';
 import { answerQuery, type DnsAnswer, type ZoneRecord } from '../config/zone';
 import { readFile } from '../fs';
-import { isIp } from '../net/ip';
+import { familyOf, isIpAddress, normAddr } from '../net/addr';
+import { ip6Bytes } from '../net/ip6';
 import type { Host, Packet, World } from '../types';
 import { utf8 } from '../util/sha256';
-import { nextId, sendIcmpError, sourceAddress, transmit } from './network';
+import { globalAddrs6, hostAddresses, icmpMeaning, nextId, sendIcmpError, sourceAddress, transmit } from './network';
 import { activeRecorder } from './trace';
 import { findListener, type NamedLoaded } from './services';
 
@@ -23,8 +24,10 @@ export interface DnsExchange {
 }
 
 export type ResolveResult =
-  | { ok: true; ip: string; source: 'literal' | 'hosts' | 'dns'; fqdn: string; exchanges: DnsExchange[]; cname?: string[] }
-  | { ok: false; error: 'NXDOMAIN' | 'EAI_AGAIN'; exchanges: DnsExchange[]; message: string };
+  | { ok: true; ip: string; /** All addresses in getaddrinfo() order (RFC 6724: IPv6 first when usable). */ addrs: string[]; source: 'literal' | 'hosts' | 'dns'; fqdn: string; exchanges: DnsExchange[]; cname?: string[] }
+  | { ok: false; error: 'NXDOMAIN' | 'EAI_AGAIN' | 'EAI_NODATA'; exchanges: DnsExchange[]; message: string };
+
+export type QType = 'A' | 'AAAA';
 
 // --- DNS wire format (RFC 1035) for PCAP export -----------------------------
 
@@ -39,9 +42,9 @@ function encodeName(name: string): number[] {
   return out;
 }
 
-const QTYPE: Record<string, number> = { A: 1, NS: 2, CNAME: 5, SOA: 6, PTR: 12, MX: 15, TXT: 16 };
+const QTYPE: Record<string, number> = { A: 1, NS: 2, CNAME: 5, SOA: 6, PTR: 12, MX: 15, TXT: 16, AAAA: 28 };
 
-export function encodeDns(id: number, qname: string, response?: { rcode: number; aa: boolean; ra: boolean; answers: ZoneRecord[] }): Uint8Array {
+export function encodeDns(id: number, qname: string, response?: { rcode: number; aa: boolean; ra: boolean; answers: ZoneRecord[] }, qtype: QType = 'A'): Uint8Array {
   const b: number[] = [];
   const u16 = (n: number) => b.push((n >> 8) & 255, n & 255);
   const u32 = (n: number) => b.push((n >>> 24) & 255, (n >>> 16) & 255, (n >>> 8) & 255, n & 255);
@@ -54,14 +57,14 @@ export function encodeDns(id: number, qname: string, response?: { rcode: number;
   u16(0);
   u16(0);
   b.push(...encodeName(qname));
-  u16(1);
+  u16(QTYPE[qtype]);
   u16(1);
   for (const rr of response?.answers ?? []) {
     b.push(...encodeName(rr.name));
     u16(QTYPE[rr.type]);
     u16(1);
     u32(rr.ttl);
-    const rdata = rr.type === 'A' ? rr.data.split('.').map(Number) : encodeName(rr.data);
+    const rdata = rr.type === 'A' ? rr.data.split('.').map(Number) : rr.type === 'AAAA' ? ip6Bytes(rr.data) : encodeName(rr.data);
     u16(rdata.length);
     b.push(...rdata);
   }
@@ -77,21 +80,21 @@ function ephemeralPort(world: World): number {
 }
 
 /** Send one DNS query from `host` to `server` and process the reply. */
-export function dnsQuery(world: World, host: Host, server: string, qname: string, timeoutS = 5): DnsExchange {
+export function dnsQuery(world: World, host: Host, server: string, qname: string, timeoutS = 5, qtype: QType = 'A'): DnsExchange {
   const id = (world.counter * 2654435761) & 0xffff;
   const sport = ephemeralPort(world);
-  const qbytes = encodeDns(id, qname);
+  const qbytes = encodeDns(id, qname, undefined, qtype);
   const q: Packet = {
     id: nextId(world), src: sourceAddress(host, server), dst: server, ttl: 64, proto: 'udp',
     udp: { sport, dport: 53, len: qbytes.length },
     app: {
       protocol: 'DNS',
-      info: `Standard query 0x${id.toString(16).padStart(4, '0')} A ${qname.replace(/\.$/, '')}`,
+      info: `Standard query 0x${id.toString(16).padStart(4, '0')} ${qtype} ${qname.replace(/\.$/, '')}`,
       fields: [
         { name: 'Transaction ID', value: `0x${id.toString(16).padStart(4, '0')}` },
         { name: 'Flags', value: '0x0100 Standard query (recursion desired)' },
         { name: 'Questions', value: '1' },
-        { name: 'Query', value: `${qname.replace(/\.$/, '')}: type A, class IN` },
+        { name: 'Query', value: `${qname.replace(/\.$/, '')}: type ${qtype}, class IN` },
       ],
       bytes: qbytes,
     },
@@ -101,14 +104,14 @@ export function dnsQuery(world: World, host: Host, server: string, qname: string
   const prevPhase = rec?.phase;
   if (rec) rec.phase = 'DNS';
   const d = transmit(world, host.id, q);
-  rec?.describe(q.id, `DNS query: A ${qname}`, `The stub resolver sends one UDP datagram from an ephemeral port to ${server}:53 asking for the A record of "${qname}" with "recursion desired" set. There is no handshake: if the datagram or its answer is lost, the resolver waits for its timeout (${timeoutS} s here) and retries.`);
+  rec?.describe(q.id, `DNS query: ${qtype} ${qname}`, `The stub resolver sends one UDP datagram from an ephemeral port to ${server}:53 asking for the ${qtype} record${qtype === 'AAAA' ? ' (IPv6 address)' : ''} of "${qname}" with "recursion desired" set. There is no handshake: if the datagram or its answer is lost, the resolver waits for its timeout (${timeoutS} s here) and retries.`);
   if (rec && prevPhase) rec.phase = prevPhase;
   if (d.status === 'local-error') return { server, qname, outcome: 'unreachable', rttMs: 0 };
   if (d.status !== 'delivered') {
     // An ICMP error (port unreachable, admin-prohibited, host unreachable) makes
     // the resolver give up on this server immediately; silence means a timeout.
     if (d.error?.delivered) {
-      return { server, qname, outcome: d.error.packet.icmp?.code === 3 ? 'port-unreachable' : 'unreachable', rttMs: world.clock - start };
+      return { server, qname, outcome: icmpMeaning(d.error.packet) === 'port' ? 'port-unreachable' : 'unreachable', rttMs: world.clock - start };
     }
     world.clock += timeoutS * 1000;
     return { server, qname, outcome: 'timeout', rttMs: timeoutS * 1000 };
@@ -123,16 +126,16 @@ export function dnsQuery(world: World, host: Host, server: string, qname: string
     return { server, qname, outcome: 'timeout', rttMs: timeoutS * 1000 };
   }
   const loaded = srv.services.named?.loaded as NamedLoaded | undefined;
-  let ans: DnsAnswer = answerQuery(loaded?.zones ?? [], qname);
+  let ans: DnsAnswer = answerQuery(loaded?.zones ?? [], qname, qtype);
   const failed = loaded?.failedZones.some((z) => qname.toLowerCase().replace(/\.$/, '').endsWith(z));
   if (failed) ans = { rcode: 'SERVFAIL', answers: [], authoritative: false };
-  const rbytes = encodeDns(id, qname, { rcode: RCODE[ans.rcode], aa: ans.authoritative, ra: false, answers: ans.answers });
+  const rbytes = encodeDns(id, qname, { rcode: RCODE[ans.rcode], aa: ans.authoritative, ra: false, answers: ans.answers }, qtype);
   const r: Packet = {
     id: nextId(world), src: fq.dst, dst: fq.src, ttl: 64, proto: 'udp',
     udp: { sport: fq.udp!.dport, dport: fq.udp!.sport, len: rbytes.length },
     app: {
       protocol: 'DNS',
-      info: `Standard query response 0x${id.toString(16).padStart(4, '0')} ${ans.rcode === 'NOERROR' ? '' : ans.rcode.toLowerCase() + ' '}A ${qname.replace(/\.$/, '')}${ans.answers.map((a) => ` ${a.type} ${a.data}`).join('')}`,
+      info: `Standard query response 0x${id.toString(16).padStart(4, '0')} ${ans.rcode === 'NOERROR' ? '' : ans.rcode.toLowerCase() + ' '}${qtype} ${qname.replace(/\.$/, '')}${ans.answers.map((a) => ` ${a.type} ${a.data}`).join('')}`,
       fields: [
         { name: 'Transaction ID', value: `0x${id.toString(16).padStart(4, '0')}` },
         { name: 'Flags', value: `Standard query response, ${ans.rcode}${ans.authoritative ? ', authoritative' : ''}` },
@@ -159,21 +162,41 @@ export function dnsQuery(world: World, host: Host, server: string, qname: string
     ans.rcode === 'NXDOMAIN' ? 'nxdomain'
     : ans.rcode === 'SERVFAIL' ? 'servfail'
     : ans.rcode === 'REFUSED' ? 'refused'
-    : ans.answers.some((a) => a.type === 'A') ? 'answer' : 'nodata';
+    : ans.answers.some((a) => a.type === qtype) ? 'answer' : 'nodata';
   return { server, qname, outcome, answer: ans, rttMs: Math.max(1, world.clock - start) };
 }
 
 export function lookupHostsFile(host: Host, name: string): string | undefined {
-  const n = name.toLowerCase().replace(/\.$/, '');
-  return parseHostsFile(readFile(host, '/etc/hosts')).find((e) => e.names.some((x) => x.toLowerCase() === n))?.ip;
+  return lookupHostsFileAll(host, name)[0];
 }
 
-/** getaddrinfo()-style resolution as used by ssh, ping, nc, curl. */
-export function resolve(world: World, host: Host, name: string, opts: { useHostsFile?: boolean } = {}): ResolveResult {
-  if (isIp(name)) return { ok: true, ip: name, source: 'literal', fqdn: name, exchanges: [] };
+export function lookupHostsFileAll(host: Host, name: string): string[] {
+  const n = name.toLowerCase().replace(/\.$/, '');
+  return parseHostsFile(readFile(host, '/etc/hosts')).filter((e) => e.names.some((x) => x.toLowerCase() === n)).map((e) => e.ip);
+}
+
+/**
+ * getaddrinfo()-style resolution as used by ssh, ping, nc, curl.
+ * family 0 = AF_UNSPEC with AI_ADDRCONFIG: AAAA is only asked for when the host
+ * has a global IPv6 address, A only when it has a non-loopback IPv4 address.
+ * IPv6 results are sorted first (RFC 6724 default policy).
+ */
+export function resolve(world: World, host: Host, name: string, opts: { useHostsFile?: boolean; family?: 0 | 4 | 6 } = {}): ResolveResult {
+  const fam = opts.family ?? 0;
+  const literal = name.replace(/^\[(.*)\]$/, '$1');
+  if (isIpAddress(literal)) {
+    const ip = normAddr(literal);
+    if (fam && familyOf(ip) !== fam) return { ok: false, error: 'EAI_NODATA', exchanges: [], message: 'Address family for hostname not supported' };
+    return { ok: true, ip, addrs: [ip], source: 'literal', fqdn: ip, exchanges: [] };
+  }
+  const has6 = globalAddrs6(host).length > 0;
+  const has4 = hostAddresses(host, 4).some((a) => !a.startsWith('127.'));
+  const want6 = fam === 6 || (fam === 0 && has6);
+  const want4 = fam === 4 || (fam === 0 && (has4 || !has6));
+  const order = (addrs: string[]) => [...addrs.filter((a) => a.includes(':')), ...addrs.filter((a) => !a.includes(':'))].filter((a) => (a.includes(':') ? want6 : want4));
   if (opts.useHostsFile !== false) {
-    const ip = lookupHostsFile(host, name);
-    if (ip) return { ok: true, ip, source: 'hosts', fqdn: name, exchanges: [] };
+    const ips = order(lookupHostsFileAll(host, name));
+    if (ips.length) return { ok: true, ip: ips[0], addrs: ips, source: 'hosts', fqdn: name, exchanges: [] };
   }
   const rc = parseResolvConf(readFile(host, '/etc/resolv.conf'));
   const exchanges: DnsExchange[] = [];
@@ -181,32 +204,40 @@ export function resolve(world: World, host: Host, name: string, opts: { useHosts
   const dots = (name.match(/\./g) ?? []).length;
   const absolute = name.endsWith('.');
   const candidates = absolute ? [name] : dots >= 1 ? [name + '.', ...rc.search.map((s) => `${name}.${s}.`)] : [...rc.search.map((s) => `${name}.${s}.`), name + '.'];
-  let sawAnswerless = false;
+  const qtypes: QType[] = [...(want4 ? ['A' as const] : []), ...(want6 ? ['AAAA' as const] : [])];
   let sawTempFail = false;
+  let sawNodata = false;
   for (const qname of candidates) {
-    let resolved: DnsExchange | null = null;
-    outer: for (let attempt = 0; attempt < rc.attempts; attempt++) {
-      for (const ns of rc.nameservers) {
-        const ex = dnsQuery(world, host, ns, qname, rc.timeout);
-        exchanges.push(ex);
-        if (['answer', 'nxdomain', 'nodata'].includes(ex.outcome)) {
-          resolved = ex;
-          break outer;
+    const found: DnsExchange[] = [];
+    for (const qtype of qtypes) {
+      let resolved: DnsExchange | null = null;
+      outer: for (let attempt = 0; attempt < rc.attempts; attempt++) {
+        for (const ns of rc.nameservers) {
+          const ex = dnsQuery(world, host, ns, qname, rc.timeout, qtype);
+          exchanges.push(ex);
+          if (['answer', 'nxdomain', 'nodata'].includes(ex.outcome)) {
+            resolved = ex;
+            break outer;
+          }
         }
       }
+      if (!resolved) {
+        sawTempFail = true;
+        break;
+      }
+      found.push(resolved);
     }
-    if (!resolved) {
-      sawTempFail = true;
-      break; // glibc stops on timeouts / server failures: EAI_AGAIN
+    if (sawTempFail) break; // glibc stops on timeouts / server failures: EAI_AGAIN
+    const answers = found.filter((e) => e.outcome === 'answer');
+    if (answers.length) {
+      const all = answers.flatMap((e) => e.answer!.answers);
+      const addrs = order(all.filter((r) => r.type === 'A' || r.type === 'AAAA').map((r) => r.data));
+      const cn = [...new Set(all.filter((r) => r.type === 'CNAME').map((r) => r.data))];
+      return { ok: true, ip: addrs[0], addrs, source: 'dns', fqdn: qname.replace(/\.$/, ''), exchanges, cname: cn };
     }
-    if (resolved.outcome === 'answer') {
-      const a = resolved.answer!.answers.filter((r) => r.type === 'A');
-      const cn = resolved.answer!.answers.filter((r) => r.type === 'CNAME').map((r) => r.data);
-      return { ok: true, ip: a[0].data, source: 'dns', fqdn: qname.replace(/\.$/, ''), exchanges, cname: cn };
-    }
-    sawAnswerless = true;
+    if (found.some((e) => e.outcome === 'nodata')) sawNodata = true;
   }
   if (sawTempFail) return { ok: false, error: 'EAI_AGAIN', exchanges, message: 'Temporary failure in name resolution' };
-  void sawAnswerless;
+  if (sawNodata && fam) return { ok: false, error: 'EAI_NODATA', exchanges, message: 'No address associated with hostname' };
   return { ok: false, error: 'NXDOMAIN', exchanges, message: 'Name or service not known' };
 }

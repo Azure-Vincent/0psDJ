@@ -13,6 +13,7 @@ import { canAccess, dirname, mkdir, readFile, writeFile } from '../fs';
 import type { Host, World } from '../types';
 import { base64Decode } from '../util/sha256';
 import { resolve } from './dns';
+import { hostPort } from '../net/addr';
 import { log } from './journal';
 import { KEY_LABEL, parsePublicKey, publicFromPrivate, type ParsedPublicKey } from './keys';
 import { findListener, type SshdLoaded } from './services';
@@ -53,6 +54,8 @@ export interface SshClientOptions {
   strictHostKeyChecking?: 'ask' | 'yes' | 'no' | 'accept-new';
   batchMode?: boolean;
   connectTimeoutS?: number;
+  /** -4 / -6 (AddressFamily). */
+  family?: 0 | 4 | 6;
   pubkeyAuthentication?: boolean;
   passwordAuthentication?: boolean;
   /** Answers to interactive prompts, consumed in order. */
@@ -242,7 +245,7 @@ function runSshInner(world: World, o: SshClientOptions, out: string[]): SshResul
     note('ssh parses arguments and resolves the hostname',
       `The ssh client reads /etc/ssh/ssh_config and ~/.ssh/config, then calls getaddrinfo("${o.target}"). glibc's NSS consults /etc/hosts first ("hosts: files dns" in /etc/nsswitch.conf) and then the DNS servers listed in /etc/resolv.conf, appending search domains to short names.`);
   }
-  const r = resolve(world, client, o.target);
+  const r = resolve(world, client, o.target.replace(/^\[(.*)\]$/, '$1'), { family: o.family ?? 0 });
   if (!r.ok) {
     out.push(`ssh: Could not resolve hostname ${o.target.toLowerCase()}: ${r.message}`);
     note('Name resolution failed', r.error === 'NXDOMAIN'
@@ -250,21 +253,28 @@ function runSshInner(world: World, o: SshClientOptions, out: string[]): SshResul
       : 'No DNS server gave a usable answer (timeouts, ICMP errors or SERVFAIL). glibc returns EAI_AGAIN: "Temporary failure in name resolution".');
     return fail('resolve');
   }
-  const ip = r.ip;
-  if (rec && r.source === 'hosts') note(`/etc/hosts maps ${o.target} to ${ip}`, 'The name was found in /etc/hosts, so no DNS query was sent. Static entries silently override DNS, which is a common cause of "it works from one machine but not another".');
-  dbg(`Connecting to ${o.target} [${ip}] port ${port}.`);
+  if (rec && r.source === 'hosts') note(`/etc/hosts maps ${o.target} to ${r.ip}`, 'The name was found in /etc/hosts, so no DNS query was sent. Static entries silently override DNS, which is a common cause of "it works from one machine but not another".');
+  if (rec && r.addrs.length > 1) note(`getaddrinfo returned ${r.addrs.length} addresses`, `${r.addrs.join(', ')}. ssh tries them in this order (IPv6 first, RFC 6724) and moves to the next only after the previous one fails, each with the full connect timeout: unlike browsers and curl, OpenSSH does not race IPv4 against IPv6 ("Happy Eyeballs"). A broken IPv6 path therefore delays every login.`);
 
   // ---- 2. TCP connection --------------------------------------------------------------
-  if (rec) {
-    rec.setState(client.id, { ssh: 'connecting (TCP)' });
-    note('connect() to ' + `${ip}:${port}`, 'ssh opens a TCP socket and calls connect(). The kernel picks an ephemeral source port, chooses a route and source address, resolves the next hop with ARP, and sends a SYN.');
+  let c: ReturnType<typeof tcpConnect> | null = null;
+  let ip = r.ip;
+  for (const addr of r.addrs) {
+    ip = addr;
+    dbg(`Connecting to ${o.target} [${addr}] port ${port}.`);
+    if (rec) {
+      rec.setState(client.id, { ssh: 'connecting (TCP)' });
+      note('connect() to ' + hostPort(addr, port), `ssh opens a TCP socket and calls connect(). The kernel picks an ephemeral source port, chooses a route and source address, resolves the next hop with ${addr.includes(':') ? 'Neighbor Discovery' : 'ARP'}, and sends a SYN.`);
+    }
+    c = tcpConnect(world, client, addr, port, { timeoutMs: o.connectTimeoutS ? o.connectTimeoutS * 1000 : undefined });
+    if (c.ok) break;
+    dbg(`connect to address ${addr} port ${port}: ${ERRNO_TEXT[c.errno]}`);
+    note(`connect() to ${addr} failed: ${c.errno}`, `${connectExplanation(c.errno)} (${c.detail}; ${c.attempts} SYN${c.attempts > 1 ? 's' : ''} sent over ${(c.elapsedMs / 1000).toFixed(1)} s)`);
   }
-  const c = tcpConnect(world, client, ip, port, { timeoutMs: o.connectTimeoutS ? o.connectTimeoutS * 1000 : undefined });
-  if (!c.ok) {
-    dbg(`connect to address ${ip} port ${port}: ${ERRNO_TEXT[c.errno]}`);
-    out.push(`ssh: connect to host ${o.target} port ${port}: ${ERRNO_TEXT[c.errno]}`);
-    note(`connect() failed: ${c.errno}`, `${connectExplanation(c.errno)} (${c.detail}; ${c.attempts} SYN${c.attempts > 1 ? 's' : ''} sent over ${(c.elapsedMs / 1000).toFixed(1)} s)`);
-    return fail('connect', { errno: c.errno });
+  if (!c || !c.ok) {
+    const errno = c && !c.ok ? c.errno : 'ETIMEDOUT';
+    out.push(`ssh: connect to host ${o.target} port ${port}: ${ERRNO_TEXT[errno]}`);
+    return fail('connect', { errno });
   }
   const conn = c.conn;
   const server = conn.server;

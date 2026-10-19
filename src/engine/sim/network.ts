@@ -1,17 +1,20 @@
-// Hop-by-hop IPv4 forwarding model.
+// Hop-by-hop IPv4/IPv6 forwarding model.
 //
 // For every packet the simulator performs, on each host it reaches:
 //   ingress capture -> local delivery (nft input) | forwarding (TTL, route, nft forward)
 //   -> route lookup (longest prefix) -> nft output (originating host only)
-//   -> ARP resolution on the egress segment -> egress capture -> next host
+//   -> ARP (IPv4) or Neighbor Discovery (IPv6) on the egress segment -> egress capture -> next host
 // ICMP errors (host/net unreachable, time exceeded, port unreachable,
 // admin-prohibited) are generated where the real kernel would generate them and
 // are themselves routed back, so asymmetric failures behave realistically.
 
 import { evaluate, evaluateNat, renderRule, type EvalResult, type PacketContext, type RejectType } from '../config/nft';
+import { familyOf, inPrefix, normAddr, prefixLength } from '../net/addr';
 import { inCidr, parseCidr, parseIp } from '../net/ip';
+import { isLinkLocal6, multicastMac, networkOf6, solicitedNode } from '../net/ip6';
 import type { ArpPacket, ConntrackEntry, Host, Interface, NatEntry, NatTuple, Packet, Route, World } from '../types';
 import { kernelLog } from './journal';
+import { linkPeer, switchPath } from './l2';
 import { activeRecorder } from './trace';
 
 export const LOOPBACK = 'lo';
@@ -21,17 +24,40 @@ export function nextId(world: World): number {
   return world.counter;
 }
 
-export function hostAddresses(host: Host): string[] {
-  return host.ifaces.filter((i) => i.up && i.address).map((i) => i.address!);
+/** Addresses configured on up interfaces (IPv4 by default; family 6 = IPv6 incl. link-local; 0 = both). */
+export function hostAddresses(host: Host, family: 0 | 4 | 6 = 4): string[] {
+  const v4 = family === 6 ? [] : host.ifaces.filter((i) => i.up && i.address).map((i) => i.address!);
+  const v6 = family === 4 ? [] : host.ifaces.filter((i) => i.up).flatMap((i) => (i.addrs6 ?? []).map((a) => a.address));
+  return [...v4, ...v6];
 }
 
 export function isLocalAddress(host: Host, ip: string): boolean {
-  if (ip.startsWith('127.')) return true;
-  return hostAddresses(host).includes(ip);
+  if (ip.startsWith('127.') || ip === '::1') return true;
+  return hostAddresses(host, ip.includes(':') ? 6 : 4).includes(normAddr(ip));
 }
 
 export function findHostByIp(world: World, ip: string): Host | undefined {
-  return Object.values(world.hosts).find((h) => h.ifaces.some((i) => i.address === ip));
+  return Object.values(world.hosts).find((h) => h.ifaces.some((i) => i.address === ip || i.addrs6?.some((a) => a.address === ip)));
+}
+
+/** Global (non-link-local) IPv6 addresses of a host. */
+export function globalAddrs6(host: Host): string[] {
+  return host.ifaces.filter((i) => i.up && i.name !== LOOPBACK).flatMap((i) => (i.addrs6 ?? []).filter((a) => a.scope === 'global').map((a) => a.address));
+}
+
+/** IPv6 routing table: connected prefixes (from addresses), fe80::/64 per interface, configured and RA routes. */
+export function routeTable6(host: Host): Route[] {
+  const out: Route[] = [];
+  for (const i of host.ifaces) {
+    if (!i.up || i.name === LOOPBACK) continue;
+    for (const a of i.addrs6 ?? []) {
+      if (a.scope !== 'global') continue;
+      const dest = networkOf6(a.address, a.prefix);
+      if (!out.some((r) => r.dest === dest && r.dev === i.name)) out.push({ dest, dev: i.name, proto: a.origin === 'ra' ? 'ra' : 'kernel', src: a.address });
+    }
+    if ((i.addrs6 ?? []).some((a) => a.scope === 'link')) out.push({ dest: 'fe80::/64', dev: i.name, proto: 'kernel' });
+  }
+  return [...out, ...(host.routes6 ?? [])];
 }
 
 /** Connected routes derived from interface addresses plus configured routes. */
@@ -56,7 +82,8 @@ export interface RouteDecision {
   src: string;
 }
 
-export function lookupRoute(host: Host, dst: string): RouteDecision | null {
+export function lookupRoute(host: Host, dst: string, oif?: string): RouteDecision | null {
+  if (dst.includes(':')) return lookupRoute6(host, dst, oif);
   let best: { r: Route; prefix: number } | null = null;
   for (const r of routeTable(host)) {
     const c = parseCidr(r.dest);
@@ -70,10 +97,33 @@ export function lookupRoute(host: Host, dst: string): RouteDecision | null {
   return { route: best.r, dev: best.r.dev, nextHop: best.r.via ?? dst, src: best.r.src ?? iface.address ?? '0.0.0.0' };
 }
 
+function lookupRoute6(host: Host, dst: string, oif?: string): RouteDecision | null {
+  let best: { r: Route; prefix: number } | null = null;
+  for (const r of routeTable6(host)) {
+    if (oif && r.dev !== oif) continue;
+    if (!inPrefix(dst, r.dest)) continue;
+    const iface = host.ifaces.find((i) => i.name === r.dev);
+    if (!iface || !iface.up) continue;
+    const len = prefixLength(r.dest);
+    if (!best || len > best.prefix) best = { r, prefix: len };
+  }
+  if (!best) return null;
+  const iface = host.ifaces.find((i) => i.name === best!.r.dev)!;
+  return { route: best.r, dev: best.r.dev, nextHop: best.r.via ?? dst, src: source6(iface, dst) };
+}
+
+/** RFC 6724 source selection, simplified: same scope, prefer a global address on the outgoing interface. */
+function source6(iface: Interface, dst: string): string {
+  const addrs = iface.addrs6 ?? [];
+  if (isLinkLocal6(dst)) return addrs.find((a) => a.scope === 'link')?.address ?? '::';
+  return addrs.find((a) => a.scope === 'global' && inPrefix(dst, networkOf6(a.address, a.prefix)))?.address
+    ?? addrs.find((a) => a.scope === 'global')?.address ?? '::';
+}
+
 /** Source address the kernel would pick for a packet to `dst`. */
 export function sourceAddress(host: Host, dst: string): string {
-  if (isLocalAddress(host, dst)) return dst.startsWith('127.') ? '127.0.0.1' : dst;
-  return lookupRoute(host, dst)?.src ?? '0.0.0.0';
+  if (isLocalAddress(host, dst)) return dst.startsWith('127.') ? '127.0.0.1' : normAddr(dst);
+  return lookupRoute(host, dst)?.src ?? (dst.includes(':') ? '::' : '0.0.0.0');
 }
 
 // ---------------------------------------------------------------------------
@@ -97,7 +147,13 @@ function ctFind(host: Host, p: Packet): { entry: ConntrackEntry; reply: boolean 
   return null;
 }
 
+/** IPv6 Neighbor Discovery / MLD messages are never tracked by conntrack ("ct state untracked"). */
+export function isNdp(p: Packet): boolean {
+  return p.proto === 'icmp' && familyOf(p.src || p.dst) === 6 && !!p.icmp && p.icmp.type >= 130 && p.icmp.type <= 137;
+}
+
 export function ctState(host: Host, p: Packet): PacketContext['ctState'] {
+  if (isNdp(p)) return 'untracked';
   if (p.icmp?.quoted) {
     const q = p.icmp.quoted;
     const related = host.conntrack.some(
@@ -112,7 +168,7 @@ export function ctState(host: Host, p: Packet): PacketContext['ctState'] {
 }
 
 function ctConfirm(host: Host, p: Packet, time: number): void {
-  if (p.icmp?.quoted) return;
+  if (p.icmp?.quoted || isNdp(p)) return;
   const f = ctFind(host, p);
   const [sp, dp] = ports(p);
   if (!f) {
@@ -136,15 +192,53 @@ function ctConfirm(host: Host, p: Packet, time: number): void {
 // ---------------------------------------------------------------------------
 
 export function packetLength(p: Packet): number {
-  if (p.tcp) return 20 + (p.tcp.flags.includes('SYN') ? 40 : 32) + p.tcp.len;
-  if (p.udp) return 28 + p.udp.len;
-  if (p.icmp) return p.icmp.quoted ? 56 : 84;
-  return 20;
+  const ih = familyOf(p.src) === 6 ? 40 : 20;
+  if (p.tcp) return ih + (p.tcp.flags.includes('SYN') ? 40 : 32) + p.tcp.len;
+  if (p.udp) return ih + 8 + p.udp.len;
+  if (p.icmp) {
+    if (ih === 40 && p.icmp.nd) return ih + (p.icmp.type === 134 ? 56 : p.icmp.type === 133 ? 16 : 32);
+    return p.icmp.quoted ? ih + 36 : ih + 64;
+  }
+  return ih;
+}
+
+export const ICMP4_TYPE_NAMES: Record<number, string> = { 0: 'echo-reply', 3: 'destination-unreachable', 8: 'echo-request', 11: 'time-exceeded' };
+export const ICMP6_TYPE_NAMES: Record<number, string> = {
+  1: 'destination-unreachable', 2: 'packet-too-big', 3: 'time-exceeded', 4: 'parameter-problem', 128: 'echo-request', 129: 'echo-reply',
+  133: 'nd-router-solicit', 134: 'nd-router-advert', 135: 'nd-neighbor-solicit', 136: 'nd-neighbor-advert', 137: 'nd-redirect',
+};
+
+/** Meaning of an ICMP/ICMPv6 message independent of the family's type numbers. */
+export type IcmpMeaning = 'echo-request' | 'echo-reply' | 'net' | 'host' | 'port' | 'admin' | 'ttl' | 'other';
+export function icmpMeaning(p: Packet): IcmpMeaning {
+  const i = p.icmp;
+  if (!i) return 'other';
+  if (familyOf(p.src) === 6) {
+    if (i.type === 128) return 'echo-request';
+    if (i.type === 129) return 'echo-reply';
+    if (i.type === 3) return 'ttl';
+    if (i.type === 1) return i.code === 0 ? 'net' : i.code === 1 ? 'admin' : i.code === 4 ? 'port' : 'host';
+    return 'other';
+  }
+  if (i.type === 8) return 'echo-request';
+  if (i.type === 0) return 'echo-reply';
+  if (i.type === 11) return 'ttl';
+  if (i.type === 3) return i.code === 0 ? 'net' : i.code === 3 ? 'port' : i.code === 13 ? 'admin' : 'host';
+  return 'other';
+}
+
+/** Echo request/reply header for either family. */
+export function echoIcmp(v6: boolean, reply: boolean, id: number, seq: number): NonNullable<Packet['icmp']> {
+  return v6
+    ? { type: reply ? 129 : 128, code: 0, description: reply ? 'Echo (ping) reply' : 'Echo (ping) request', id, seq }
+    : { type: reply ? 0 : 8, code: 0, description: reply ? 'Echo (ping) reply' : 'Echo (ping) request', id, seq };
 }
 
 function toContext(p: Packet, host: Host, iif?: string, oif?: string): PacketContext {
-  const icmpTypes: Record<number, string> = { 0: 'echo-reply', 3: 'destination-unreachable', 8: 'echo-request', 11: 'time-exceeded' };
+  const v6 = familyOf(p.src) === 6;
+  const icmpTypes = v6 ? ICMP6_TYPE_NAMES : ICMP4_TYPE_NAMES;
   return {
+    family: v6 ? 6 : 4,
     src: p.src,
     dst: p.dst,
     proto: p.proto,
@@ -158,9 +252,34 @@ function toContext(p: Packet, host: Host, iif?: string, oif?: string): PacketCon
   };
 }
 
-export function capture(world: World, host: Host, iface: Interface, dir: 'in' | 'out', srcMac: string, dstMac: string, ip?: Packet, arp?: ArpPacket) {
-  host.capture.push({ time: world.clock, host: host.id, iface: iface.name, dir, srcMac, dstMac, ip: ip ? clonePacket(ip) : undefined, arp });
+function pushFrame(host: Host, f: Host['capture'][number]) {
+  host.capture.push(f);
   if (host.capture.length > 400) host.capture.splice(0, host.capture.length - 400);
+}
+
+/**
+ * Record a frame as seen on host:iface. A frame on a VLAN sub-interface is also
+ * seen, tagged, on its parent NIC; and the switch port at the other end of the
+ * cable sees it too (with the tag as it is on that cable).
+ */
+export function capture(world: World, host: Host, iface: Interface, dir: 'in' | 'out', srcMac: string, dstMac: string, ip?: Packet, arp?: ArpPacket) {
+  const base = { time: world.clock, host: host.id, dir, srcMac, dstMac, ip: ip ? clonePacket(ip) : undefined, arp };
+  pushFrame(host, { ...base, iface: iface.name });
+  const tag = iface.vlan?.id;
+  if (iface.vlan) pushFrame(host, { ...base, iface: iface.vlan.parent, vlan: tag });
+  const peer = linkPeer(world, host.id, iface.vlan ? iface.vlan.parent : iface.name);
+  const sw = peer ? world.hosts[peer.host] : undefined;
+  if (peer && sw?.bridge) {
+    pushFrame(sw, { ...base, host: sw.id, iface: peer.iface, dir: dir === 'out' ? 'in' : 'out', vlan: tag });
+    // MAC learning: the bridge records which port (and VLAN) each source MAC arrived on.
+    const vid = tag ?? sw.bridge.ports[peer.iface]?.pvid ?? 1;
+    if (dir === 'out' && srcMac === iface.mac) {
+      const fdb = (sw.bridge.fdb = sw.bridge.fdb ?? []);
+      const k = fdb.findIndex((e) => e.mac === srcMac && e.vlan === vid);
+      if (k >= 0) fdb.splice(k, 1);
+      fdb.push({ mac: srcMac, port: peer.iface, vlan: vid });
+    }
+  }
 }
 
 export function clonePacket(p: Packet): Packet {
@@ -326,30 +445,117 @@ const ICMP_DESC: Record<string, { type: number; code: number; description: strin
   'ttl-exceeded': { type: 11, code: 0, description: 'Time-to-live exceeded (Time to live exceeded in transit)' },
 };
 
+const ICMP6_DESC: Record<string, { type: number; code: number; description: string }> = {
+  'net-unreachable': { type: 1, code: 0, description: 'Destination unreachable (No route to destination)' },
+  'host-unreachable': { type: 1, code: 3, description: 'Destination unreachable (Address unreachable)' },
+  'port-unreachable': { type: 1, code: 4, description: 'Destination unreachable (Port unreachable)' },
+  'admin-prohibited': { type: 1, code: 1, description: 'Destination unreachable (Communication with destination administratively prohibited)' },
+  'ttl-exceeded': { type: 3, code: 0, description: 'Time exceeded (Hop limit exceeded in transit)' },
+};
+
 const ICMP_EXPLAIN: Record<string, (h: string, p: Packet) => string> = {
   'net-unreachable': (h) => `${h} has no route to the destination network and reports it to the sender. A TCP client in SYN_SENT fails with ENETUNREACH ("Network is unreachable").`,
-  'host-unreachable': (h, p) => `${h} tried to deliver the packet on the final network but nobody answered its ARP request for ${p.dst} (about 3 s of retries). The sender receives "No route to host" (EHOSTUNREACH), although routing itself works.`,
+  'host-unreachable': (h, p) => p.dst.includes(':')
+    ? `${h} tried to deliver the packet on the final link but nobody answered its Neighbor Solicitation for ${p.dst} (3 tries, 1 s apart), so it reports ICMPv6 "address unreachable". The sender sees "No route to host" (EHOSTUNREACH). Common causes: the host is down, the address is wrong, or the target's firewall drops ICMPv6 neighbor solicitations.`
+    : `${h} tried to deliver the packet on the final network but nobody answered its ARP request for ${p.dst} (about 3 s of retries). The sender receives "No route to host" (EHOSTUNREACH), although routing itself works.`,
   'port-unreachable': (h, p) => `${h} received a ${p.proto.toUpperCase()} datagram for a port with no listening socket (or a firewall rejected it with port-unreachable). For UDP this is how "connection refused" is signalled; resolvers move to the next server immediately.`,
   'admin-prohibited': (h) => `A firewall rule on ${h} rejected the packet with "communication administratively prohibited" (type 3 code 13). Clients report "No route to host", which misleadingly suggests a routing problem.`,
-  'ttl-exceeded': (h) => `The TTL reached zero at ${h}, which discards the packet and reports "time exceeded". traceroute uses this deliberately to discover each router on the path.`,
+  'ttl-exceeded': (h, p) => `The ${p.dst.includes(':') ? 'hop limit' : 'TTL'} reached zero at ${h}, which discards the packet and reports "time exceeded". traceroute uses this deliberately to discover each router on the path.`,
 };
 
 /** Send an ICMP error from `host` about `offending`. Errors are never sent about ICMP errors. */
 export function sendIcmpError(world: World, host: Host, offending: Packet, kind: keyof typeof ICMP_DESC): IcmpErrorReturn | undefined {
-  if (offending.icmp?.quoted) return undefined;
+  if (offending.icmp?.quoted || isNdp(offending)) return undefined;
+  const v6 = offending.src.includes(':');
   const route = lookupRoute(host, offending.src);
-  const src = isLocalAddress(host, offending.dst) ? offending.dst : route?.src ?? hostAddresses(host)[0];
-  const d = ICMP_DESC[kind];
+  const src = isLocalAddress(host, offending.dst) ? offending.dst : route?.src ?? hostAddresses(host, v6 ? 6 : 4)[0];
+  const d = (v6 ? ICMP6_DESC : ICMP_DESC)[kind];
   const pkt: Packet = {
     id: nextId(world), src, dst: offending.src, ttl: 64, proto: 'icmp',
     icmp: { type: d.type, code: d.code, description: d.description, quoted: quote(offending) },
   };
   const res = transmit(world, host.id, pkt);
-  activeRecorder()?.describe(pkt.id, `ICMP ${d.description}`, ICMP_EXPLAIN[kind](host.hostname, offending));
+  activeRecorder()?.describe(pkt.id, `${v6 ? 'ICMPv6' : 'ICMP'} ${d.description}`, ICMP_EXPLAIN[kind](host.hostname, offending));
   return { packet: pkt, from: host.id, delivered: res.status === 'delivered' };
 }
 
-function resolveArp(world: World, host: Host, iface: Interface, ip: string): { mac: string; host: Host; iface: Interface } | null {
+type NeighborHit = { mac: string; host: Host; iface: Interface } | null;
+
+/** Link-layer address resolution: ARP for IPv4, Neighbor Discovery for IPv6. */
+export function resolveNeighbor(world: World, host: Host, iface: Interface, ip: string): NeighborHit {
+  return ip.includes(':') ? resolveNdp(world, host, iface, ip) : resolveArp(world, host, iface, ip);
+}
+
+function linkPeers(world: World, iface: Interface, match: (i: Interface) => boolean): { host: Host; iface: Interface }[] {
+  return Object.values(world.hosts).flatMap((h) =>
+    h.ifaces.filter((i) => i !== iface && i.up && i.segment && i.segment === iface.segment && match(i)).map((i) => ({ host: h, iface: i })),
+  );
+}
+
+/**
+ * IPv6 Neighbor Discovery (RFC 4861 §7.2): a Neighbor Solicitation to the
+ * target's solicited-node multicast group, answered by a unicast Neighbor
+ * Advertisement. Both messages are ICMPv6, so unlike ARP they pass through the
+ * nftables input chains (as "ct state untracked") and can be dropped by a
+ * firewall that forgets ICMPv6.
+ */
+function resolveNdp(world: World, host: Host, iface: Interface, ip: string): NeighborHit {
+  const cached = host.neighbors.find((n) => n.ip === ip && n.dev === iface.name && n.mac);
+  const peers = linkPeers(world, iface, (i) => !!i.addrs6?.some((a) => a.address === ip));
+  if (cached) {
+    const peer = peers.find((p) => p.iface.mac === cached.mac);
+    if (peer) return { mac: cached.mac!, ...peer };
+    host.neighbors = host.neighbors.filter((n) => n !== cached);
+  }
+  const rec = activeRecorder();
+  const srcAddr = (iface.addrs6 ?? []).find((a) => a.scope === 'link')?.address ?? '::';
+  const group = solicitedNode(ip);
+  const fail = () => {
+    // The caller accounts for the ~3 s (3 solicitations, RetransTimer 1 s).
+    const existing = host.neighbors.find((n) => n.ip === ip && n.dev === iface.name);
+    if (existing) existing.state = 'FAILED';
+    else host.neighbors.push({ ip, dev: iface.name, mac: null, state: 'FAILED' });
+    return null;
+  };
+  const ns: Packet = {
+    id: nextId(world), src: srcAddr, dst: group, ttl: 255, proto: 'icmp',
+    icmp: { type: 135, code: 0, description: 'Neighbor Solicitation', nd: { target: ip, lladdr: iface.mac } },
+  };
+  const ev = rec?.beginPacket(world.clock, host.id, clonePacket(ns), true);
+  capture(world, host, iface, 'out', iface.mac, multicastMac(group), ns);
+  for (const o of linkPeers(world, iface, () => true)) capture(world, o.host, o.iface, 'in', iface.mac, multicastMac(group), ns);
+  const peer = peers[0];
+  const nsVerdict = peer ? evaluate(peer.host.nft, 'input', toContext(ns, peer.host, peer.iface.name)) : null;
+  const nsOk = !!nsVerdict && nsVerdict.verdict === 'accept';
+  if (rec && ev) {
+    rec.endPacket(ev, peer?.host.id ?? host.id, [], [{ host: host.id, egress: iface.name, srcMac: iface.mac, dstMac: multicastMac(group), ttl: 255, note: `multicast to the solicited-node group ${group} (Ethernet ${multicastMac(group)}) on ${iface.segment}${peer ? `; ${peer.host.hostname} owns ${ip}; its input hook: ${describeDecision('input', nsVerdict!)}` : '; no host on this link has that address'}` }], nsOk, nsOk ? `received by ${peer!.host.id}` : peer ? `dropped by ${peer.host.hostname}'s firewall` : 'no answer');
+    rec.describe(ns.id, `ICMPv6 Neighbor Solicitation: who has ${ip}?`, `IPv6 has no ARP. To learn the MAC address of ${ip}, ${host.hostname} sends an ICMPv6 Neighbor Solicitation to the solicited-node multicast group ${group} (derived from the last 24 bits of the target address), so only hosts whose address ends the same way process it. It carries the sender's MAC (source link-layer address option). Hop limit 255 proves it was not routed.`);
+  }
+  if (!peer || !nsOk) return fail();
+  const na: Packet = {
+    id: nextId(world), src: ip, dst: srcAddr, ttl: 255, proto: 'icmp',
+    icmp: { type: 136, code: 0, description: 'Neighbor Advertisement', nd: { target: ip, lladdr: peer.iface.mac, flags: `${peer.host.ip6Forward ? 'router, ' : ''}solicited, override` } },
+  };
+  world.clock += 0.2;
+  const naVerdict = evaluate(host.nft, 'input', toContext(na, host, iface.name));
+  const ev2 = rec?.beginPacket(world.clock, peer.host.id, clonePacket(na), true);
+  capture(world, peer.host, peer.iface, 'out', peer.iface.mac, iface.mac, na);
+  capture(world, host, iface, 'in', peer.iface.mac, iface.mac, na);
+  const naOk = naVerdict.verdict === 'accept';
+  if (rec && ev2) {
+    rec.endPacket(ev2, host.id, [], [{ host: peer.host.id, egress: peer.iface.name, srcMac: peer.iface.mac, dstMac: iface.mac, ttl: 255, note: `unicast reply; ${host.hostname} input hook: ${describeDecision('input', naVerdict)}` }], naOk, naOk ? `delivered to ${host.id}` : `dropped by ${host.hostname}'s firewall`);
+    rec.describe(na.id, `ICMPv6 Neighbor Advertisement: ${ip} is at ${peer.iface.mac}`, `${peer.host.hostname} answers with its MAC address in the target link-layer address option. Flags: S (solicited: answer to a solicitation)${peer.host.ip6Forward ? ', R (the sender is a router)' : ''}, O (override cached entries). It also created a neighbour entry for ${host.hostname} from the solicitation.`);
+  }
+  // The target learns the solicitor from the source link-layer address option (STALE entry).
+  peer.host.neighbors = peer.host.neighbors.filter((n) => !(n.ip === srcAddr && n.dev === peer.iface.name));
+  peer.host.neighbors.push({ ip: srcAddr, dev: peer.iface.name, mac: iface.mac, state: 'STALE' });
+  if (!naOk) return fail();
+  host.neighbors = host.neighbors.filter((n) => !(n.ip === ip && n.dev === iface.name));
+  host.neighbors.push({ ip, dev: iface.name, mac: peer.iface.mac, state: 'REACHABLE' });
+  return { mac: peer.iface.mac, ...peer };
+}
+
+function resolveArp(world: World, host: Host, iface: Interface, ip: string): NeighborHit {
   const cached = host.neighbors.find((n) => n.ip === ip && n.dev === iface.name && n.mac);
   const peers = Object.values(world.hosts).flatMap((h) =>
     h.ifaces.filter((i) => i.up && i.segment && i.segment === iface.segment && i.address === ip).map((i) => ({ host: h, iface: i })),
@@ -458,14 +664,19 @@ function transmitInner(world: World, fromHostId: string, original: Packet, opts:
         const r = handleReject(world, host, p, fw.rejectWith!);
         return { status: 'rejected', host: host.id, hops, reason: why, rejectWith: fw.rejectWith!, ...r };
       }
-      if (!host.ipForward) {
+      if (p.dst.includes(':') && !host.ip6Forward) {
+        // IPv6 (ip6_input): a packet not addressed to a non-router is silently discarded.
+        hops.push({ host: host.id, ingress: ingress.name, ttl: p.ttl, note: 'not addressed to this host and IPv6 forwarding is disabled (net.ipv6.conf.all.forwarding=0): silently discarded' });
+        return { status: 'dropped', host: host.id, hops, reason: 'IPv6 forwarding disabled' };
+      }
+      if (!p.dst.includes(':') && !host.ipForward) {
         // Linux: the input route lookup fails with EHOSTUNREACH and ip_error() answers ICMP host unreachable.
         hops.push({ host: host.id, ingress: ingress.name, ttl: p.ttl, note: 'not addressed to this host and IP forwarding is disabled (net.ipv4.ip_forward=0): not routed' });
         const error = sendIcmpError(world, host, p, 'host-unreachable');
         return { status: 'dropped', host: host.id, hops, reason: 'ip_forward=0', error };
       }
       if (p.ttl <= 1) {
-        hops.push({ host: host.id, ingress: ingress.name, ttl: p.ttl, note: 'TTL expired in transit' });
+        hops.push({ host: host.id, ingress: ingress.name, ttl: p.ttl, note: p.dst.includes(':') ? 'hop limit expired in transit' : 'TTL expired in transit' });
         const error = sendIcmpError(world, host, p, 'ttl-exceeded');
         return { status: 'dropped', host: host.id, hops, reason: 'TTL exceeded', error };
       }
@@ -487,15 +698,16 @@ function transmitInner(world: World, fromHostId: string, original: Packet, opts:
       }
       ctConfirm(host, p, world.clock);
       const egress = host.ifaces.find((i) => i.name === rd.dev)!;
-      const nh = resolveArp(world, host, egress, rd.nextHop);
+      const nh = resolveNeighbor(world, host, egress, rd.nextHop);
       if (!nh) {
-        world.clock += 3000; // ARP resolution gives up after ~3 s (3 probes, 1 s apart)
-        hops.push({ host: host.id, ingress: ingress.name, egress: egress.name, ttl: p.ttl, note: `ARP for ${rd.nextHop} on ${egress.name} failed` });
+        world.clock += 3000; // ARP / ND resolution gives up after ~3 s (3 probes, 1 s apart)
+        hops.push({ host: host.id, ingress: ingress.name, egress: egress.name, ttl: p.ttl, note: `${rd.nextHop.includes(':') ? 'Neighbor Discovery' : 'ARP'} for ${rd.nextHop} on ${egress.name} failed` });
         const error = sendIcmpError(world, host, p, 'host-unreachable');
-        return { status: 'dropped', host: host.id, hops, reason: `no ARP reply from ${rd.nextHop}`, error };
+        return { status: 'dropped', host: host.id, hops, reason: `no ${rd.nextHop.includes(':') ? 'neighbor advertisement' : 'ARP reply'} from ${rd.nextHop}`, error };
       }
       natPostrouting(world, host, p, nat, egress.name, egress.address);
-      hops.push({ host: host.id, ingress: ingress.name, egress: egress.name, srcMac: egress.mac, dstMac: nh.mac, ttl: p.ttl, note: `TTL ${p.ttl + 1}→${p.ttl}; forward hook: ${describeDecision('forward', fw)}; routed via ${rd.route.dest}${rd.route.via ? ' via ' + rd.route.via : ''} dev ${egress.name}${nat.notes.length ? '; ' + nat.notes.join('; ') : ''}` });
+      const sw = switchPath(world, host, egress, nh.host, nh.iface);
+      hops.push({ host: host.id, ingress: ingress.name, egress: egress.name, srcMac: egress.mac, dstMac: nh.mac, ttl: p.ttl, note: `TTL ${p.ttl + 1}→${p.ttl}; forward hook: ${describeDecision('forward', fw)}; routed via ${rd.route.dest}${rd.route.via ? ' via ' + rd.route.via : ''} dev ${egress.name}${nat.notes.length ? '; ' + nat.notes.join('; ') : ''}${sw ? '; ' + sw : ''}` });
       capture(world, host, egress, 'out', egress.mac, nh.mac, p);
       capture(world, nh.host, nh.iface, 'in', egress.mac, nh.mac, p);
       host = nh.host;
@@ -519,7 +731,7 @@ function transmitInner(world: World, fromHostId: string, original: Packet, opts:
       hops.push({ host: host.id, ttl: p.ttl, note: `no route to ${p.dst} in the routing table` });
       return { status: 'local-error', host: host.id, hops, errno: 'ENETUNREACH', reason: 'no matching route' };
     }
-    if (!parseIp(p.src) || p.src === '0.0.0.0') p.src = rd.src;
+    if (p.dst.includes(':') ? !p.src || p.src === '::' : !parseIp(p.src) || p.src === '0.0.0.0') p.src = rd.src;
     if (!opts.bypassOutputFilter) {
       const out = evaluate(host.nft, 'output', toContext(p, host, undefined, rd.dev));
       out.logs.forEach((pre) => firewallLog(world, host, pre, p, undefined, rd.dev));
@@ -530,15 +742,16 @@ function transmitInner(world: World, fromHostId: string, original: Packet, opts:
     }
     ctConfirm(host, p, world.clock);
     const egress = host.ifaces.find((i) => i.name === rd.dev)!;
-    const nh = resolveArp(world, host, egress, rd.nextHop);
+    const nh = resolveNeighbor(world, host, egress, rd.nextHop);
     if (!nh) {
       world.clock += 3000;
-      hops.push({ host: host.id, egress: egress.name, ttl: p.ttl, note: `ARP for next hop ${rd.nextHop} failed (no host answered on ${egress.name})` });
-      return { status: 'local-error', host: host.id, hops, errno: 'EHOSTUNREACH', reason: `no ARP reply from ${rd.nextHop}` };
+      hops.push({ host: host.id, egress: egress.name, ttl: p.ttl, note: `${rd.nextHop.includes(':') ? 'Neighbor Discovery' : 'ARP'} for next hop ${rd.nextHop} failed (no answer on ${egress.name})` });
+      return { status: 'local-error', host: host.id, hops, errno: 'EHOSTUNREACH', reason: `no ${rd.nextHop.includes(':') ? 'neighbor advertisement' : 'ARP reply'} from ${rd.nextHop}` };
     }
     const onat = natLookup(host, p);
     natPostrouting(world, host, p, onat, egress.name, egress.address);
-    hops.push({ host: host.id, egress: egress.name, srcMac: egress.mac, dstMac: nh.mac, ttl: p.ttl, note: `route ${rd.route.dest}${rd.route.via ? ' via ' + rd.route.via : ''} dev ${egress.name}${onat.notes.length ? '; ' + onat.notes.join('; ') : ''}` });
+    const sw = switchPath(world, host, egress, nh.host, nh.iface);
+    hops.push({ host: host.id, egress: egress.name, srcMac: egress.mac, dstMac: nh.mac, ttl: p.ttl, note: `route ${rd.route.dest}${rd.route.via ? ' via ' + rd.route.via : ''} dev ${egress.name}${onat.notes.length ? '; ' + onat.notes.join('; ') : ''}${sw ? '; ' + sw : ''}` });
     capture(world, host, egress, 'out', egress.mac, nh.mac, p);
     capture(world, nh.host, nh.iface, 'in', egress.mac, nh.mac, p);
     host = nh.host;

@@ -108,6 +108,18 @@ export const CAPTURE_PRESETS: CapturePreset[] = [
     build: (w) => { as(w, 'ws01', 'alice', ['curl -I http://203.0.113.80/']); as(w, 'ext01', 'guest', ['curl -I http://203.0.113.2/']); },
   },
   {
+    id: 'vlan-trunk', title: 'VLANs: 802.1Q tags on the router trunk', host: 'rtr01', iface: 'eth3',
+    description: 'dev01 (VLAN 30) pings srv01 (VLAN 20) over IPv4, captured on rtr01\'s physical trunk interface eth3, where every frame carries an 802.1Q tag. The same frames appear untagged on eth3.30.',
+    lookFor: ['EtherType 0x8100 followed by VLAN ID 30 in every frame (Wireshark: 802.1Q Virtual LAN)', 'ARP for the gateway 10.0.30.1 arrives tagged: the broadcast stayed inside VLAN 30', 'Only VLAN 30 traffic appears here; VLAN 10 and 20 reach rtr01 on eth0/eth1', 'Display filter "vlan.id == 30"'],
+    build: (w) => as(w, 'dev01', 'erin', ['ping -4 -c 2 10.0.20.10']),
+  },
+  {
+    id: 'ipv6-slaac-ndp', title: 'IPv6: SLAAC, Neighbor Discovery and HTTP over IPv6', host: 'dev01', iface: 'eth0',
+    description: 'dev01 restarts networking (router solicitation and advertisement), then fetches http://srv01.corp.lab/ over IPv6. Captured on dev01.',
+    lookFor: ['Router Solicitation to ff02::2 from the link-local address; Router Advertisement from fe80::5054:ff:fea1:4 with the prefix option 2001:db8:30::/64', 'DNS asks for A and AAAA (over IPv4: the DNS server is IPv4-only)', 'Neighbor Solicitation to the solicited-node group ff02::1:ffa1:4 for the router, answered by a Neighbor Advertisement', 'TCP handshake and HTTP between 2001:db8:30:0:5054:ff:fee7:1e and 2001:db8:20::10 (IPv6 header: next header 6, hop limit)', 'Display filters "icmpv6" and "ipv6.addr == 2001:db8:20::10"'],
+    build: (w) => { as(w, 'dev01', 'root', ['systemctl restart networking']); as(w, 'dev01', 'erin', ['curl -6 -I http://srv01.corp.lab/']); },
+  },
+  {
     id: 'ping-traceroute', title: 'ping and traceroute (ICMP echo, TTL exceeded)', host: 'ws01', iface: 'eth0',
     description: 'ping -c 2 srv01, then traceroute -n srv01 (UDP probes), which srv01\'s firewall drops after the first hop.',
     lookFor: ['Echo request/reply pairs with the same id and sequence', 'TTL=1 probes answered by rtr01 with "time exceeded"', 'Later probes get no answer: srv01 drops UDP 33434+'],

@@ -17,6 +17,7 @@ export type Phase =
   | 'SSH authentication'
   | 'SSH session'
   | 'ICMP'
+  | 'NDP'
   | 'Teardown';
 
 export interface EndpointState {
@@ -62,13 +63,21 @@ export class Recorder {
     if (last) last.state = this.snapshot();
   }
 
-  beginPacket(time: number, from: string, packet: Packet): TraceEvent {
+  /**
+   * Start recording a packet. With `beforePending`, the event is placed before
+   * the packet currently being transmitted (used for Neighbor Discovery, which,
+   * like ARP, happens before the frame that needed it can be sent).
+   */
+  beginPacket(time: number, from: string, packet: Packet, beforePending = false): TraceEvent {
     const ev: TraceEvent = {
       id: ++this.seq, time, kind: 'packet', from, to: from, via: [], packet,
-      phase: packet.proto === 'icmp' ? 'ICMP' : this.phase,
+      phase: packet.icmp?.nd ? 'NDP' : packet.proto === 'icmp' ? 'ICMP' : this.phase,
       title: defaultTitle(packet), detail: '', state: this.snapshot(),
     };
-    this.events.push(ev);
+    const pending = beforePending ? this.inflight[this.inflight.length - 1] : undefined;
+    const idx = pending ? this.events.indexOf(pending) : -1;
+    if (idx >= 0) this.events.splice(idx, 0, ev);
+    else this.events.push(ev);
     this.inflight.push(ev);
     return ev;
   }
@@ -120,7 +129,7 @@ export function defaultTitle(p: Packet): string {
   if (p.app) return p.app.info;
   if (p.tcp) return `TCP ${p.tcp.sport} → ${p.tcp.dport} [${p.tcp.flags.join(', ')}] Seq=${p.tcp.seq} Ack=${p.tcp.ack} Len=${p.tcp.len}`;
   if (p.udp) return `UDP ${p.udp.sport} → ${p.udp.dport} Len=${p.udp.len}`;
-  if (p.icmp) return `ICMP ${p.icmp.description}`;
+  if (p.icmp) return `${p.src.includes(':') ? 'ICMPv6' : 'ICMP'} ${p.icmp.description}`;
   return 'IP';
 }
 

@@ -21,9 +21,25 @@ export const NAT_LANES: Lane[] = [
   { id: 'ext01', label: 'ext01', sub: 'Internet 203.0.113.80' },
 ];
 
+export const VLAN_LANES: Lane[] = [
+  { id: 'ws01', label: 'ws01', sub: 'VLAN 10 · 10.0.10.25' },
+  { id: 'ns1', label: 'ns1', sub: 'VLAN 10 · 10.0.10.53' },
+  { id: 'dev01', label: 'dev01', sub: 'VLAN 30 · 10.0.30.25' },
+  { id: 'rtr01', label: 'rtr01', sub: 'gateway (eth3.30 on trunk)' },
+  { id: 'srv01', label: 'srv01', sub: 'VLAN 20 · 10.0.20.10' },
+];
+
+export const IPV6_LANES: Lane[] = [
+  { id: 'dev01', label: 'dev01', sub: 'SLAAC 2001:db8:30::/64' },
+  { id: 'rtr01', label: 'rtr01', sub: 'radvd · ::1 on both sides' },
+  { id: 'srv01', label: 'srv01', sub: '2001:db8:20::10' },
+  { id: 'ns1', label: 'ns1', sub: 'DNS (A + AAAA)' },
+];
+
 export function segmentOf(host: string, iface?: string): string {
-  if (host === 'rtr01') return iface === 'eth1' ? 'srv20' : iface === 'eth2' ? 'wan' : 'lan10';
+  if (host === 'rtr01') return iface === 'eth1' ? 'srv20' : iface === 'eth2' ? 'wan' : iface?.startsWith('eth3') ? 'dev30 (VLAN 30)' : 'lan10';
   if (host === 'srv01') return 'srv20';
   if (host === 'ext01') return 'wan';
+  if (host === 'dev01') return 'dev30 (VLAN 30)';
   return 'lan10';
 }

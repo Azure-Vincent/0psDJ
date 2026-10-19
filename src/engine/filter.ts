@@ -1,10 +1,12 @@
 // A Wireshark display-filter subset for the Packet Lab:
-//   protocols: eth arp ip icmp tcp udp dns ssh
-//   fields:    ip.addr ip.src ip.dst tcp.port tcp.srcport tcp.dstport udp.port
-//              tcp.flags.syn tcp.flags.ack tcp.flags.reset tcp.flags.fin
-//              icmp.type icmp.code tcp.len frame.number
+//   protocols: eth arp ip ipv6 icmp icmpv6 tcp udp dns ssh dhcp vlan
+//   fields:    ip.addr ip.src ip.dst ipv6.addr ipv6.src ipv6.dst tcp.port
+//              tcp.srcport tcp.dstport udp.port tcp.flags.syn tcp.flags.ack
+//              tcp.flags.reset tcp.flags.fin icmp.type icmp.code icmpv6.type
+//              vlan.id tcp.len frame.number
 //   operators: == != > < >= <=, and/&&, or/||, not/!, parentheses
 
+import { canonicalIp6 } from './net/ip6';
 import type { CapturedFrame } from './types';
 
 type Node =
@@ -13,8 +15,8 @@ type Node =
   | { t: 'proto'; name: string }
   | { t: 'cmp'; field: string; op: string; value: string };
 
-const PROTOS = ['eth', 'arp', 'ip', 'icmp', 'tcp', 'udp', 'dns', 'ssh', 'dhcp'];
-const FIELDS = ['ip.addr', 'ip.src', 'ip.dst', 'tcp.port', 'tcp.srcport', 'tcp.dstport', 'udp.port', 'udp.srcport', 'udp.dstport', 'tcp.flags.syn', 'tcp.flags.ack', 'tcp.flags.reset', 'tcp.flags.fin', 'tcp.flags.push', 'icmp.type', 'icmp.code', 'tcp.len', 'frame.number', 'ip.ttl'];
+const PROTOS = ['eth', 'arp', 'ip', 'ipv6', 'icmp', 'icmpv6', 'tcp', 'udp', 'dns', 'ssh', 'dhcp', 'vlan'];
+const FIELDS = ['ip.addr', 'ip.src', 'ip.dst', 'ipv6.addr', 'ipv6.src', 'ipv6.dst', 'icmpv6.type', 'vlan.id', 'ipv6.hlim', 'tcp.port', 'tcp.srcport', 'tcp.dstport', 'udp.port', 'udp.srcport', 'udp.dstport', 'tcp.flags.syn', 'tcp.flags.ack', 'tcp.flags.reset', 'tcp.flags.fin', 'tcp.flags.push', 'icmp.type', 'icmp.code', 'tcp.len', 'frame.number', 'ip.ttl'];
 
 export class FilterError extends Error {}
 
@@ -81,6 +83,18 @@ export function parseFilter(s: string): Node | null {
 }
 
 function fieldValues(f: CapturedFrame, field: string, index: number): (string | number)[] {
+  const v6 = !!f.ip && f.ip.src.includes(':');
+  const p4 = v6 ? undefined : f.ip;
+  const p6 = v6 ? f.ip : undefined;
+  if (field === 'ipv6.addr') return p6 ? [p6.src, p6.dst] : [];
+  if (field === 'ipv6.src') return p6 ? [p6.src] : [];
+  if (field === 'ipv6.dst') return p6 ? [p6.dst] : [];
+  if (field === 'ipv6.hlim') return p6 ? [p6.ttl] : [];
+  if (field === 'icmpv6.type') return p6?.icmp ? [p6.icmp.type] : [];
+  if (field === 'vlan.id') return f.vlan !== undefined ? [f.vlan] : [];
+  if (field.startsWith('ip.') || field.startsWith('icmp.')) {
+    if (!p4) return [];
+  }
   const p = f.ip;
   const t = p?.tcp;
   const u = p?.udp;
@@ -108,7 +122,8 @@ function fieldValues(f: CapturedFrame, field: string, index: number): (string | 
   }
 }
 
-function cmp(a: string | number, op: string, b: string): boolean {
+function cmp(a: string | number, op: string, bRaw: string): boolean {
+  const b = typeof a === 'string' && a.includes(':') ? canonicalIp6(bRaw) ?? bRaw : bRaw;
   const an = typeof a === 'number' ? a : NaN;
   const bn = Number(b);
   const numeric = !Number.isNaN(an) && !Number.isNaN(bn);
@@ -133,8 +148,11 @@ export function matchFilter(node: Node | null, f: CapturedFrame, index: number):
       switch (node.name) {
         case 'eth': return true;
         case 'arp': return !!f.arp;
-        case 'ip': return !!f.ip;
-        case 'icmp': return f.ip?.proto === 'icmp';
+        case 'ip': return !!f.ip && !f.ip.src.includes(':');
+        case 'ipv6': return !!f.ip && f.ip.src.includes(':');
+        case 'icmp': return f.ip?.proto === 'icmp' && !f.ip.src.includes(':');
+        case 'icmpv6': return f.ip?.proto === 'icmp' && f.ip.src.includes(':');
+        case 'vlan': return f.vlan !== undefined;
         case 'tcp': return f.ip?.proto === 'tcp';
         case 'udp': return f.ip?.proto === 'udp';
         case 'dns': return f.ip?.app?.protocol === 'DNS';

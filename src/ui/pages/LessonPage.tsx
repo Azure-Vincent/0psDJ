@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { ASSESSMENTS, getLesson } from '../../content/lessons';
 import { CURRICULUM } from '../../content/curriculum';
 import type { Lesson, Section } from '../../content/types';
-import { DHCP_RUNS, FIREWALL_RUNS, IP_RUNS, NAT_RUNS, TRANSPORT_RUNS } from '../../engine/lab/visualRuns';
+import { DHCP_RUNS, FIREWALL_RUNS, IP_RUNS, IPV6_RUNS, NAT_RUNS, TRANSPORT_RUNS, VLAN_RUNS } from '../../engine/lab/visualRuns';
 import { OUTCOME_LABELS, SSH_DEPENDENCIES, freshLab, runWithFault } from '../../engine/lab/dependencies';
 import { ALL_SCENARIOS } from '../../engine/scenarios';
 import type { World } from '../../engine/types';
@@ -15,7 +15,8 @@ import { SequenceDiagram } from '../components/SequenceDiagram';
 import { CidrCalculator, HookDiagram, PacketTester } from '../components/FirewallWidgets';
 import { RunVisualizer } from '../components/RunVisualizer';
 import { EncapsulationExplorer, ResolverTracer, RouteLookup, SubnetPractice } from '../components/NetworkWidgets';
-import { DHCP_LANES, LAB_LANES, NAT_LANES, segmentOf } from '../components/labLanes';
+import { DHCP_LANES, IPV6_LANES, LAB_LANES, NAT_LANES, VLAN_LANES, segmentOf } from '../components/labLanes';
+import { Ipv6Explorer, VlanExplorer } from '../components/L2V6Widgets';
 import { DhcpAllocator, NatInspector } from '../components/NetServiceWidgets';
 import type { TermSpec } from '../components/LabTerminals';
 import type { ReactNode } from 'react';
@@ -239,6 +240,25 @@ function widgetsFor(id: string): LessonWidgets {
         rtr01,
         { hostId: 'ext01', user: 'guest', label: 'ext01 (Internet)', banner: 'Sandbox: ext01, a host on the Internet (203.0.113.80). It only knows public addresses.' },
       ],
+    };
+  }
+  const dev01: TermSpec = { hostId: 'dev01', user: 'erin', label: 'dev01 (erin)', banner: 'Sandbox: dev01 on VLAN 30, dual-stack (IPv6 by SLAAC). sudo password: dev01-erin.' };
+  if (id === 'vlan') {
+    return {
+      visualize: <RunVisualizer runs={VLAN_RUNS} lanes={VLAN_LANES} />,
+      configTool: { title: 'VLAN explorer (sw01 port table)', node: <VlanExplorer /> },
+      sandbox: [
+        { hostId: 'sw01', user: 'root', label: 'sw01 console (root)', banner: 'Sandbox: console on the switch sw01. Try: bridge vlan show, bridge fdb show, cat /etc/network/interfaces.' },
+        rtr01,
+        dev01,
+      ],
+    };
+  }
+  if (id === 'ipv6') {
+    return {
+      visualize: <RunVisualizer runs={IPV6_RUNS} lanes={IPV6_LANES} />,
+      configTool: { title: 'IPv6 address explorer', node: <Ipv6Explorer /> },
+      sandbox: [dev01, rtr01, srv01],
     };
   }
   if (id === 'nftables') {

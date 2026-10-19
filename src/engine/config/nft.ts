@@ -6,21 +6,26 @@
 //   ip saddr|daddr [!=] <addr|cidr|{set}>      ip protocol <proto|{set}>
 //   meta l4proto <proto|{set}>                 tcp|udp sport|dport [!=] <port|range|{set}>
 //   ct state <state[,state]|{set}>             iif|oif|iifname|oifname <name|{set}>
-//   icmp type <type|{set}>                     ip6 ... (parsed; never matches IPv4 traffic)
+//   icmp type <type|{set}>                     ip6 saddr|daddr [!=] <addr|cidr|{set}>
+//   icmpv6 type <type|{set}>                   ip6 nexthdr <proto|{set}>
+//   meta nfproto ipv4|ipv6
+// Families: "ip" tables see IPv4 only, "ip6" tables IPv6 only, "inet" both.
+// "ip ..." matches never match IPv6 packets and vice versa.
 
 import { inCidr, parseCidr, parseIp } from '../net/ip';
+import { inCidr6, parseCidr6 } from '../net/ip6';
 
 export type Family = 'inet' | 'ip' | 'ip6';
 export type Hook = 'input' | 'forward' | 'output' | 'prerouting' | 'postrouting';
 
 export type MatchExpr =
-  | { kind: 'addr'; field: 'saddr' | 'daddr'; negate: boolean; values: string[] }
-  | { kind: 'ip6' ; text: string }
-  | { kind: 'l4proto'; via: 'ip protocol' | 'meta l4proto'; negate: boolean; values: string[] }
+  | { kind: 'addr'; family?: 4 | 6; field: 'saddr' | 'daddr'; negate: boolean; values: string[] }
+  | { kind: 'l4proto'; via: 'ip protocol' | 'meta l4proto' | 'ip6 nexthdr'; negate: boolean; values: string[] }
+  | { kind: 'nfproto'; values: ('ipv4' | 'ipv6')[] }
   | { kind: 'port'; proto: 'tcp' | 'udp' | 'th'; field: 'sport' | 'dport'; negate: boolean; values: string[] }
   | { kind: 'ctstate'; values: string[] }
   | { kind: 'iface'; field: 'iif' | 'oif' | 'iifname' | 'oifname'; negate: boolean; values: string[] }
-  | { kind: 'icmptype'; values: string[] };
+  | { kind: 'icmptype'; v6?: boolean; values: string[] };
 
 export type Verdict =
   | { kind: 'accept' }
@@ -111,7 +116,10 @@ function unquote(s: string): string {
   return s.startsWith('"') && s.endsWith('"') ? s.slice(1, -1) : s;
 }
 
-const PROTOS = ['tcp', 'udp', 'icmp', 'icmpv6', 'sctp', 'gre', 'esp', 'ah'];
+const PROTOS = ['tcp', 'udp', 'icmp', 'ipv6-icmp', 'sctp', 'gre', 'esp', 'ah'];
+/** nft accepts "icmpv6" as an alias and lists it as "ipv6-icmp". */
+const protoName = (v: string) => (v === 'icmpv6' ? 'ipv6-icmp' : v);
+const ICMPV6_TYPES = ['destination-unreachable', 'packet-too-big', 'time-exceeded', 'parameter-problem', 'echo-request', 'echo-reply', 'mld-listener-query', 'mld-listener-report', 'nd-router-solicit', 'nd-router-advert', 'nd-neighbor-solicit', 'nd-neighbor-advert', 'nd-redirect'];
 const CT_STATES = ['new', 'established', 'related', 'invalid', 'untracked'];
 const ICMP_TYPES = ['echo-reply', 'destination-unreachable', 'echo-request', 'time-exceeded', 'redirect', 'parameter-problem'];
 const SERVICE_PORTS: Record<string, number> = { ssh: 22, http: 80, https: 443, domain: 53, ntp: 123, smtp: 25, rdp: 3389, 'ms-wbt-server': 3389, ldap: 389, kerberos: 88 };
@@ -159,16 +167,31 @@ export function parseRuleExpr(text: string, handle: number): Rule {
       }
       case 'ip6': {
         const f = next();
-        const neg = negation();
-        const v = next();
-        rule.matches.push({ kind: 'ip6', text: `ip6 ${f} ${neg ? '!= ' : ''}${v}` });
+        if (f === 'saddr' || f === 'daddr') {
+          const neg = negation();
+          const vals = setValues(next());
+          for (const v of vals) if (!parseCidr6(v)) throw new NftError(`Could not resolve hostname: ${v}`);
+          rule.matches.push({ kind: 'addr', family: 6, field: f, negate: neg, values: vals });
+        } else if (f === 'nexthdr') {
+          const neg = negation();
+          const vals = setValues(next()).map(protoName);
+          for (const v of vals) if (!PROTOS.includes(v)) throw new NftError(`syntax error, unexpected ${v}`);
+          rule.matches.push({ kind: 'l4proto', via: 'ip6 nexthdr', negate: neg, values: vals });
+        } else throw new NftError(`syntax error, unexpected ${f}`);
         break;
       }
       case 'meta': {
         const f = next();
+        if (f === 'nfproto') {
+          const vals = setValues(next());
+          for (const v of vals) if (v !== 'ipv4' && v !== 'ipv6') throw new NftError(`syntax error, unexpected ${v}`);
+          rule.matches.push({ kind: 'nfproto', values: vals as ('ipv4' | 'ipv6')[] });
+          break;
+        }
         if (f !== 'l4proto') throw new NftError(`syntax error, unexpected ${f}`);
         const neg = negation();
-        const vals = setValues(next());
+        const vals = setValues(next()).map(protoName);
+        for (const v of vals) if (!PROTOS.includes(v)) throw new NftError(`syntax error, unexpected ${v}`);
         rule.matches.push({ kind: 'l4proto', via: 'meta l4proto', negate: neg, values: vals });
         break;
       }
@@ -204,6 +227,14 @@ export function parseRuleExpr(text: string, handle: number): Rule {
         const vals = setValues(next());
         for (const v of vals) if (!ICMP_TYPES.includes(v)) throw new NftError(`syntax error, unexpected ${v}`);
         rule.matches.push({ kind: 'icmptype', values: vals });
+        break;
+      }
+      case 'icmpv6': {
+        const f = next();
+        if (f !== 'type') throw new NftError(`syntax error, unexpected ${f}`);
+        const vals = setValues(next());
+        for (const v of vals) if (!ICMPV6_TYPES.includes(v)) throw new NftError(`syntax error, unexpected ${v}`);
+        rule.matches.push({ kind: 'icmptype', v6: true, values: vals });
         break;
       }
       case 'counter': {
@@ -259,7 +290,7 @@ export function parseRuleExpr(text: string, handle: number): Rule {
           if (a === 'tcp') {
             if (next() !== 'reset') throw new NftError('syntax error, expecting reset');
             w = 'tcp-reset';
-          } else if (a === 'icmp' || a === 'icmpx') {
+          } else if (a === 'icmp' || a === 'icmpx' || a === 'icmpv6') {
             if (next() !== 'type') throw new NftError('syntax error, expecting type');
             const ty = next();
             const map: Record<string, RejectType> = {
@@ -267,6 +298,9 @@ export function parseRuleExpr(text: string, handle: number): Rule {
               'admin-prohibited': 'admin-prohibited',
               'host-unreachable': 'host-unreachable',
               'net-unreachable': 'net-unreachable',
+              // ICMPv6 names (RFC 4443 codes 0, 3)
+              'no-route': 'net-unreachable',
+              'addr-unreachable': 'host-unreachable',
             };
             if (!map[ty]) throw new NftError(`syntax error, unexpected ${ty}`);
             w = map[ty];
@@ -368,13 +402,13 @@ function fmtSet(vals: string[], quote = false): string {
 export function renderMatch(m: MatchExpr): string {
   const neg = (b: boolean) => (b ? '!= ' : '');
   switch (m.kind) {
-    case 'addr': return `ip ${m.field} ${neg(m.negate)}${fmtSet(m.values)}`;
-    case 'ip6': return m.text;
+    case 'addr': return `${m.family === 6 ? 'ip6' : 'ip'} ${m.field} ${neg(m.negate)}${fmtSet(m.values)}`;
+    case 'nfproto': return `meta nfproto ${fmtSet(m.values)}`;
     case 'l4proto': return `${m.via} ${neg(m.negate)}${fmtSet(m.values)}`;
     case 'port': return `${m.proto} ${m.field} ${neg(m.negate)}${fmtSet(m.values)}`;
     case 'ctstate': return `ct state ${m.values.join(',')}`;
     case 'iface': return `${m.field} ${neg(m.negate)}${fmtSet(m.values, true)}`;
-    case 'icmptype': return `icmp type ${fmtSet(m.values)}`;
+    case 'icmptype': return `${m.v6 ? 'icmpv6' : 'icmp'} type ${fmtSet(m.values)}`;
   }
 }
 
@@ -429,6 +463,8 @@ export function renderRuleset(rs: Ruleset, withHandle = false): string {
 // ---------------------------------------------------------------------------
 
 export interface PacketContext {
+  /** Address family of the packet (default 4). */
+  family?: 4 | 6;
   src: string;
   dst: string;
   proto: 'tcp' | 'udp' | 'icmp';
@@ -437,7 +473,7 @@ export interface PacketContext {
   icmpType?: string;
   iif?: string;
   oif?: string;
-  ctState: 'new' | 'established' | 'related';
+  ctState: 'new' | 'established' | 'related' | 'untracked';
   len: number;
 }
 
@@ -452,16 +488,22 @@ export interface EvalResult {
 }
 
 function matchOne(m: MatchExpr, p: PacketContext): boolean {
+  const fam = p.family ?? 4;
   switch (m.kind) {
     case 'addr': {
+      // "ip saddr" only applies to IPv4 packets, "ip6 saddr" only to IPv6 (even with "!=").
+      if ((m.family ?? 4) !== fam) return false;
       const ip = m.field === 'saddr' ? p.src : p.dst;
-      const hit = m.values.some((v) => inCidr(ip, parseCidr(v)!));
+      const hit = m.values.some((v) => (fam === 6 ? inCidr6(ip, parseCidr6(v)!) : inCidr(ip, parseCidr(v)!)));
       return m.negate ? !hit : hit;
     }
-    case 'ip6':
-      return false;
+    case 'nfproto':
+      return m.values.includes(fam === 6 ? 'ipv6' : 'ipv4');
     case 'l4proto': {
-      const hit = m.values.includes(p.proto);
+      if (m.via === 'ip protocol' && fam !== 4) return false;
+      if (m.via === 'ip6 nexthdr' && fam !== 6) return false;
+      const name = p.proto === 'icmp' && fam === 6 ? 'ipv6-icmp' : p.proto;
+      const hit = m.values.includes(name);
       return m.negate ? !hit : hit;
     }
     case 'port': {
@@ -482,12 +524,13 @@ function matchOne(m: MatchExpr, p: PacketContext): boolean {
       return m.negate ? !hit : hit;
     }
     case 'icmptype':
-      return p.proto === 'icmp' && p.icmpType !== undefined && m.values.includes(p.icmpType);
+      return p.proto === 'icmp' && (fam === 6) === !!m.v6 && p.icmpType !== undefined && m.values.includes(p.icmpType);
   }
 }
 
-function familyApplies(f: Family): boolean {
-  return f === 'inet' || f === 'ip';
+function familyApplies(f: Family, p: PacketContext): boolean {
+  const fam = p.family ?? 4;
+  return f === 'inet' || (f === 'ip' && fam === 4) || (f === 'ip6' && fam === 6);
 }
 
 /**
@@ -507,7 +550,7 @@ export function evaluate(rs: Ruleset, hook: Hook, p: PacketContext, steps?: Expl
   const logs: string[] = [];
   const bases: { table: Table; chain: Chain }[] = [];
   for (const t of rs.tables) {
-    if (!familyApplies(t.family)) continue;
+    if (!familyApplies(t.family, p)) continue;
     for (const c of t.chains) if (c.base && c.base.hook === hook && c.base.type === 'filter') bases.push({ table: t, chain: c });
   }
   bases.sort((a, b) => a.chain.base!.priority - b.chain.base!.priority);
@@ -596,7 +639,7 @@ export function explainPacket(rs: Ruleset, hook: Hook, p: PacketContext): { resu
 export function evaluateNat(rs: Ruleset, hook: 'prerouting' | 'postrouting', p: PacketContext): { nat: NonNullable<EvalResult['nat']>; rule: Rule; table: string; chain: string } | null {
   const bases: { table: Table; chain: Chain }[] = [];
   for (const t of rs.tables) {
-    if (!familyApplies(t.family)) continue;
+    if (!familyApplies(t.family, p)) continue;
     for (const c of t.chains) if (c.base && c.base.hook === hook && c.base.type === 'nat') bases.push({ table: t, chain: c });
   }
   bases.sort((a, b) => a.chain.base!.priority - b.chain.base!.priority);

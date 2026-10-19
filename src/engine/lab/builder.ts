@@ -35,9 +35,10 @@ export interface HostSpec {
   hostname: string;
   domain: string;
   role: string;
-  kind?: 'linux' | 'router';
+  kind?: 'linux' | 'router' | 'switch';
   osName?: string;
-  ifaces: { name: string; mac: string; segment: string }[];
+  /** segment: fixed broadcast domain; null for NICs cabled to the switch (derived from its VLAN config). */
+  ifaces: { name: string; mac: string; segment: string | null }[];
   services: string[];
 }
 
@@ -61,15 +62,18 @@ export function createHost(world: World, spec: HostSpec): Host {
     users: {},
     fs: {},
     ifaces: [
-      { name: 'lo', mac: '00:00:00:00:00:00', segment: null, address: '127.0.0.1', prefix: 8, up: true },
-      ...spec.ifaces.map((i) => ({ ...i, address: null, prefix: null, up: false })),
+      { name: 'lo', mac: '00:00:00:00:00:00', segment: null, address: '127.0.0.1', prefix: 8, up: true, addrs6: [{ address: '::1', prefix: 128, scope: 'host', origin: 'kernel' }] },
+      ...spec.ifaces.map((i) => ({ ...i, address: null, prefix: null, up: false, staticSegment: i.segment, addrs6: [] })),
     ],
     routes: [],
+    routes6: [],
     neighbors: [],
     nft: emptyRuleset(),
     conntrack: [],
     nat: [],
     ipForward: false,
+    ip6Forward: false,
+    bridge: spec.kind === 'switch' ? null : undefined,
     services: {},
     journal: [],
     capture: [],
