@@ -31,8 +31,25 @@ export interface GoalResult {
   authMethod?: string;
 }
 
+export function goalLabel(goal: Goal): string {
+  if (goal.kind === 'http') return `${goal.fromHost}: curl ${goal.url}`;
+  if (goal.kind === 'resolve') return `${goal.fromHost}: resolve ${goal.name}`;
+  return `${goal.user}@${goal.target}`;
+}
+
 export function checkGoal(world: World, goal: Goal): GoalResult {
   const w = structuredClone(world);
+  if (goal.kind === 'http' || goal.kind === 'resolve') {
+    let cur = w;
+    const user = goal.kind === 'http' ? goal.fromUser : 'root';
+    const home = cur.hosts[goal.fromHost].users[user].home;
+    const sh = new Shell(() => cur, (n) => (cur = n), { hostId: goal.fromHost, user, cwd: home });
+    const line = goal.kind === 'http' ? `curl -I -m 10 ${goal.url}` : `getent hosts ${goal.name}`;
+    const r = sh.execute(line);
+    const lines = [`$ ${line}`, ...(r.output ? r.output.split('\n') : ['(no output)'])];
+    const ok = goal.kind === 'http' ? /^HTTP\/1\.1 200/.test(r.output) : r.code === 0 && r.output.startsWith(goal.expect + ' ');
+    return { goal, ok, lines };
+  }
   const res = runSsh(w, {
     clientHostId: 'ws01',
     localUser: goal.localUser,
@@ -186,7 +203,7 @@ export function sessionStillWorks(goal: Goal, id: string, description: string): 
     description,
     check(world) {
       const r = checkGoal(world, goal);
-      return { id, ok: r.ok, required: true, message: r.ok ? `${goal.user} can still log in.` : `${goal.user} can no longer log in: ${r.lines[r.lines.length - 1] ?? ''}` };
+      return { id, ok: r.ok, required: true, message: r.ok ? `${goalLabel(goal)} still works.` : `${goalLabel(goal)} no longer works: ${r.lines[r.lines.length - 1] ?? ''}` };
     },
   };
 }

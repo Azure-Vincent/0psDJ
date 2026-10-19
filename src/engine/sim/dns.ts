@@ -11,6 +11,7 @@ import { isIp } from '../net/ip';
 import type { Host, Packet, World } from '../types';
 import { utf8 } from '../util/sha256';
 import { nextId, sendIcmpError, sourceAddress, transmit } from './network';
+import { activeRecorder } from './trace';
 import { findListener, type NamedLoaded } from './services';
 
 export interface DnsExchange {
@@ -96,7 +97,12 @@ export function dnsQuery(world: World, host: Host, server: string, qname: string
     },
   };
   const start = world.clock;
+  const rec = activeRecorder();
+  const prevPhase = rec?.phase;
+  if (rec) rec.phase = 'DNS';
   const d = transmit(world, host.id, q);
+  rec?.describe(q.id, `DNS query: A ${qname}`, `The stub resolver sends one UDP datagram from an ephemeral port to ${server}:53 asking for the A record of "${qname}" with "recursion desired" set. There is no handshake: if the datagram or its answer is lost, the resolver waits for its timeout (${timeoutS} s here) and retries.`);
+  if (rec && prevPhase) rec.phase = prevPhase;
   if (d.status === 'local-error') return { server, qname, outcome: 'unreachable', rttMs: 0 };
   if (d.status !== 'delivered') {
     // An ICMP error (port unreachable, admin-prohibited, host unreachable) makes
@@ -136,7 +142,14 @@ export function dnsQuery(world: World, host: Host, server: string, qname: string
     },
   };
   world.clock += 0.4;
+  if (rec) rec.phase = 'DNS';
   const back = transmit(world, srv.id, r);
+  rec?.describe(r.id, `DNS response: ${ans.rcode}${ans.answers.length ? ' ' + ans.answers.map((a) => a.data).join(', ') : ''}`, ans.rcode === 'NOERROR'
+    ? `${srv.hostname} is authoritative for the zone ("aa" flag) and answers from its loaded zone data. The transaction ID matches the query, which is how the client pairs them.`
+    : ans.rcode === 'NXDOMAIN' ? 'The name does not exist in the zone. The resolver will try the next search-domain candidate, if any.'
+      : ans.rcode === 'SERVFAIL' ? 'The server is responsible for this zone but could not load it, so it cannot answer. glibc reports this as "Temporary failure in name resolution".'
+        : 'The server is not authoritative for this name and does not recurse, so it refuses.');
+  if (rec && prevPhase) rec.phase = prevPhase;
   if (back.status !== 'delivered') {
     world.clock += timeoutS * 1000;
     return { server, qname, outcome: 'timeout', rttMs: timeoutS * 1000 };

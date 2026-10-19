@@ -17,7 +17,7 @@ export type MatchExpr =
   | { kind: 'addr'; field: 'saddr' | 'daddr'; negate: boolean; values: string[] }
   | { kind: 'ip6' ; text: string }
   | { kind: 'l4proto'; via: 'ip protocol' | 'meta l4proto'; negate: boolean; values: string[] }
-  | { kind: 'port'; proto: 'tcp' | 'udp'; field: 'sport' | 'dport'; negate: boolean; values: string[] }
+  | { kind: 'port'; proto: 'tcp' | 'udp' | 'th'; field: 'sport' | 'dport'; negate: boolean; values: string[] }
   | { kind: 'ctstate'; values: string[] }
   | { kind: 'iface'; field: 'iif' | 'oif' | 'iifname' | 'oifname'; negate: boolean; values: string[] }
   | { kind: 'icmptype'; values: string[] };
@@ -171,7 +171,8 @@ export function parseRuleExpr(text: string, handle: number): Rule {
         break;
       }
       case 'tcp':
-      case 'udp': {
+      case 'udp':
+      case 'th': {
         const f = next();
         if (f !== 'sport' && f !== 'dport') throw new NftError(`syntax error, unexpected ${f}`);
         const neg = negation();
@@ -446,7 +447,7 @@ function matchOne(m: MatchExpr, p: PacketContext): boolean {
       return m.negate ? !hit : hit;
     }
     case 'port': {
-      if (p.proto !== m.proto) return false;
+      if (m.proto === 'th' ? p.proto === 'icmp' : p.proto !== m.proto) return false;
       const port = m.field === 'sport' ? p.sport : p.dport;
       if (port === undefined) return false;
       const hit = m.values.some((v) => {
@@ -475,7 +476,16 @@ function familyApplies(f: Family): boolean {
  * Evaluate a packet against every base chain registered on `hook`, in priority
  * order. Mutates rule counters (just like the kernel).
  */
-export function evaluate(rs: Ruleset, hook: Hook, p: PacketContext): EvalResult {
+export interface ExplainStep {
+  table: string;
+  chain: string;
+  handle: number | null;
+  text: string;
+  matched: boolean;
+  outcome: string;
+}
+
+export function evaluate(rs: Ruleset, hook: Hook, p: PacketContext, steps?: ExplainStep[]): EvalResult {
   const logs: string[] = [];
   const bases: { table: Table; chain: Chain }[] = [];
   for (const t of rs.tables) {
@@ -486,7 +496,7 @@ export function evaluate(rs: Ruleset, hook: Hook, p: PacketContext): EvalResult 
   let last: EvalResult['decidedBy'] = null;
 
   for (const { table, chain } of bases) {
-    const r = runChain(table, chain, p, logs, 0);
+    const r = runChain(table, chain, p, logs, 0, steps);
     if (r.verdict === 'drop' || r.verdict === 'reject') {
       return { verdict: r.verdict, rejectWith: r.rejectWith, decidedBy: r.decidedBy, logs };
     }
@@ -495,9 +505,18 @@ export function evaluate(rs: Ruleset, hook: Hook, p: PacketContext): EvalResult 
   return { verdict: 'accept', decidedBy: last, logs };
 }
 
-function runChain(table: Table, chain: Chain, p: PacketContext, logs: string[], depth: number): EvalResult & { returned?: boolean } {
+function runChain(table: Table, chain: Chain, p: PacketContext, logs: string[], depth: number, steps?: ExplainStep[]): EvalResult & { returned?: boolean } {
+  const tname = `${table.family} ${table.name}`;
   for (const rule of chain.rules) {
-    if (!rule.matches.every((m) => matchOne(m, p))) continue;
+    const hit = rule.matches.every((m) => matchOne(m, p));
+    if (steps) {
+      const v = rule.verdict;
+      steps.push({
+        table: tname, chain: chain.name, handle: rule.handle, text: renderRule(rule), matched: hit,
+        outcome: !hit ? 'no match, continue' : !v ? 'match (counter/log only), continue' : v.kind === 'jump' ? `match, jump to ${v.chain}` : v.kind === 'return' ? 'match, return' : `match → ${v.kind}`,
+      });
+    }
+    if (!hit) continue;
     if (rule.counter) {
       rule.counter.packets += 1;
       rule.counter.bytes += p.len;
@@ -513,12 +532,13 @@ function runChain(table: Table, chain: Chain, p: PacketContext, logs: string[], 
     if (v.kind === 'jump' && depth < 16) {
       const target = table.chains.find((c) => c.name === v.chain);
       if (target) {
-        const r = runChain(table, target, p, logs, depth + 1);
+        const r = runChain(table, target, p, logs, depth + 1, steps);
         if (!r.returned) return r;
       }
     }
   }
   if (!chain.base) return { verdict: 'accept', decidedBy: null, logs, returned: true };
+  steps?.push({ table: tname, chain: chain.name, handle: null, text: `policy ${chain.base.policy}`, matched: true, outcome: `end of chain → policy ${chain.base.policy}` });
   return {
     verdict: chain.base.policy,
     decidedBy: { table: `${table.family} ${table.name}`, chain: chain.name, rule: null, policy: true },
@@ -540,4 +560,11 @@ export function cloneRuleset(rs: Ruleset): Ruleset {
 
 export function isValidAddress(s: string): boolean {
   return parseIp(s) !== null;
+}
+
+/** Evaluate without touching counters, returning every rule considered (for teaching tools). */
+export function explainPacket(rs: Ruleset, hook: Hook, p: PacketContext): { result: EvalResult; steps: ExplainStep[] } {
+  const steps: ExplainStep[] = [];
+  const result = evaluate(cloneRuleset(rs), hook, p, steps);
+  return { result, steps };
 }

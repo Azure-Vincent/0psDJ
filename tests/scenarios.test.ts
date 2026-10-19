@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { buildSshLab } from '../src/engine/lab/sshLab';
 import { checkGoal, gradeDiagnosis, verifyScenario } from '../src/engine/scenarios/engine';
-import { SSH_SCENARIOS } from '../src/engine/scenarios/sshScenarios';
+import { ALL_SCENARIOS as SSH_SCENARIOS } from '../src/engine/scenarios';
 import { CAUSES } from '../src/engine/scenarios/catalog';
 import { Lab } from './helpers';
 
@@ -20,6 +20,11 @@ const SYMPTOM: Record<string, RegExp> = {
   'ssh-bob-password': /Permission denied \(publickey\)/,
   'ssh-dns-zone-error': /Temporary failure in name resolution/,
   'ssh-monday-reboot': /Connection timed out/,
+  'fw-nginx-stopped': /Couldn't connect to server/,
+  'fw-tcp-reset': /Couldn't connect to server/,
+  'fw-cidr-guest': /Connection timed out/,
+  'fw-no-established': /\$ getent hosts ns1.corp.lab\n\(no output\)/,
+  'fw-router-forward': /curl: \(28\)|after \d+ ms/,
 };
 
 describe.each(SSH_SCENARIOS.map((s) => [s.id, s] as const))('scenario %s', (id, scenario) => {

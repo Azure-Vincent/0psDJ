@@ -1,16 +1,22 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { SSH_LESSON } from '../../content/ssh/lesson';
-import { SSH_ASSESSMENT } from '../../content/ssh/assessment';
-import type { Section } from '../../content/types';
+import { ASSESSMENTS, getLesson } from '../../content/lessons';
+import { CURRICULUM } from '../../content/curriculum';
+import type { Lesson, Section } from '../../content/types';
+import { FIREWALL_RUNS } from '../../engine/lab/visualRuns';
 import { OUTCOME_LABELS, SSH_DEPENDENCIES, freshLab, runWithFault } from '../../engine/lab/dependencies';
-import { SSH_SCENARIOS } from '../../engine/scenarios/sshScenarios';
+import { ALL_SCENARIOS } from '../../engine/scenarios';
 import type { World } from '../../engine/types';
 import { AssessmentView } from '../components/Assessment';
 import { ConfigExplorer } from '../components/ConfigExplorer';
 import { DependencyMap } from '../components/DependencyMap';
 import { LabTerminals } from '../components/LabTerminals';
 import { Inline, Markdown } from '../components/Markdown';
-import { SequenceDiagram, type Lane } from '../components/SequenceDiagram';
+import { SequenceDiagram } from '../components/SequenceDiagram';
+import { CidrCalculator, HookDiagram, PacketTester } from '../components/FirewallWidgets';
+import { RunVisualizer } from '../components/RunVisualizer';
+import { LAB_LANES, segmentOf } from '../components/labLanes';
+import type { TermSpec } from '../components/LabTerminals';
+import type { ReactNode } from 'react';
 import { go, routeQuery, useProgress } from '../state';
 
 export const SECTIONS: Section[] = [
@@ -23,20 +29,7 @@ export const SECTIONS: Section[] = [
   { id: 'assess', title: 'Assessment' },
 ];
 
-const LANES: Lane[] = [
-  { id: 'ws01', label: 'ws01', sub: 'client 10.0.10.25' },
-  { id: 'ns1', label: 'ns1', sub: 'DNS 10.0.10.53' },
-  { id: 'rtr01', label: 'rtr01', sub: 'router .10.1 / .20.1' },
-  { id: 'srv01', label: 'srv01', sub: 'sshd 10.0.20.10' },
-];
-
-function segmentOf(host: string, iface?: string): string {
-  if (host === 'rtr01') return iface === 'eth1' ? 'srv20' : 'lan10';
-  if (host === 'srv01') return 'srv20';
-  return 'lan10';
-}
-
-function Visualize() {
+function SshVisualize() {
   const q = routeQuery();
   const [fault, setFault] = useState<string>(q.get('fault') ?? '');
   const run = useMemo(() => runWithFault(fault || null), [fault]);
@@ -55,7 +48,7 @@ function Visualize() {
         </label>
         <span className="small muted">{run.trace.length} events · client result: <strong>{OUTCOME_LABELS[run.outcome]}</strong></span>
       </div>
-      <SequenceDiagram events={run.trace} lanes={LANES} segmentOf={segmentOf} />
+      <SequenceDiagram events={run.trace} lanes={LAB_LANES} segmentOf={segmentOf} />
       <details className="card" style={{ marginTop: 12 }}>
         <summary><strong>Client output (ssh -v) for this run</strong></summary>
         <pre style={{ maxHeight: 360 }}>{run.lines.join('\n')}</pre>
@@ -69,7 +62,7 @@ function Visualize() {
   );
 }
 
-function Sandbox() {
+function Sandbox({ specs }: { specs: TermSpec[] }) {
   const worldRef = useRef<World | null>(null);
   const [key, setKey] = useState(0);
   if (!worldRef.current) worldRef.current = freshLab();
@@ -81,18 +74,15 @@ function Sandbox() {
       </div>
       <p className="small muted">Try the steps marked "simulated" here. alice's password on ws01 (for sudo) is <code>ws01-alice</code>. Changes only affect this sandbox.</p>
       <LabTerminals key={key} getWorld={() => worldRef.current!} setWorld={(w) => (worldRef.current = w)} height={380}
-        specs={[
-          { hostId: 'ws01', user: 'alice', label: 'ws01 (alice)', banner: 'Sandbox: ws01, Debian 12. Type "help" for the available commands.' },
-          { hostId: 'srv01', user: 'root', label: 'srv01 console (root)', banner: 'Sandbox: out-of-band console on srv01.' },
-        ]} />
+        specs={specs} />
     </div>
   );
 }
 
-function Deploy() {
-  const [platform, setPlatform] = useState(SSH_LESSON.deployment[0].id);
+function Deploy({ L, specs }: { L: Lesson; specs: TermSpec[] }) {
+  const [platform, setPlatform] = useState(L.deployment[0].id);
   const [sandbox, setSandbox] = useState(false);
-  const guide = SSH_LESSON.deployment.find((d) => d.id === platform)!;
+  const guide = L.deployment.find((d) => d.id === platform)!;
   return (
     <div>
       <div className="callout warn small">
@@ -100,12 +90,12 @@ function Deploy() {
         <span className="badge accent" style={{ margin: '0 4px' }}>simulated</span> can also be practised against the simulated lab in the sandbox.
       </div>
       <div className="row">
-        {SSH_LESSON.deployment.map((d) => (
+        {L.deployment.map((d) => (
           <button key={d.id} className={d.id === platform ? 'primary' : ''} onClick={() => setPlatform(d.id)}>{d.platform}</button>
         ))}
         <button onClick={() => setSandbox((s) => !s)}>{sandbox ? 'Hide sandbox' : 'Open sandbox terminals'}</button>
       </div>
-      {sandbox && <div style={{ marginTop: 12 }}><Sandbox /></div>}
+      {sandbox && <div style={{ marginTop: 12 }}><Sandbox specs={specs} /></div>}
       <h2>{guide.platform}</h2>
       <Markdown text={guide.summary} />
       <h3>Prerequisites</h3>
@@ -125,13 +115,11 @@ function Deploy() {
   );
 }
 
-function Config() {
-  const L = SSH_LESSON;
+function Config({ L, tool }: { L: Lesson; tool?: { title: string; node: ReactNode } }) {
   return (
     <div>
       <Markdown text={L.configIntro} />
-      <h2>Effective-configuration explorer</h2>
-      <ConfigExplorer />
+      {tool && <><h2>{tool.title}</h2>{tool.node}</>}
       <h2>Files, services and logs</h2>
       <div className="grid2">
         {L.configFiles.map((g) => (
@@ -142,7 +130,6 @@ function Config() {
         ))}
       </div>
       <h2>Important directives</h2>
-      <p className="small muted">Listening interfaces and ports: Port / ListenAddress. Service dependency: the network and a valid configuration (sshd -t) at start; PAM for passwords and sessions. Defaults are OpenSSH 9.2 compiled defaults; Debian overrides are shown where they differ.</p>
       <table>
         <thead><tr><th>Directive</th><th>Default</th><th>Recommended</th><th>What it does</th><th>Security implications</th></tr></thead>
         <tbody>
@@ -161,9 +148,8 @@ function Config() {
   );
 }
 
-function Troubleshoot() {
+function Troubleshoot({ L }: { L: Lesson }) {
   const { progress } = useProgress();
-  const L = SSH_LESSON;
   return (
     <div>
       <Markdown text={L.troubleshootingIntro} />
@@ -180,7 +166,7 @@ function Troubleshoot() {
       <p className="muted small">Each scenario breaks the lab in a realistic way. You investigate with real commands, record a diagnosis, repair it, and the engine verifies the fix now, after a reboot of every host, and against the security policy.</p>
       <div className="grid3">
         {L.scenarioIds.map((id) => {
-          const s = SSH_SCENARIOS.find((x) => x.id === id)!;
+          const s = ALL_SCENARIOS.find((x) => x.id === id)!;
           const attempts = progress.attempts.filter((a) => a.scenarioId === id);
           const solved = attempts.some((a) => a.status === 'resolved');
           return (
@@ -199,30 +185,65 @@ function Troubleshoot() {
   );
 }
 
-export function LessonPage({ section }: { section: string }) {
+interface LessonWidgets {
+  internals?: ReactNode;
+  visualize: ReactNode;
+  configTool?: { title: string; node: ReactNode };
+  sandbox: TermSpec[];
+}
+
+function widgetsFor(id: string): LessonWidgets {
+  const ws01: TermSpec = { hostId: 'ws01', user: 'alice', label: 'ws01 (alice)', banner: 'Sandbox: ws01, Debian 12. Type "help" for the available commands.' };
+  const srv01: TermSpec = { hostId: 'srv01', user: 'root', label: 'srv01 console (root)', banner: 'Sandbox: out-of-band console on srv01.' };
+  if (id === 'nftables') {
+    return {
+      internals: (
+        <>
+          <h2>Netfilter hooks</h2>
+          <HookDiagram />
+          <h2>Prefixes are ranges</h2>
+          <CidrCalculator />
+        </>
+      ),
+      visualize: <RunVisualizer runs={FIREWALL_RUNS} />,
+      configTool: { title: 'Packet tester (rule-by-rule evaluation)', node: <PacketTester /> },
+      sandbox: [ws01, srv01, { hostId: 'rtr01', user: 'root', label: 'rtr01 console (root)', banner: 'Sandbox: console on the router rtr01.' }],
+    };
+  }
+  return {
+    internals: <><h2>Interactive dependency map</h2><DependencyMap /></>,
+    visualize: <SshVisualize />,
+    configTool: { title: 'Effective-configuration explorer', node: <ConfigExplorer /> },
+    sandbox: [ws01, srv01],
+  };
+}
+
+export function LessonPage({ lessonId, section }: { lessonId: string; section: string }) {
   const { update } = useProgress();
-  const L = SSH_LESSON;
+  const L = getLesson(lessonId);
   const sec = SECTIONS.find((s) => s.id === section) ? section : 'what';
   useEffect(() => {
+    if (!L) return;
     update((p) => {
       const cur = p.lessons[L.id] ?? { visited: [] };
       if (cur.visited.includes(sec) && cur.lastSection === sec) return p;
       return { ...p, lessons: { ...p.lessons, [L.id]: { visited: [...new Set([...cur.visited, sec])], lastSection: sec } } };
     });
-  }, [sec, update, L.id]);
+  }, [sec, update, L]);
+  if (!L) return <div className="page"><h1>Unknown lesson</h1></div>;
+  const mod = CURRICULUM.find((m) => m.id === L.moduleId);
+  const w = widgetsFor(L.id);
 
   return (
     <div className="page">
-      <div className="spread">
-        <div>
-          <div className="muted small">Module B · Remote Access and Administration</div>
-          <h1>{L.title}</h1>
-          <div className="muted">{L.summary}</div>
-        </div>
+      <div>
+        <div className="muted small">Module {L.moduleId} · {mod?.title} · {L.level}</div>
+        <h1>{L.title}</h1>
+        <div className="muted">{L.summary}</div>
       </div>
       <div className="tabs" role="tablist">
         {SECTIONS.map((s, i) => (
-          <button key={s.id} role="tab" aria-selected={sec === s.id} className={sec === s.id ? 'active' : ''} onClick={() => go(`lesson/ssh/${s.id}`)}>
+          <button key={s.id} role="tab" aria-selected={sec === s.id} className={sec === s.id ? 'active' : ''} onClick={() => go(`lesson/${L.id}/${s.id}`)}>
             <span className="n">{i + 1}</span>{s.title}
           </button>
         ))}
@@ -231,18 +252,17 @@ export function LessonPage({ section }: { section: string }) {
       {sec === 'internals' && (
         <>
           <Markdown text={L.internals} />
-          <h2>Interactive dependency map</h2>
-          <DependencyMap />
+          {w.internals}
           <h2>References</h2>
           <ul>{L.references.map((r) => <li key={r.url}><a href={r.url} target="_blank" rel="noreferrer">{r.title}</a></li>)}</ul>
           <p className="small muted">Links open in your browser and need internet access; everything else in the app works offline.</p>
         </>
       )}
-      {sec === 'visualize' && <Visualize />}
-      {sec === 'deploy' && <Deploy />}
-      {sec === 'config' && <Config />}
-      {sec === 'troubleshoot' && <Troubleshoot />}
-      {sec === 'assess' && <AssessmentView assessment={SSH_ASSESSMENT} />}
+      {sec === 'visualize' && w.visualize}
+      {sec === 'deploy' && <Deploy L={L} specs={w.sandbox} />}
+      {sec === 'config' && <Config L={L} tool={w.configTool} />}
+      {sec === 'troubleshoot' && <Troubleshoot L={L} />}
+      {sec === 'assess' && <AssessmentView assessment={ASSESSMENTS[L.assessmentId]} />}
     </div>
   );
 }

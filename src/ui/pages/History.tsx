@@ -1,4 +1,4 @@
-import { SSH_SCENARIOS } from '../../engine/scenarios/sshScenarios';
+import { ALL_SCENARIOS } from '../../engine/scenarios';
 import { CAUSES } from '../../engine/scenarios/catalog';
 import { go, useProgress } from '../state';
 
@@ -9,7 +9,7 @@ export function History({ id }: { id?: string }) {
   const attempts = progress.attempts.slice().reverse();
   const a = id ? progress.attempts.find((x) => x.id === id) : undefined;
   if (a) {
-    const s = SSH_SCENARIOS.find((x) => x.id === a.scenarioId);
+    const s = ALL_SCENARIOS.find((x) => x.id === a.scenarioId);
     return (
       <div className="page">
         <button className="link" onClick={() => go('history')}>← All attempts</button>
@@ -42,7 +42,7 @@ export function History({ id }: { id?: string }) {
             {attempts.map((x) => (
               <tr key={x.id}>
                 <td className="small">{fmt(x.startedAt)}</td>
-                <td>{SSH_SCENARIOS.find((s) => s.id === x.scenarioId)?.title}</td>
+                <td>{ALL_SCENARIOS.find((s) => s.id === x.scenarioId)?.title}</td>
                 <td><span className={`badge ${x.status === 'resolved' ? 'ok' : x.status === 'revealed' ? 'warn' : ''}`}>{x.status}</span></td>
                 <td>{x.hintsUsed}</td><td>{x.diagnoses.length}</td><td>{x.verifications.length}</td><td>{x.commands.length}</td>
                 <td><button className="link" onClick={() => go(`history/${x.id}`)}>details</button></td>

@@ -263,6 +263,18 @@ const nftables: ServiceDef = {
       return false;
     }
   },
+  // Debian's unit: ExecReload=/usr/sbin/nft -f /etc/nftables.conf. nft -f is atomic:
+  // if the file has an error nothing changes and the old ruleset stays loaded.
+  reload(world, host) {
+    try {
+      host.nft = parseRulesetFile(readFile(host, '/etc/nftables.conf') ?? '');
+      return true;
+    } catch (e) {
+      log(world, host, 'nft', e instanceof NftError ? e.message : String(e), { pid: allocPid(host), unit: 'nftables.service', priority: 'err' });
+      return false;
+    }
+  },
+  // ExecStop=/usr/sbin/nft flush ruleset: stopping (and therefore restarting) removes every rule.
   stop(_world, host) {
     host.nft = emptyRuleset();
   },

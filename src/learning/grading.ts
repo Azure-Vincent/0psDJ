@@ -56,15 +56,22 @@ export function gradeQuestion(q: Question, answer: unknown): GradeResult {
       return { correct: ok, feedback: [{ ok, text: ok ? 'Correct.' : 'Not accepted. Check the command name and options.' }] };
     }
     case 'nft-rule': {
-      const text = String(answer ?? '').trim().replace(/^nft\s+(add|insert)\s+rule\s+(inet|ip)\s+filter\s+input\s+/, '');
-      try {
-        parseRuleExpr(text, 1);
-      } catch (e) {
-        return { correct: false, feedback: [{ ok: false, text: `nft: Error: ${(e as Error).message}` }] };
+      // One rule per line; each may be typed with or without the "nft add rule inet filter input" prefix.
+      const rules = String(answer ?? '')
+        .split('\n')
+        .map((l) => l.trim().replace(/^nft\s+(add|insert)\s+rule\s+(inet|ip)\s+filter\s+input\s+/, ''))
+        .filter(Boolean);
+      if (rules.length === 0) return { correct: false, feedback: [{ ok: false, text: 'Write at least one rule.' }] };
+      for (const r of rules) {
+        try {
+          parseRuleExpr(r, 1);
+        } catch (e) {
+          return { correct: false, feedback: [{ ok: false, text: `nft: Error: ${(e as Error).message} (in "${r}")` }] };
+        }
       }
       let rs;
       try {
-        rs = parseRulesetFile(`table inet filter {\n chain input {\n type filter hook input priority filter; policy drop;\n${q.context.map((c) => ' ' + c).join('\n')}\n ${text}\n }\n}\n`);
+        rs = parseRulesetFile(`table inet filter {\n chain input {\n type filter hook input priority filter; policy drop;\n${[...q.context, ...rules].map((c) => ' ' + c).join('\n')}\n }\n}\n`);
       } catch (e) {
         return { correct: false, feedback: [{ ok: false, text: e instanceof NftError ? e.message : String(e) }] };
       }

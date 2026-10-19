@@ -73,9 +73,12 @@ export class TcpConn {
     const second = who === 'client' ? 's2c' : 'c2s';
     const rec = activeRecorder();
     if (rec) rec.phase = 'Teardown';
-    this.send(first, 0, undefined, ['FIN', 'ACK']);
-    this.send(second, 0, undefined, ['FIN', 'ACK']);
-    this.send(first, 0, undefined, ['ACK']);
+    const a = this.send(first, 0, undefined, ['FIN', 'ACK']);
+    const b = this.send(second, 0, undefined, ['FIN', 'ACK']);
+    const c = this.send(first, 0, undefined, ['ACK']);
+    rec?.describe(a.packet.id, `TCP FIN (${who} closes)`, `The ${who} has no more data to send. FIN consumes one sequence number. Its socket moves to FIN_WAIT_1.`);
+    rec?.describe(b.packet.id, 'TCP FIN, ACK', 'The peer acknowledges the FIN and, having nothing more to send either, sends its own FIN in the same segment.');
+    rec?.describe(c.packet.id, 'TCP ACK (close complete)', `The final ACK. The ${who} side enters TIME_WAIT (2×MSL) so that delayed segments of this connection cannot be confused with a new one; conntrack entries on firewalls along the path move to closing states.`);
   }
 }
 

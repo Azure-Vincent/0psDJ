@@ -121,5 +121,25 @@ export const CAUSES: Record<string, Cause> = Object.fromEntries(
       signature: 'Correct key/password still yields "Permission denied". The server logs "User <name> from <ip> not allowed because not listed in AllowUsers" (or similar).',
       check: 'journalctl -u ssh; sshd -T -C user=<name>,addr=<ip> | grep -i allow.',
     },
+    {
+      id: 'web-not-running', title: 'Web server (nginx) not running / not listening on :80', category: 'Service', concept: 'svc.listening',
+      signature: 'curl fails immediately with "Couldn\'t connect to server" (connection refused, RST from the server kernel). ss -tlnp shows nothing on :80; systemctl status nginx is inactive or failed. The firewall counters for port 80 still increase (the SYN is accepted, then refused by the kernel).',
+      check: 'ss -tlnp and systemctl status nginx on the server; compare with nft counters.',
+    },
+    {
+      id: 'fw-cidr-error', title: 'Firewall rule matches the wrong network (prefix/mask error)', category: 'Firewall', concept: 'net.cidr',
+      signature: 'Traffic from a network that should be allowed is dropped by a rule intended for a different network; the counter on that rule increases with your attempts, and your source address falls inside its prefix.',
+      check: 'nft -a list ruleset; work out the address range of each prefix (a /23 covers two /24s); journalctl -k if the rule logs.',
+    },
+    {
+      id: 'fw-missing-established', title: 'Return traffic not allowed (no "ct state established,related accept")', category: 'Firewall', concept: 'fw.stateful',
+      signature: 'Connections INITIATED by the protected host fail (DNS lookups, updates, outbound HTTP) while inbound services still work. Replies arrive on the interface (tcpdump) but are dropped by the input policy.',
+      check: 'nft list chain inet filter input (is there an established,related rule?); tcpdump on the host while running dig; conntrack -L.',
+    },
+    {
+      id: 'fw-router-forward', title: 'A firewall in the path (router forward chain) blocks the traffic', category: 'Firewall', concept: 'fw.path',
+      signature: 'Clients on other subnets time out, but the server\'s own firewall shows no matching packets and tcpdump on the server sees nothing. Other ports through the same router work. The router\'s forward chain counters/policy drop it.',
+      check: 'tcpdump on the server (silent?); on the router: nft list chain inet filter forward; traceroute -T -p PORT from the client.',
+    },
   ] as Cause[]).map((c) => [c.id, c]),
 );

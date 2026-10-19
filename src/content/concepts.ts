@@ -19,5 +19,7 @@ export const CONCEPTS: Record<ConceptId, { title: string; description: string; r
   'linux.permissions': { title: 'Unix permissions and ownership', description: 'Mode bits, owners, and the StrictModes / private-key permission checks.', review: 'lesson/ssh/config', prerequisites: [] },
   'ssh.config': { title: 'sshd configuration semantics', description: 'First-match, Include, Match blocks, sshd -t / -T, reload.', review: 'lesson/ssh/config', prerequisites: ['svc.systemd'] },
   'ssh.authz': { title: 'SSH authorization lists', description: 'AllowUsers/AllowGroups/DenyUsers and where rejections are logged.', review: 'lesson/ssh/config', prerequisites: ['ssh.userauth'] },
+  'net.cidr': { title: 'CIDR prefixes and address ranges', description: 'Which addresses a prefix like 10.0.10.0/23 actually covers.', review: 'lesson/nftables/internals', prerequisites: [] },
+  'fw.path': { title: 'Where filtering happens', description: 'Host firewalls (input/output) vs firewalls in the path (forward), and how to tell which one dropped a packet.', review: 'lesson/nftables/internals', prerequisites: ['fw.stateful', 'net.routing'] },
   'logs.journal': { title: 'Reading the journal', description: 'journalctl filters and finding the line that explains a failure.', review: 'lesson/ssh/troubleshoot', prerequisites: [] },
 };

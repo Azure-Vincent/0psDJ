@@ -1,0 +1,127 @@
+import type { Assessment } from '../types';
+
+export const NFTABLES_ASSESSMENT: Assessment = {
+  id: 'nftables',
+  title: 'nftables knowledge check',
+  questions: [
+    {
+      id: 'nft-q-hook-order', kind: 'order', level: 'beginner',
+      prompt: 'A packet from 10.0.10.25 to 10.0.20.10 is routed by rtr01. Put the steps **on rtr01** in order.',
+      items: ['Frame received on eth0', 'prerouting hook', 'Routing decision (destination is not local)', 'forward hook (TTL decremented)', 'postrouting hook', 'Frame sent on eth1'],
+      concepts: ['fw.path'],
+      explanation: 'Prerouting runs for every arriving packet; the routing decision then chooses input (local) or forward (routed). A router\'s filtering happens in forward; NAT typically in prerouting (dstnat) and postrouting (srcnat).',
+    },
+    {
+      id: 'nft-q-first-match', kind: 'single', level: 'beginner',
+      prompt: 'Given this input chain, what happens to a new SSH connection from 10.0.10.25?',
+      exhibit: 'chain input {\n\ttype filter hook input priority filter; policy drop;\n\tct state established,related accept\n\ttcp dport 22 accept\n\tip saddr 10.0.10.0/24 tcp dport 22 drop\n}',
+      options: [
+        { text: 'Accepted: the first matching rule with a verdict decides', correct: true },
+        { text: 'Dropped: the more specific rule wins', misconception: 'nftables has no notion of specificity. Rules are evaluated in order and the first verdict ends evaluation of the chain.' },
+        { text: 'Dropped: drop always takes precedence over accept', misconception: 'Within a chain, order decides. "Drop is final" applies across chains: an accept in one base chain cannot override a drop in another.' },
+      ],
+      concepts: ['fw.stateful'],
+      explanation: 'The drop rule is dead code. To restrict SSH to a network, put the narrow accept rule first and let the policy drop the rest.',
+    },
+    {
+      id: 'nft-q-symptoms', kind: 'single', level: 'beginner',
+      prompt: 'Which rule makes a client report **No route to host** when connecting to port 22, although routing works?',
+      options: [
+        { text: 'tcp dport 22 drop', misconception: 'Drop sends nothing; the client times out.' },
+        { text: 'tcp dport 22 reject with tcp reset', misconception: 'A TCP RST produces "Connection refused".' },
+        { text: 'tcp dport 22 reject with icmpx type admin-prohibited', correct: true },
+        { text: 'No rule: sshd is stopped', misconception: 'The kernel answers RST: "Connection refused".' },
+      ],
+      concepts: ['net.icmp'],
+      explanation: 'ICMP destination-unreachable with code 13 (administratively prohibited) is mapped by Linux to EHOSTUNREACH.',
+    },
+    {
+      id: 'nft-q-established', kind: 'multi', level: 'intermediate',
+      prompt: 'A server\'s input chain has policy drop and lacks `ct state established,related accept`; it has accept rules for tcp/22, tcp/80 and ICMP. Which of these break? (Select all that apply.)',
+      options: [
+        { text: 'DNS lookups made by the server', correct: true },
+        { text: 'Package downloads (apt) made by the server', correct: true },
+        { text: 'Inbound SSH sessions to the server', misconception: 'Client-to-server packets match "tcp dport 22 accept"; the server\'s replies leave through the output chain (policy accept).' },
+        { text: 'Inbound HTTP to the server', misconception: 'Same reasoning as SSH: the inbound direction matches the port rule.' },
+        { text: 'ping from the server to another host', misconception: 'The echo replies match the blanket ICMP accept rule, which is why ping misleadingly works.' },
+      ],
+      concepts: ['fw.stateful'],
+      explanation: 'Only connections initiated by the server need their replies (to random high ports) admitted, and only the established,related rule does that safely.',
+    },
+    {
+      id: 'nft-q-cidr', kind: 'text', level: 'intermediate',
+      prompt: 'What is the **last** address covered by the prefix 10.0.10.0/23?',
+      accept: ['10.0.11.255'],
+      placeholder: 'a.b.c.d',
+      concepts: ['net.cidr'],
+      explanation: '/23 leaves 9 host bits: 512 addresses, 10.0.10.0 to 10.0.11.255. It includes both 10.0.10.0/24 and 10.0.11.0/24.',
+    },
+    {
+      id: 'nft-q-handles', kind: 'text', level: 'beginner',
+      prompt: 'Type the command that lists the complete ruleset **with rule handles** (needed to delete a single rule).',
+      accept: [/^(sudo\s+)?nft\s+(-a|--handle)\s+list\s+ruleset$/, /^(sudo\s+)?nft\s+list\s+ruleset\s+(-a|--handle)$/],
+      placeholder: 'command',
+      concepts: ['fw.stateful'],
+      explanation: 'nft -a list ruleset. Then: nft delete rule inet filter input handle N.',
+    },
+    {
+      id: 'nft-q-restart', kind: 'single', level: 'intermediate',
+      prompt: 'On Debian you edit /etc/nftables.conf, introduce a syntax error, and run **systemctl restart nftables**. What is the state of the firewall afterwards?',
+      options: [
+        { text: 'The previous ruleset is still loaded', misconception: 'That is what "systemctl reload nftables" (or nft -f) gives you: loading is atomic. Restart first runs ExecStop=nft flush ruleset.' },
+        { text: 'No rules at all: everything is accepted', correct: true },
+        { text: 'Everything is dropped', misconception: 'With no tables, no base chains are attached to the hooks, so nothing filters.' },
+      ],
+      concepts: ['fw.persistence'],
+      explanation: 'Restart = stop (flush ruleset) + start (nft -f, which fails). Always validate with nft -c -f and prefer reload.',
+    },
+    {
+      id: 'nft-q-iptables', kind: 'single', level: 'intermediate',
+      prompt: '`iptables -L -n` shows three empty chains with policy ACCEPT, but connections to port 3306 are dropped. What is the most likely explanation on Debian 12?',
+      options: [
+        { text: 'The rules are in a native nftables table (e.g. inet filter) that iptables-nft does not display', correct: true },
+        { text: 'iptables is broken and must be reinstalled', misconception: 'iptables-nft works; it only shows the tables it manages.' },
+        { text: 'The drop happens in the application', misconception: 'Possible, but "iptables shows nothing" is not evidence: look at nft list ruleset first.' },
+      ],
+      concepts: ['fw.stateful'],
+      explanation: 'Use nft list ruleset as the source of truth on nftables systems.',
+    },
+    {
+      id: 'nft-q-dns-rule', kind: 'nft-rule', level: 'intermediate',
+      prompt: 'On the DNS server ns1 (input policy drop, established traffic already accepted), write the rule(s) that allow DNS over **both UDP and TCP** port 53 from the internal network **10.0.0.0/16** only. One rule per line. Tip: `th dport` matches the destination port of TCP or UDP.',
+      context: ['ct state established,related accept'],
+      tests: [
+        { description: 'UDP 53 from 10.0.10.25', packet: { src: '10.0.10.25', dport: 53, proto: 'udp' }, expect: 'accept' },
+        { description: 'TCP 53 from 10.0.20.10 (zone transfer / large answers)', packet: { src: '10.0.20.10', dport: 53, proto: 'tcp' }, expect: 'accept' },
+        { description: 'UDP 53 from 192.0.2.10 (outside)', packet: { src: '192.0.2.10', dport: 53, proto: 'udp' }, expect: 'drop' },
+        { description: 'TCP 22 from 10.0.10.25', packet: { src: '10.0.10.25', dport: 22, proto: 'tcp' }, expect: 'drop' },
+        { description: 'UDP 123 (NTP) from 10.0.10.25', packet: { src: '10.0.10.25', dport: 123, proto: 'udp' }, expect: 'drop' },
+      ],
+      concepts: ['fw.stateful', 'net.cidr'],
+      explanation: 'ip saddr 10.0.0.0/16 meta l4proto { tcp, udp } th dport 53 accept\n(or two rules: ip saddr 10.0.0.0/16 udp dport 53 accept / ip saddr 10.0.0.0/16 tcp dport 53 accept)',
+    },
+    {
+      id: 'nft-q-where', kind: 'single', level: 'advanced',
+      prompt: 'From ws01, SSH to srv01 works but HTTP to srv01 times out. tcpdump on srv01 shows no port-80 packets at all during the test. Where should you look next?',
+      options: [
+        { text: 'srv01\'s input chain', misconception: 'tcpdump sees packets before the input filter. If nothing arrives, srv01 never had a chance to drop it.' },
+        { text: 'The forward chain of the router between ws01 and srv01 (or ws01\'s output chain)', correct: true },
+        { text: 'nginx\'s configuration', misconception: 'nginx problems produce refused connections or HTTP errors, and the SYN would be visible on srv01.' },
+      ],
+      concepts: ['fw.path'],
+      explanation: 'Capture placement localises a drop: arriving-but-unanswered points at the host; never-arriving points at the path.',
+    },
+    {
+      id: 'nft-q-bad-fixes', kind: 'multi', level: 'advanced',
+      prompt: 'A server cannot resolve names because its input chain lacks the established rule. Which "fixes" are **unsafe**? (Select all unsafe ones.)',
+      options: [
+        { text: 'udp sport 53 accept', correct: true },
+        { text: 'policy accept', correct: true },
+        { text: 'ct state established,related accept (as the first rule)', misconception: 'This is the correct fix: it only admits replies to flows the host itself opened.' },
+        { text: 'ip saddr 10.0.10.53 accept', correct: true },
+      ],
+      concepts: ['fw.stateful'],
+      explanation: 'Source ports and source addresses can be spoofed or reused for anything; "accept everything from the DNS server" also opens every port to that host. Connection state is the right criterion.',
+    },
+  ],
+};

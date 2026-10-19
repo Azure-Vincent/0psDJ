@@ -3,7 +3,8 @@ import type { World } from '../types';
 export type ConceptId =
   | 'dns.resolution' | 'dns.zone' | 'net.arp' | 'net.routing' | 'net.icmp' | 'tcp.handshake'
   | 'fw.stateful' | 'fw.persistence' | 'svc.systemd' | 'svc.listening' | 'ssh.kex' | 'ssh.hostkeys'
-  | 'ssh.userauth' | 'ssh.authorized-keys' | 'linux.permissions' | 'ssh.config' | 'ssh.authz' | 'logs.journal';
+  | 'ssh.userauth' | 'ssh.authorized-keys' | 'linux.permissions' | 'ssh.config' | 'ssh.authz' | 'logs.journal'
+  | 'net.cidr' | 'fw.path';
 
 export type CauseCategory = 'Name resolution' | 'Network path' | 'Firewall' | 'Service' | 'Configuration' | 'Authentication' | 'Authorization' | 'Permissions' | 'Client' | 'Cryptography' | 'Persistence';
 
@@ -18,13 +19,35 @@ export interface Cause {
   concept: ConceptId;
 }
 
-export interface Goal {
+/** An SSH login from ws01 (the default goal kind). */
+export interface SshGoal {
+  kind?: 'ssh';
   description: string;
   localUser: string;
   user: string;
   target: string;
   method: 'publickey' | 'password' | 'any';
 }
+
+/** An HTTP request (curl -I) from a host must return 200. */
+export interface HttpGoal {
+  kind: 'http';
+  description: string;
+  fromHost: string;
+  fromUser: string;
+  url: string;
+}
+
+/** Name resolution (getent hosts) on a host must return the expected address. */
+export interface ResolveGoal {
+  kind: 'resolve';
+  description: string;
+  fromHost: string;
+  name: string;
+  expect: string;
+}
+
+export type Goal = SshGoal | HttpGoal | ResolveGoal;
 
 export interface ConstraintResult {
   id: string;
