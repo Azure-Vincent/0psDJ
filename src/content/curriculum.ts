@@ -1,0 +1,118 @@
+// The curriculum map. "available" items are fully implemented; "partial"
+// items are covered inside an available lesson; "planned" items are listed so
+// learners can see the roadmap, and have no buttons.
+
+import type { CurriculumModule } from './types';
+
+export const CURRICULUM: CurriculumModule[] = [
+  {
+    id: 'A', title: 'Networking Fundamentals', dependsOn: [],
+    summary: 'The layers every service depends on: addressing, routing, ARP, TCP/UDP, DNS, firewalls and encapsulation.',
+    topics: [
+      { title: 'End-to-end: what happens when you type "ssh srv01"', level: 'beginner', status: 'available', link: 'lesson/ssh/visualize', note: 'DNS, ARP, routing, TCP handshake and SSH negotiation, visualised packet by packet.' },
+      { title: 'TCP three-way handshake, RST, retransmissions', level: 'beginner', status: 'partial', link: 'lesson/ssh/visualize', note: 'Covered by the SSH visualisation and troubleshooting scenarios.' },
+      { title: 'ARP and the default gateway', level: 'beginner', status: 'partial', link: 'lesson/ssh/visualize' },
+      { title: 'DNS resolution (stub resolver, authoritative servers)', level: 'beginner', status: 'partial', link: 'troubleshoot', note: 'DNS scenarios in the SSH troubleshooting set.' },
+      { title: 'Stateful and stateless firewalls', level: 'intermediate', status: 'partial', link: 'troubleshoot' },
+      { title: 'OSI and TCP/IP models', level: 'beginner', status: 'planned' },
+      { title: 'Ethernet frames, MAC addresses, encapsulation', level: 'beginner', status: 'planned' },
+      { title: 'IPv4/IPv6, subnetting and CIDR', level: 'beginner', status: 'planned' },
+      { title: 'IPv6 neighbor discovery', level: 'intermediate', status: 'planned' },
+      { title: 'UDP; TCP sequence numbers, flow control, connection termination', level: 'intermediate', status: 'planned' },
+      { title: 'Ports and sockets', level: 'beginner', status: 'planned' },
+      { title: 'DHCP address assignment', level: 'beginner', status: 'planned' },
+      { title: 'NAT and PAT', level: 'intermediate', status: 'planned' },
+      { title: 'VLANs and segmentation', level: 'intermediate', status: 'planned' },
+      { title: 'TLS and certificates', level: 'intermediate', status: 'planned' },
+      { title: 'Network interfaces and virtual switches', level: 'intermediate', status: 'planned' },
+      { title: 'MTU, fragmentation, path MTU discovery', level: 'advanced', status: 'planned' },
+    ],
+  },
+  {
+    id: 'B', title: 'Remote Access and Administration', dependsOn: ['A'],
+    summary: 'How administrators reach systems, and how each remote-access protocol authenticates, encrypts and fails.',
+    topics: [
+      { title: 'SSH (complete lesson: all seven sections, 14 troubleshooting scenarios)', level: 'beginner', status: 'available', link: 'lesson/ssh/what' },
+      { title: 'RDP', level: 'intermediate', status: 'planned' },
+      { title: 'WinRM and PowerShell Remoting', level: 'intermediate', status: 'planned' },
+      { title: 'VNC', level: 'beginner', status: 'planned' },
+      { title: 'Telnet (and why not)', level: 'beginner', status: 'planned' },
+      { title: 'VPN technologies', level: 'advanced', status: 'planned' },
+      { title: 'Remote desktop gateways', level: 'advanced', status: 'planned' },
+    ],
+  },
+  {
+    id: 'C', title: 'Identity and Authentication', dependsOn: ['A', 'B'],
+    summary: 'Authentication as a sequence of interactions: Kerberos, NTLM, LDAP, PAM, PKI and SSO.',
+    topics: [
+      { title: 'PAM (password checks in sshd)', level: 'intermediate', status: 'partial', link: 'lesson/ssh/internals' },
+      { title: 'Local users and groups', level: 'beginner', status: 'partial', link: 'troubleshoot' },
+      { title: 'Active Directory Domain Services', level: 'intermediate', status: 'planned' },
+      { title: 'Kerberos (KDC, AS, TGS, SPNs, tickets)', level: 'advanced', status: 'planned' },
+      { title: 'NTLM', level: 'intermediate', status: 'planned' },
+      { title: 'LDAP and LDAPS', level: 'intermediate', status: 'planned' },
+      { title: 'DNS in Active Directory', level: 'intermediate', status: 'planned' },
+      { title: 'Group Policy', level: 'intermediate', status: 'planned' },
+      { title: 'SSSD', level: 'advanced', status: 'planned' },
+      { title: 'RADIUS', level: 'advanced', status: 'planned' },
+      { title: 'Certificate-based authentication and PKI', level: 'advanced', status: 'planned' },
+      { title: 'Single sign-on', level: 'advanced', status: 'planned' },
+    ],
+  },
+  {
+    id: 'D', title: 'Firewalls and Network Security', dependsOn: ['A'],
+    summary: 'Packet filtering, NAT, state tables and segmentation on Linux, Windows and pfSense/OPNsense.',
+    topics: [
+      { title: 'Linux nftables (input chain, policies, counters, persistence)', level: 'intermediate', status: 'partial', link: 'troubleshoot', note: 'Fully simulated nftables subset used by the SSH lab.' },
+      { title: 'iptables-nft vs native nftables', level: 'intermediate', status: 'partial', link: 'commands' },
+      { title: 'pfSense / OPNsense (WAN, LAN, DMZ)', level: 'intermediate', status: 'planned' },
+      { title: 'Windows Defender Firewall', level: 'beginner', status: 'planned' },
+      { title: 'UFW', level: 'beginner', status: 'planned' },
+      { title: 'NAT and firewall state tables', level: 'intermediate', status: 'planned' },
+      { title: 'VLAN-based segmentation', level: 'intermediate', status: 'planned' },
+      { title: 'VPN routing', level: 'advanced', status: 'planned' },
+      { title: 'IDS/IPS fundamentals', level: 'advanced', status: 'planned' },
+      { title: 'Network access control', level: 'advanced', status: 'planned' },
+    ],
+  },
+  {
+    id: 'E', title: 'Virtualization and Containers', dependsOn: ['A'],
+    summary: 'Hypervisors vs containers; namespaces, cgroups, images, volumes and container networking.',
+    topics: [
+      { title: 'docker run -d -p 8080:80 nginx, step by step', level: 'intermediate', status: 'planned' },
+      { title: 'Docker Compose', level: 'intermediate', status: 'planned' },
+      { title: 'Container networking and port publishing', level: 'intermediate', status: 'planned' },
+      { title: 'Linux namespaces and control groups', level: 'advanced', status: 'planned' },
+      { title: 'Images, layers, volumes and bind mounts', level: 'intermediate', status: 'planned' },
+      { title: 'Hypervisors: VirtualBox, VMware, Hyper-V, KVM/QEMU', level: 'beginner', status: 'planned' },
+      { title: 'Virtual networking', level: 'intermediate', status: 'planned' },
+    ],
+  },
+  {
+    id: 'F', title: 'Enterprise Infrastructure', dependsOn: ['A', 'C', 'D'],
+    summary: 'How core services integrate and how dependencies drive availability.',
+    topics: [
+      { title: 'DNS servers (BIND zones, reloads, serials)', level: 'intermediate', status: 'partial', link: 'troubleshoot', note: 'ns1 runs a simulated BIND with real zone parsing.' },
+      { title: 'Linux server administration (systemd, journal, permissions)', level: 'beginner', status: 'partial', link: 'troubleshoot' },
+      { title: 'Windows Server 2019/2022', level: 'beginner', status: 'planned' },
+      { title: 'DHCP servers', level: 'beginner', status: 'planned' },
+      { title: 'Web servers (IIS, Apache, Nginx)', level: 'beginner', status: 'planned' },
+      { title: 'SMB and NFS file servers', level: 'intermediate', status: 'planned' },
+      { title: 'Database servers', level: 'intermediate', status: 'planned' },
+      { title: 'Reverse proxies and load balancers', level: 'intermediate', status: 'planned' },
+      { title: 'Email infrastructure', level: 'advanced', status: 'planned' },
+      { title: 'NTP and time synchronisation', level: 'intermediate', status: 'planned' },
+      { title: 'Backup services', level: 'intermediate', status: 'planned' },
+      { title: 'Logging and monitoring infrastructure', level: 'intermediate', status: 'planned' },
+    ],
+  },
+];
+
+export const LABS = [
+  { id: 'lab1', title: 'Lab 1: Basic Linux Server', status: 'partial' as const, note: 'The SSH lab (ws01, srv01, ns1, rtr01) covers networking, SSH, users, permissions and connectivity troubleshooting in simulation. A separate real-VM guide is in the SSH lesson\'s Deployment section.' },
+  { id: 'lab2', title: 'Lab 2: Windows Domain', status: 'planned' as const },
+  { id: 'lab3', title: 'Lab 3: Segmented Enterprise Network (pfSense)', status: 'planned' as const },
+  { id: 'lab4', title: 'Lab 4: Containerized Application', status: 'planned' as const },
+  { id: 'lab5', title: 'Lab 5: Enterprise Infrastructure', status: 'planned' as const },
+  { id: 'lab6', title: 'Lab 6: Infrastructure Recovery', status: 'planned' as const },
+];
