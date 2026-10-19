@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { ASSESSMENTS, getLesson } from '../../content/lessons';
 import { CURRICULUM } from '../../content/curriculum';
 import type { Lesson, Section } from '../../content/types';
-import { FIREWALL_RUNS } from '../../engine/lab/visualRuns';
+import { FIREWALL_RUNS, IP_RUNS, TRANSPORT_RUNS } from '../../engine/lab/visualRuns';
 import { OUTCOME_LABELS, SSH_DEPENDENCIES, freshLab, runWithFault } from '../../engine/lab/dependencies';
 import { ALL_SCENARIOS } from '../../engine/scenarios';
 import type { World } from '../../engine/types';
@@ -14,6 +14,7 @@ import { Inline, Markdown } from '../components/Markdown';
 import { SequenceDiagram } from '../components/SequenceDiagram';
 import { CidrCalculator, HookDiagram, PacketTester } from '../components/FirewallWidgets';
 import { RunVisualizer } from '../components/RunVisualizer';
+import { EncapsulationExplorer, ResolverTracer, RouteLookup, SubnetPractice } from '../components/NetworkWidgets';
 import { LAB_LANES, segmentOf } from '../components/labLanes';
 import type { TermSpec } from '../components/LabTerminals';
 import type { ReactNode } from 'react';
@@ -195,6 +196,29 @@ interface LessonWidgets {
 function widgetsFor(id: string): LessonWidgets {
   const ws01: TermSpec = { hostId: 'ws01', user: 'alice', label: 'ws01 (alice)', banner: 'Sandbox: ws01, Debian 12. Type "help" for the available commands.' };
   const srv01: TermSpec = { hostId: 'srv01', user: 'root', label: 'srv01 console (root)', banner: 'Sandbox: out-of-band console on srv01.' };
+  const rtr01: TermSpec = { hostId: 'rtr01', user: 'root', label: 'rtr01 console (root)', banner: 'Sandbox: console on the router rtr01.' };
+  if (id === 'ipnet') {
+    return {
+      internals: (
+        <>
+          <h2>Encapsulation on the wire</h2>
+          <EncapsulationExplorer />
+          <h2>Practise subnetting</h2>
+          <SubnetPractice />
+        </>
+      ),
+      visualize: <RunVisualizer runs={IP_RUNS} />,
+      configTool: { title: 'Route lookup tool', node: <RouteLookup /> },
+      sandbox: [ws01, rtr01, srv01],
+    };
+  }
+  if (id === 'transport') {
+    return {
+      visualize: <RunVisualizer runs={TRANSPORT_RUNS} />,
+      configTool: { title: 'Resolver tracer', node: <ResolverTracer /> },
+      sandbox: [ws01, srv01, { hostId: 'ns1', user: 'root', label: 'ns1 console (root)', banner: 'Sandbox: console on the DNS server ns1.' }],
+    };
+  }
   if (id === 'nftables') {
     return {
       internals: (
@@ -207,7 +231,7 @@ function widgetsFor(id: string): LessonWidgets {
       ),
       visualize: <RunVisualizer runs={FIREWALL_RUNS} />,
       configTool: { title: 'Packet tester (rule-by-rule evaluation)', node: <PacketTester /> },
-      sandbox: [ws01, srv01, { hostId: 'rtr01', user: 'root', label: 'rtr01 console (root)', banner: 'Sandbox: console on the router rtr01.' }],
+      sandbox: [ws01, srv01, rtr01],
     };
   }
   return {

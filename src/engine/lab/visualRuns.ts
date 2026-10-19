@@ -80,3 +80,71 @@ export const FIREWALL_RUNS: VisualRun[] = [
     description: 'Probes with TTL 1 expire at rtr01, which answers "time exceeded" (rtr01\'s input chain accepts ICMP and its output is open). Probes with TTL 2+ reach srv01, whose input policy drops UDP to ports 33434+: no answer, "* * *".',
   },
 ];
+
+export const IP_RUNS: VisualRun[] = [
+  {
+    id: 'onlink', label: 'Same subnet: direct ARP', host: 'ws01', user: 'alice', command: 'ping -c 1 10.0.10.53',
+    description: '10.0.10.53 is inside ws01\'s connected 10.0.10.0/24, so ws01 ARPs for the destination itself and sends the frame straight to it. No router is involved; TTL arrives unchanged (64).',
+  },
+  {
+    id: 'routed', label: 'Other subnet: via the gateway', host: 'ws01', user: 'alice', command: 'ping -c 1 10.0.20.10',
+    description: '10.0.20.10 only matches the default route, so ws01 ARPs for its gateway 10.0.10.1 and sends the frame to rtr01\'s MAC. rtr01 decrements the TTL, ARPs for srv01 on eth1 and builds a new frame. srv01 routes the reply back via its own gateway. Compare the Ethernet hops in the inspector.',
+  },
+  {
+    id: 'traceroute', label: 'traceroute -I: TTL expiry hop by hop', host: 'ws01', user: 'root', command: 'traceroute -n -I -q 1 srv01.corp.lab',
+    description: 'ICMP probes with TTL 1 expire at rtr01 (time exceeded); TTL 2 reaches srv01, which replies. Each probe is a separate packet with a growing TTL.',
+  },
+  {
+    id: 'wrong-mask', label: 'Wrong prefix (/16): ARP for a remote host', host: 'ws01', user: 'alice', command: 'ping -c 1 10.0.20.10',
+    description: 'ws01 is set to 10.0.10.25/16. Its connected route now covers 10.0.20.10, so it ARPs for srv01 on the office LAN. Nobody answers; ws01 itself reports Destination Host Unreachable.',
+    setup: (w) => { edit(w, 'ws01', '/etc/network/interfaces', (s) => s.replace('address 10.0.10.25/24', 'address 10.0.10.25/16')); script(w, 'ws01', ['systemctl restart networking']); },
+  },
+  {
+    id: 'wrong-gw', label: 'Wrong gateway: ARP for a router that does not exist', host: 'ws01', user: 'alice', command: 'ping -c 1 10.0.20.10',
+    description: 'The default route points at 10.0.10.254. ARP for it fails, so nothing leaves the LAN.',
+    setup: (w) => { edit(w, 'ws01', '/etc/network/interfaces', (s) => s.replace('gateway 10.0.10.1', 'gateway 10.0.10.254')); script(w, 'ws01', ['systemctl restart networking']); },
+  },
+  {
+    id: 'no-forward', label: 'Router with ip_forward=0', host: 'ws01', user: 'alice', command: 'ping -c 1 10.0.20.10',
+    description: 'rtr01 receives the packet but may not route it, and answers with ICMP host unreachable (from 10.0.10.1).',
+    setup: (w) => script(w, 'rtr01', ['sysctl -w net.ipv4.ip_forward=0']),
+  },
+  {
+    id: 'no-return', label: 'Server without a return route', host: 'ws01', user: 'alice', command: 'ping -c 1 10.0.20.10',
+    description: 'srv01 has no default route. The request arrives, but srv01 cannot route the reply to 10.0.10.0/24: silence.',
+    setup: (w) => script(w, 'srv01', ['ip route del default']),
+  },
+];
+
+export const TRANSPORT_RUNS: VisualRun[] = [
+  {
+    id: 'tcp-life', label: 'TCP lifecycle: handshake, data, teardown', host: 'ws01', user: 'alice', command: 'curl -I http://srv01.corp.lab/',
+    description: 'DNS over UDP, then SYN / SYN-ACK / ACK, the HTTP request and response (each acknowledging the other side\'s bytes), and FIN / FIN-ACK / ACK. Check how seq and ack advance by the payload length.',
+  },
+  {
+    id: 'tcp-refused', label: 'Nothing listening: RST', host: 'ws01', user: 'alice', command: 'curl -I http://srv01.corp.lab/',
+    description: 'nginx is stopped. The firewall accepts the SYN, but no socket matches, so srv01\'s kernel answers RST, ACK. curl fails immediately.',
+    setup: (w) => script(w, 'srv01', ['systemctl stop nginx']),
+  },
+  {
+    id: 'tcp-timeout', label: 'No answer: SYN retransmission', host: 'ws01', user: 'alice', command: 'nc -zv -w 20 srv01.corp.lab 3306',
+    description: 'srv01 drops tcp/3306 by policy. The client resends the identical SYN at exponentially growing intervals until nc\'s 20 s limit.',
+  },
+  {
+    id: 'udp-dns', label: 'UDP: a DNS query and its answer', host: 'ws01', user: 'alice', command: 'dig www.corp.lab',
+    description: 'One datagram out, one back; no handshake. The answer contains a CNAME (www → srv01) and the A record.',
+  },
+  {
+    id: 'udp-unreach', label: 'UDP to a closed port: ICMP port unreachable', host: 'ns1', user: 'root', command: 'dig @10.0.10.25 srv01.corp.lab',
+    description: 'ws01 runs no DNS server. Its kernel answers the datagram with ICMP port unreachable, and dig reports "connection refused" instead of waiting for a timeout.',
+  },
+  {
+    id: 'search-list', label: 'Short name: search domain and NXDOMAIN', host: 'ws01', user: 'alice', command: 'getent hosts nosuchhost',
+    description: '"nosuchhost" has no dots, so the resolver tries nosuchhost.corp.lab. first (NXDOMAIN), then nosuchhost. (refused: ns1 is authoritative only for corp.lab).',
+  },
+  {
+    id: 'loopback-bind', label: 'Service bound to 127.0.0.1', host: 'ws01', user: 'alice', command: 'curl -I http://srv01.corp.lab/',
+    description: 'nginx listens on 127.0.0.1:80 only. A SYN to 10.0.20.10:80 matches no socket: RST.',
+    setup: (w) => { edit(w, 'srv01', '/etc/nginx/nginx.conf', (s) => s.replace('listen 80 default_server;', 'listen 127.0.0.1:80 default_server;').replace('        listen [::]:80 default_server;\n', '')); script(w, 'srv01', ['systemctl reload nginx']); },
+  },
+];

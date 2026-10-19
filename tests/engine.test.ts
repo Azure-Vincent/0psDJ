@@ -121,3 +121,12 @@ describe('ifupdown and shell tokenizer', () => {
     expect(l[1].pipeline[0].argv).toEqual(['echo', 'a;b']);
   });
 });
+
+import { buildSshLab } from '../src/engine/lab/sshLab';
+import { missingParents } from '../src/engine/lab/builder';
+describe('lab filesystem', () => {
+  it('every file has an existing parent directory', () => {
+    const w = buildSshLab();
+    for (const h of Object.values(w.hosts)) expect(missingParents(h), h.id).toEqual([]);
+  });
+});

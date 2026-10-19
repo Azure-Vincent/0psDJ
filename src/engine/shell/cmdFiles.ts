@@ -442,7 +442,7 @@ const editor: CommandDef = {
     return {
       out: '',
       code: 0,
-      editor: { hostId: ctx.host.id, path: p, content: n?.content ?? '', readOnly: !writable, isNew: !n },
+      editor: { hostId: ctx.host.id, user: ctx.user.name, path: p, content: n?.content ?? '', readOnly: !writable, isNew: !n },
     };
   },
 };

@@ -79,7 +79,7 @@ describe('display filters', () => {
 
 describe('dependency map', () => {
   const expected: Record<string, keyof typeof OUTCOME_LABELS> = {
-    dns: 'resolve-temp', 'dns-record': 'resolve-nx', 'client-route': 'netunreach', router: 'timeout', 'server-route': 'timeout',
+    dns: 'resolve-temp', 'dns-record': 'resolve-nx', 'client-route': 'netunreach', router: 'noroute', 'server-route': 'timeout',
     firewall: 'timeout', sshd: 'refused', algorithms: 'negotiate', hostkey: 'hostkey', authz: 'denied', authkeys: 'denied', shell: 'shell',
   };
   it.each(SSH_DEPENDENCIES.map((d) => d.id))('switching off %s produces the expected client symptom', (id) => {

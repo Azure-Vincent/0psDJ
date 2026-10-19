@@ -285,21 +285,82 @@ const nftables: ServiceDef = {
 // nginx (present so that port ownership and `ss` output are realistic)
 // ---------------------------------------------------------------------------
 
+export interface NginxLoaded {
+  binds: { addr: string; port: number }[];
+}
+
+/** Parse the `listen` directives of nginx.conf (nginx -t subset). Returns errors in nginx's format. */
+export function parseNginxListens(text: string, file = '/etc/nginx/nginx.conf'): { binds: { addr: string; port: number }[]; errors: string[] } {
+  const binds: { addr: string; port: number }[] = [];
+  const errors: string[] = [];
+  text.split('\n').forEach((raw, i) => {
+    const line = raw.replace(/#.*$/, '').trim();
+    const m = /^listen\s+([^\s;]+)[^;]*;?$/.exec(line);
+    if (!line.startsWith('listen')) return;
+    if (!m || !line.endsWith(';')) {
+      errors.push(`nginx: [emerg] invalid number of arguments in "listen" directive in ${file}:${i + 1}`);
+      return;
+    }
+    const spec = m[1];
+    let addr = '0.0.0.0';
+    let portStr = spec;
+    const v6 = /^\[(.*)\]:(\d+)$/.exec(spec);
+    if (v6) { addr = v6[1] || '::'; portStr = v6[2]; }
+    else if (spec.includes(':')) { [addr, portStr] = spec.split(':'); }
+    const port = Number(portStr);
+    if (!Number.isInteger(port) || port < 1 || port > 65535) {
+      errors.push(`nginx: [emerg] invalid port in "${spec}" of the "listen" directive in ${file}:${i + 1}`);
+      return;
+    }
+    if (!binds.some((b) => b.addr === addr && b.port === port)) binds.push({ addr, port });
+  });
+  return { binds, errors };
+}
+
+function nginxLoad(world: World, host: Host, pid: number): NginxLoaded | null {
+  const { binds, errors } = parseNginxListens(readFile(host, '/etc/nginx/nginx.conf') ?? '');
+  for (const e of errors) log(world, host, 'nginx', e, { pid, unit: 'nginx.service', priority: 'err' });
+  if (errors.length) {
+    log(world, host, 'nginx', 'nginx: configuration file /etc/nginx/nginx.conf test failed', { pid, unit: 'nginx.service', priority: 'err' });
+    return null;
+  }
+  const others = allListeners(host).filter((l) => l.service !== 'nginx' && l.proto === 'tcp');
+  for (const b of binds) {
+    if (!b.addr.includes(':') && b.addr !== '0.0.0.0' && !isLocalAddress(host, b.addr)) {
+      log(world, host, 'nginx', `nginx: [emerg] bind() to ${b.addr}:${b.port} failed (99: Cannot assign requested address)`, { pid, unit: 'nginx.service', priority: 'err' });
+      return null;
+    }
+    if (others.some((o) => o.port === b.port && (o.addr === b.addr || o.addr === '0.0.0.0' || b.addr === '0.0.0.0'))) {
+      log(world, host, 'nginx', `nginx: [emerg] bind() to ${b.addr}:${b.port} failed (98: Address already in use)`, { pid, unit: 'nginx.service', priority: 'err' });
+      return null;
+    }
+  }
+  return { binds };
+}
+
 const nginx: ServiceDef = {
   name: 'nginx',
   unit: 'nginx.service',
   aliases: ['nginx', 'nginx.service'],
   description: 'A high performance web server and a reverse proxy server',
   configFiles: ['/etc/nginx/nginx.conf'],
-  start(_world, host, rt) {
-    rt.pid = allocPid(host);
+  start(world, host, rt) {
+    const pid = allocPid(host);
+    const loaded = nginxLoad(world, host, pid);
+    if (!loaded) return false;
+    rt.pid = pid;
+    rt.loaded = loaded;
+    return true;
+  },
+  reload(world, host, rt) {
+    const loaded = nginxLoad(world, host, rt.pid!);
+    if (!loaded) return false;
+    rt.loaded = loaded;
     return true;
   },
   listeners(_host, rt) {
-    return [
-      { proto: 'tcp', addr: '0.0.0.0', port: 80, process: 'nginx', pid: rt.pid!, service: 'nginx' },
-      { proto: 'tcp', addr: '::', port: 80, process: 'nginx', pid: rt.pid!, service: 'nginx' },
-    ];
+    const l = rt.loaded as NginxLoaded | null;
+    return (l?.binds ?? []).map((b) => ({ proto: 'tcp' as const, addr: b.addr, port: b.port, process: 'nginx', pid: rt.pid!, service: 'nginx' }));
   },
 };
 

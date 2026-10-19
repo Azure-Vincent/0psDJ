@@ -16,6 +16,8 @@ export interface SessionFrame {
 
 export interface EditorRequest {
   hostId: string;
+  /** User whose permissions apply when saving (root when opened through sudo). */
+  user: string;
   path: string;
   content: string;
   readOnly: boolean;

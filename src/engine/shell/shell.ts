@@ -236,7 +236,7 @@ export class Shell {
     const frame = this.frames.find((f) => f.hostId === req.hostId) ?? this.frame;
     const host = world.hosts[req.hostId];
     const ctx: CmdCtx = {
-      world, host, user: host.users[frame.user], frame,
+      world, host, user: host.users[req.user] ?? host.users[frame.user], frame,
       ask: () => '',
       run: () => ({ out: '', code: 0 }),
     };
