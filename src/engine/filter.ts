@@ -13,7 +13,7 @@ type Node =
   | { t: 'proto'; name: string }
   | { t: 'cmp'; field: string; op: string; value: string };
 
-const PROTOS = ['eth', 'arp', 'ip', 'icmp', 'tcp', 'udp', 'dns', 'ssh'];
+const PROTOS = ['eth', 'arp', 'ip', 'icmp', 'tcp', 'udp', 'dns', 'ssh', 'dhcp'];
 const FIELDS = ['ip.addr', 'ip.src', 'ip.dst', 'tcp.port', 'tcp.srcport', 'tcp.dstport', 'udp.port', 'udp.srcport', 'udp.dstport', 'tcp.flags.syn', 'tcp.flags.ack', 'tcp.flags.reset', 'tcp.flags.fin', 'tcp.flags.push', 'icmp.type', 'icmp.code', 'tcp.len', 'frame.number', 'ip.ttl'];
 
 export class FilterError extends Error {}
@@ -139,6 +139,7 @@ export function matchFilter(node: Node | null, f: CapturedFrame, index: number):
         case 'udp': return f.ip?.proto === 'udp';
         case 'dns': return f.ip?.app?.protocol === 'DNS';
         case 'ssh': return f.ip?.app?.protocol === 'SSH';
+        case 'dhcp': return f.ip?.app?.protocol === 'DHCP';
       }
       return false;
     case 'cmp': {

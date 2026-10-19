@@ -603,7 +603,23 @@ const sed: CommandDef = {
   },
 };
 
-export const FILE_COMMANDS: CommandDef[] = [sed, 
+const tee: CommandDef = {
+  name: 'tee',
+  summary: 'copy standard input to files and to standard output',
+  usage: 'tee [-a] FILE...',
+  run(args, ctx) {
+    const { flags, rest } = parseFlags(args);
+    const text = ctx.stdin ?? '';
+    const errors: string[] = [];
+    for (const f of rest) {
+      const e = writeChecked(ctx, resolvePath(ctx, f), text.endsWith('\n') || !text ? text : text + '\n', flags.has('-a'));
+      if (e) errors.push(`tee: ${f}: ${e}`);
+    }
+    return { out: [text.replace(/\n$/, ''), ...errors].filter(Boolean).join('\n'), code: errors.length ? 1 : 0 };
+  },
+};
+
+export const FILE_COMMANDS: CommandDef[] = [tee, sed, 
   ls, cat, headTail('head'), headTail('tail'), grep, wc, echo, touch, mkdirCmd, rm, chmod, chown, stat, cd, pwd,
   whoami, id, editor, { ...editor, name: 'vi' }, { ...editor, name: 'vim' }, { ...editor, name: 'editor' }, passwd, usermod,
 ];

@@ -9,7 +9,7 @@ import { allListeners } from '../sim/services';
 import { ERRNO_TEXT, tcpConnect } from '../sim/tcp';
 import type { CapturedFrame, Packet, Route } from '../types';
 import { parseResolvConf } from '../config/netconf';
-import { readFile } from '../fs';
+import { normalizePath, readFile } from '../fs';
 import { formatFrame } from './format';
 import { virtualFile } from './cmdFiles';
 import { type CmdCtx, type CommandDef, err, ok, parseFlags } from './types';
@@ -211,7 +211,7 @@ const ping: CommandDef = {
         } else if (d.errno === 'EPERM') out.push('ping: sendmsg: Operation not permitted');
       } else if (d.status === 'delivered') {
         const target = ctx.world.hosts[d.host];
-        const rep: Packet = { id: nextId(ctx.world), src: dst, dst: src, ttl: 64, proto: 'icmp', icmp: { type: 0, code: 0, description: 'Echo (ping) reply', id: icmpId, seq } };
+        const rep: Packet = { id: nextId(ctx.world), src: d.final.dst, dst: d.final.src, ttl: 64, proto: 'icmp', icmp: { type: 0, code: 0, description: 'Echo (ping) reply', id: icmpId, seq } };
         const back = transmit(ctx.world, target.id, rep);
         if (back.status === 'delivered') {
           const hopsBack = back.hops.filter((h) => h.egress && h.ingress).length;
@@ -277,10 +277,11 @@ const traceroute: CommandDef = {
         if (d.status === 'delivered') {
           const h = ctx.world.hosts[d.host];
           // Destination: UDP -> port unreachable, TCP -> SYN-ACK/RST, ICMP -> echo reply
+          const fin = d.final;
           let reply: Packet;
-          if (mode === 'udp') reply = { id: nextId(ctx.world), src: dst, dst: src, ttl: 64, proto: 'icmp', icmp: { type: 3, code: 3, description: 'Port unreachable', quoted: { proto: 'udp', src, dst, sport: probe.udp!.sport, dport: probe.udp!.dport } } };
-          else if (mode === 'icmp') reply = { id: nextId(ctx.world), src: dst, dst: src, ttl: 64, proto: 'icmp', icmp: { type: 0, code: 0, description: 'Echo reply', id: 4242, seq: ttl * 3 + q } };
-          else reply = { id: nextId(ctx.world), src: dst, dst: src, ttl: 64, proto: 'tcp', tcp: { sport: port, dport: probe.tcp!.sport, seq: 0, ack: probe.tcp!.seq + 1, flags: allListeners(h).some((l) => l.port === port && l.proto === 'tcp') ? ['SYN', 'ACK'] : ['RST', 'ACK'], window: 0, len: 0 } };
+          if (mode === 'udp') reply = { id: nextId(ctx.world), src: fin.dst, dst: fin.src, ttl: 64, proto: 'icmp', icmp: { type: 3, code: 3, description: 'Port unreachable', quoted: { proto: 'udp', src: fin.src, dst: fin.dst, sport: probe.udp!.sport, dport: probe.udp!.dport } } };
+          else if (mode === 'icmp') reply = { id: nextId(ctx.world), src: fin.dst, dst: fin.src, ttl: 64, proto: 'icmp', icmp: { type: 0, code: 0, description: 'Echo reply', id: 4242, seq: ttl * 3 + q } };
+          else reply = { id: nextId(ctx.world), src: fin.dst, dst: fin.src, ttl: 64, proto: 'tcp', tcp: { sport: port, dport: probe.tcp!.sport, seq: 0, ack: probe.tcp!.seq + 1, flags: allListeners(h).some((l) => l.port === port && l.proto === 'tcp') ? ['SYN', 'ACK'] : ['RST', 'ACK'], window: 0, len: 0 } };
           const back = transmit(ctx.world, h.id, reply);
           if (back.status === 'delivered') { replyFrom = dst; reached = true; }
         } else if (d.error?.delivered) {
@@ -363,7 +364,7 @@ const curl: CommandDef = {
       return err(`curl: (${c.errno === 'ETIMEDOUT' && max ? 28 : 7}) ${text}`, 7);
     }
     const server = c.conn.server;
-    const listener = allListeners(server).find((l) => l.port === port && l.proto === 'tcp');
+    const listener = allListeners(server).find((l) => l.port === c.conn.sv.localPort && l.proto === 'tcp');
     c.conn.send('c2s', 78, { protocol: 'DATA', info: `GET / HTTP/1.1 Host: ${m[2]}`, fields: [] });
     if (scheme === 'https' || listener?.process !== 'nginx') {
       c.conn.close('server');
@@ -475,12 +476,30 @@ const conntrack: CommandDef = {
     if (ctx.user.uid !== 0) return err('conntrack v1.4.7 (conntrack-tools): Operation failed: Operation not permitted', 1);
     if (args.includes('-F')) {
       ctx.host.conntrack = [];
+      ctx.host.nat = [];
       return ok('conntrack v1.4.7 (conntrack-tools): connection tracking table has been emptied.');
     }
+    // One line per flow. For translated flows the reply tuple shows the
+    // translated addresses, as in real conntrack output.
+    const same = (t: { src: string; sport: number; dst: string; dport: number }, e: { src: string; sport: number; dst: string; dport: number }) =>
+      t.src === e.src && t.sport === e.sport && t.dst === e.dst && t.dport === e.dport;
+    const used = new Set<object>();
+    const proto = (p: string) => `${p.padEnd(4)} ${p === 'tcp' ? 6 : p === 'udp' ? 17 : 1} 117`;
+    // ICMP flows are keyed by echo id (stored in the port fields), shown as type/code/id.
+    const tuple = (p: string, t: { src: string; sport: number; dst: string; dport: number }, reply: boolean) =>
+      p === 'icmp' ? `src=${t.src} dst=${t.dst} type=${reply ? 0 : 8} code=0 id=${t.sport}` : `src=${t.src} dst=${t.dst} sport=${t.sport} dport=${t.dport}`;
     const lines = ctx.host.conntrack.map((e) => {
       const st = e.proto === 'tcp' ? `${e.state === 'UNREPLIED' ? 'SYN_SENT' : e.state} ` : '';
-      return `${e.proto.padEnd(4)} ${e.proto === 'tcp' ? 6 : e.proto === 'udp' ? 17 : 1} 117 ${st}src=${e.src} dst=${e.dst} sport=${e.sport} dport=${e.dport} ${e.state === 'UNREPLIED' ? '[UNREPLIED] ' : ''}src=${e.dst} dst=${e.src} sport=${e.dport} dport=${e.sport} ${e.state === 'UNREPLIED' ? '' : '[ASSURED] '}mark=0 use=1`;
+      const n = ctx.host.nat.find((x) => x.proto === e.proto && (same(x.orig, e) || same(x.trans, e)));
+      const o = n ? n.orig : e;
+      const r = n ? { src: n.trans.dst, dst: n.trans.src, sport: n.trans.dport, dport: n.trans.sport } : { src: e.dst, dst: e.src, sport: e.dport, dport: e.sport };
+      if (n) used.add(n);
+      return `${proto(e.proto)} ${st}${tuple(e.proto, o, false)} ${e.state === 'UNREPLIED' ? '[UNREPLIED] ' : ''}${tuple(e.proto, r, true)} ${e.state === 'UNREPLIED' ? '' : '[ASSURED] '}mark=0 use=1${n ? `   # NAT: ${n.kind}` : ''}`;
     });
+    for (const n of ctx.host.nat) {
+      if (used.has(n)) continue;
+      lines.push(`${proto(n.proto)} ${n.proto === 'tcp' ? 'ESTABLISHED ' : ''}${tuple(n.proto, n.orig, false)} ${tuple(n.proto, { src: n.trans.dst, dst: n.trans.src, sport: n.trans.dport, dport: n.trans.sport }, true)} [ASSURED] mark=0 use=1   # NAT: ${n.kind}`);
+    }
     return ok([...lines, `conntrack v1.4.7 (conntrack-tools): ${lines.length} flow entries have been shown.`].join('\n'));
   },
 };
@@ -488,10 +507,29 @@ const conntrack: CommandDef = {
 const sysctl: CommandDef = {
   name: 'sysctl',
   summary: 'read or set kernel parameters (net.ipv4.ip_forward)',
-  usage: 'sysctl net.ipv4.ip_forward | sysctl -w net.ipv4.ip_forward=1',
+  usage: 'sysctl net.ipv4.ip_forward | sysctl -w net.ipv4.ip_forward=1 | sysctl --system | sysctl -p [FILE]',
   run(args, ctx) {
     const { flags, rest } = parseFlags(args);
     const kv = rest[0] ?? '';
+    if (flags.has('--system') || flags.has('-p')) {
+      if (ctx.user.uid !== 0) return err('sysctl: permission denied on key "net.ipv4.ip_forward"', 1);
+      // Same sources as boot (see bootHost); only ip_forward is modelled.
+      const files = flags.has('-p')
+        ? [rest[0] ? normalizePath(rest[0], ctx.frame.cwd, ctx.user.home) : '/etc/sysctl.conf']
+        : Object.keys(ctx.host.fs).filter((p) => p === '/etc/sysctl.conf' || p.startsWith('/etc/sysctl.d/')).sort();
+      const out: string[] = [];
+      for (const f of files) {
+        const node = ctx.host.fs[f];
+        if (!node && flags.has('-p')) return err(`sysctl: cannot open "${f}": No such file or directory`, 255);
+        if (!node || node.type !== 'file') continue;
+        out.push(`* Applying ${f} ...`);
+        for (const m of node.content.matchAll(/^\s*net\.ipv4\.ip_forward\s*=\s*([01])\s*$/gm)) {
+          ctx.host.ipForward = m[1] === '1';
+          out.push(`net.ipv4.ip_forward = ${m[1]}`);
+        }
+      }
+      return ok(out.join('\n'));
+    }
     if (kv.includes('=') || flags.has('-w')) {
       if (ctx.user.uid !== 0) return err(`sysctl: permission denied on key "${kv.split('=')[0]}"`, 1);
       const [k, v] = kv.split('=');

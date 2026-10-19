@@ -6,6 +6,9 @@ import { effectiveConfig, formatErrors, parseSshdConfig, type SshdEffective } fr
 import { emptyRuleset, NftError, parseRulesetFile } from '../config/nft';
 import { parseInterfaces } from '../config/netconf';
 import { parseZone, ZoneError, type Zone } from '../config/zone';
+import { DhcpConfigError, parseDhcpdConf } from '../config/dhcpd';
+import { dhcpAcquire, type DhcpdLoaded } from './dhcp';
+import { inCidr, parseCidr } from '../net/ip';
 import { readFile } from '../fs';
 import type { Host, ServiceRuntime, World } from '../types';
 import { log } from './journal';
@@ -365,6 +368,75 @@ const nginx: ServiceDef = {
 };
 
 // ---------------------------------------------------------------------------
+// ISC DHCP server
+// ---------------------------------------------------------------------------
+
+export function dhcpdInterfaces(host: Host): string[] {
+  const m = /^INTERFACESv4="([^"]*)"/m.exec(readFile(host, '/etc/default/isc-dhcp-server') ?? '');
+  return m ? m[1].split(/\s+/).filter(Boolean) : [];
+}
+
+/** dhcpd -t: returns error lines (empty when valid). */
+export function dhcpdTest(host: Host): string[] {
+  try {
+    parseDhcpdConf(readFile(host, '/etc/dhcp/dhcpd.conf') ?? '');
+    return [];
+  } catch (e) {
+    return [e instanceof DhcpConfigError ? e.message : String(e), 'Configuration file errors encountered -- exiting'];
+  }
+}
+
+const dhcpd: ServiceDef = {
+  name: 'dhcpd',
+  unit: 'isc-dhcp-server.service',
+  aliases: ['isc-dhcp-server', 'isc-dhcp-server.service', 'dhcpd'],
+  description: 'LSB: DHCP server',
+  configFiles: ['/etc/dhcp/dhcpd.conf', '/etc/default/isc-dhcp-server'],
+  start(world, host, rt) {
+    const pid = allocPid(host);
+    const l = (m: string, prio: 'info' | 'err' = 'info') => log(world, host, 'dhcpd', m, { pid, unit: 'isc-dhcp-server.service', priority: prio });
+    l('Internet Systems Consortium DHCP Server 4.4.3-P1');
+    let config;
+    try {
+      config = parseDhcpdConf(readFile(host, '/etc/dhcp/dhcpd.conf') ?? '');
+    } catch (e) {
+      l(e instanceof DhcpConfigError ? e.message : String(e), 'err');
+      l('Configuration file errors encountered -- exiting', 'err');
+      return false;
+    }
+    const usable: string[] = [];
+    for (const name of dhcpdInterfaces(host)) {
+      const iface = host.ifaces.find((i) => i.name === name);
+      if (!iface || !iface.address) {
+        l(`No subnet declaration for ${name} (no IPv4 addresses).`, 'err');
+        l(`** Ignoring requests on ${name}.  If this is not what`, 'err');
+        continue;
+      }
+      const sub = config.subnets.find((s) => inCidr(iface.address!, parseCidr(`${s.network}/${s.prefix}`)!));
+      if (!sub) {
+        l(`No subnet declaration for ${name} (${iface.address}).`, 'err');
+        l(`** Ignoring requests on ${name}.  If this is not what`, 'err');
+        continue;
+      }
+      l(`Listening on LPF/${name}/${iface.mac}/${sub.network}/${sub.prefix}`);
+      l(`Sending on   LPF/${name}/${iface.mac}/${sub.network}/${sub.prefix}`);
+      usable.push(name);
+    }
+    if (usable.length === 0) {
+      l('Not configured to listen on any interfaces!', 'err');
+      return false;
+    }
+    l('Server starting service.');
+    rt.pid = pid;
+    rt.loaded = { config, interfaces: usable } satisfies DhcpdLoaded;
+    return true;
+  },
+  listeners(_host, rt) {
+    return [{ proto: 'udp', addr: '0.0.0.0', port: 67, process: 'dhcpd', pid: rt.pid!, service: 'dhcpd' }];
+  },
+};
+
+// ---------------------------------------------------------------------------
 // networking (ifupdown)
 // ---------------------------------------------------------------------------
 
@@ -386,6 +458,7 @@ export function applyNetworkConfig(world: World, host: Host): string[] {
       iface.address = cfg.address;
       iface.prefix = cfg.prefix ?? 24;
     }
+    if (cfg.method === 'dhcp') dhcpAcquire(world, host, iface);
     if (cfg.gateway) host.routes.push({ dest: 'default', via: cfg.gateway, dev: iface.name, proto: 'boot' });
     for (const r of cfg.routes) host.routes.push({ dest: r.dest, via: r.via, dev: iface.name, proto: 'boot' });
   }
@@ -407,7 +480,7 @@ const networking: ServiceDef = {
   listeners: () => [],
 };
 
-export const SERVICE_DEFS: ServiceDef[] = [networking, nftables, named, sshd, nginx];
+export const SERVICE_DEFS: ServiceDef[] = [networking, nftables, named, dhcpd, sshd, nginx];
 
 export function findService(host: Host, name: string): ServiceDef | undefined {
   const n = name.replace(/\.service$/, '');
@@ -502,6 +575,7 @@ export function findListener(host: Host, proto: 'tcp' | 'udp', addr: string, por
 /** Simulated reboot: runtime state is discarded and rebuilt from persistent files. */
 export function bootHost(world: World, host: Host): void {
   host.conntrack = [];
+  host.nat = [];
   host.neighbors = [];
   host.nft = emptyRuleset();
   for (const rt of Object.values(host.services)) {

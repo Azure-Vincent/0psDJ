@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { ASSESSMENTS, getLesson } from '../../content/lessons';
 import { CURRICULUM } from '../../content/curriculum';
 import type { Lesson, Section } from '../../content/types';
-import { FIREWALL_RUNS, IP_RUNS, TRANSPORT_RUNS } from '../../engine/lab/visualRuns';
+import { DHCP_RUNS, FIREWALL_RUNS, IP_RUNS, NAT_RUNS, TRANSPORT_RUNS } from '../../engine/lab/visualRuns';
 import { OUTCOME_LABELS, SSH_DEPENDENCIES, freshLab, runWithFault } from '../../engine/lab/dependencies';
 import { ALL_SCENARIOS } from '../../engine/scenarios';
 import type { World } from '../../engine/types';
@@ -15,7 +15,8 @@ import { SequenceDiagram } from '../components/SequenceDiagram';
 import { CidrCalculator, HookDiagram, PacketTester } from '../components/FirewallWidgets';
 import { RunVisualizer } from '../components/RunVisualizer';
 import { EncapsulationExplorer, ResolverTracer, RouteLookup, SubnetPractice } from '../components/NetworkWidgets';
-import { LAB_LANES, segmentOf } from '../components/labLanes';
+import { DHCP_LANES, LAB_LANES, NAT_LANES, segmentOf } from '../components/labLanes';
+import { DhcpAllocator, NatInspector } from '../components/NetServiceWidgets';
 import type { TermSpec } from '../components/LabTerminals';
 import type { ReactNode } from 'react';
 import { go, routeQuery, useProgress } from '../state';
@@ -217,6 +218,27 @@ function widgetsFor(id: string): LessonWidgets {
       visualize: <RunVisualizer runs={TRANSPORT_RUNS} />,
       configTool: { title: 'Resolver tracer', node: <ResolverTracer /> },
       sandbox: [ws01, srv01, { hostId: 'ns1', user: 'root', label: 'ns1 console (root)', banner: 'Sandbox: console on the DNS server ns1.' }],
+    };
+  }
+  if (id === 'dhcp') {
+    return {
+      visualize: <RunVisualizer runs={DHCP_RUNS} lanes={DHCP_LANES} />,
+      configTool: { title: 'DHCP allocation simulator', node: <DhcpAllocator /> },
+      sandbox: [
+        { hostId: 'ws02', user: 'dana', label: 'ws02 (dana)', banner: 'Sandbox: ws02, a DHCP client. sudo password: ws02-dana.' },
+        { hostId: 'ns1', user: 'root', label: 'ns1 console (root)', banner: 'Sandbox: console on ns1 (DNS and isc-dhcp-server).' },
+      ],
+    };
+  }
+  if (id === 'nat') {
+    return {
+      visualize: <RunVisualizer runs={NAT_RUNS} lanes={NAT_LANES} />,
+      configTool: { title: 'NAT inspector (both sides of rtr01)', node: <NatInspector /> },
+      sandbox: [
+        ws01,
+        rtr01,
+        { hostId: 'ext01', user: 'guest', label: 'ext01 (Internet)', banner: 'Sandbox: ext01, a host on the Internet (203.0.113.80). It only knows public addresses.' },
+      ],
     };
   }
   if (id === 'nftables') {

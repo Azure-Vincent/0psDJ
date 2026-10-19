@@ -27,7 +27,9 @@ export type Verdict =
   | { kind: 'drop' }
   | { kind: 'reject'; with: RejectType }
   | { kind: 'jump'; chain: string }
-  | { kind: 'return' };
+  | { kind: 'return' }
+  | { kind: 'masquerade' }
+  | { kind: 'snat' | 'dnat'; addr: string; port?: number };
 
 export type RejectType = 'default' | 'tcp-reset' | 'port-unreachable' | 'admin-prohibited' | 'host-unreachable' | 'net-unreachable';
 
@@ -236,6 +238,19 @@ export function parseRuleExpr(text: string, handle: number): Rule {
       case 'goto':
         rule.verdict = { kind: 'jump', chain: next() };
         break;
+      case 'masquerade':
+        rule.verdict = { kind: 'masquerade' };
+        break;
+      case 'snat':
+      case 'dnat': {
+        if (toks[i] === 'ip') i++;
+        if (next() !== 'to') throw new NftError(`syntax error, expecting to`);
+        const target = next();
+        const m = /^(\d+\.\d+\.\d+\.\d+)(?::(\d+))?$/.exec(target);
+        if (!m) throw new NftError(`Could not resolve hostname: ${target}`);
+        rule.verdict = { kind: t, addr: m[1], port: m[2] ? Number(m[2]) : undefined };
+        break;
+      }
       case 'reject': {
         let w: RejectType = 'default';
         if (toks[i] === 'with') {
@@ -380,6 +395,7 @@ export function renderRule(r: Rule, withHandle = false): string {
       };
       parts.push(w[v.with]);
     } else if (v.kind === 'jump') parts.push(`jump ${v.chain}`);
+    else if (v.kind === 'snat' || v.kind === 'dnat') parts.push(`${v.kind} to ${v.addr}${v.port ? ':' + v.port : ''}`);
     else parts.push(v.kind);
   }
   if (r.comment) parts.push(`comment "${r.comment}"`);
@@ -427,6 +443,8 @@ export interface PacketContext {
 
 export interface EvalResult {
   verdict: 'accept' | 'drop' | 'reject';
+  /** Set when a NAT chain rule matched (masquerade / snat / dnat). */
+  nat?: Extract<Verdict, { kind: 'masquerade' | 'snat' | 'dnat' }>;
   rejectWith?: RejectType;
   /** Description of the deciding rule or policy, for logs/teaching. */
   decidedBy: { table: string; chain: string; rule: Rule | null; policy: boolean } | null;
@@ -529,6 +547,7 @@ function runChain(table: Table, chain: Chain, p: PacketContext, logs: string[], 
     if (v.kind === 'drop') return { verdict: 'drop', decidedBy: decided, logs };
     if (v.kind === 'reject') return { verdict: 'reject', rejectWith: v.with, decidedBy: decided, logs };
     if (v.kind === 'return') break;
+    if (v.kind === 'masquerade' || v.kind === 'snat' || v.kind === 'dnat') return { verdict: 'accept', decidedBy: decided, logs, nat: v };
     if (v.kind === 'jump' && depth < 16) {
       const target = table.chains.find((c) => c.name === v.chain);
       if (target) {
@@ -567,4 +586,23 @@ export function explainPacket(rs: Ruleset, hook: Hook, p: PacketContext): { resu
   const steps: ExplainStep[] = [];
   const result = evaluate(cloneRuleset(rs), hook, p, steps);
   return { result, steps };
+}
+
+/**
+ * Evaluate the NAT base chains (type nat) on a hook for the FIRST packet of a
+ * flow. Returns the matching translation, if any. Later packets of the flow are
+ * translated from the NAT table, not by re-evaluating rules (as in the kernel).
+ */
+export function evaluateNat(rs: Ruleset, hook: 'prerouting' | 'postrouting', p: PacketContext): { nat: NonNullable<EvalResult['nat']>; rule: Rule; table: string; chain: string } | null {
+  const bases: { table: Table; chain: Chain }[] = [];
+  for (const t of rs.tables) {
+    if (!familyApplies(t.family)) continue;
+    for (const c of t.chains) if (c.base && c.base.hook === hook && c.base.type === 'nat') bases.push({ table: t, chain: c });
+  }
+  bases.sort((a, b) => a.chain.base!.priority - b.chain.base!.priority);
+  for (const { table, chain } of bases) {
+    const r = runChain(table, chain, p, [], 0);
+    if (r.nat && r.decidedBy?.rule) return { nat: r.nat, rule: r.decidedBy.rule, table: `${table.family} ${table.name}`, chain: chain.name };
+  }
+  return null;
 }

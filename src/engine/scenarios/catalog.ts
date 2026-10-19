@@ -156,5 +156,35 @@ export const CAUSES: Record<string, Cause> = Object.fromEntries(
       signature: 'Connections from other hosts are refused (RST) while the same request from the server itself works. ss -tlnp shows 127.0.0.1:PORT instead of 0.0.0.0:PORT.',
       check: 'ss -tlnp on the server; the service\'s listen/bind configuration (nginx: listen; sshd: ListenAddress).',
     },
+    {
+      id: 'dhcp-server-down', title: 'DHCP server not running / not serving this network', category: 'Service', concept: 'net.dhcp',
+      signature: 'Clients log "No DHCPOFFERS received" and end up without an IPv4 address ("Network is unreachable"). The server log shows nothing for their DISCOVERs, or the service failed at start ("Not configured to listen on any interfaces!").',
+      check: 'systemctl status isc-dhcp-server and journalctl -u isc-dhcp-server on the server; /etc/default/isc-dhcp-server (INTERFACESv4); tcpdump port 67 on the server.',
+    },
+    {
+      id: 'dhcp-pool-exhausted', title: 'DHCP pool exhausted (no free leases)', category: 'Configuration', concept: 'net.dhcp',
+      signature: 'New clients get no address while clients that already hold a lease keep working. The server logs "DHCPDISCOVER from … : network …: no free leases".',
+      check: 'journalctl -u isc-dhcp-server; count active leases in /var/lib/dhcp/dhcpd.leases against the range in dhcpd.conf.',
+    },
+    {
+      id: 'dhcp-bad-option', title: 'DHCP hands out a wrong option (router or DNS server)', category: 'Configuration', concept: 'net.dhcp',
+      signature: 'DHCP clients get an address but their default route or DNS server is wrong, so only some things fail; statically configured hosts are fine. The client\'s lease file and ip route/resolv.conf show the wrong value.',
+      check: 'On the client: ip route, cat /etc/resolv.conf, cat /var/lib/dhcp/dhclient.eth0.leases. On the server: the option lines in dhcpd.conf.',
+    },
+    {
+      id: 'nat-missing-masquerade', title: 'Outbound NAT (masquerade/SNAT) missing', category: 'Network path', concept: 'net.nat',
+      signature: 'Inside clients time out to Internet hosts, while the router itself can reach them. tcpdump on the router\'s Internet interface shows private source addresses leaving; replies never come back (the Internet cannot route private addresses).',
+      check: 'tcpdump -n on the router\'s outside interface; nft list table ip nat; conntrack -L.',
+    },
+    {
+      id: 'nat-wrong-dnat', title: 'Port forward (DNAT) points to the wrong inside address', category: 'Configuration', concept: 'net.nat',
+      signature: 'Outside clients fail to reach the published service; on the router the translated destination is not the server (ARP for it fails, or another host answers). Inside clients reaching the server directly are fine.',
+      check: 'nft list table ip nat; conntrack -L (look at the translated destination); ip neigh on the router.',
+    },
+    {
+      id: 'nat-filter-order', title: 'Forward rule written for the public (pre-NAT) port/address', category: 'Firewall', concept: 'net.nat',
+      signature: 'The port forward is correct, but the forward chain drops the traffic: the filter sees the destination AFTER DNAT (inside address and port), so a rule matching the public port never matches.',
+      check: 'nft -a list ruleset on the router: compare the forward rule with the dnat target; counters on the rule stay at 0.',
+    },
   ] as Cause[]).map((c) => [c.id, c]),
 );

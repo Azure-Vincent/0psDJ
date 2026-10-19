@@ -13,7 +13,12 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "desktop": "npm run build && electron .",
-    "desktop:dev": "electron . --dev"
+    "desktop:dev": "electron . --dev",
+    "dist": "npm run build && electron-builder --publish never",
+    "dist:linux": "npm run build && electron-builder --linux --publish never",
+    "dist:win": "npm run build && electron-builder --win --publish never",
+    "dist:mac": "npm run build && electron-builder --mac --publish never",
+    "dist:dir": "npm run build && electron-builder --dir"
   },
   "dependencies": {
     "react": "18.3.1",
@@ -24,8 +29,56 @@
     "@types/react-dom": "18.3.1",
     "@vitejs/plugin-react": "4.3.4",
     "electron": "33.2.1",
+    "electron-builder": "25.1.8",
     "typescript": "5.6.3",
     "vite": "5.4.11",
     "vitest": "2.1.8"
+  },
+  "author": {
+    "name": "Infrastructure Lab contributors"
+  },
+  "homepage": "https://github.com/Azure-Vincent/0psDJ",
+  "build": {
+    "appId": "lab.infrastructure.desktop",
+    "productName": "Infrastructure Lab",
+    "artifactName": "InfrastructureLab-${version}-${os}-${arch}.${ext}",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "package.json",
+      "!node_modules/**/*"
+    ],
+    "npmRebuild": false,
+    "asar": true,
+    "linux": {
+      "target": [
+        "AppImage",
+        "tar.gz"
+      ],
+      "category": "Education",
+      "icon": "build/icon.png",
+      "synopsis": "Offline IT infrastructure learning lab"
+    },
+    "win": {
+      "target": [
+        "portable",
+        "zip"
+      ],
+      "icon": "build/icon.png",
+      "signAndEditExecutable": false
+    },
+    "mac": {
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "icon": "build/icon.png",
+      "category": "public.app-category.education",
+      "identity": null
+    }
   }
 }

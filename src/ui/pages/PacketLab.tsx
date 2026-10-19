@@ -10,6 +10,7 @@ function proto(f: CapturedFrame): string {
   const p = f.ip!;
   if (p.app?.protocol === 'SSH') return 'SSHv2';
   if (p.app?.protocol === 'DNS') return 'DNS';
+  if (p.app?.protocol === 'DHCP') return 'DHCP';
   if (p.app?.protocol === 'DATA') return p.tcp?.sport === 80 || p.tcp?.dport === 80 ? 'HTTP' : 'DATA';
   return p.proto.toUpperCase();
 }
