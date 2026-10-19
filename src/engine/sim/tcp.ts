@@ -20,9 +20,18 @@ export const ERRNO_TEXT: Record<ConnectErrno, string> = {
   EPERM: 'Operation not permitted',
 };
 
+/** The connection as the server sees it (differs from the client's view behind NAT). */
+export interface ServerView {
+  local: string;
+  localPort: number;
+  peer: string;
+  peerPort: number;
+}
+
 export class TcpConn {
   clientSeq: number;
   serverSeq: number;
+  sv: ServerView;
   constructor(
     public world: World,
     public client: Host,
@@ -33,9 +42,11 @@ export class TcpConn {
     public serverPort: number,
     clientIsn: number,
     serverIsn: number,
+    sv?: ServerView,
   ) {
     this.clientSeq = clientIsn;
     this.serverSeq = serverIsn;
+    this.sv = sv ?? { local: serverIp, localPort: serverPort, peer: clientIp, peerPort: clientPort };
   }
 
   /** Send a data segment. Returns false if it did not reach the peer. */
@@ -43,13 +54,13 @@ export class TcpConn {
     const c2s = dir === 'c2s';
     const p: Packet = {
       id: nextId(this.world),
-      src: c2s ? this.clientIp : this.serverIp,
-      dst: c2s ? this.serverIp : this.clientIp,
+      src: c2s ? this.clientIp : this.sv.local,
+      dst: c2s ? this.serverIp : this.sv.peer,
       ttl: 64,
       proto: 'tcp',
       tcp: {
-        sport: c2s ? this.clientPort : this.serverPort,
-        dport: c2s ? this.serverPort : this.clientPort,
+        sport: c2s ? this.clientPort : this.sv.localPort,
+        dport: c2s ? this.serverPort : this.sv.peerPort,
         seq: c2s ? this.clientSeq : this.serverSeq,
         ack: c2s ? this.serverSeq : this.clientSeq,
         flags,
@@ -125,24 +136,26 @@ export function tcpConnect(world: World, client: Host, dstIp: string, dport: num
     if (d.status === 'local-error') return fail(d.errno, d.reason);
     if (d.status === 'delivered') {
       const server = world.hosts[d.host];
-      const listener = findListener(server, 'tcp', dstIp, dport);
+      const f = d.final; // as received: may differ from what the client sent if NAT was applied
+      const sv = { local: f.dst, localPort: f.tcp!.dport, peer: f.src, peerPort: f.tcp!.sport };
+      const listener = findListener(server, 'tcp', sv.local, sv.localPort);
       if (!listener) {
-        const rst = makeRst(world, syn);
+        const rst = makeRst(world, f);
         const r = transmit(world, server.id, rst);
-        rec?.describe(rst.id, 'TCP RST (no listener)', `The SYN reached ${server.hostname}, but no socket is listening on ${dstIp}:${dport}. The kernel itself (not any application) answers with RST/ACK. The client's connect() fails immediately with ECONNREFUSED: "Connection refused". This proves routing and firewalls let the SYN through; the problem is on the server's service side.`);
-        if (r.status === 'delivered') return fail('ECONNREFUSED', `no process listening on ${dstIp}:${dport}; kernel answered with RST`);
+        rec?.describe(rst.id, 'TCP RST (no listener)', `The SYN reached ${server.hostname}, but no socket is listening on ${sv.local}:${sv.localPort}. The kernel itself (not any application) answers with RST/ACK. The client's connect() fails immediately with ECONNREFUSED: "Connection refused". This proves routing and firewalls let the SYN through; the problem is on the server's service side.`);
+        if (r.status === 'delivered') return fail('ECONNREFUSED', `no process listening on ${sv.local}:${sv.localPort}; kernel answered with RST`);
       } else {
         const sisn = seededInt(`isn:${server.id}:${dport}:${world.counter}`, 1, 0x7fffffff);
         if (rec) rec.setState(server.id, { tcp: 'SYN_RECV' });
         const synack: Packet = {
-          id: nextId(world), src: dstIp, dst: srcIp, ttl: 64, proto: 'tcp',
-          tcp: { sport: dport, dport: sport, seq: sisn, ack: (isn + 1) >>> 0, flags: ['SYN', 'ACK'], window: 65160, len: 0, options: 'MSS=1460,SACK_PERM,TS,WS=128' },
+          id: nextId(world), src: sv.local, dst: sv.peer, ttl: 64, proto: 'tcp',
+          tcp: { sport: sv.localPort, dport: sv.peerPort, seq: sisn, ack: (isn + 1) >>> 0, flags: ['SYN', 'ACK'], window: 65160, len: 0, options: 'MSS=1460,SACK_PERM,TS,WS=128' },
         };
         world.clock += 0.3;
         const r = transmit(world, server.id, synack);
         rec?.describe(synack.id, 'TCP SYN-ACK', `Step 2. ${listener.process} (pid ${listener.pid}) has a listening socket on ${listener.addr}:${listener.port}, so the kernel accepts the SYN, stores a half-open connection (SYN_RECV), picks its own ISN (${sisn}) and acknowledges the client's ISN+1 (Ack=${(isn + 1) >>> 0}). The application is not involved yet: the kernel completes the handshake and queues the connection for accept().`);
         if (r.status === 'delivered') {
-          const conn = new TcpConn(world, client, server, srcIp, dstIp, sport, dport, (isn + 1) >>> 0, (sisn + 1) >>> 0);
+          const conn = new TcpConn(world, client, server, srcIp, dstIp, sport, dport, (isn + 1) >>> 0, (sisn + 1) >>> 0, sv);
           if (rec) rec.setState(client.id, { tcp: 'ESTABLISHED' });
           const ack = conn.send('c2s', 0, undefined, ['ACK']);
           rec?.describe(ack.packet.id, 'TCP ACK (handshake complete)', `Step 3. The client acknowledges the server's ISN+1. Both sides are now ESTABLISHED and each knows the other's starting sequence number, so lost or reordered data can be detected. Firewalls with connection tracking now classify further packets of this flow as "established".`);

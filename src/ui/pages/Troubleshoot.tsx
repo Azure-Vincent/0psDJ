@@ -20,7 +20,7 @@ export function TroubleshootList() {
     <div className="page">
       <h1>Troubleshooting lab</h1>
       <p className="muted">
-        Each ticket starts from a working network (ws01 → rtr01 → srv01, DNS on ns1) with one or more realistic faults injected through the same commands an
+        Each ticket starts from a working network (office LAN with ws01/ws02, router rtr01 with an Internet uplink, server srv01, DNS/DHCP on ns1) with one or more realistic faults injected through the same commands an
         administrator would have run. The environment is a deterministic simulation: changing a firewall rule, route, file, permission or service changes logs,
         packets and connection results consistently. Nothing is pre-recorded.
       </p>
@@ -224,11 +224,11 @@ export function TroubleshootWorkspace({ id }: { id: string }) {
 
           <div className="ts-center">
             <LabTerminals key={labKey} getWorld={() => worldRef.current!} setWorld={(w) => (worldRef.current = w)} onCommand={onCommand} height="100%"
-              specs={[
+              specs={scenario.terminals ?? [
                 { hostId: 'ws01', user: clientUser, label: `ws01 (${clientUser})`, banner: `ws01 terminal as ${clientUser}. Type "help" for commands. sudo password: ws01-${clientUser}.` },
                 { hostId: 'srv01', user: 'root', label: 'srv01 console', banner: 'Out-of-band console on srv01 (root). Works even when the network does not.' },
                 { hostId: 'ns1', user: 'root', label: 'ns1 console', banner: 'Console on ns1 (root): BIND 9, zone file /etc/bind/db.corp.lab.' },
-                { hostId: 'rtr01', user: 'root', label: 'rtr01 console', banner: 'Console on rtr01 (root): Linux router between 10.0.10.0/24 and 10.0.20.0/24.' },
+                { hostId: 'rtr01', user: 'root', label: 'rtr01 console', banner: 'Console on rtr01 (root): Linux router between 10.0.10.0/24, 10.0.20.0/24 and the Internet uplink 203.0.113.0/24.' },
               ]} />
           </div>
 

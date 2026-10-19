@@ -204,3 +204,191 @@ export const TRANSPORT_ASSESSMENT: Assessment = {
     },
   ],
 };
+
+export const DHCP_ASSESSMENT: Assessment = {
+  id: 'dhcp',
+  title: 'DHCP knowledge check',
+  questions: [
+    {
+      id: 'dhcp-q-dora', kind: 'order', level: 'beginner',
+      prompt: 'Order the messages of a DHCP address assignment.',
+      items: ['DHCPDISCOVER (client, broadcast)', 'DHCPOFFER (server)', 'DHCPREQUEST (client, broadcast)', 'DHCPACK (server)'],
+      concepts: ['net.dhcp'],
+      explanation: 'DORA. The client only configures the address after the ACK.',
+    },
+    {
+      id: 'dhcp-q-src', kind: 'single', level: 'beginner',
+      prompt: 'Which source and destination IP addresses does a DHCPDISCOVER use?',
+      options: [
+        { text: '0.0.0.0 → 255.255.255.255', correct: true },
+        { text: 'The client\'s last address → the DHCP server', misconception: 'A client starting fresh has no address and does not know the server.' },
+        { text: '169.254.x.x → the default gateway', misconception: 'Link-local is the fallback AFTER DHCP fails, and the client has no gateway yet.' },
+      ],
+      concepts: ['net.dhcp'],
+      explanation: 'No address yet, no server known: from 0.0.0.0:68 to the limited broadcast address, port 67.',
+    },
+    {
+      id: 'dhcp-q-router', kind: 'single', level: 'intermediate',
+      prompt: 'After a change on the DHCP server, new clients get correct addresses and can reach hosts on their own subnet, but nothing beyond it. What is the most likely mistake?',
+      options: [
+        { text: 'Wrong option routers', correct: true },
+        { text: 'Wrong option domain-name-servers', misconception: 'DNS problems break names, not addresses; ping by IP to other subnets would still work.' },
+        { text: 'The range is too small', misconception: 'They got addresses, so the pool is not exhausted.' },
+        { text: 'The server firewall blocks UDP 67', misconception: 'Then clients would get no address at all.' },
+      ],
+      concepts: ['net.dhcp', 'net.routing'],
+      explanation: 'The default gateway comes from option routers; `ip route` on a client shows the bad value.',
+    },
+    {
+      id: 'dhcp-q-relay', kind: 'single', level: 'intermediate',
+      prompt: 'Clients on 10.0.30.0/24 get no address. The DHCP server is on 10.0.10.0/24 and has a correct subnet declaration for 10.0.30.0/24. What is missing?',
+      options: [
+        { text: 'A DHCP relay (ip helper-address) on the router for 10.0.30.0/24', correct: true },
+        { text: 'A static route on the DHCP server', misconception: 'The requests never reach the server: routers do not forward broadcasts.' },
+        { text: 'A reservation for each client', misconception: 'Reservations do not change how the request gets to the server.' },
+      ],
+      concepts: ['net.dhcp'],
+      explanation: 'Broadcasts stay on their segment. The relay forwards them as unicast and sets giaddr so the server picks the 10.0.30.0/24 pool.',
+    },
+    {
+      id: 'dhcp-q-alloc', kind: 'single', level: 'intermediate',
+      prompt: 'Which address does ISC dhcpd offer to a client whose MAC appears in a host declaration with fixed-address 10.0.10.21 AND in the lease file with 10.0.10.104?',
+      options: [
+        { text: '10.0.10.21', correct: true },
+        { text: '10.0.10.104', misconception: 'A reservation (host declaration) takes precedence over previous dynamic leases.' },
+        { text: 'The first free address of the range', misconception: 'Only used when neither a reservation nor a previous lease applies.' },
+      ],
+      concepts: ['net.dhcp'],
+      explanation: 'Order: reservation, previous lease for this MAC, first free address of the range.',
+    },
+    {
+      id: 'dhcp-q-nofree', kind: 'single', level: 'intermediate',
+      prompt: 'The server log shows: `DHCPDISCOVER from 52:54:00:d4:00:42 via eth0: network 10.0.10.0/24: no free leases`. What does the client see?',
+      options: [
+        { text: 'Repeated DHCPDISCOVERs and finally "No DHCPOFFERS received."', correct: true },
+        { text: 'A DHCPNAK with an error message', misconception: 'NAK answers a REQUEST for a wrong address; an exhausted pool simply does not offer.' },
+        { text: 'An address outside the range', misconception: 'dhcpd never hands out addresses outside its ranges or reservations.' },
+      ],
+      concepts: ['net.dhcp'],
+      explanation: 'Silence on the wire; the explanation is only in the server\'s log.',
+    },
+    {
+      id: 'dhcp-q-interfaces', kind: 'text', level: 'intermediate',
+      prompt: 'Which variable in /etc/default/isc-dhcp-server selects the interfaces dhcpd serves on (IPv4)?',
+      accept: ['INTERFACESv4', /^interfacesv4(=.*)?$/i], placeholder: 'NAME', concepts: ['net.dhcp'],
+      explanation: 'INTERFACESv4="eth0". A wrong name gives "Not configured to listen on any interfaces!".',
+    },
+    {
+      id: 'dhcp-q-renew', kind: 'text', level: 'advanced',
+      prompt: 'With a lease time of 600 seconds, after how many seconds does the client first try to renew (T1)?',
+      accept: ['300', '300s', '300 s'], placeholder: 'seconds', concepts: ['net.dhcp'],
+      explanation: 'T1 = 50 % of the lease time (unicast to the same server); T2 = 87.5 % (broadcast to any server).',
+    },
+    {
+      id: 'dhcp-q-rogue', kind: 'multi', level: 'advanced',
+      prompt: 'A home router plugged into the office LAN starts answering DHCP. Which effects and defences are real? (Select all that apply.)',
+      options: [
+        { text: 'Some clients get its gateway and DNS and lose access to internal services', correct: true },
+        { text: 'DHCP snooping on the switches drops OFFERs from untrusted ports', correct: true },
+        { text: 'DHCP authenticates servers, so clients ignore the rogue one', misconception: 'Plain DHCP has no server authentication; clients take the first usable offer.' },
+        { text: 'In AD, unauthorised Windows DHCP servers refuse to start (but other devices are not affected)', correct: true },
+      ],
+      concepts: ['net.dhcp'],
+      explanation: 'Rogue DHCP is a classic outage and attack vector; snooping is the network-side control.',
+    },
+  ],
+};
+
+export const NAT_ASSESSMENT: Assessment = {
+  id: 'nat',
+  title: 'NAT knowledge check',
+  questions: [
+    {
+      id: 'nat-q-private', kind: 'multi', level: 'beginner',
+      prompt: 'Which are RFC 1918 private ranges? (Select all that apply.)',
+      options: [
+        { text: '10.0.0.0/8', correct: true },
+        { text: '172.16.0.0/12', correct: true },
+        { text: '192.168.0.0/16', correct: true },
+        { text: '203.0.113.0/24', misconception: 'That is a documentation range (RFC 5737), used here as a stand-in for public addresses.' },
+        { text: '169.254.0.0/16', misconception: 'Link-local (APIPA), not routed at all.' },
+      ],
+      concepts: ['net.nat'],
+      explanation: 'Private ranges are not routed on the Internet; hosts using them need NAT (or a proxy) to reach it.',
+    },
+    {
+      id: 'nat-q-hooks', kind: 'order', level: 'intermediate',
+      prompt: 'Order what happens on the router to the first packet of an inbound connection to a port-forwarded service.',
+      items: ['Packet arrives on the uplink', 'prerouting: DNAT rewrites the destination', 'Routing decision for the new destination', 'forward hook: filter rules evaluated', 'postrouting: SNAT rules evaluated', 'Packet leaves on the inside interface'],
+      concepts: ['net.nat', 'fw.path'],
+      explanation: 'DNAT before routing, filter in forward, SNAT last.',
+    },
+    {
+      id: 'nat-q-filter', kind: 'single', level: 'intermediate',
+      prompt: 'Public TCP 8443 is forwarded with `iifname "eth2" tcp dport 8443 dnat to 10.0.20.10:443`. The forward chain has policy drop. Which rule allows the traffic?',
+      options: [
+        { text: 'iifname "eth2" tcp dport 8443 accept', misconception: 'The forward hook sees the packet after DNAT: its port is already 443.' },
+        { text: 'iifname "eth2" ip daddr 10.0.20.10 tcp dport 443 accept', correct: true },
+        { text: 'iifname "eth2" ip daddr 203.0.113.2 tcp dport 8443 accept', misconception: 'Both address and port were rewritten in prerouting.' },
+      ],
+      concepts: ['net.nat', 'fw.path'],
+      explanation: 'Write forward rules for the translated (inside) destination.',
+    },
+    {
+      id: 'nat-q-conntrack', kind: 'single', level: 'advanced',
+      prompt: 'What does this conntrack entry show?',
+      exhibit: 'tcp 6 117 ESTABLISHED src=10.0.10.25 dst=203.0.113.80 sport=52088 dport=80 src=203.0.113.80 dst=203.0.113.2 sport=80 dport=52088 [ASSURED]',
+      options: [
+        { text: 'An outbound connection from 10.0.10.25 that was source-NATed to 203.0.113.2', correct: true },
+        { text: 'An inbound port forward to 10.0.10.25', misconception: 'The original direction starts at 10.0.10.25: it is the client.' },
+        { text: 'A connection without NAT', misconception: 'Without NAT the reply tuple would go to 10.0.10.25, the mirror image of the original.' },
+      ],
+      concepts: ['net.nat', 'fw.stateful'],
+      explanation: 'Original tuple vs expected reply tuple: replies are expected at 203.0.113.2, so the source was translated.',
+    },
+    {
+      id: 'nat-q-nomasq', kind: 'single', level: 'intermediate',
+      prompt: 'Office PCs cannot reach any Internet site. On the router\'s uplink, `tcpdump -n` shows `IP 10.0.10.25.52088 > 203.0.113.80.80: Flags [S]` repeated. What is wrong?',
+      options: [
+        { text: 'Source NAT/masquerade is not applied on the uplink', correct: true },
+        { text: 'The remote web server is down', misconception: 'A down server would still have to receive packets it can answer; a private source can never be answered over the Internet.' },
+        { text: 'The router\'s forward chain drops the SYN', misconception: 'The SYN is visible leaving the uplink, so it was forwarded.' },
+      ],
+      concepts: ['net.nat'],
+      explanation: 'Private sources on the uplink = no SNAT. Check the postrouting chain and its oifname.',
+    },
+    {
+      id: 'nat-q-masq-vs-snat', kind: 'single', level: 'intermediate',
+      prompt: 'When is `masquerade` preferable to `snat to 203.0.113.2`?',
+      options: [
+        { text: 'When the uplink address is dynamic (DHCP/PPPoE)', correct: true },
+        { text: 'When you need to publish an inside server', misconception: 'Publishing is DNAT.' },
+        { text: 'Always: snat is deprecated', misconception: 'snat to a fixed address is slightly cheaper and fine for static addresses.' },
+      ],
+      concepts: ['net.nat'],
+      explanation: 'masquerade looks up the outgoing interface address per new connection and forgets translations when the interface goes down.',
+    },
+    {
+      id: 'nat-q-existing', kind: 'single', level: 'advanced',
+      prompt: 'You fix a wrong DNAT rule and reload the ruleset. A client that has kept retrying the same connection (same source port) is still sent to the old target. Why?',
+      options: [
+        { text: 'NAT decisions are stored in conntrack for existing flows; only new flows see the new rule', correct: true },
+        { text: 'nft reload is not atomic', misconception: 'It is atomic; the issue is the existing conntrack entry.' },
+        { text: 'The client caches the NAT mapping', misconception: 'The client knows nothing about NAT.' },
+      ],
+      concepts: ['net.nat', 'fw.stateful'],
+      explanation: 'Delete the entry (conntrack -D / -F) or wait for it to time out.',
+    },
+    {
+      id: 'nat-q-dnat-noport', kind: 'single', level: 'advanced',
+      prompt: 'What is the risk of `iifname "eth2" dnat to 10.0.20.10` (no protocol/port match)?',
+      options: [
+        { text: 'Every port on the public address is forwarded to the inside server', correct: true },
+        { text: 'Nothing: DNAT only applies to established flows', misconception: 'NAT rules apply to NEW flows.' },
+        { text: 'It breaks outbound masquerade', misconception: 'Outbound flows do not enter via eth2 as new connections.' },
+      ],
+      concepts: ['net.nat'],
+      explanation: 'Always match the protocol and port you mean to publish, and pair it with a narrow forward rule.',
+    },
+  ],
+};

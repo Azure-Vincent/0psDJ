@@ -96,6 +96,18 @@ export const CAPTURE_PRESETS: CapturePreset[] = [
     build: (w) => as(w, 'ws01', 'alice', ['dig srv01.corp.lab', 'dig nosuchhost.corp.lab', 'dig www.example.com']),
   },
   {
+    id: 'dhcp-dora', title: 'DHCP: release and DORA, server view', host: 'ns1', iface: 'eth0',
+    description: 'ws02 releases its lease and asks again (dhclient -r; dhclient -v), captured on the DHCP server ns1. (The simulator records the release in the lease files and logs but does not put a DHCPRELEASE packet on the wire.)',
+    lookFor: ['DISCOVER and REQUEST from 0.0.0.0:68 to 255.255.255.255:67 (Ethernet destination ff:ff:ff:ff:ff:ff)', 'OFFER and ACK unicast to the client MAC with yiaddr 10.0.10.100', 'Options in the BOOTP payload: message type (53), server identifier (54), lease time (51), router (3), DNS (6)', 'The same transaction ID in all four DORA messages'],
+    build: (w) => as(w, 'ws02', 'root', ['dhclient -r eth0', 'dhclient -v eth0']),
+  },
+  {
+    id: 'nat-uplink', title: 'NAT: the Internet side of rtr01', host: 'rtr01', iface: 'eth2',
+    description: 'ws01 fetches a page from the Internet host 203.0.113.80, then ext01 fetches the published intranet site from 203.0.113.2. Captured on rtr01\'s uplink eth2.',
+    lookFor: ['Outbound flow: source 203.0.113.2 (masqueraded), never 10.0.10.25', 'Inbound flow: destination 203.0.113.2:80; the replies also come from 203.0.113.2 (un-DNATed)', 'No private address appears anywhere on this interface', 'Compare with "tcpdump -n -i eth0" / "conntrack -L" on rtr01 in a sandbox terminal'],
+    build: (w) => { as(w, 'ws01', 'alice', ['curl -I http://203.0.113.80/']); as(w, 'ext01', 'guest', ['curl -I http://203.0.113.2/']); },
+  },
+  {
     id: 'ping-traceroute', title: 'ping and traceroute (ICMP echo, TTL exceeded)', host: 'ws01', iface: 'eth0',
     description: 'ping -c 2 srv01, then traceroute -n srv01 (UDP probes), which srv01\'s firewall drops after the first hop.',
     lookFor: ['Echo request/reply pairs with the same id and sequence', 'TTL=1 probes answered by rtr01 with "time exceeded"', 'Later probes get no answer: srv01 drops UDP 33434+'],

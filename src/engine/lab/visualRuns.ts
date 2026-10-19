@@ -8,6 +8,7 @@ import { Shell } from '../shell/shell';
 import { Recorder, withRecorder, type TraceEvent } from '../sim/trace';
 import type { World } from '../types';
 import { freshLab } from './dependencies';
+import { formatLease } from '../config/dhcpd';
 import { RTR01_NFT } from './sshLab';
 
 export interface VisualRun {
@@ -146,5 +147,64 @@ export const TRANSPORT_RUNS: VisualRun[] = [
     id: 'loopback-bind', label: 'Service bound to 127.0.0.1', host: 'ws01', user: 'alice', command: 'curl -I http://srv01.corp.lab/',
     description: 'nginx listens on 127.0.0.1:80 only. A SYN to 10.0.20.10:80 matches no socket: RST.',
     setup: (w) => { edit(w, 'srv01', '/etc/nginx/nginx.conf', (s) => s.replace('listen 80 default_server;', 'listen 127.0.0.1:80 default_server;').replace('        listen [::]:80 default_server;\n', '')); script(w, 'srv01', ['systemctl reload nginx']); },
+  },
+];
+
+export const DHCP_RUNS: VisualRun[] = [
+  {
+    id: 'dora', label: 'DORA: Discover, Offer, Request, Ack', host: 'ws02', user: 'root', command: 'dhclient -v eth0',
+    description: 'ws02 first releases its lease, then asks again. DISCOVER and REQUEST are broadcasts from 0.0.0.0 (every host on the LAN receives them, only ns1 runs a DHCP server); OFFER and ACK are unicast to ws02\'s MAC. Open the packets to see yiaddr and the options (router, DNS, lease time).',
+    setup: (w) => script(w, 'ws02', ['dhclient -r eth0']),
+  },
+  {
+    id: 'wrong-router', label: 'Lease with a wrong router option', host: 'ws02', user: 'dana', command: 'ping -c 1 10.0.20.10',
+    description: 'dhcpd.conf hands out "option routers 10.0.10.254" (an address nobody uses). ws02 gets an address and can reach its own LAN, but its default route points at a non-existent gateway: ARP for 10.0.10.254 fails and nothing leaves the subnet.',
+    setup: (w) => {
+      edit(w, 'ns1', '/etc/dhcp/dhcpd.conf', (s) => s.replace('option routers 10.0.10.1;', 'option routers 10.0.10.254;'));
+      script(w, 'ns1', ['systemctl restart isc-dhcp-server']);
+      script(w, 'ws02', ['dhclient -r eth0', 'dhclient eth0']);
+    },
+  },
+  {
+    id: 'no-server', label: 'No DHCP server answering', host: 'ws02', user: 'root', command: 'dhclient -v eth0',
+    description: 'isc-dhcp-server is stopped on ns1. The DISCOVER broadcasts reach every host on the LAN but nobody answers; dhclient backs off (3, 8, 18, 20 s…) and gives up. ws02 is left without an address.',
+    setup: (w) => { script(w, 'ws02', ['dhclient -r eth0']); script(w, 'ns1', ['systemctl stop isc-dhcp-server']); },
+  },
+  {
+    id: 'exhausted', label: 'Pool exhausted: "no free leases"', host: 'ws02', user: 'root', command: 'dhclient -v eth0',
+    description: 'The range is shrunk to 10.0.10.100-10.0.10.100 and that address is leased to another MAC. ns1 receives the DISCOVER but has nothing to offer; it logs "no free leases" (journalctl -u isc-dhcp-server) and stays silent on the wire.',
+    setup: (w) => {
+      script(w, 'ws02', ['dhclient -r eth0']);
+      edit(w, 'ns1', '/etc/dhcp/dhcpd.conf', (s) => s.replace('range 10.0.10.100 10.0.10.150;', 'range 10.0.10.100 10.0.10.100;'));
+      edit(w, 'ns1', '/var/lib/dhcp/dhcpd.leases', (s) => s + formatLease({ ip: '10.0.10.100', mac: '52:54:00:77:00:01', hostname: 'visitor-1', starts: w.clock, ends: w.clock + 7200_000, state: 'active' }));
+      script(w, 'ns1', ['systemctl restart isc-dhcp-server']);
+    },
+  },
+];
+
+export const NAT_RUNS: VisualRun[] = [
+  {
+    id: 'masquerade', label: 'Outbound: masquerade (source NAT)', host: 'ws01', user: 'alice', command: 'curl -I http://203.0.113.80/',
+    description: 'ws01 (10.0.10.25) talks to a host on the Internet. In postrouting, rtr01 rewrites the source to its eth2 address 203.0.113.2 and a new source port is kept if free; ext01 only ever sees 203.0.113.2. The reply comes back to 203.0.113.2 and conntrack reverses the translation. Compare src/dst in the hop notes on each side of rtr01.',
+  },
+  {
+    id: 'dnat', label: 'Inbound: port forward (destination NAT)', host: 'ext01', user: 'guest', command: 'curl -I http://203.0.113.2/',
+    description: 'ext01 connects to the router\'s public address. In prerouting (before the routing decision) rtr01 rewrites the destination to 10.0.20.10:80, routes it out eth1, and srv01 answers its private address. The reply is un-DNATed so ext01 sees an answer from 203.0.113.2.',
+  },
+  {
+    id: 'no-masquerade', label: 'Missing masquerade: private source on the Internet', host: 'ws01', user: 'alice', command: 'curl -I -m 6 http://203.0.113.80/',
+    description: 'The masquerade rule is removed. The SYN leaves eth2 with source 10.0.10.25. ext01 receives it, but cannot route a reply to a private address (on the real Internet providers drop such packets), so the client times out.',
+    setup: (w) => { edit(w, 'rtr01', '/etc/nftables.conf', (s) => s.replace('\t\toifname "eth2" masquerade\n', '')); script(w, 'rtr01', ['systemctl reload nftables']); },
+  },
+  {
+    id: 'filter-after-dnat', label: 'Forward filter sees the translated packet', host: 'ext01', user: 'guest', command: 'curl -I -m 6 http://203.0.113.2:8080/',
+    description: 'Public port 8080 is forwarded to srv01:80, and the forward chain (policy drop) has "iifname eth2 tcp dport 8080 accept". DNAT already rewrote the packet in prerouting, so the forward hook sees dport 80: the rule never matches and the policy drops it.',
+    setup: (w) => {
+      edit(w, 'rtr01', '/etc/nftables.conf', (s) => s
+        .replace('iifname "eth2" tcp dport 80 dnat to 10.0.20.10:80', 'iifname "eth2" tcp dport 8080 dnat to 10.0.20.10:80')
+        .replace('\tchain forward {\n\t\ttype filter hook forward priority filter; policy accept;\n\t}\n',
+          '\tchain forward {\n\t\ttype filter hook forward priority filter; policy drop;\n\t\tct state established,related accept\n\t\tiifname "eth0" accept\n\t\tiifname "eth1" accept\n\t\tiifname "eth2" tcp dport 8080 accept\n\t}\n'));
+      script(w, 'rtr01', ['systemctl reload nftables']);
+    },
   },
 ];

@@ -86,6 +86,23 @@ export interface ConntrackEntry {
   time: number;
 }
 
+export interface NatTuple {
+  src: string;
+  sport: number;
+  dst: string;
+  dport: number;
+}
+
+/** One translated flow: the original tuple and the tuple after translation (original direction). */
+export interface NatEntry {
+  proto: 'tcp' | 'udp' | 'icmp';
+  orig: NatTuple;
+  trans: NatTuple;
+  kind: string; // e.g. "masquerade", "dnat", "dnat+masquerade"
+  rule: string;
+  time: number;
+}
+
 export interface Host {
   id: string;
   hostname: string;
@@ -100,6 +117,8 @@ export interface Host {
   neighbors: Neighbor[];
   nft: Ruleset;
   conntrack: ConntrackEntry[];
+  /** NAT translations (kept with conntrack in the real kernel). */
+  nat: NatEntry[];
   ipForward: boolean;
   services: Record<string, ServiceRuntime>;
   journal: LogEntry[];
@@ -174,7 +193,7 @@ export interface IcmpHeader {
 }
 
 export interface AppLayer {
-  protocol: 'DNS' | 'SSH' | 'DATA';
+  protocol: 'DNS' | 'SSH' | 'DATA' | 'DHCP';
   /** Short Wireshark-style "Info" text. */
   info: string;
   /** Decoded protocol fields visible to an observer. */

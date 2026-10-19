@@ -66,7 +66,7 @@ export function checkGoal(world: World, goal: Goal): GoalResult {
 export function rebootAll(world: World): World {
   const w = structuredClone(world);
   w.sessions = [];
-  for (const id of ['rtr01', 'ns1', 'srv01', 'ws01']) if (w.hosts[id]) bootHost(w, w.hosts[id]);
+  for (const id of ['rtr01', 'ns1', 'srv01', 'ws01', 'ws02', 'ext01']) if (w.hosts[id]) bootHost(w, w.hosts[id]);
   w.clock += 30_000;
   return w;
 }

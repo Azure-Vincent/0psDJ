@@ -8,9 +8,9 @@
 // admin-prohibited) are generated where the real kernel would generate them and
 // are themselves routed back, so asymmetric failures behave realistically.
 
-import { evaluate, renderRule, type EvalResult, type PacketContext, type RejectType } from '../config/nft';
+import { evaluate, evaluateNat, renderRule, type EvalResult, type PacketContext, type RejectType } from '../config/nft';
 import { inCidr, parseCidr, parseIp } from '../net/ip';
-import type { ArpPacket, ConntrackEntry, Host, Interface, Packet, Route, World } from '../types';
+import type { ArpPacket, ConntrackEntry, Host, Interface, NatEntry, NatTuple, Packet, Route, World } from '../types';
 import { kernelLog } from './journal';
 import { activeRecorder } from './trace';
 
@@ -158,7 +158,7 @@ function toContext(p: Packet, host: Host, iif?: string, oif?: string): PacketCon
   };
 }
 
-function capture(world: World, host: Host, iface: Interface, dir: 'in' | 'out', srcMac: string, dstMac: string, ip?: Packet, arp?: ArpPacket) {
+export function capture(world: World, host: Host, iface: Interface, dir: 'in' | 'out', srcMac: string, dstMac: string, ip?: Packet, arp?: ArpPacket) {
   host.capture.push({ time: world.clock, host: host.id, iface: iface.name, dir, srcMac, dstMac, ip: ip ? clonePacket(ip) : undefined, arp });
   if (host.capture.length > 400) host.capture.splice(0, host.capture.length - 400);
 }
@@ -187,6 +187,102 @@ function firewallLog(world: World, host: Host, prefix: string, p: Packet, iif: s
   kernelLog(world, host, `${prefix}IN=${iif ?? ''} OUT=${oif ?? ''} SRC=${p.src} DST=${p.dst} LEN=${packetLength(p)} TOS=0x00 PREC=0x00 TTL=${p.ttl} ID=${p.id & 0xffff} DF ${l4}`);
 }
 
+// ---------------------------------------------------------------------------
+// NAT (nftables "type nat" chains on prerouting/postrouting)
+// ---------------------------------------------------------------------------
+
+function tupleOf(p: Packet): NatTuple {
+  const [sport, dport] = ports(p);
+  return { src: p.src, sport, dst: p.dst, dport };
+}
+
+function setPorts(p: Packet, sport: number, dport: number): void {
+  if (p.tcp) { p.tcp.sport = sport; p.tcp.dport = dport; }
+  else if (p.udp) { p.udp.sport = sport; p.udp.dport = dport; }
+}
+
+const sameTuple = (a: NatTuple, b: NatTuple) => a.src === b.src && a.sport === b.sport && a.dst === b.dst && a.dport === b.dport;
+const replyOf = (t: NatTuple): NatTuple => ({ src: t.dst, sport: t.dport, dst: t.src, dport: t.sport });
+
+interface NatState {
+  entry?: NatEntry;
+  dir?: 'orig' | 'reply';
+  /** Original tuple of a new flow whose destination was translated in prerouting. */
+  pendingDnat?: { orig: NatTuple; rule: string };
+  notes: string[];
+}
+
+function hasNatChains(host: Host): boolean {
+  return host.nft.tables.some((t) => t.chains.some((c) => c.base?.type === 'nat'));
+}
+
+function natLookup(host: Host, p: Packet): NatState {
+  for (const e of host.nat) {
+    if (e.proto !== p.proto) continue;
+    const t = tupleOf(p);
+    if (sameTuple(t, e.orig)) return { entry: e, dir: 'orig', notes: [] };
+    if (sameTuple(t, replyOf(e.trans))) return { entry: e, dir: 'reply', notes: [] };
+  }
+  return { notes: [] };
+}
+
+/** Prerouting: reverse-translate replies, translate later packets of known flows, or DNAT a new flow. */
+function natPrerouting(host: Host, p: Packet, iif: string): NatState {
+  if (host.nat.length === 0 && !hasNatChains(host)) return { notes: [] };
+  const st = natLookup(host, p);
+  if (st.entry && st.dir === 'orig' && (st.entry.trans.dst !== p.dst || st.entry.trans.dport !== ports(p)[1])) {
+    st.notes.push(`prerouting NAT (known flow): destination ${p.dst}:${ports(p)[1]} → ${st.entry.trans.dst}:${st.entry.trans.dport}`);
+    p.dst = st.entry.trans.dst;
+    setPorts(p, ports(p)[0], st.entry.trans.dport);
+  } else if (st.entry && st.dir === 'reply' && (st.entry.orig.src !== p.dst || st.entry.orig.sport !== ports(p)[1])) {
+    st.notes.push(`prerouting NAT (reply of a translated flow): destination ${p.dst}:${ports(p)[1]} → ${st.entry.orig.src}:${st.entry.orig.sport}`);
+    p.dst = st.entry.orig.src;
+    setPorts(p, ports(p)[0], st.entry.orig.sport);
+  } else if (!st.entry && ctState(host, p) === 'new' && !p.icmp?.quoted) {
+    const r = evaluateNat(host.nft, 'prerouting', toContext(p, host, iif));
+    if (r && r.nat.kind === 'dnat') {
+      const orig = tupleOf(p);
+      p.dst = r.nat.addr;
+      if (r.nat.port) setPorts(p, ports(p)[0], r.nat.port);
+      st.pendingDnat = { orig, rule: renderRule({ ...r.rule, counter: null }) };
+      st.notes.push(`prerouting NAT: rule "${st.pendingDnat.rule}" → destination ${orig.dst}:${orig.dport} rewritten to ${p.dst}:${ports(p)[1]}`);
+    }
+  }
+  return st;
+}
+
+/** Postrouting: apply source translation and record new NAT flows. */
+function natPostrouting(world: World, host: Host, p: Packet, st: NatState, oif: string, egressAddr: string | null): void {
+  if (st.entry) {
+    const want = st.dir === 'orig' ? { a: st.entry.trans.src, port: st.entry.trans.sport } : { a: st.entry.orig.dst, port: st.entry.orig.dport };
+    if (want.a !== p.src || want.port !== ports(p)[0]) {
+      st.notes.push(`postrouting NAT (${st.dir === 'orig' ? 'known flow' : 'reply'}): source ${p.src}:${ports(p)[0]} → ${want.a}:${want.port}`);
+      p.src = want.a;
+      setPorts(p, want.port, ports(p)[1]);
+    }
+    return;
+  }
+  if (!hasNatChains(host) || p.icmp?.quoted) return;
+  if (!st.pendingDnat && ctState(host, p) !== 'new') return;
+  const before = tupleOf(p);
+  const r = evaluateNat(host.nft, 'postrouting', toContext(p, host, undefined, oif));
+  let kind = st.pendingDnat ? 'dnat' : '';
+  let rule = st.pendingDnat?.rule ?? '';
+  if (r && (r.nat.kind === 'masquerade' || r.nat.kind === 'snat')) {
+    const newSrc = r.nat.kind === 'masquerade' ? egressAddr ?? p.src : r.nat.addr;
+    const newPort = r.nat.kind === 'snat' && r.nat.port ? r.nat.port : ports(p)[0];
+    st.notes.push(`postrouting NAT: rule "${renderRule({ ...r.rule, counter: null })}" → source ${p.src}:${ports(p)[0]} rewritten to ${newSrc}:${newPort}`);
+    p.src = newSrc;
+    setPorts(p, newPort, ports(p)[1]);
+    kind = kind ? `${kind}+${r.nat.kind}` : r.nat.kind;
+    rule = rule ? `${rule}; ${renderRule({ ...r.rule, counter: null })}` : renderRule({ ...r.rule, counter: null });
+  }
+  if (!kind) return;
+  const orig = st.pendingDnat?.orig ?? before;
+  host.nat.push({ proto: p.proto, orig, trans: tupleOf(p), kind, rule, time: world.clock });
+  if (host.nat.length > 200) host.nat.shift();
+}
+
 /** Human-readable firewall decision for hop notes ("nft inet filter input: rule 7 'tcp dport 22 accept'"). */
 export function describeDecision(hook: string, fw: EvalResult): string {
   const d = fw.decidedBy;
@@ -210,7 +306,7 @@ export interface HopRecord {
 }
 
 export type Delivery =
-  | { status: 'delivered'; host: string; hops: HopRecord[]; error?: undefined }
+  | { status: 'delivered'; host: string; hops: HopRecord[]; error?: undefined; /** The packet as received (after any NAT on the path). */ final: Packet }
   | { status: 'dropped'; host: string; hops: HopRecord[]; reason: string; error?: IcmpErrorReturn }
   | { status: 'rejected'; host: string; hops: HopRecord[]; reason: string; rejectWith: RejectType; error?: IcmpErrorReturn; rst?: { packet: Packet; delivered: boolean } }
   | { status: 'local-error'; host: string; hops: HopRecord[]; errno: 'ENETUNREACH' | 'EHOSTUNREACH' | 'EPERM'; reason: string; error?: undefined };
@@ -347,16 +443,17 @@ function transmitInner(world: World, fromHostId: string, original: Packet, opts:
     world.clock += 0.2;
     if (ingress) {
       // ---- Arrived at `host` via `ingress` -------------------------------------
+      const nat = natPrerouting(host, p, ingress.name);
       if (isLocalAddress(host, p.dst)) {
         const fw = evaluate(host.nft, 'input', toContext(p, host, ingress.name));
         fw.logs.forEach((pre) => firewallLog(world, host, pre, p, ingress!.name, undefined));
         if (fw.verdict === 'accept') {
           ctConfirm(host, p, world.clock);
-          hops.push({ host: host.id, ingress: ingress.name, ttl: p.ttl, note: `input hook: ${describeDecision('input', fw)}; delivered to the local socket layer` });
-          return { status: 'delivered', host: host.id, hops };
+          hops.push({ host: host.id, ingress: ingress.name, ttl: p.ttl, note: `${nat.notes.map((n) => n + '; ').join('')}input hook: ${describeDecision('input', fw)}; delivered to the local socket layer` });
+          return { status: 'delivered', host: host.id, hops, final: clonePacket(p) };
         }
         const why = describeDecision('input', fw);
-        hops.push({ host: host.id, ingress: ingress.name, ttl: p.ttl, note: why });
+        hops.push({ host: host.id, ingress: ingress.name, ttl: p.ttl, note: `${nat.notes.map((n) => n + '; ').join('')}${why}` });
         if (fw.verdict === 'drop') return { status: 'dropped', host: host.id, hops, reason: why };
         const r = handleReject(world, host, p, fw.rejectWith!);
         return { status: 'rejected', host: host.id, hops, reason: why, rejectWith: fw.rejectWith!, ...r };
@@ -383,7 +480,7 @@ function transmitInner(world: World, fromHostId: string, original: Packet, opts:
       fw.logs.forEach((pre) => firewallLog(world, host, pre, p, ingress!.name, rd.dev));
       if (fw.verdict !== 'accept') {
         const why = describeDecision('forward', fw);
-        hops.push({ host: host.id, ingress: ingress.name, ttl: p.ttl, note: why });
+        hops.push({ host: host.id, ingress: ingress.name, ttl: p.ttl, note: `${nat.notes.map((n) => n + '; ').join('')}${why}` });
         if (fw.verdict === 'drop') return { status: 'dropped', host: host.id, hops, reason: why };
         const r = handleReject(world, host, p, fw.rejectWith!);
         return { status: 'rejected', host: host.id, hops, reason: why, rejectWith: fw.rejectWith!, ...r };
@@ -397,7 +494,8 @@ function transmitInner(world: World, fromHostId: string, original: Packet, opts:
         const error = sendIcmpError(world, host, p, 'host-unreachable');
         return { status: 'dropped', host: host.id, hops, reason: `no ARP reply from ${rd.nextHop}`, error };
       }
-      hops.push({ host: host.id, ingress: ingress.name, egress: egress.name, srcMac: egress.mac, dstMac: nh.mac, ttl: p.ttl, note: `TTL ${p.ttl + 1}→${p.ttl}; forward hook: ${describeDecision('forward', fw)}; routed via ${rd.route.dest}${rd.route.via ? ' via ' + rd.route.via : ''} dev ${egress.name}` });
+      natPostrouting(world, host, p, nat, egress.name, egress.address);
+      hops.push({ host: host.id, ingress: ingress.name, egress: egress.name, srcMac: egress.mac, dstMac: nh.mac, ttl: p.ttl, note: `TTL ${p.ttl + 1}→${p.ttl}; forward hook: ${describeDecision('forward', fw)}; routed via ${rd.route.dest}${rd.route.via ? ' via ' + rd.route.via : ''} dev ${egress.name}${nat.notes.length ? '; ' + nat.notes.join('; ') : ''}` });
       capture(world, host, egress, 'out', egress.mac, nh.mac, p);
       capture(world, nh.host, nh.iface, 'in', egress.mac, nh.mac, p);
       host = nh.host;
@@ -438,7 +536,9 @@ function transmitInner(world: World, fromHostId: string, original: Packet, opts:
       hops.push({ host: host.id, egress: egress.name, ttl: p.ttl, note: `ARP for next hop ${rd.nextHop} failed (no host answered on ${egress.name})` });
       return { status: 'local-error', host: host.id, hops, errno: 'EHOSTUNREACH', reason: `no ARP reply from ${rd.nextHop}` };
     }
-    hops.push({ host: host.id, egress: egress.name, srcMac: egress.mac, dstMac: nh.mac, ttl: p.ttl, note: `route ${rd.route.dest}${rd.route.via ? ' via ' + rd.route.via : ''} dev ${egress.name}` });
+    const onat = natLookup(host, p);
+    natPostrouting(world, host, p, onat, egress.name, egress.address);
+    hops.push({ host: host.id, egress: egress.name, srcMac: egress.mac, dstMac: nh.mac, ttl: p.ttl, note: `route ${rd.route.dest}${rd.route.via ? ' via ' + rd.route.via : ''} dev ${egress.name}${onat.notes.length ? '; ' + onat.notes.join('; ') : ''}` });
     capture(world, host, egress, 'out', egress.mac, nh.mac, p);
     capture(world, nh.host, nh.iface, 'in', egress.mac, nh.mac, p);
     host = nh.host;

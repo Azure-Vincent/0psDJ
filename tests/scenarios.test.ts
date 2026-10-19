@@ -31,6 +31,12 @@ const SYMPTOM: Record<string, RegExp> = {
   'net-dns-resolvconf': /Temporary failure in name resolution/,
   'net-hosts-override': /No route to host/,
   'net-nginx-loopback': /Couldn't connect to server/,
+  'dhcp-interface': /Could not resolve host|Network is unreachable/,
+  'dhcp-pool-exhausted': /Could not resolve host|Network is unreachable/,
+  'dhcp-wrong-router': /No route to host/,
+  'nat-no-masquerade': /curl: \(28\)/,
+  'nat-dnat-typo': /No route to host/,
+  'nat-filter-order': /curl: \(28\)/,
 };
 
 describe.each(SSH_SCENARIOS.map((s) => [s.id, s] as const))('scenario %s', (id, scenario) => {

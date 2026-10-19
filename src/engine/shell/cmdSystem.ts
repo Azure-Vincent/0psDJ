@@ -9,10 +9,11 @@ import { readFile, writeFile } from '../fs';
 import { formatEntry, isoTime } from '../sim/journal';
 import { fingerprintOfBlob, KEY_LABEL, parsePublicKey } from '../sim/keys';
 import {
-  bootHost, findService, parseNginxListens, reloadService, restartService, SERVICE_DEFS, sshdTest, startService, stopService, type SshdLoaded,
+  bootHost, dhcpdTest, findService, parseNginxListens, reloadService, restartService, SERVICE_DEFS, sshdTest, startService, stopService, type SshdLoaded,
 } from '../sim/services';
 import { knownHostName, knownHostsEntries, runSsh } from '../sim/ssh';
 import { resolve } from '../sim/dns';
+import { dhcpAcquire, dhcpRelease } from '../sim/dhcp';
 import { tcpConnect, ERRNO_TEXT } from '../sim/tcp';
 import { base64Decode } from '../util/sha256';
 import { resolvePath } from './cmdFiles';
@@ -616,6 +617,42 @@ const nginxCmd: CommandDef = {
   },
 };
 
+const dhclient: CommandDef = {
+  name: 'dhclient',
+  summary: 'DHCP client: obtain (or with -r release) a lease',
+  usage: 'dhclient [-v] [-r] [IFACE]',
+  run(args, ctx) {
+    if (ctx.user.uid !== 0) return err('dhclient: Permission denied (you must be root)', 1);
+    const { flags, rest } = parseFlags(args);
+    const name = rest[0] ?? ctx.host.ifaces.find((i) => i.name !== 'lo')?.name;
+    const iface = ctx.host.ifaces.find((i) => i.name === name);
+    if (!iface || iface.name === 'lo') return err(`Cannot find device "${name}"`, 1);
+    if (flags.has('-r')) {
+      const msg = dhcpRelease(ctx.world, ctx.host, iface);
+      return ok(flags.has('-v') ? (msg ?? 'dhclient: no active lease on ' + iface.name) : '');
+    }
+    iface.up = true;
+    const before = ctx.host.journal.length;
+    const lease = dhcpAcquire(ctx.world, ctx.host, iface);
+    const lines = ctx.host.journal.slice(before).filter((e) => e.ident === 'dhclient').map((e) => e.message);
+    if (!lease) return { out: flags.has('-v') ? lines.join('\n') : '', code: 2 };
+    return ok(flags.has('-v') ? lines.join('\n') : '');
+  },
+};
+
+const dhcpdCmd: CommandDef = {
+  name: 'dhcpd',
+  summary: 'ISC DHCP server: -t tests /etc/dhcp/dhcpd.conf',
+  usage: 'dhcpd -t [-cf FILE]',
+  run(args, ctx) {
+    if (!ctx.host.services.dhcpd) return err('-bash: dhcpd: command not found', 127);
+    if (!args.includes('-t')) return err('dhcpd: run the server with systemctl (isc-dhcp-server); this simulator supports dhcpd -t', 1);
+    const e = dhcpdTest(ctx.host);
+    const head = 'Internet Systems Consortium DHCP Server 4.4.3-P1\nCopyright 2004-2022 Internet Systems Consortium.\nAll rights reserved.';
+    return e.length ? err(`${head}\n${e.join('\n')}`, 1) : ok(head);
+  },
+};
+
 const reboot: CommandDef = {
   name: 'reboot',
   summary: 'reboot the machine (runtime state is rebuilt from configuration files)',
@@ -635,5 +672,5 @@ const reboot: CommandDef = {
   },
 };
 
-export const SYSTEM_COMMANDS: CommandDef[] = [systemctl, journalctl, nft, iptables, ssh, sshKeygen, sshKeyscan, sshCopyId, sshd, rndc, namedCheckzone, nginxCmd, reboot];
+export const SYSTEM_COMMANDS: CommandDef[] = [systemctl, journalctl, nft, iptables, ssh, sshKeygen, sshKeyscan, sshCopyId, sshd, rndc, namedCheckzone, nginxCmd, dhclient, dhcpdCmd, reboot];
 export { fingerprintOfBlob, base64Decode };

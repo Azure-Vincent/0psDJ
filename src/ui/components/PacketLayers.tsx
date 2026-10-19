@@ -86,7 +86,7 @@ export function PacketLayers({ packet, arp, l2 }: { packet?: Packet; arp?: ArpPa
       )}
       {packet?.app && (
         <details className="layer" open>
-          <summary>{packet.app.protocol === 'SSH' ? 'SSH Protocol' : packet.app.protocol === 'DNS' ? 'Domain Name System' : 'Data'}{packet.app.encrypted ? ' (encrypted)' : ''}</summary>
+          <summary>{packet.app.protocol === 'SSH' ? 'SSH Protocol' : packet.app.protocol === 'DNS' ? 'Domain Name System' : packet.app.protocol === 'DHCP' ? 'Dynamic Host Configuration Protocol (BOOTP)' : 'Data'}{packet.app.encrypted ? ' (encrypted)' : ''}</summary>
           {packet.app.encrypted && (
             <div className="callout warn small" style={{ margin: 6 }}>
               On the wire this is an opaque encrypted packet: an observer sees only its length and timing. The decoded message below is the endpoint's view, shown for teaching. It is not visible in a capture without the session keys.
