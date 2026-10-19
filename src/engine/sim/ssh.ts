@@ -279,7 +279,7 @@ function runSshInner(world: World, o: SshClientOptions, out: string[]): SshResul
   }
   dbg(`Local version string ${CLIENT_VERSION}`);
 
-  const listener = findListener(server, 'tcp', ip, port)!;
+  const listener = findListener(server, 'tcp', conn.sv.local, conn.sv.localPort)!;
   if (listener.service !== 'ssh') {
     // Something other than sshd answered (e.g. nginx on port 80).
     if (rec) rec.phase = 'SSH transport';
@@ -295,13 +295,14 @@ function runSshInner(world: World, o: SshClientOptions, out: string[]): SshResul
   const sshd = server.services.ssh;
   const loaded = sshd.loaded as SshdLoaded;
   const childPid = (server.nextPid += 3);
-  const cip = conn.clientIp;
-  const cport = conn.clientPort;
+  // Server-side logs use the address the server sees (the router's address when NAT is involved).
+  const cip = conn.sv.peer;
+  const cport = conn.sv.peerPort;
   const globalEff = loaded.effective;
   const slog = (level: string, msg: string, priority: 'info' | 'err' | 'notice' = 'info', eff = globalEff) => {
     if (levelEnabled(eff, level)) log(world, server, 'sshd', msg, { pid: childPid, unit: 'ssh.service', priority });
   };
-  slog('VERBOSE', `Connection from ${cip} port ${cport} on ${ip} port ${port} rdomain ""`);
+  slog('VERBOSE', `Connection from ${cip} port ${cport} on ${conn.sv.local} port ${conn.sv.localPort} rdomain ""`);
   if (rec) {
     rec.phase = 'SSH transport';
     note('sshd accepts the connection and forks a per-connection child',

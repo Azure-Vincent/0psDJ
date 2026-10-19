@@ -68,6 +68,7 @@ export function createHost(world: World, spec: HostSpec): Host {
     neighbors: [],
     nft: emptyRuleset(),
     conntrack: [],
+    nat: [],
     ipForward: false,
     services: {},
     journal: [],
@@ -76,7 +77,7 @@ export function createHost(world: World, spec: HostSpec): Host {
     bootTime: t,
   };
   for (const s of ['networking', ...spec.services]) host.services[s] = svc(true);
-  for (const d of ['/', '/bin', '/etc', '/etc/ssh', '/etc/ssh/sshd_config.d', '/etc/network', '/etc/sysctl.d', '/etc/nginx', '/home', '/root', '/usr', '/usr/bin', '/usr/sbin', '/var', '/var/log', '/tmp']) {
+  for (const d of ['/', '/bin', '/etc', '/etc/ssh', '/etc/ssh/sshd_config.d', '/etc/network', '/etc/sysctl.d', '/etc/nginx', '/etc/dhcp', '/etc/default', '/var/lib', '/var/lib/dhcp', '/home', '/root', '/usr', '/usr/bin', '/usr/sbin', '/var', '/var/log', '/tmp']) {
     mkdir(host, d, t, d === '/root' ? { mode: 0o700 } : d === '/tmp' ? { mode: 0o1777 } : undefined);
   }
   for (const b of ['/bin/bash', '/bin/sh', '/usr/sbin/nologin', '/bin/false', '/usr/bin/ssh', '/usr/sbin/sshd']) {

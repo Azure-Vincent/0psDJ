@@ -114,9 +114,10 @@ export function dnsQuery(world: World, host: Host, server: string, qname: string
     return { server, qname, outcome: 'timeout', rttMs: timeoutS * 1000 };
   }
   const srv = world.hosts[d.host];
-  const listener = findListener(srv, 'udp', server, 53);
+  const fq = d.final;
+  const listener = findListener(srv, 'udp', fq.dst, fq.udp!.dport);
   if (!listener) {
-    const err = sendIcmpError(world, srv, q, 'port-unreachable');
+    const err = sendIcmpError(world, srv, fq, 'port-unreachable');
     if (err?.delivered) return { server, qname, outcome: 'port-unreachable', rttMs: world.clock - start };
     world.clock += timeoutS * 1000;
     return { server, qname, outcome: 'timeout', rttMs: timeoutS * 1000 };
@@ -127,8 +128,8 @@ export function dnsQuery(world: World, host: Host, server: string, qname: string
   if (failed) ans = { rcode: 'SERVFAIL', answers: [], authoritative: false };
   const rbytes = encodeDns(id, qname, { rcode: RCODE[ans.rcode], aa: ans.authoritative, ra: false, answers: ans.answers });
   const r: Packet = {
-    id: nextId(world), src: server, dst: q.src, ttl: 64, proto: 'udp',
-    udp: { sport: 53, dport: sport, len: rbytes.length },
+    id: nextId(world), src: fq.dst, dst: fq.src, ttl: 64, proto: 'udp',
+    udp: { sport: fq.udp!.dport, dport: fq.udp!.sport, len: rbytes.length },
     app: {
       protocol: 'DNS',
       info: `Standard query response 0x${id.toString(16).padStart(4, '0')} ${ans.rcode === 'NOERROR' ? '' : ans.rcode.toLowerCase() + ' '}A ${qname.replace(/\.$/, '')}${ans.answers.map((a) => ` ${a.type} ${a.data}`).join('')}`,

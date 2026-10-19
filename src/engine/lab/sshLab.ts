@@ -183,6 +183,38 @@ table inet filter {
 		type filter hook output priority filter; policy accept;
 	}
 }
+
+# NAT towards the Internet (eth2): hide the private networks behind 203.0.113.2
+# and publish the intranet web server on the public address (WEB-1).
+table ip nat {
+	chain prerouting {
+		type nat hook prerouting priority dstnat; policy accept;
+		iifname "eth2" tcp dport 80 dnat to 10.0.20.10:80
+	}
+	chain postrouting {
+		type nat hook postrouting priority srcnat; policy accept;
+		oifname "eth2" masquerade
+	}
+}
+`;
+
+export const DHCPD_CONF = `# dhcpd.conf - office LAN (ISC DHCP 4.4)
+option domain-name "corp.lab";
+option domain-name-servers 10.0.10.53;
+default-lease-time 600;
+max-lease-time 7200;
+authoritative;
+
+subnet 10.0.10.0 netmask 255.255.255.0 {
+    range 10.0.10.100 10.0.10.150;
+    option routers 10.0.10.1;
+}
+
+# Reservations
+host printer01 {
+    hardware ethernet 52:54:00:e5:00:21;
+    fixed-address 10.0.10.21;
+}
 `;
 
 export const CORP_ZONE = `; corp.lab - authoritative zone, managed on ns1
@@ -241,6 +273,7 @@ export function buildSshLab(): World {
   world.segments = {
     lan10: { id: 'lan10', name: 'Office LAN', cidr: '10.0.10.0/24', vlan: 10 },
     srv20: { id: 'srv20', name: 'Server network', cidr: '10.0.20.0/24', vlan: 20 },
+    wan: { id: 'wan', name: 'Internet uplink (documentation range TEST-NET-3)', cidr: '203.0.113.0/24' },
   };
   const t = world.clock;
 
@@ -250,10 +283,11 @@ export function buildSshLab(): World {
     ifaces: [
       { name: 'eth0', mac: '52:54:00:a1:00:01', segment: 'lan10' },
       { name: 'eth1', mac: '52:54:00:a1:00:02', segment: 'srv20' },
+      { name: 'eth2', mac: '52:54:00:a1:00:03', segment: 'wan' },
     ],
     services: ['nftables'],
   });
-  writeFile(rtr, '/etc/network/interfaces', staticInterfaces([{ name: 'eth0', address: '10.0.10.1/24' }, { name: 'eth1', address: '10.0.20.1/24' }]), t);
+  writeFile(rtr, '/etc/network/interfaces', staticInterfaces([{ name: 'eth0', address: '10.0.10.1/24' }, { name: 'eth1', address: '10.0.20.1/24' }, { name: 'eth2', address: '203.0.113.2/24', gateway: '203.0.113.1' }]), t);
   writeFile(rtr, '/etc/sysctl.d/99-router.conf', '# Enable IPv4 forwarding between eth0 (LAN) and eth1 (servers)\nnet.ipv4.ip_forward=1\n', t);
   writeFile(rtr, '/etc/nftables.conf', RTR01_NFT, t, { mode: 0o755 });
   writeFile(rtr, '/etc/resolv.conf', 'search corp.lab\nnameserver 10.0.10.53\n', t);
@@ -262,8 +296,11 @@ export function buildSshLab(): World {
   const ns1 = createHost(world, {
     id: 'ns1', hostname: 'ns1', domain: 'corp.lab', role: 'DNS server (BIND 9, authoritative for corp.lab)',
     ifaces: [{ name: 'eth0', mac: '52:54:00:b2:00:35', segment: 'lan10' }],
-    services: ['nftables', 'named'],
+    services: ['nftables', 'named', 'dhcpd'],
   });
+  writeFile(ns1, '/etc/dhcp/dhcpd.conf', DHCPD_CONF, t);
+  writeFile(ns1, '/etc/default/isc-dhcp-server', '# Defaults for isc-dhcp-server (sourced by /etc/init.d/isc-dhcp-server)\n\n# On what interfaces should the DHCP server (dhcpd) serve DHCP requests?\nINTERFACESv4="eth0"\nINTERFACESv6=""\n', t);
+  writeFile(ns1, '/var/lib/dhcp/dhcpd.leases', '# The format of this file is documented in the dhcpd.leases(5) manual page.\n# This lease file was written by isc-dhcp-4.4.3-P1\n\n', t);
   writeFile(ns1, '/etc/network/interfaces', staticInterfaces([{ name: 'eth0', address: '10.0.10.53/24', gateway: '10.0.10.1' }]), t);
   writeFile(ns1, '/etc/resolv.conf', 'search corp.lab\nnameserver 127.0.0.1\n', t);
   mkdir(ns1, '/etc/bind', t, { group: 'bind', mode: 0o2755 });
@@ -307,8 +344,29 @@ export function buildSshLab(): World {
   writeFile(ws, '/home/alice/.ssh/id_ed25519', ak.privateFile, t, { mode: 0o600, owner: 'alice', group: 'alice' });
   writeFile(ws, '/home/alice/.ssh/id_ed25519.pub', ak.publicLine + '\n', t, { mode: 0o644, owner: 'alice', group: 'alice' });
 
-  // Boot everything (order matters only for log realism).
-  for (const h of [rtr, ns1, srv, ws]) bootHost(world, h);
+  // ---- ws02: DHCP client laptop -------------------------------------------
+  const ws2 = createHost(world, {
+    id: 'ws02', hostname: 'ws02', domain: 'corp.lab', role: 'Laptop (DHCP client)',
+    ifaces: [{ name: 'eth0', mac: '52:54:00:d4:00:42', segment: 'lan10' }],
+    services: ['nftables'],
+  });
+  writeFile(ws2, '/etc/network/interfaces', '# The primary network interface\nauto lo\niface lo inet loopback\n\nauto eth0\niface eth0 inet dhcp\n', t);
+  writeFile(ws2, '/etc/resolv.conf', '', t);
+  addUser(ws2, { name: 'dana', uid: 1000, gid: 1000, primaryGroup: 'dana', groups: ['sudo'], home: '/home/dana', shell: '/bin/bash', gecos: 'Dana Sales', password: 'ws02-dana' }, t);
+
+  // ---- ext01: a host on the Internet ---------------------------------------
+  const ext = createHost(world, {
+    id: 'ext01', hostname: 'ext01', domain: 'example.net', role: 'Internet host (stands in for any server or client on the Internet)',
+    ifaces: [{ name: 'eth0', mac: '52:54:00:f0:00:50', segment: 'wan' }],
+    services: ['nftables', 'nginx'],
+  });
+  writeFile(ext, '/etc/network/interfaces', staticInterfaces([{ name: 'eth0', address: '203.0.113.80/24', gateway: '203.0.113.1' }]), t);
+  writeFile(ext, '/etc/resolv.conf', '', t);
+  writeFile(ext, '/etc/nginx/nginx.conf', 'user www-data;\nworker_processes auto;\nhttp {\n    server {\n        listen 80 default_server;\n        root /var/www/html;\n    }\n}\n', t);
+  addUser(ext, { name: 'guest', uid: 1000, gid: 1000, primaryGroup: 'guest', groups: [], home: '/home/guest', shell: '/bin/bash', gecos: 'Internet user', password: 'ext01-guest' }, t);
+
+  // Boot everything (order matters: ns1 must serve DHCP before ws02 boots).
+  for (const h of [rtr, ns1, srv, ws, ws2, ext]) bootHost(world, h);
 
   // History: alice connected yesterday-style earlier today, accepting the host key.
   world.clock += 60_000;

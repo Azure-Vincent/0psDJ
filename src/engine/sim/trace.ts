@@ -10,6 +10,7 @@ import type { HopRecord } from './network';
 export type Phase =
   | 'ARP'
   | 'DNS'
+  | 'DHCP'
   | 'TCP'
   | 'SSH transport'
   | 'SSH key exchange'

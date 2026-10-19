@@ -33,6 +33,10 @@ export function describeIp(p: Packet, isn?: { a: number; b: number }): string {
     return `IP ${p.src}.${t.sport} > ${p.dst}.${t.dport}: Flags [${tcpFlags(t.flags)}]${seq}${ack}, win ${t.window}${opts}, length ${t.len}`;
   }
   if (p.udp) {
+    if (p.app?.protocol === 'DHCP') {
+      const mac = p.app.fields.find((f) => f.name === 'Client MAC (chaddr)')?.value ?? '';
+      return `IP ${p.src}.${p.udp.sport} > ${p.dst}.${p.udp.dport}: BOOTP/DHCP, ${p.udp.sport === 68 ? `Request from ${mac}` : 'Reply'}, length ${p.udp.len}`;
+    }
     if (p.app?.protocol === 'DNS') {
       const info = p.app.info;
       const id = /0x([0-9a-f]{4})/.exec(info)?.[1];

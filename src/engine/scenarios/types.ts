@@ -4,7 +4,7 @@ export type ConceptId =
   | 'dns.resolution' | 'dns.zone' | 'net.arp' | 'net.routing' | 'net.icmp' | 'tcp.handshake'
   | 'fw.stateful' | 'fw.persistence' | 'svc.systemd' | 'svc.listening' | 'ssh.kex' | 'ssh.hostkeys'
   | 'ssh.userauth' | 'ssh.authorized-keys' | 'linux.permissions' | 'ssh.config' | 'ssh.authz' | 'logs.journal'
-  | 'net.cidr' | 'fw.path';
+  | 'net.cidr' | 'fw.path' | 'net.dhcp' | 'net.nat';
 
 export type CauseCategory = 'Name resolution' | 'Network path' | 'Firewall' | 'Service' | 'Configuration' | 'Authentication' | 'Authorization' | 'Permissions' | 'Client' | 'Cryptography' | 'Persistence';
 
@@ -82,6 +82,8 @@ export interface Scenario {
   feedback?: Record<string, string>;
   /** Local user of the ws01 terminal (defaults to alice). */
   clientUser?: string;
+  /** Terminals offered in the workspace (default: ws01 + consoles on srv01, ns1, rtr01). */
+  terminals?: { hostId: string; user: string; label: string; banner?: string }[];
   hints: string[];
   /** Reference repair, shown after the scenario is resolved or revealed, and used by automated tests. */
   solution: { host: string; user?: string; commands: string[]; note?: string }[];
