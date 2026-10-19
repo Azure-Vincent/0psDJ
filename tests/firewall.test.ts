@@ -46,9 +46,9 @@ describe('rule explanation', () => {
     const rs = parseRulesetFile(SRV01_NFT.replace('tcp dport 22 accept', 'tcp dport 22 counter accept'));
     const r = explainPacket(rs, 'input', { src: '10.0.10.25', dst: '10.0.20.10', proto: 'tcp', sport: 5, dport: 22, ctState: 'new', len: 60, iif: 'eth0' });
     expect(r.result.verdict).toBe('accept');
-    expect(r.steps.map((s) => s.matched)).toEqual([false, false, false, false, true]);
+    expect(r.steps.map((s) => s.matched)).toEqual([false, false, false, false, false, true]);
     expect(r.steps.at(-1)!.text).toContain('tcp dport 22');
-    expect(rs.tables[0].chains[0].rules[4].counter!.packets).toBe(0);
+    expect(rs.tables[0].chains[0].rules[5].counter!.packets).toBe(0);
     const d = explainPacket(rs, 'input', { src: '10.0.10.25', dst: '10.0.20.10', proto: 'tcp', sport: 5, dport: 3306, ctState: 'new', len: 60, iif: 'eth0' });
     expect(d.steps.at(-1)!.outcome).toBe('end of chain → policy drop');
   });

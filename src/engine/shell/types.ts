@@ -67,7 +67,7 @@ export function parseFlags(args: string[], withValue: string[] = []): { flags: M
       if (v !== undefined) flags.set('--' + k, v);
       else if (withValue.includes('--' + k)) flags.set('--' + k, args[++i] ?? '');
       else flags.set('--' + k, true);
-    } else if (a.startsWith('-') && a.length > 1 && !/^-\d+$/.test(a)) {
+    } else if (a.startsWith('-') && a.length > 1 && (!/^-\d+$/.test(a) || a === '-4' || a === '-6')) {
       const chars = a.slice(1);
       for (let j = 0; j < chars.length; j++) {
         const f = '-' + chars[j];

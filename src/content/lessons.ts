@@ -1,4 +1,6 @@
-import { DHCP_ASSESSMENT, IP_ASSESSMENT, NAT_ASSESSMENT, TRANSPORT_ASSESSMENT } from './network/assessments';
+import { DHCP_ASSESSMENT, IP_ASSESSMENT, IPV6_ASSESSMENT, NAT_ASSESSMENT, TRANSPORT_ASSESSMENT, VLAN_ASSESSMENT } from './network/assessments';
+import { IPV6_LESSON } from './network/ipv6Lesson';
+import { VLAN_LESSON } from './network/vlanLesson';
 import { DHCP_LESSON } from './network/dhcpLesson';
 import { NAT_LESSON } from './network/natLesson';
 import { IP_LESSON } from './network/ipLesson';
@@ -10,7 +12,7 @@ import { SSH_LESSON } from './ssh/lesson';
 import type { Assessment, Lesson } from './types';
 
 /** Registry of complete lessons. Adding a lesson = adding an entry here (plus optional UI widgets). */
-export const LESSONS: Lesson[] = [IP_LESSON, TRANSPORT_LESSON, DHCP_LESSON, NAT_LESSON, SSH_LESSON, NFTABLES_LESSON];
+export const LESSONS: Lesson[] = [IP_LESSON, TRANSPORT_LESSON, DHCP_LESSON, NAT_LESSON, VLAN_LESSON, IPV6_LESSON, SSH_LESSON, NFTABLES_LESSON];
 
 export const ASSESSMENTS: Record<string, Assessment> = {
   [SSH_ASSESSMENT.id]: SSH_ASSESSMENT,
@@ -19,6 +21,8 @@ export const ASSESSMENTS: Record<string, Assessment> = {
   [TRANSPORT_ASSESSMENT.id]: TRANSPORT_ASSESSMENT,
   [DHCP_ASSESSMENT.id]: DHCP_ASSESSMENT,
   [NAT_ASSESSMENT.id]: NAT_ASSESSMENT,
+  [VLAN_ASSESSMENT.id]: VLAN_ASSESSMENT,
+  [IPV6_ASSESSMENT.id]: IPV6_ASSESSMENT,
 };
 
 export function getLesson(id: string): Lesson | undefined {

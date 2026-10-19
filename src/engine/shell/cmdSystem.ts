@@ -351,7 +351,9 @@ function parseSshArgs(args: string[]): { opts: Record<string, string>; user?: st
         opts[k.toLowerCase()] = v;
         break;
       }
-      case '-4': case '-6': case '-q': case '-t': case '-T': case '-A': case '-X': case '-C': break;
+      case '-4': opts.addressfamily = 'inet'; break;
+      case '-6': opts.addressfamily = 'inet6'; break;
+      case '-q': case '-t': case '-T': case '-A': case '-X': case '-C': break;
       default: return { opts, identity, verbose, error: `unknown option -- ${a.slice(1)}` };
     }
   }
@@ -393,6 +395,7 @@ const ssh: CommandDef = {
         strictHostKeyChecking: (p.opts.stricthostkeychecking?.toLowerCase() as 'yes' | 'no' | 'ask' | 'accept-new') ?? 'ask',
         batchMode: yesno(p.opts.batchmode),
         connectTimeoutS: p.opts.connecttimeout ? Number(p.opts.connecttimeout) : undefined,
+        family: p.opts.addressfamily === 'inet6' ? 6 : p.opts.addressfamily === 'inet' ? 4 : 0,
         pubkeyAuthentication: yesno(p.opts.pubkeyauthentication),
         passwordAuthentication: yesno(p.opts.passwordauthentication),
         answers,

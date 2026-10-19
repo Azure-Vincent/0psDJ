@@ -4,7 +4,7 @@
 
 import { effectiveConfig, formatErrors, parseSshdConfig, type SshdEffective } from '../config/sshdConfig';
 import { emptyRuleset, NftError, parseRulesetFile } from '../config/nft';
-import { parseInterfaces } from '../config/netconf';
+import { parseInterfaces, vlanOf } from '../config/netconf';
 import { parseZone, ZoneError, type Zone } from '../config/zone';
 import { DhcpConfigError, parseDhcpdConf } from '../config/dhcpd';
 import { dhcpAcquire, type DhcpdLoaded } from './dhcp';
@@ -13,6 +13,9 @@ import { readFile } from '../fs';
 import type { Host, ServiceRuntime, World } from '../types';
 import { log } from './journal';
 import { isLocalAddress, LOOPBACK } from './network';
+import { linkLocalFromMac } from '../net/ip6';
+import { bridgeFromConfig, recomputeL2 } from './l2';
+import { parseRadvdConf, RadvdConfigError, routerSolicit, sendRa, type RadvdLoaded } from './slaac';
 import { parsePublicKey, type ParsedPublicKey } from './keys';
 
 export interface Listener {
@@ -437,32 +440,131 @@ const dhcpd: ServiceDef = {
 };
 
 // ---------------------------------------------------------------------------
+// radvd (IPv6 router advertisement daemon)
+// ---------------------------------------------------------------------------
+
+function radvdLoad(world: World, host: Host, pid: number): RadvdLoaded | null {
+  const l = (m: string, prio: 'info' | 'err' | 'warning' = 'info') => log(world, host, 'radvd', m, { pid, unit: 'radvd.service', priority: prio });
+  let ifaces;
+  try {
+    ifaces = parseRadvdConf(readFile(host, '/etc/radvd.conf') ?? '');
+  } catch (e) {
+    l(e instanceof RadvdConfigError ? e.message : String(e), 'err');
+    l('error parsing or activating the config file: /etc/radvd.conf', 'err');
+    return null;
+  }
+  if (!host.ip6Forward) {
+    l('IPv6 forwarding setting is: 0, should be 1 or 2', 'warning');
+    l('IPv6 forwarding seems to be disabled, but continuing anyway', 'warning');
+  }
+  for (const c of ifaces) {
+    const i = host.ifaces.find((x) => x.name === c.name);
+    if (!i || !i.up) l(`interface ${c.name} does not exist or is not set up properly, ignoring the interface`, 'warning');
+  }
+  return { ifaces };
+}
+
+function radvdAdvertise(world: World, host: Host, loaded: RadvdLoaded) {
+  for (const c of loaded.ifaces) {
+    const i = host.ifaces.find((x) => x.name === c.name);
+    if (i?.up) sendRa(world, host, i, c);
+  }
+}
+
+const radvd: ServiceDef = {
+  name: 'radvd',
+  unit: 'radvd.service',
+  aliases: ['radvd', 'radvd.service'],
+  description: 'Router advertisement daemon for IPv6',
+  configFiles: ['/etc/radvd.conf'],
+  start(world, host, rt) {
+    const pid = allocPid(host);
+    const loaded = radvdLoad(world, host, pid);
+    if (!loaded) return false;
+    rt.pid = pid;
+    rt.loaded = loaded;
+    log(world, host, 'radvd', `version 2.19 started`, { pid, unit: 'radvd.service' });
+    radvdAdvertise(world, host, loaded);
+    return true;
+  },
+  reload(world, host, rt) {
+    const loaded = radvdLoad(world, host, rt.pid!);
+    if (!loaded) return false;
+    rt.loaded = loaded;
+    radvdAdvertise(world, host, loaded);
+    return true;
+  },
+  listeners: () => [],
+};
+
+// ---------------------------------------------------------------------------
 // networking (ifupdown)
 // ---------------------------------------------------------------------------
 
-/** Apply /etc/network/interfaces to runtime interface/route state. */
+/**
+ * Apply /etc/network/interfaces to runtime state: VLAN sub-interfaces, IPv4 and
+ * IPv6 addresses (link-local is automatic), routes, the switch's bridge, then
+ * DHCP and router solicitation (which need the resulting broadcast domains).
+ */
 export function applyNetworkConfig(world: World, host: Host): string[] {
   const { ifaces, errors } = parseInterfaces(readFile(host, '/etc/network/interfaces') ?? '');
   host.routes = [];
+  host.routes6 = [];
+  host.ifaces = host.ifaces.filter((i) => !i.vlan);
   for (const i of host.ifaces) {
-    if (i.name === LOOPBACK) continue;
+    if (i.name === LOOPBACK) { i.addrs6 = [{ address: '::1', prefix: 128, scope: 'host', origin: 'kernel' }]; continue; }
     i.address = null;
     i.prefix = null;
     i.up = false;
+    i.addrs6 = [];
   }
-  for (const cfg of ifaces) {
+  const autoCfg = ifaces.filter((c) => c.auto && c.name !== LOOPBACK);
+  // VLAN sub-interfaces (Debian "vlan" package: eth3.30 → raw device eth3, VLAN id 30)
+  for (const cfg of autoCfg) {
+    const v = vlanOf(cfg);
+    if (!v || host.ifaces.some((i) => i.name === cfg.name)) continue;
+    const parent = host.ifaces.find((i) => i.name === v.parent);
+    if (!parent) { errors.push(`${cfg.name}: vlan-raw-device ${v.parent} does not exist`); continue; }
+    host.ifaces.push({ name: cfg.name, mac: parent.mac, segment: null, address: null, prefix: null, up: false, addrs6: [], vlan: v });
+  }
+  if (host.kind === 'switch') host.bridge = bridgeFromConfig(ifaces, errors);
+  const slaac: string[] = [];
+  for (const cfg of autoCfg) {
     const iface = host.ifaces.find((i) => i.name === cfg.name);
-    if (!iface || iface.name === LOOPBACK || !cfg.auto) continue;
+    if (!iface) continue;
     iface.up = true;
+    if (iface.vlan) {
+      const parent = host.ifaces.find((i) => i.name === iface.vlan!.parent);
+      if (parent) parent.up = true; // ifup brings the raw device up first
+    }
+    if (cfg.family === 'inet6') {
+      if (cfg.method === 'static' && cfg.address) iface.addrs6!.push({ address: cfg.address, prefix: cfg.prefix ?? 64, scope: 'global', origin: 'static' });
+      if (cfg.method === 'auto') slaac.push(iface.name);
+      if (cfg.gateway) host.routes6.push({ dest: 'default', via: cfg.gateway, dev: iface.name, proto: 'boot' });
+      for (const r of cfg.routes) if (r.dest.includes(':')) host.routes6.push({ dest: r.dest, via: r.via, dev: iface.name, proto: 'boot' });
+      continue;
+    }
     if (cfg.method === 'static' && cfg.address) {
       iface.address = cfg.address;
       iface.prefix = cfg.prefix ?? 24;
     }
-    if (cfg.method === 'dhcp') dhcpAcquire(world, host, iface);
     if (cfg.gateway) host.routes.push({ dest: 'default', via: cfg.gateway, dev: iface.name, proto: 'boot' });
-    for (const r of cfg.routes) host.routes.push({ dest: r.dest, via: r.via, dev: iface.name, proto: 'boot' });
+    for (const r of cfg.routes) if (!r.dest.includes(':')) host.routes.push({ dest: r.dest, via: r.via, dev: iface.name, proto: 'boot' });
   }
+  // A switch port enslaved to the bridge is up when listed in bridge-ports.
+  if (host.bridge) for (const name of Object.keys(host.bridge.ports)) { const p = host.ifaces.find((i) => i.name === name); if (p) p.up = true; }
+  // Every up interface gets an EUI-64 link-local address (switch ports carry no IP).
+  for (const i of host.ifaces) {
+    if (i.name === LOOPBACK || !i.up || host.bridge?.ports[i.name]) continue;
+    if (!i.addrs6!.some((a) => a.scope === 'link')) i.addrs6!.push({ address: linkLocalFromMac(i.mac), prefix: 64, scope: 'link', origin: 'kernel' });
+  }
+  recomputeL2(world);
   host.neighbors = [];
+  for (const cfg of autoCfg) {
+    const iface = host.ifaces.find((i) => i.name === cfg.name);
+    if (iface && cfg.family === 'inet' && cfg.method === 'dhcp') dhcpAcquire(world, host, iface);
+  }
+  if (!host.ip6Forward) for (const name of slaac) routerSolicit(world, host, host.ifaces.find((i) => i.name === name)!);
   for (const e of errors) log(world, host, 'ifup', e, { unit: 'networking.service', priority: 'err' });
   return errors;
 }
@@ -480,7 +582,7 @@ const networking: ServiceDef = {
   listeners: () => [],
 };
 
-export const SERVICE_DEFS: ServiceDef[] = [networking, nftables, named, dhcpd, sshd, nginx];
+export const SERVICE_DEFS: ServiceDef[] = [networking, nftables, named, dhcpd, radvd, sshd, nginx];
 
 export function findService(host: Host, name: string): ServiceDef | undefined {
   const n = name.replace(/\.service$/, '');
@@ -566,9 +668,14 @@ export function allListeners(host: Host): Listener[] {
   return out;
 }
 
+/**
+ * Socket lookup for an incoming packet. "0.0.0.0" accepts IPv4 only and "::"
+ * IPv6 only (sshd and nginx set IPV6_V6ONLY on their [::] sockets).
+ */
 export function findListener(host: Host, proto: 'tcp' | 'udp', addr: string, port: number): Listener | undefined {
+  const v6 = addr.includes(':');
   return allListeners(host).find(
-    (l) => l.proto === proto && l.port === port && (l.addr === addr || l.addr === '0.0.0.0' || (l.addr === '127.0.0.1' && addr.startsWith('127.'))),
+    (l) => l.proto === proto && l.port === port && (l.addr === addr || (!v6 && l.addr === '0.0.0.0') || (v6 && l.addr === '::') || (l.addr === '127.0.0.1' && addr.startsWith('127.'))),
   );
 }
 
@@ -577,6 +684,7 @@ export function bootHost(world: World, host: Host): void {
   host.conntrack = [];
   host.nat = [];
   host.neighbors = [];
+  host.routes6 = [];
   host.nft = emptyRuleset();
   for (const rt of Object.values(host.services)) {
     rt.state = 'inactive';
@@ -591,9 +699,13 @@ export function bootHost(world: World, host: Host): void {
   log(world, host, 'kernel', 'Linux version 6.1.0-26-amd64 (debian-kernel@lists.debian.org) #1 SMP PREEMPT_DYNAMIC Debian 6.1.112-1');
   const sysctl = Object.keys(host.fs)
     .filter((p) => p === '/etc/sysctl.conf' || p.startsWith('/etc/sysctl.d/'))
+    .sort() // systemd-sysctl applies files in lexical order; the last assignment wins
     .map((p) => readFile(host, p) ?? '')
     .join('\n');
   host.ipForward = /^\s*net\.ipv4\.ip_forward\s*=\s*1\s*$/m.test(sysctl);
+  // Last assignment wins, as with sysctl --system.
+  const f6 = [...sysctl.matchAll(/^\s*net\.ipv6\.conf\.all\.forwarding\s*=\s*([01])\s*$/gm)].pop();
+  host.ip6Forward = f6 ? f6[1] === '1' : false;
   // networking always runs at boot on these Debian hosts (it is enabled by default)
   for (const def of SERVICE_DEFS) {
     const rt = host.services[def.name];

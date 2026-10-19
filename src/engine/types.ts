@@ -30,20 +30,52 @@ export interface UserAccount {
   password: string | null;
 }
 
+export interface Addr6 {
+  address: string;
+  prefix: number;
+  scope: 'link' | 'global' | 'host';
+  /** kernel = link-local / loopback, static = configured, ra = SLAAC from a router advertisement. */
+  origin: 'kernel' | 'static' | 'ra';
+  /** Remaining valid lifetime for SLAAC addresses (seconds at the time of assignment). */
+  validLft?: number;
+}
+
 export interface Interface {
   name: string;
   mac: string;
-  segment: string | null; // L2 segment id (null for loopback)
+  segment: string | null; // L2 segment (broadcast domain) id; null = not attached / loopback
   address: string | null;
   prefix: number | null;
   up: boolean;
+  /** IPv6 addresses (link-local is added automatically when the interface comes up). */
+  addrs6?: Addr6[];
+  /** 802.1Q VLAN sub-interface (e.g. eth3.30 on eth3, VLAN id 30). */
+  vlan?: { parent: string; id: number };
+  /** Segment used when the interface is not cabled to a switch (fixed links such as the WAN). */
+  staticSegment?: string | null;
+}
+
+/** A cable between two interfaces (e.g. a host NIC and a switch port). */
+export interface Link {
+  a: { host: string; iface: string };
+  b: { host: string; iface: string };
+}
+
+/** Runtime state of a VLAN-aware Linux bridge (the switch). */
+export interface BridgeState {
+  name: string;
+  vlanAware: boolean;
+  /** Per member port: VLANs carried, PVID (VLAN for untagged ingress) and VLANs sent untagged. */
+  ports: Record<string, { vids: number[]; pvid: number | null; untagged: number[] }>;
+  /** Learned MAC addresses (forwarding database), per VLAN. */
+  fdb?: { mac: string; port: string; vlan: number }[];
 }
 
 export interface Route {
   dest: string; // CIDR or 'default'
   via?: string;
   dev: string;
-  proto: 'kernel' | 'static' | 'boot';
+  proto: 'kernel' | 'static' | 'boot' | 'ra';
   src?: string;
 }
 
@@ -108,7 +140,7 @@ export interface Host {
   hostname: string;
   domain: string;
   osName: string;
-  kind: 'linux' | 'router';
+  kind: 'linux' | 'router' | 'switch';
   role: string;
   users: Record<string, UserAccount>;
   fs: Record<string, FileNode>;
@@ -120,6 +152,12 @@ export interface Host {
   /** NAT translations (kept with conntrack in the real kernel). */
   nat: NatEntry[];
   ipForward: boolean;
+  /** IPv6 routes (dest 'default' = ::/0). */
+  routes6?: Route[];
+  /** net.ipv6.conf.all.forwarding */
+  ip6Forward?: boolean;
+  /** Present on switches: the VLAN-aware bridge. */
+  bridge?: BridgeState | null;
   services: Record<string, ServiceRuntime>;
   journal: LogEntry[];
   capture: CapturedFrame[];
@@ -131,6 +169,8 @@ export interface Segment {
   id: string;
   name: string;
   cidr: string;
+  /** IPv6 prefix, if the segment is dual-stack. */
+  cidr6?: string;
   vlan?: number;
 }
 
@@ -144,6 +184,8 @@ export interface World {
   counter: number;
   /** Open interactive SSH sessions (so `ss` can show ESTAB sockets on both ends). */
   sessions?: OpenSession[];
+  /** Cabling between host interfaces and switch ports. */
+  links?: Link[];
 }
 
 export interface OpenSession {
@@ -190,6 +232,8 @@ export interface IcmpHeader {
   seq?: number;
   /** For ICMP errors: summary of the offending datagram. */
   quoted?: { proto: L4Proto; src: string; dst: string; sport?: number; dport?: number };
+  /** IPv6 Neighbor Discovery fields (RFC 4861). */
+  nd?: { target?: string; lladdr?: string; prefixes?: { prefix: string; autonomous: boolean; valid: number }[]; rdnss?: string[]; routerLifetime?: number; flags?: string };
 }
 
 export interface AppLayer {
@@ -232,6 +276,8 @@ export interface CapturedFrame {
   dir: 'in' | 'out';
   srcMac: string;
   dstMac: string;
+  /** 802.1Q tag when the frame is tagged on this interface (trunk ports, parent of a VLAN sub-interface). */
+  vlan?: number;
   ip?: Packet;
   arp?: ArpPacket;
 }

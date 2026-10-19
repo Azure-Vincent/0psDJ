@@ -208,3 +208,54 @@ export const NAT_RUNS: VisualRun[] = [
     },
   },
 ];
+
+export const VLAN_RUNS: VisualRun[] = [
+  {
+    id: 'same-vlan', label: 'Same VLAN: switched, no router', host: 'ws01', user: 'alice', command: 'ping -c 1 10.0.10.53',
+    description: 'ws01 (swp1) and ns1 (swp3) are both access ports in VLAN 10. The ARP broadcast is flooded only to VLAN 10 ports; the switch forwards the frames untagged. Open a packet: the hop note shows "in swp1 (untagged) → VLAN 10 → out swp3".',
+  },
+  {
+    id: 'inter-vlan', label: 'Between VLANs: router-on-a-stick over the trunk', host: 'dev01', user: 'erin', command: 'ping -4 -c 1 10.0.20.10',
+    description: 'dev01 (VLAN 30) reaches srv01 (VLAN 20) only through rtr01. dev01 sends untagged frames into swp8; the switch sends them tagged with VLAN 30 on the trunk swp7 to rtr01\'s sub-interface eth3.30; rtr01 routes and sends them out eth1 (VLAN 20, untagged). Check the hop notes for "tagged 30".',
+  },
+  {
+    id: 'wrong-access', label: 'Access port in the wrong VLAN', host: 'dev01', user: 'erin', command: 'ping -4 -c 1 10.0.30.1',
+    description: 'swp8 was set to "bridge-access 10". dev01\'s ARP request for its gateway is flooded in VLAN 10 (ws01, ws02, ns1 and rtr01 eth0 see it), where nobody owns 10.0.30.1. The link is up and dev01\'s configuration is correct, yet nothing answers.',
+    setup: (w) => { edit(w, 'sw01', '/etc/network/interfaces', (s) => s.replace('    alias dev01\n    bridge-access 30', '    alias dev01\n    bridge-access 10')); script(w, 'sw01', ['ifreload -a']); },
+  },
+  {
+    id: 'trunk-pruned', label: 'VLAN missing on the trunk', host: 'dev01', user: 'erin', command: 'ping -4 -c 1 10.0.30.1',
+    description: 'swp7 (trunk to rtr01) carries VLAN 20 instead of 30. dev01\'s ARP stays inside VLAN 30, which now has no port towards the router: the gateway is unreachable although rtr01\'s eth3.30 is up and correctly addressed.',
+    setup: (w) => { edit(w, 'sw01', '/etc/network/interfaces', (s) => s.replace('    alias rtr01 eth3 (trunk)\n    bridge-vids 30', '    alias rtr01 eth3 (trunk)\n    bridge-vids 20')); script(w, 'sw01', ['ifreload -a']); },
+  },
+];
+
+export const IPV6_RUNS: VisualRun[] = [
+  {
+    id: 'slaac', label: 'SLAAC: router solicitation and advertisement', host: 'dev01', user: 'root', command: 'systemctl restart networking',
+    description: 'dev01 brings eth0 up with only a link-local address (fe80:: + EUI-64 from its MAC) and sends a Router Solicitation to ff02::2. radvd on rtr01 answers with a Router Advertisement for 2001:db8:30::/64 from its link-local address; dev01 builds 2001:db8:30::5054:ff:fee7:1e and a default route via fe80::5054:ff:fea1:4.',
+  },
+  {
+    id: 'ndp-ping', label: 'Neighbor Discovery and ping -6', host: 'dev01', user: 'erin', command: 'ping -6 -c 1 srv01.corp.lab',
+    description: 'Name resolution asks for the AAAA record (over IPv4: the DNS server is IPv4-only). Then IPv6 replaces ARP with ICMPv6: dev01 solicits its router\'s link-local address, rtr01 solicits srv01 (2001:db8:20::10) on eth1, and srv01 solicits the router to send the reply. Each Neighbor Solicitation goes to a solicited-node multicast group and passes the target\'s firewall.',
+  },
+  {
+    id: 'dual-stack', label: 'Dual stack: curl prefers IPv6', host: 'dev01', user: 'erin', command: 'curl -v -I http://srv01.corp.lab/',
+    description: 'getaddrinfo() returns 2001:db8:20::10 and 10.0.20.10; with a global IPv6 address dev01 sorts IPv6 first (RFC 6724) and the whole HTTP exchange runs over IPv6. Frames to the router carry the 802.1Q tag 30 on the trunk.',
+  },
+  {
+    id: 'icmpv6-blocked', label: 'Firewall drops ICMPv6: "Address unreachable"', host: 'dev01', user: 'erin', command: 'ping -6 -c 1 srv01.corp.lab',
+    description: 'srv01\'s ruleset only accepts ICMPv6 echo. rtr01\'s Neighbor Solicitation for 2001:db8:20::10 is dropped by srv01\'s input chain (ct state untracked, no matching rule, policy drop), so rtr01 cannot deliver and returns ICMPv6 destination unreachable, code 3 (address unreachable).',
+    setup: (w) => { edit(w, 'srv01', '/etc/nftables.conf', (s) => s.replace('meta l4proto ipv6-icmp accept', 'icmpv6 type { echo-request, echo-reply } accept')); script(w, 'srv01', ['systemctl reload nftables']); },
+  },
+  {
+    id: 'happy-eyeballs', label: 'Broken IPv6, curl falls back to IPv4', host: 'dev01', user: 'erin', command: 'curl -v -I http://srv01.corp.lab/',
+    description: 'Same broken firewall. curl tries [2001:db8:20::10]:80 first, gets "No route to host" from the router, and immediately tries 10.0.20.10: the page loads. Users see nothing wrong; IPv6-only tools (curl -6, scripts, ssh with long timeouts) fail.',
+    setup: (w) => { edit(w, 'srv01', '/etc/nftables.conf', (s) => s.replace('meta l4proto ipv6-icmp accept', 'icmpv6 type { echo-request, echo-reply } accept')); script(w, 'srv01', ['systemctl reload nftables']); },
+  },
+  {
+    id: 'no-forwarding', label: 'Router with IPv6 forwarding disabled', host: 'dev01', user: 'erin', command: 'curl -6 -I -m 3 http://srv01.corp.lab/',
+    description: 'net.ipv6.conf.all.forwarding=0 on rtr01. The SYN reaches rtr01, which is not its destination and may not route it: IPv6 discards it silently (no ICMPv6 error, unlike IPv4\'s host-unreachable). curl retries and times out.',
+    setup: (w) => script(w, 'rtr01', ['sysctl -w net.ipv6.conf.all.forwarding=0']),
+  },
+];

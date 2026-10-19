@@ -32,7 +32,7 @@ export interface GoalResult {
 }
 
 export function goalLabel(goal: Goal): string {
-  if (goal.kind === 'http') return `${goal.fromHost}: curl ${goal.url}`;
+  if (goal.kind === 'http') return `${goal.fromHost}: curl ${goal.curlFlags ? goal.curlFlags + ' ' : ''}${goal.url}`;
   if (goal.kind === 'resolve') return `${goal.fromHost}: resolve ${goal.name}`;
   return `${goal.user}@${goal.target}`;
 }
@@ -44,7 +44,7 @@ export function checkGoal(world: World, goal: Goal): GoalResult {
     const user = goal.kind === 'http' ? goal.fromUser : 'root';
     const home = cur.hosts[goal.fromHost].users[user].home;
     const sh = new Shell(() => cur, (n) => (cur = n), { hostId: goal.fromHost, user, cwd: home });
-    const line = goal.kind === 'http' ? `curl -I -m 10 ${goal.url}` : `getent hosts ${goal.name}`;
+    const line = goal.kind === 'http' ? `curl ${goal.curlFlags ? goal.curlFlags + ' ' : ''}-I -m 10 ${goal.url}` : `getent hosts ${goal.name}`;
     const r = sh.execute(line);
     const lines = [`$ ${line}`, ...(r.output ? r.output.split('\n') : ['(no output)'])];
     const ok = goal.kind === 'http' ? /^HTTP\/1\.1 200/.test(r.output) : r.code === 0 && r.output.startsWith(goal.expect + ' ');
@@ -66,7 +66,7 @@ export function checkGoal(world: World, goal: Goal): GoalResult {
 export function rebootAll(world: World): World {
   const w = structuredClone(world);
   w.sessions = [];
-  for (const id of ['rtr01', 'ns1', 'srv01', 'ws01', 'ws02', 'ext01']) if (w.hosts[id]) bootHost(w, w.hosts[id]);
+  for (const id of ['sw01', 'rtr01', 'ns1', 'srv01', 'ws01', 'ws02', 'ext01', 'dev01']) if (w.hosts[id]) bootHost(w, w.hosts[id]);
   w.clock += 30_000;
   return w;
 }
@@ -131,7 +131,7 @@ export function firewallStillRestrictive(hostId = 'srv01'): Constraint {
       if (!input || input.base!.policy !== 'drop') {
         return { id: this.id, ok: false, required: true, message: `${hostId}: the input chain policy is not "drop" (or the ruleset was flushed). Every port is now reachable.` };
       }
-      const blanket = input.rules.find((r) => r.verdict?.kind === 'accept' && (r.matches.length === 0 || r.matches.every((m) => m.kind === 'addr' && m.values.includes('0.0.0.0/0'))));
+      const blanket = input.rules.find((r) => r.verdict?.kind === 'accept' && (r.matches.length === 0 || r.matches.every((m) => m.kind === 'nfproto' || (m.kind === 'addr' && (m.values.includes('0.0.0.0/0') || m.values.includes('::/0'))))));
       if (blanket) return { id: this.id, ok: false, required: true, message: `${hostId}: rule handle ${blanket.handle} accepts all traffic.` };
       return { id: this.id, ok: true, required: true, message: `${hostId}: input policy is still drop with specific allow rules.` };
     },

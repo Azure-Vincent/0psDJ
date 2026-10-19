@@ -14,8 +14,14 @@ function Rows({ rows }: { rows: [string, string | number][] }) {
 }
 
 const ICMP_NAMES: Record<number, string> = { 0: 'Echo reply', 3: 'Destination unreachable', 8: 'Echo request', 11: 'Time exceeded' };
+const ICMP6_NAMES: Record<number, string> = {
+  1: 'Destination unreachable', 2: 'Packet too big', 3: 'Time exceeded', 128: 'Echo request', 129: 'Echo reply',
+  133: 'Router solicitation', 134: 'Router advertisement', 135: 'Neighbor solicitation', 136: 'Neighbor advertisement',
+};
 
-export function PacketLayers({ packet, arp, l2 }: { packet?: Packet; arp?: ArpPacket; l2?: { src: string; dst: string; note?: string }[] }) {
+export function PacketLayers({ packet, arp, l2, vlan }: { packet?: Packet; arp?: ArpPacket; l2?: { src: string; dst: string; note?: string }[]; vlan?: number }) {
+  const v6 = !!packet && packet.src.includes(':');
+  const nd = packet?.icmp?.nd;
   return (
     <div>
       {l2 && l2.length > 0 && (
@@ -27,7 +33,13 @@ export function PacketLayers({ packet, arp, l2 }: { packet?: Packet; arp?: ArpPa
               {l2.map((h, i) => <tr key={i}><td>{h.note ?? `hop ${i + 1}`}</td><td className="mono">{h.src}</td><td className="mono">{h.dst}</td></tr>)}
             </tbody>
           </table>
-          <div className="muted small" style={{ padding: '4px 8px' }}>EtherType {arp ? '0x0806 (ARP)' : '0x0800 (IPv4)'}</div>
+          <div className="muted small" style={{ padding: '4px 8px' }}>EtherType {vlan !== undefined ? '0x8100 (802.1Q), then ' : ''}{arp ? '0x0806 (ARP)' : v6 ? '0x86dd (IPv6)' : '0x0800 (IPv4)'}</div>
+        </details>
+      )}
+      {vlan !== undefined && (
+        <details className="layer" open>
+          <summary>802.1Q Virtual LAN, PRI: 0, DEI: 0, ID: {vlan}</summary>
+          <Rows rows={[['TPID', '0x8100'], ['Priority (PCP)', '0 (best effort)'], ['Drop eligible (DEI)', '0'], ['VLAN ID', `${vlan} (12 bits)`], ['Note', 'The tag exists only on this link (a trunk); the switch adds or removes it at the port.']]} />
         </details>
       )}
       {arp && (
@@ -36,7 +48,21 @@ export function PacketLayers({ packet, arp, l2 }: { packet?: Packet; arp?: ArpPa
           <Rows rows={[['Opcode', arp.op === 'request' ? '1 (request)' : '2 (reply)'], ['Sender MAC', arp.senderMac], ['Sender IP', arp.senderIp], ['Target MAC', arp.targetMac], ['Target IP', arp.targetIp]]} />
         </details>
       )}
-      {packet && (
+      {packet && v6 && (
+        <details className="layer" open>
+          <summary>Internet Protocol Version 6, Src: {packet.src}, Dst: {packet.dst}</summary>
+          <Rows rows={[
+            ['Version', '6 (fixed 40-byte header, no checksum, no fragmentation by routers)'],
+            ['Traffic class / Flow label', '0x00 / 0x00000'],
+            ['Payload length', packetLength(packet) - 40],
+            ['Next header', packet.proto === 'tcp' ? 'TCP (6)' : packet.proto === 'udp' ? 'UDP (17)' : 'ICMPv6 (58)'],
+            ['Hop limit', `${packet.ttl}${nd ? ' (255: Neighbor Discovery must not have crossed a router)' : ' (as sent; each router decrements it)'}`],
+            ['Source address', packet.src],
+            ['Destination address', packet.dst],
+          ]} />
+        </details>
+      )}
+      {packet && !v6 && (
         <details className="layer" open>
           <summary>Internet Protocol Version 4, Src: {packet.src}, Dst: {packet.dst}</summary>
           <Rows rows={[
@@ -74,12 +100,18 @@ export function PacketLayers({ packet, arp, l2 }: { packet?: Packet; arp?: ArpPa
       )}
       {packet?.icmp && (
         <details className="layer" open>
-          <summary>Internet Control Message Protocol</summary>
+          <summary>{v6 ? 'Internet Control Message Protocol v6' : 'Internet Control Message Protocol'}</summary>
           <Rows rows={[
-            ['Type', `${packet.icmp.type} (${ICMP_NAMES[packet.icmp.type] ?? '?'})`],
+            ['Type', `${packet.icmp.type} (${(v6 ? ICMP6_NAMES : ICMP_NAMES)[packet.icmp.type] ?? '?'})`],
             ['Code', `${packet.icmp.code}${packet.icmp.description ? ` (${packet.icmp.description})` : ''}`],
             ...(packet.icmp.id !== undefined ? [['Identifier', packet.icmp.id] as [string, number]] : []),
             ...(packet.icmp.seq !== undefined ? [['Sequence', packet.icmp.seq] as [string, number]] : []),
+            ...(nd?.target ? [['Target address', nd.target] as [string, string]] : []),
+            ...(nd?.flags ? [['Flags', nd.flags] as [string, string]] : []),
+            ...(nd?.routerLifetime !== undefined ? [['Router lifetime', `${nd.routerLifetime} s`] as [string, string]] : []),
+            ...(nd?.prefixes ?? []).map((p) => [`Prefix information`, `${p.prefix} (on-link${p.autonomous ? ', autonomous' : ''}, valid ${p.valid} s)`] as [string, string]),
+            ...(nd?.rdnss?.length ? [['Recursive DNS server', nd.rdnss.join(', ')] as [string, string]] : []),
+            ...(nd?.lladdr ? [[packet.icmp.type === 136 ? 'Target link-layer address' : 'Source link-layer address', nd.lladdr] as [string, string]] : []),
             ...(packet.icmp.quoted ? [['Quoted datagram', `${packet.icmp.quoted.proto.toUpperCase()} ${packet.icmp.quoted.src}:${packet.icmp.quoted.sport ?? ''} → ${packet.icmp.quoted.dst}:${packet.icmp.quoted.dport ?? ''}`] as [string, string]] : []),
           ]} />
         </details>

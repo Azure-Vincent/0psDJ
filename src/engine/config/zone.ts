@@ -1,10 +1,12 @@
-// Minimal BIND master-file parser (RFC 1035 §5): $ORIGIN, $TTL, SOA, NS, A, CNAME,
-// PTR, MX. Supports "@", relative and absolute names, and multi-line SOA records.
+// Minimal BIND master-file parser (RFC 1035 §5): $ORIGIN, $TTL, SOA, NS, A, AAAA,
+// CNAME, PTR, MX. Supports "@", relative and absolute names, and multi-line SOA records.
+
+import { canonicalIp6 } from '../net/ip6';
 
 export interface ZoneRecord {
   name: string; // absolute, lower-case, with trailing dot
   ttl: number;
-  type: 'SOA' | 'NS' | 'A' | 'CNAME' | 'PTR' | 'MX' | 'TXT';
+  type: 'SOA' | 'NS' | 'A' | 'AAAA' | 'CNAME' | 'PTR' | 'MX' | 'TXT';
   data: string;
 }
 
@@ -76,6 +78,12 @@ export function parseZone(text: string, origin: string, file: string): Zone {
         if (!/^\d+\.\d+\.\d+\.\d+$/.test(rdata[0] ?? '')) throw new ZoneError(`${file}:${line}: bad dotted quad`);
         records.push({ name, ttl: rttl, type: 'A', data: rdata[0] });
         break;
+      case 'AAAA': {
+        const c = canonicalIp6(rdata[0] ?? '');
+        if (!c || (rdata[0] ?? '').includes('/')) throw new ZoneError(`${file}:${line}: bad IPv6 address`);
+        records.push({ name, ttl: rttl, type: 'AAAA', data: c });
+        break;
+      }
       case 'NS':
       case 'CNAME':
       case 'PTR':
@@ -101,8 +109,8 @@ export type DnsAnswer =
   | { rcode: 'NXDOMAIN'; answers: []; authoritative: boolean; soa?: ZoneRecord }
   | { rcode: 'REFUSED' | 'SERVFAIL'; answers: []; authoritative: false };
 
-/** Answer an A query from a set of authoritative zones (follows in-zone CNAMEs). */
-export function answerQuery(zones: Zone[], qname: string, qtype: 'A' | 'PTR' = 'A'): DnsAnswer {
+/** Answer an A/AAAA query from a set of authoritative zones (follows in-zone CNAMEs). */
+export function answerQuery(zones: Zone[], qname: string, qtype: 'A' | 'AAAA' | 'PTR' = 'A'): DnsAnswer {
   const name = qname.toLowerCase().endsWith('.') ? qname.toLowerCase() : qname.toLowerCase() + '.';
   const zone = zones
     .filter((z) => name === z.origin || name.endsWith('.' + z.origin))

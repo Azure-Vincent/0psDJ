@@ -37,6 +37,12 @@ const SYMPTOM: Record<string, RegExp> = {
   'nat-no-masquerade': /curl: \(28\)/,
   'nat-dnat-typo': /No route to host/,
   'nat-filter-order': /curl: \(28\)/,
+  'vlan-access-port': /Could not resolve host/,
+  'vlan-trunk-pruned': /Could not resolve host/,
+  'vlan-subif-id': /Could not resolve host/,
+  'ipv6-icmp-hardening': /No route to host/,
+  'ipv6-forwarding-hardening': /curl: \(28\)/,
+  'ipv6-server-gateway': /curl: \(28\)/,
 };
 
 describe.each(SSH_SCENARIOS.map((s) => [s.id, s] as const))('scenario %s', (id, scenario) => {

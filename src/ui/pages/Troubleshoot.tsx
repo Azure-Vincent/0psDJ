@@ -20,7 +20,7 @@ export function TroubleshootList() {
     <div className="page">
       <h1>Troubleshooting lab</h1>
       <p className="muted">
-        Each ticket starts from a working network (office LAN with ws01/ws02, router rtr01 with an Internet uplink, server srv01, DNS/DHCP on ns1) with one or more realistic faults injected through the same commands an
+        Each ticket starts from a working network (switch sw01 with VLAN 10 office: ws01/ws02, VLAN 20 servers: srv01, VLAN 30 development: dev01 with IPv6; router rtr01 with an Internet uplink; DNS/DHCP on ns1) with one or more realistic faults injected through the same commands an
         administrator would have run. The environment is a deterministic simulation: changing a firewall rule, route, file, permission or service changes logs,
         packets and connection results consistently. Nothing is pre-recorded.
       </p>

@@ -1,16 +1,24 @@
 // Parsers for persistent network configuration on Debian-style hosts:
-//   /etc/network/interfaces (ifupdown), /etc/resolv.conf, /etc/hosts.
+//   /etc/network/interfaces (ifupdown, including inet6 stanzas, VLAN sub-interfaces
+//   and the ifupdown2 bridge-* options used on the switch), /etc/resolv.conf, /etc/hosts.
 
 import { parseCidr, parseIp } from '../net/ip';
+import { canonicalIp6, parseCidr6, parseIp6 } from '../net/ip6';
 
 export interface IfaceConfig {
   name: string;
   auto: boolean;
-  method: 'static' | 'dhcp' | 'loopback' | 'manual';
+  /** Address family of the stanza ("iface eth0 inet6 static"); ifupdown2 also allows bare "iface swp1". */
+  family: 'inet' | 'inet6';
+  method: 'static' | 'dhcp' | 'loopback' | 'manual' | 'auto';
   address?: string;
   prefix?: number;
   gateway?: string;
   routes: { dest: string; via: string }[];
+  /** "vlan-raw-device eth3" (implied by the name eth3.30 when absent). */
+  vlanRawDevice?: string;
+  /** Every option line, by keyword (e.g. bridge-ports, bridge-vids, bridge-access). */
+  options: Record<string, string>;
 }
 
 export interface IfupdownResult {
@@ -34,42 +42,60 @@ export function parseInterfaces(text: string): IfupdownResult {
         break;
       case 'source':
         break;
-      case 'iface':
-        cur = { name: parts[1], auto: false, method: (parts[3] as IfaceConfig['method']) ?? 'manual', routes: [] };
+      case 'iface': {
+        const fam = parts[2] === 'inet6' ? 'inet6' : 'inet';
+        cur = { name: parts[1], auto: false, family: fam, method: (parts[3] as IfaceConfig['method']) ?? 'manual', routes: [], options: {} };
         ifaces.push(cur);
         break;
+      }
       case 'address': {
         if (!cur) { errors.push(`line ${i + 1}: option outside stanza`); break; }
-        const c = parseCidr(parts[1]);
-        if (!c || !parts[1].includes('/')) { errors.push(`line ${i + 1}: invalid address ${parts[1]}`); break; }
-        cur.address = parts[1].split('/')[0];
-        cur.prefix = c.prefix;
+        const v6 = cur.family === 'inet6';
+        const ok = parts[1] && (v6 ? parseCidr6(parts[1]) : parseCidr(parts[1]));
+        if (!ok || (!v6 && !parts[1].includes('/')) || (v6 && parts[1].includes('.'))) { errors.push(`line ${i + 1}: invalid address ${parts[1]}`); break; }
+        cur.address = v6 ? canonicalIp6(parts[1].split('/')[0])! : parts[1].split('/')[0];
+        cur.prefix = parts[1].includes('/') ? Number(parts[1].split('/')[1]) : 64;
         break;
       }
       case 'netmask': {
         if (!cur) break;
+        if (cur.family === 'inet6') { cur.prefix = Number(parts[1]); break; }
         const m = parseIp(parts[1]);
         if (m !== null) cur.prefix = m.toString(2).replace(/0+$/, '').length;
         break;
       }
       case 'gateway':
         if (!cur) break;
-        if (parseIp(parts[1]) === null) errors.push(`line ${i + 1}: invalid gateway ${parts[1]}`);
-        else cur.gateway = parts[1];
+        if (cur.family === 'inet6' ? parseIp6(parts[1]) === null : parseIp(parts[1]) === null) errors.push(`line ${i + 1}: invalid gateway ${parts[1]}`);
+        else cur.gateway = cur.family === 'inet6' ? canonicalIp6(parts[1])! : parts[1];
+        break;
+      case 'vlan-raw-device':
+      case 'vlan_raw_device':
+        if (cur) cur.vlanRawDevice = parts[1];
         break;
       case 'up':
       case 'post-up': {
         // e.g. "up ip route add 10.0.30.0/24 via 10.0.20.1"
-        const m = /ip route add (\S+) via (\S+)/.exec(line);
+        const m = /ip (?:-6 )?route add (\S+) via (\S+)/.exec(line);
         if (cur && m) cur.routes.push({ dest: m[1], via: m[2] });
         break;
       }
       default:
+        if (cur) cur.options[parts[0]] = parts.slice(1).join(' ');
         break;
     }
   });
   for (const f of ifaces) f.auto = auto.has(f.name);
   return { ifaces, errors };
+}
+
+/** VLAN id and parent for "eth3.30" style names or an explicit vlan-raw-device. */
+export function vlanOf(cfg: Pick<IfaceConfig, 'name' | 'vlanRawDevice'>): { parent: string; id: number } | null {
+  const m = /^(.+)\.(\d+)$/.exec(cfg.name);
+  if (m) return { parent: cfg.vlanRawDevice ?? m[1], id: Number(m[2]) };
+  const v = /^vlan(\d+)$/.exec(cfg.name);
+  if (v && cfg.vlanRawDevice) return { parent: cfg.vlanRawDevice, id: Number(v[1]) };
+  return null;
 }
 
 export interface ResolvConf {
@@ -103,6 +129,7 @@ export function parseHostsFile(text: string | undefined): { ip: string; names: s
     if (!line) continue;
     const [ip, ...names] = line.split(/\s+/);
     if (parseIp(ip) !== null) out.push({ ip, names });
+    else if (parseIp6(ip) !== null) out.push({ ip: canonicalIp6(ip)!, names });
   }
   return out;
 }

@@ -392,3 +392,195 @@ export const NAT_ASSESSMENT: Assessment = {
     },
   ],
 };
+
+export const VLAN_ASSESSMENT: Assessment = {
+  id: 'vlan',
+  title: 'VLAN knowledge check',
+  questions: [
+    {
+      id: 'vlan-q-broadcast', kind: 'single', level: 'beginner',
+      prompt: 'ws01 (access port, VLAN 10) and dev01 (access port, VLAN 30) are plugged into the same switch. ws01 sends an ARP broadcast. Who receives it?',
+      options: [
+        { text: 'Every device on the switch', misconception: 'That is a switch without VLANs. VLANs are separate broadcast domains.' },
+        { text: 'Only ports that are members of VLAN 10 (and trunks carrying VLAN 10)', correct: true },
+        { text: 'Only the router', misconception: 'The router only receives it if it has a port/sub-interface in VLAN 10.' },
+      ],
+      concepts: ['net.vlan'],
+      explanation: 'Broadcasts are flooded within the VLAN only. Reaching another VLAN always requires routing.',
+    },
+    {
+      id: 'vlan-q-tag', kind: 'text', level: 'beginner',
+      prompt: 'Which EtherType value (TPID) marks an Ethernet frame as 802.1Q-tagged? (hex)',
+      accept: ['0x8100', '8100'], placeholder: '0x....', concepts: ['net.vlan'],
+      explanation: 'TPID 0x8100 is followed by 3 bits priority, 1 bit DEI and the 12-bit VLAN ID; then the real EtherType.',
+    },
+    {
+      id: 'vlan-q-vid', kind: 'text', level: 'beginner',
+      prompt: 'How many bits does the VLAN ID have?',
+      accept: ['12'], placeholder: 'bits', concepts: ['net.vlan'],
+      explanation: '12 bits: 4096 values, of which 1–4094 are usable (0 and 4095 are reserved).',
+    },
+    {
+      id: 'vlan-q-access', kind: 'single', level: 'intermediate',
+      prompt: 'With this ifupdown2 port configuration, how are frames between the switch and the host sent?',
+      exhibit: 'auto swp8\niface swp8\n    bridge-access 30',
+      options: [
+        { text: 'Untagged, in VLAN 30', correct: true },
+        { text: 'Tagged with VLAN 30', misconception: 'Access ports are untagged; the host does not need to know its VLAN.' },
+        { text: 'Untagged in VLAN 1, tagged in VLAN 30', misconception: 'That would be a trunk with PVID 1 and VLAN 30 tagged (bridge-vids 30).' },
+      ],
+      concepts: ['net.vlan'],
+      explanation: 'bridge-access N = member of VLAN N only, PVID N, egress untagged.',
+    },
+    {
+      id: 'vlan-q-symptom', kind: 'single', level: 'intermediate',
+      prompt: 'A PC has the right IP address, mask and gateway, the link LED is on, but "ip neigh" shows its gateway as FAILED. Other PCs in the same subnet work. What is the most likely cause?',
+      options: [
+        { text: 'Its switch port is in the wrong VLAN', correct: true },
+        { text: 'The router has IP forwarding disabled', misconception: 'Then the PC could still ARP its gateway; only routed traffic would fail, for everybody.' },
+        { text: 'A wrong DNS server', misconception: 'DNS has nothing to do with ARP for the gateway.' },
+        { text: 'The router\'s firewall drops ICMP', misconception: 'ARP is not filtered by the IP firewall, and other PCs work.' },
+      ],
+      concepts: ['net.vlan', 'net.arp'],
+      explanation: 'ARP for the gateway failing for one host only, with a correct configuration, points at its port\'s VLAN. Check bridge fdb show / bridge vlan show.',
+    },
+    {
+      id: 'vlan-q-trunk', kind: 'single', level: 'intermediate',
+      prompt: 'All hosts in VLAN 30 can ping each other, but none can reach the gateway 10.0.30.1 on the router\'s sub-interface eth3.30. Other VLANs work. Where do you look first?',
+      options: [
+        { text: 'Whether the trunk to the router carries VLAN 30 (switch) and the sub-interface VLAN ID (router)', correct: true },
+        { text: 'The access ports of the VLAN 30 hosts', misconception: 'They reach each other, so they are in the same VLAN.' },
+        { text: 'The DHCP server', misconception: 'Addressing works; the problem is reaching the gateway at layer 2.' },
+      ],
+      concepts: ['net.vlan'],
+      explanation: 'A whole VLAN cut off from its gateway = the path between the VLAN and the router\'s sub-interface: trunk membership or tagging.',
+    },
+    {
+      id: 'vlan-q-subif', kind: 'text', level: 'intermediate',
+      prompt: 'Write the iproute2 command that creates VLAN 40 on eth3 as interface eth3.40.',
+      accept: [/^(sudo )?ip link add link eth3 name eth3\.40 type vlan id 40$/i, /^(sudo )?ip link add name eth3\.40 link eth3 type vlan id 40$/i],
+      placeholder: 'ip link add ...', concepts: ['net.vlan'],
+      explanation: '"ip link add link eth3 name eth3.40 type vlan id 40", then add an address and set it up.',
+    },
+    {
+      id: 'vlan-q-order', kind: 'order', level: 'advanced',
+      prompt: 'Order the path of a ping from dev01 (VLAN 30, access port swp8) to srv01 (VLAN 20, access port swp6) through rtr01 (trunk swp7 with eth3.30, access port swp5 on eth1).',
+      items: [
+        'dev01 sends an untagged frame to the MAC of 10.0.30.1 into swp8',
+        'sw01 assigns it to VLAN 30 (PVID of swp8) and sends it tagged 30 out of swp7',
+        'rtr01 receives it on eth3 and delivers it to eth3.30',
+        'rtr01 routes it (TTL−1, forward filter) out of eth1',
+        'sw01 receives it untagged on swp5 (VLAN 20) and sends it untagged out of swp6',
+        'srv01 receives the echo request',
+      ],
+      concepts: ['net.vlan', 'net.routing'],
+      explanation: 'Tags exist only on the trunk; each VLAN is a separate subnet joined by the router.',
+    },
+    {
+      id: 'vlan-q-security', kind: 'multi', level: 'advanced',
+      prompt: 'Which practices reduce VLAN-related risk? (Select all that apply.)',
+      options: [
+        { text: 'Allow only the needed VLANs on each trunk', correct: true },
+        { text: 'Use an unused VLAN as native VLAN (or tag everything)', correct: true },
+        { text: 'Make every port a trunk so moves need no reconfiguration', misconception: 'A host on a trunk can send into any VLAN carried there.' },
+        { text: 'Filter traffic between VLANs on the router/firewall', correct: true },
+      ],
+      concepts: ['net.vlan'],
+      explanation: 'VLANs separate broadcast domains; policy between them is enforced where they are routed.',
+    },
+  ],
+};
+
+export const IPV6_ASSESSMENT: Assessment = {
+  id: 'ipv6',
+  title: 'IPv6 knowledge check',
+  questions: [
+    {
+      id: 'v6-q-compress', kind: 'text', level: 'beginner',
+      prompt: 'Write 2001:0db8:0000:0000:0000:0000:0020:0010 in the shortest canonical form (RFC 5952).',
+      accept: ['2001:db8::20:10'], placeholder: '2001:db8:...', concepts: ['net.ipv6'],
+      explanation: 'Drop leading zeros (2001:db8:0:0:0:0:20:10) and compress the longest zero run with :: once.',
+    },
+    {
+      id: 'v6-q-linklocal', kind: 'single', level: 'beginner',
+      prompt: 'Which prefix do link-local addresses use?',
+      options: [
+        { text: 'fe80::/10', correct: true },
+        { text: 'fc00::/7', misconception: 'That is unique local (private, routable inside your network).' },
+        { text: 'ff02::/16', misconception: 'That is link-scoped multicast (ff02::1 all nodes, ff02::2 all routers).' },
+        { text: '2001:db8::/32', misconception: 'That is the documentation prefix.' },
+      ],
+      concepts: ['net.ipv6'],
+      explanation: 'Every IPv6 interface has a fe80:: address; it is only valid on its own link and routers never forward it.',
+    },
+    {
+      id: 'v6-q-eui64', kind: 'text', level: 'intermediate',
+      prompt: 'A host with MAC 52:54:00:e7:00:1e receives the prefix 2001:db8:30::/64 in a router advertisement. Which SLAAC (EUI-64) address does it form?',
+      accept: ['2001:db8:30:0:5054:ff:fee7:1e', '2001:db8:30::5054:ff:fee7:1e'], placeholder: '2001:db8:30:...', concepts: ['net.ipv6'],
+      explanation: 'Insert ff:fe in the middle of the MAC and flip bit 7 of the first byte (52 → 50): 5054:00ff:fee7:001e. Appended to the /64: 2001:db8:30:0:5054:ff:fee7:1e.',
+    },
+    {
+      id: 'v6-q-nd', kind: 'single', level: 'intermediate',
+      prompt: 'How does an IPv6 host find the MAC address of its next hop?',
+      options: [
+        { text: 'ICMPv6 Neighbor Solicitation to the solicited-node multicast address, answered by a Neighbor Advertisement', correct: true },
+        { text: 'ARP broadcast, as in IPv4', misconception: 'IPv6 has no ARP and no broadcast.' },
+        { text: 'From the router advertisement', misconception: 'The RA carries the router\'s own link-layer address, but other neighbours are resolved with NS/NA.' },
+      ],
+      concepts: ['net.ndp'],
+      explanation: 'NS goes to ff02::1:ffXX:XXXX (last 24 bits of the target); the owner replies unicast with its MAC.',
+    },
+    {
+      id: 'v6-q-firewall', kind: 'single', level: 'advanced',
+      prompt: 'A server\'s nftables input chain (policy drop) has "ct state established,related accept", "meta l4proto icmp accept" and "tcp dport 80 accept". IPv4 to port 80 works. What happens over IPv6?',
+      options: [
+        { text: 'Nothing works: Neighbor Solicitations (ICMPv6, ct state untracked) are dropped, so the router cannot resolve the server', correct: true },
+        { text: 'Port 80 works, only ping -6 fails', misconception: 'Without ND the router never learns the server\'s MAC, so no IPv6 packet can be delivered at all.' },
+        { text: 'Everything works: the inet table covers both families', misconception: 'It does, but "icmp" means ICMPv4; ICMPv6 (ipv6-icmp) needs its own rule.' },
+      ],
+      concepts: ['net.ndp', 'fw.stateful'],
+      explanation: 'Add "meta l4proto ipv6-icmp accept" (or at least the nd-* types, RFC 4890).',
+    },
+    {
+      id: 'v6-q-forwarding', kind: 'single', level: 'intermediate',
+      prompt: 'net.ipv4.ip_forward = 1 and net.ipv6.conf.all.forwarding = 0 on a router. What does a client behind it see when it connects to a server beyond it over IPv6?',
+      options: [
+        { text: 'A timeout: the router discards the packets silently', correct: true },
+        { text: '"No route to host" from the router', misconception: 'That is IPv4\'s behaviour (ICMP host unreachable). IPv6 drops silently when forwarding is off.' },
+        { text: 'It works, because IPv4 forwarding is on', misconception: 'The two switches are independent.' },
+      ],
+      concepts: ['net.ipv6', 'net.routing'],
+      explanation: 'The router does not route IPv6 at all; radvd may even keep advertising, which makes the hosts look configured.',
+    },
+    {
+      id: 'v6-q-slaac-order', kind: 'order', level: 'intermediate',
+      prompt: 'Order the SLAAC steps of a host whose interface comes up.',
+      items: [
+        'Form a link-local address fe80:: + interface identifier',
+        'Send a Router Solicitation to ff02::2',
+        'Receive a Router Advertisement with prefix 2001:db8:30::/64 (autonomous)',
+        'Form 2001:db8:30:: + interface identifier',
+        'Install a default route via the router\'s link-local address',
+      ],
+      concepts: ['net.ipv6'],
+      explanation: 'The link-local address is needed to talk to the router at all; the default gateway is the router\'s fe80:: address.',
+    },
+    {
+      id: 'v6-q-happy', kind: 'single', level: 'advanced',
+      prompt: 'IPv6 to a server is broken (packets dropped). Which client is most likely to notice?',
+      options: [
+        { text: 'An ssh client: it tries IPv6 first and waits for the full connect timeout before trying IPv4', correct: true },
+        { text: 'A web browser', misconception: 'Browsers use Happy Eyeballs and switch to IPv4 after ~250 ms.' },
+        { text: 'Neither: both use IPv4 when the server has an A record', misconception: 'With a global IPv6 address, clients sort IPv6 first (RFC 6724).' },
+      ],
+      concepts: ['net.ipv6'],
+      explanation: 'Always test IPv6 explicitly (curl -6, ssh -6, ping -6).',
+    },
+    {
+      id: 'v6-q-subnet', kind: 'text', level: 'beginner',
+      prompt: 'What prefix length do IPv6 LAN subnets normally use (required for SLAAC)?',
+      accept: ['64', '/64'], placeholder: '/..', concepts: ['net.ipv6'],
+      explanation: '/64: 64 bits network, 64 bits interface identifier.',
+    },
+  ],
+};

@@ -2,8 +2,9 @@
 
 An offline, interactive desktop application for learning how network services
 work **internally** and how to **troubleshoot them from evidence**. It runs a
-deterministic simulation of a small network (office clients, DNS/DHCP server,
-NAT router with an Internet uplink, Linux server, an Internet host) in which every command, packet, log line and connection result is
+deterministic simulation of a small network (a VLAN-aware switch, office,
+server and dual-stack development VLANs, a DNS/DHCP server, a NAT router with an
+Internet uplink, a Linux server, an Internet host) in which every command, packet, log line and connection result is
 computed from one consistent model, so breaking or fixing something has
 coherent consequences everywhere.
 
@@ -12,7 +13,7 @@ coherent consequences everywhere.
 
 ## What is implemented
 
-The foundation plus six complete lessons sharing one simulated lab and troubleshooting engine: **IP networking: addressing, ARP and routing**, **TCP, UDP and DNS**, **DHCP** and **NAT** (Module A), **SSH** (Module B) and **Linux firewalls with nftables** (Module D).
+The foundation plus eight complete lessons sharing one simulated lab and troubleshooting engine: **IP networking: addressing, ARP and routing**, **TCP, UDP and DNS**, **DHCP**, **NAT**, **VLANs** and **IPv6** (Module A), **SSH** (Module B) and **Linux firewalls with nftables** (Module D).
 
 | Area | Implemented |
 |---|---|
@@ -21,17 +22,18 @@ The foundation plus six complete lessons sharing one simulated lab and troublesh
 | **DHCP and NAT lessons** (7 sections each) | *DHCP*: DORA over broadcast, relays, how ISC dhcpd picks an address (reservation → previous lease → pool), leases and T1/T2, what dhclient does with the options, rogue servers; **allocation simulator** running the engine's dhcpd.conf parser and allocator on any configuration and client list; 4 traced runs (DORA, wrong router option, no server, exhausted pool) with BOOTP packets exportable to PCAP; guides for isc-dhcp-server, ifupdown/NetworkManager/networkd clients and Windows. *NAT*: RFC 1918, masquerade/SNAT/DNAT, where NAT sits relative to filtering, conntrack tuples, typical mistakes; **NAT inspector** showing one flow on both sides of rtr01 plus its conntrack table; 4 traced runs (masquerade, port forward, missing masquerade, forward filter after DNAT); guides for nftables, iptables and Windows NAT. 9 and 8 assessment questions |
 | **nftables lesson** (7 sections) | Netfilter hooks, tables/chains/priorities, first-match rule evaluation, conntrack states, drop vs reject and the client symptom each produces, persistence (reload is atomic, restart flushes), iptables-nft/UFW/firewalld · hook diagram and **CIDR calculator** · **visualizer** of 7 traced runs (allowed, policy drop, reset, admin-prohibited, router forward drop, missing established rule, traceroute) where every hop names the exact deciding rule · deployment guides for Debian nftables, UFW, firewalld and Windows Defender Firewall · **packet tester** that evaluates any ruleset rule by rule · assessment (11 questions, firewall rules graded by the engine) |
 | **Dependency map** | 12 dependencies of an SSH login; switch one off, predict the client message, then see the simulated output, server journal and trace |
-| **Troubleshooting lab** | 31 tickets. DHCP/NAT set: dhcpd listening on a non-existent interface, exhausted pool, wrong router option, missing masquerade, DNAT typo, forward rule written for the pre-DNAT port (fixes must keep ws02 on DHCP and must not open the router to the Internet). Networking set: wrong prefix length, wrong gateway, router with ip_forward=0 after a hardening script, resolv.conf typo, stale /etc/hosts entry, nginx bound to 127.0.0.1. Firewall set: stopped web server blamed on the firewall, leftover reject-with-reset, a /23 that blocks the office along with the guests, missing established rule (server cannot resolve names), router forward chain allowing only SSH; goals can be SSH logins, HTTP requests or name lookups, and unsafe fixes (policy accept, `udp sport 53 accept`, deleting the guest block) are rejected. SSH set: 14 tickets (beginner → advanced, including a two-fault ticket): sshd config errors, wrong port, firewall drop vs reject, stale DNS record, broken zone (SERVFAIL), missing return route, StrictModes permissions, client key permissions, host-key change, AllowUsers, KEX mismatch, missing authorized key, non-persistent firewall rule + disabled service. Per-ticket terminals (e.g. ws01, the DHCP laptop ws02, the Internet host ext01, consoles on srv01/ns1/rtr01), notes, evidence log, diagnosis with misconception feedback, progressive hints, verification **now, after rebooting every host, and against security constraints**, root-cause analysis and reference repair after resolution |
-| **Simulated shell** | `ip`, `ss`, `ping`, `traceroute` (UDP/TCP/ICMP), `dig`, `nslookup`, `host`, `getent`, `nc`, `curl`, `tcpdump`, `conntrack`, `nft`, `iptables` (iptables-nft view), `systemctl`, `journalctl`, `ssh` (-v, -p, -i, -o, interactive host-key and password prompts, remote commands), `ssh-keygen` (-lf, -R, -F), `ssh-keyscan`, `ssh-copy-id`, `sshd -t/-T [-C]`, `rndc`, `named-checkzone`, `dhclient` (-v, -r), `dhcpd -t`, `nginx -t`, `sysctl` (-w, --system, -p), `tee`, `reboot`, `sudo`, file tools (`ls`, `cat`, `grep`, `sed -i`, `chmod`, `chown`, `stat`, `nano`/`vi` via an in-app editor …), pipes, redirection, `&&`/`||` |
+| **VLAN and IPv6 lessons** (7 sections each) | *VLANs*: broadcast domains, access vs trunk ports, the 802.1Q tag, PVID/native VLAN, per-VLAN MAC learning, VLAN sub-interfaces and router-on-a-stick, Cisco and Hyper-V equivalents; **VLAN explorer** that edits sw01's port table and recomputes the broadcast domains with the engine's layer-2 code; 4 traced runs whose hop notes show each switch port and tag. *IPv6*: notation (RFC 5952), address types, EUI-64 and SLAAC, router advertisements (radvd), Neighbor Discovery via solicited-node multicast, why ICMPv6 must pass firewalls, IPv6 forwarding, dual-stack address selection, Happy Eyeballs vs ssh; **IPv6 address explorer** (canonical/expanded form, type, solicited-node group, EUI-64 steps); 6 traced runs. 9 assessment questions each |
+| **Troubleshooting lab** | 37 tickets. VLAN/IPv6 set: desk port moved to the wrong VLAN, VLAN pruned from the router trunk, router sub-interface renamed to the wrong VLAN ID, ICMPv6 "hardening" that breaks Neighbor Discovery, a host sysctl baseline that disables IPv6 forwarding on the router, a server without an IPv6 default route (fixes must keep dev01 in VLAN 30 and on SLAAC, and keep firewalls and the hardening baseline). DHCP/NAT set: dhcpd listening on a non-existent interface, exhausted pool, wrong router option, missing masquerade, DNAT typo, forward rule written for the pre-DNAT port (fixes must keep ws02 on DHCP and must not open the router to the Internet). Networking set: wrong prefix length, wrong gateway, router with ip_forward=0 after a hardening script, resolv.conf typo, stale /etc/hosts entry, nginx bound to 127.0.0.1. Firewall set: stopped web server blamed on the firewall, leftover reject-with-reset, a /23 that blocks the office along with the guests, missing established rule (server cannot resolve names), router forward chain allowing only SSH; goals can be SSH logins, HTTP requests or name lookups, and unsafe fixes (policy accept, `udp sport 53 accept`, deleting the guest block) are rejected. SSH set: 14 tickets (beginner → advanced, including a two-fault ticket): sshd config errors, wrong port, firewall drop vs reject, stale DNS record, broken zone (SERVFAIL), missing return route, StrictModes permissions, client key permissions, host-key change, AllowUsers, KEX mismatch, missing authorized key, non-persistent firewall rule + disabled service. Per-ticket terminals (e.g. ws01, the DHCP laptop ws02, the Internet host ext01, consoles on srv01/ns1/rtr01), notes, evidence log, diagnosis with misconception feedback, progressive hints, verification **now, after rebooting every host, and against security constraints**, root-cause analysis and reference repair after resolution |
+| **Simulated shell** | `ip`, `ss`, `ping`, `traceroute` (UDP/TCP/ICMP), `dig`, `nslookup`, `host`, `getent`, `nc`, `curl`, `tcpdump`, `conntrack`, `nft`, `iptables` (iptables-nft view), `systemctl`, `journalctl`, `ssh` (-v, -p, -i, -o, interactive host-key and password prompts, remote commands), `ssh-keygen` (-lf, -R, -F), `ssh-keyscan`, `ssh-copy-id`, `sshd -t/-T [-C]`, `rndc`, `named-checkzone`, `dhclient` (-v, -r), `dhcpd -t`, `nginx -t`, `sysctl` (-w, --system, -p), `tee`, `ip -6` (addr/route/neigh/route get), `ip link add … type vlan`, `ip -d`/`-br`, `bridge vlan|fdb|link`, `ifreload -a`, `rdisc6`, `ping -6`/`ping6`, `traceroute -6`, `curl -4/-6/-v` (Happy Eyeballs), `ssh -4/-6`, `dig AAAA`, `getent ahosts`, `reboot`, `sudo`, file tools (`ls`, `cat`, `grep`, `sed -i`, `chmod`, `chown`, `stat`, `nano`/`vi` via an in-app editor …), pipes, redirection, `&&`/`||` |
 | **Diagnostic commands** | Reference for 30 Windows and Linux commands (purpose, arguments, example output, interpretation, limitations) and practice: choose-the-command and spot-the-abnormality exercises |
-| **Packet Lab** | 10 synthetic capture presets produced by the engine (including DHCP DORA and the Internet side of the NAT router), Wireshark-style list/detail/hex views, display filters (`ip.addr`, `tcp.flags.syn`, `dns`, `dhcp`, `icmp`, `&&`, `||`, `!` …), **PCAP export** (valid checksums; opens in Wireshark), explanation of what is and is not visible without keys |
-| **Learning model** | Concept-level mastery (22 concepts) updated by answers, predictions and diagnoses; misconception tracking; prerequisite-aware review recommendations; troubleshooting history with every command run |
-| **App** | Offline; Windows/Linux/macOS via Electron; light/dark/system theme; global search; glossary (55 terms); progress saved locally with export/import/reset |
+| **Packet Lab** | 12 synthetic capture presets produced by the engine (including DHCP DORA, the Internet side of the NAT router, 802.1Q tags on the router trunk, and SLAAC/Neighbor Discovery/HTTP over IPv6), Wireshark-style list/detail/hex views, display filters (`ip.addr`, `tcp.flags.syn`, `dns`, `dhcp`, `icmp`, `ipv6`, `icmpv6`, `ipv6.addr`, `vlan.id`, `&&`, `||`, `!` …), **PCAP export** (valid checksums; opens in Wireshark), explanation of what is and is not visible without keys |
+| **Learning model** | Concept-level mastery (25 concepts) updated by answers, predictions and diagnoses; misconception tracking; prerequisite-aware review recommendations; troubleshooting history with every command run |
+| **App** | Offline; Windows/Linux/macOS via Electron; light/dark/system theme; global search; glossary (65 terms); progress saved locally with export/import/reset |
 
 ## What is planned (not implemented)
 
 Shown in the app's Curriculum page as "planned", without buttons: the other
-Module A–F lessons (VLANs, IPv6, TLS, RDP, WinRM, VPN, Active Directory/Kerberos/LDAP/GPO, pfSense,
+Module A–F lessons (MTU/PMTUD, TLS, RDP, WinRM, VPN, Active Directory/Kerberos/LDAP/GPO, pfSense,
 Docker/containers, hypervisors, web/file/database/mail servers, NTP,
 logging), the visual Infrastructure Builder, and Labs 2–6 with
 their real-VM guides. Lab 1 is partially covered by the SSH lab. See the phased
@@ -82,12 +84,12 @@ npm run desktop:dev    # Electron window pointing at the dev server (run `npm ru
 ## Tests
 
 ```bash
-npm test               # Vitest: 222 tests
+npm test               # Vitest: 268 tests
 npm run typecheck
 ```
 
 The test suite covers the parsers (sshd_config first-match/Include/Match,
-nftables including NAT chains, zone files, ifupdown, dhcpd.conf and lease files), DHCP allocation and DORA, NAT translation and conntrack output, routing/TCP/ICMP behaviour (refused vs timed
+nftables including NAT chains and ip6/icmpv6 matching, zone files with AAAA, ifupdown with inet6 and VLAN stanzas, radvd.conf, dhcpd.conf and lease files), IPv6 address formatting/EUI-64, VLAN membership and tagging, SLAAC and Neighbor Discovery, IPv6 PCAP checksums, DHCP allocation and DORA, NAT translation and conntrack output, routing/TCP/ICMP behaviour (refused vs timed
 out vs no route, retransmission timing, reboot semantics), the shell
 (permissions, sudo, interactive prompts), every troubleshooting scenario
 (**fault → expected symptom → reference fix → verification passes, including
@@ -111,8 +113,8 @@ docs/ARCHITECTURE.md     design documents
 ## Accuracy and sources
 
 Behaviour follows RFC 4251–4254, 4253, 8308, 8709 (SSH), RFC 9293 (TCP), RFC 792
-(ICMP), RFC 826 (ARP), RFC 1035 (DNS), RFC 2131/2132 (DHCP), RFC 3022 (NAT), and the behaviour of Debian 12 components
-(OpenSSH 9.2p1, BIND 9.18, ISC DHCP 4.4.3, nftables 1.0.6, systemd 252). Where the simulation
+(ICMP), RFC 826 (ARP), RFC 1035 (DNS), RFC 2131/2132 (DHCP), RFC 3022 (NAT), IEEE 802.1Q (VLANs), RFC 8200/4291/5952 (IPv6), RFC 4861/4862 (ND, SLAAC), RFC 6724/8305 (address selection, Happy Eyeballs), and the behaviour of Debian 12 components
+(OpenSSH 9.2p1, BIND 9.18, ISC DHCP 4.4.3, radvd 2.19, ifupdown2, nftables 1.0.6, systemd 252). Where the simulation
 simplifies (IPv4 only, synthetic cryptographic values, one TCP segment per SSH
-message, no DHCP renewal timers, relays or DHCPRELEASE packet on the wire, ICMP errors not reverse-NATed, tcpdump showing recent traffic rather than a live capture), the app
+message, no DHCP renewal timers, relays or DHCPRELEASE packet on the wire, ICMP errors not reverse-NATed, no spanning tree and symmetric VLAN membership, no DHCPv6, duplicate address detection, MLD, privacy addresses or path-MTU discovery, `getent hosts` using getaddrinfo() ordering, tcpdump showing recent traffic rather than a live capture), the app
 says so next to the feature. Reference links are listed in the SSH lesson.

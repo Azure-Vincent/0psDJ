@@ -186,5 +186,35 @@ export const CAUSES: Record<string, Cause> = Object.fromEntries(
       signature: 'The port forward is correct, but the forward chain drops the traffic: the filter sees the destination AFTER DNAT (inside address and port), so a rule matching the public port never matches.',
       check: 'nft -a list ruleset on the router: compare the forward rule with the dnat target; counters on the rule stay at 0.',
     },
+    {
+      id: 'vlan-access-wrong', title: 'Switch access port in the wrong VLAN', category: 'Network path', concept: 'net.vlan',
+      signature: 'The link is up and the host\'s own configuration is correct, but it cannot reach its gateway or anything else in its subnet: ARP (or NDP) requests go unanswered because the switch puts the port into another broadcast domain. The host may even see broadcasts (DHCP, ARP) from the other VLAN.',
+      check: 'On the switch: bridge vlan show (PVID of the port), bridge fdb show (which VLAN the host\'s MAC was learned in), and the bridge-access line in /etc/network/interfaces.',
+    },
+    {
+      id: 'vlan-trunk-missing', title: 'VLAN not allowed on the trunk', category: 'Network path', concept: 'net.vlan',
+      signature: 'Hosts in one VLAN reach each other but not their gateway on the router; other VLANs work. The router\'s sub-interface is up with the right address, but its tagged frames are dropped by the switch port.',
+      check: 'bridge vlan show on the switch: is the VLAN listed (tagged) on the trunk port? tcpdump -e on the router\'s parent interface shows tags leaving but nothing coming back.',
+    },
+    {
+      id: 'vlan-subif-mismatch', title: 'Router sub-interface uses the wrong VLAN ID', category: 'Configuration', concept: 'net.vlan',
+      signature: 'Same symptoms as a trunk without the VLAN: the gateway of one VLAN is unreachable. The switch carries the right VLAN, but the router tags its frames with a different ID (or sends them untagged).',
+      check: 'ip -d link show on the router (vlan protocol 802.1Q id N) vs bridge vlan show on the switch.',
+    },
+    {
+      id: 'ipv6-icmp-blocked', title: 'Firewall drops ICMPv6 (Neighbor Discovery)', category: 'Firewall', concept: 'net.ndp',
+      signature: 'IPv4 works, IPv6 to one host fails with "Address unreachable" from the last router: Neighbor Solicitations for the host get no answer because its input chain drops ICMPv6. Unlike ARP, NDP is filtered by nftables.',
+      check: 'ip -6 neigh on the router shows the host FAILED; nft list ruleset on the host: is there an icmpv6 / ipv6-icmp accept rule before the policy drop?',
+    },
+    {
+      id: 'ipv6-forwarding-off', title: 'IPv6 forwarding disabled on the router', category: 'Network path', concept: 'net.ipv6',
+      signature: 'Hosts still autoconfigure IPv6 addresses (radvd keeps advertising) and can reach the router itself, but nothing beyond it over IPv6; packets are discarded silently (no ICMPv6 error), so IPv6 connections time out while IPv4 works.',
+      check: 'sysctl net.ipv6.conf.all.forwarding on the router; /etc/sysctl.d/*; journalctl -u radvd ("IPv6 forwarding seems to be disabled").',
+    },
+    {
+      id: 'ipv6-server-no-route', title: 'Server has no IPv6 default route', category: 'Network path', concept: 'net.ipv6',
+      signature: 'IPv6 packets reach the server (tcpdump there shows SYNs) but replies cannot be routed back to other subnets; the client times out. The server reaches hosts on its own /64 only.',
+      check: 'ip -6 route on the server (no "default via"); the inet6 stanza in /etc/network/interfaces.',
+    },
   ] as Cause[]).map((c) => [c.id, c]),
 );
