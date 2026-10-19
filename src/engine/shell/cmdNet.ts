@@ -25,11 +25,38 @@ function renderRoute(r: Route): string {
 const ip: CommandDef = {
   name: 'ip',
   summary: 'show / manipulate routing, devices and neighbours (iproute2)',
-  usage: 'ip addr | ip route [get ADDR | add PREFIX via GW | del PREFIX] | ip neigh | ip link set DEV up|down',
+  usage: 'ip addr [add|del ADDR/PREFIX dev DEV] | ip route [get ADDR | add PREFIX via GW | del PREFIX] | ip neigh | ip link set DEV up|down',
   run(args, ctx) {
     const [objRaw, ...rest] = args.filter((a) => a !== '-br' && a !== '-4');
     const obj = objRaw ?? 'help';
     const host = ctx.host;
+    if ('address'.startsWith(obj) && obj.length >= 1 && obj[0] === 'a' && (rest[0] === 'add' || rest[0] === 'del' || rest[0] === 'flush')) {
+      const deny = needRoot(ctx, 'RTNETLINK answers: Operation not permitted');
+      if (deny) return deny;
+      const dev = rest.indexOf('dev') >= 0 ? rest[rest.indexOf('dev') + 1] : undefined;
+      const iface = host.ifaces.find((i) => i.name === dev);
+      if (!iface) return err(`Cannot find device "${dev ?? ''}"`, 1);
+      if (rest[0] === 'flush') {
+        iface.address = null;
+        iface.prefix = null;
+        host.routes = host.routes.filter((r) => r.dev !== iface.name);
+        return ok('');
+      }
+      const c = parseCidr(rest[1] ?? '');
+      if (!c || !rest[1].includes('/')) return err(`Error: any valid prefix is expected rather than "${rest[1] ?? ''}".`, 1);
+      const addr = rest[1].split('/')[0];
+      if (rest[0] === 'add') {
+        if (iface.address) return err('RTNETLINK answers: File exists (this simulator models one IPv4 address per interface: delete the old one first)', 2);
+        iface.address = addr;
+        iface.prefix = c.prefix;
+        return ok('');
+      }
+      if (iface.address !== addr) return err('RTNETLINK answers: Cannot assign requested address', 2);
+      iface.address = null;
+      iface.prefix = null;
+      host.routes = host.routes.filter((r) => r.dev !== iface.name || !r.via);
+      return ok('');
+    }
     if ('address'.startsWith(obj) && obj.length >= 1 && obj[0] === 'a') {
       const out: string[] = [];
       host.ifaces.forEach((i, idx) => {
@@ -215,7 +242,7 @@ const ping: CommandDef = {
 const traceroute: CommandDef = {
   name: 'traceroute',
   summary: 'print the route packets take (UDP by default, -T for TCP SYN, -I for ICMP)',
-  usage: 'traceroute [-n] [-T] [-I] [-p PORT] [-m MAXHOPS] HOST',
+  usage: 'traceroute [-n] [-T] [-I] [-p PORT] [-m MAXHOPS] [-q PROBES] HOST',
   run(args, ctx) {
     const { flags, rest } = parseFlags(args, ['-p', '-m', '-w', '-q']);
     const target = rest[0];
@@ -225,6 +252,7 @@ const traceroute: CommandDef = {
     const mode = flags.has('-T') ? 'tcp' : flags.has('-I') ? 'icmp' : 'udp';
     if (mode !== 'udp' && ctx.user.uid !== 0) return err('You do not have enough privileges to use this traceroute method.\nsocket: Operation not permitted', 1);
     const maxHops = Math.min(Number(flags.get('-m') ?? 30), 30);
+    const probes = Math.max(1, Math.min(Number(flags.get('-q') ?? 3), 10));
     const dst = r.ip;
     const src = sourceAddress(ctx.host, dst);
     const out = [`traceroute to ${target} (${dst}), ${maxHops} hops max, 60 byte packets`];
@@ -234,7 +262,7 @@ const traceroute: CommandDef = {
       const cells: string[] = [];
       let hopIp: string | null = null;
       let reached = false;
-      for (let q = 0; q < 3; q++) {
+      for (let q = 0; q < probes; q++) {
         const start = ctx.world.clock;
         const probe: Packet = mode === 'tcp'
           ? { id: nextId(ctx.world), src, dst, ttl, proto: 'tcp', tcp: { sport: 40000 + ttl * 3 + q, dport: port, seq: 1000 + ttl, ack: 0, flags: ['SYN'], window: 5840, len: 0 } }

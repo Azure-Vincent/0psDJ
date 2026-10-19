@@ -76,7 +76,7 @@ export function createHost(world: World, spec: HostSpec): Host {
     bootTime: t,
   };
   for (const s of ['networking', ...spec.services]) host.services[s] = svc(true);
-  for (const d of ['/', '/bin', '/etc', '/etc/ssh', '/etc/ssh/sshd_config.d', '/etc/network', '/home', '/root', '/usr', '/usr/bin', '/usr/sbin', '/var', '/var/log', '/tmp']) {
+  for (const d of ['/', '/bin', '/etc', '/etc/ssh', '/etc/ssh/sshd_config.d', '/etc/network', '/etc/sysctl.d', '/etc/nginx', '/home', '/root', '/usr', '/usr/bin', '/usr/sbin', '/var', '/var/log', '/tmp']) {
     mkdir(host, d, t, d === '/root' ? { mode: 0o700 } : d === '/tmp' ? { mode: 0o1777 } : undefined);
   }
   for (const b of ['/bin/bash', '/bin/sh', '/usr/sbin/nologin', '/bin/false', '/usr/bin/ssh', '/usr/sbin/sshd']) {
@@ -117,4 +117,9 @@ export function staticInterfaces(ifaces: { name: string; address: string; gatewa
     if (i.gateway) lines.push(`    gateway ${i.gateway}`);
   }
   return lines.join('\n') + '\n';
+}
+
+/** Verify every file's parent directory exists (catches lab definitions that would break shell writes). */
+export function missingParents(host: Host): string[] {
+  return Object.keys(host.fs).filter((p) => p !== '/' && !host.fs[p.slice(0, p.lastIndexOf('/')) || '/']);
 }

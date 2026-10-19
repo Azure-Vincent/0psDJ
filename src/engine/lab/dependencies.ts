@@ -60,7 +60,7 @@ export const SSH_DEPENDENCIES: DependencyNode[] = [
   },
   {
     id: 'router', label: 'Router forwarding (rtr01)', host: 'rtr01', layer: 'IP routing', dependsOn: ['client-route'],
-    failure: 'IP forwarding is disabled on rtr01 (net.ipv4.ip_forward=0).',
+    failure: 'IP forwarding is disabled on rtr01 (net.ipv4.ip_forward=0). The kernel answers packets it may not route with ICMP host unreachable.',
     apply: (w) => { script(w, 'rtr01', ['sysctl -w net.ipv4.ip_forward=0']); },
   },
   {

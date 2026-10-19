@@ -362,8 +362,10 @@ function transmitInner(world: World, fromHostId: string, original: Packet, opts:
         return { status: 'rejected', host: host.id, hops, reason: why, rejectWith: fw.rejectWith!, ...r };
       }
       if (!host.ipForward) {
-        hops.push({ host: host.id, ingress: ingress.name, ttl: p.ttl, note: 'not addressed to this host and IP forwarding is disabled: discarded' });
-        return { status: 'dropped', host: host.id, hops, reason: 'ip_forward=0' };
+        // Linux: the input route lookup fails with EHOSTUNREACH and ip_error() answers ICMP host unreachable.
+        hops.push({ host: host.id, ingress: ingress.name, ttl: p.ttl, note: 'not addressed to this host and IP forwarding is disabled (net.ipv4.ip_forward=0): not routed' });
+        const error = sendIcmpError(world, host, p, 'host-unreachable');
+        return { status: 'dropped', host: host.id, hops, reason: 'ip_forward=0', error };
       }
       if (p.ttl <= 1) {
         hops.push({ host: host.id, ingress: ingress.name, ttl: p.ttl, note: 'TTL expired in transit' });

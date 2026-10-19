@@ -225,7 +225,8 @@ options is implemented and unsupported options say so.
 | 1 | Engine core: IPv4 forwarding, ARP, ICMP, conntrack, nftables, DNS, systemd services, journal, simulated shell | ✅ |
 | 2 | **Vertical slice: SSH**: 7-section lesson, protocol visualisation, deployment guides (Debian/RHEL/Windows) + sandbox, config explorer, 14 stateful troubleshooting tickets with verification, assessment with engine-graded practical questions, command reference & practice, packet lab with PCAP export, dependency map | ✅ |
 | 3a | Lesson registry (data-driven lesson pages with per-lesson widgets); **Module D nftables lesson** with hook diagram, CIDR calculator, rule-by-rule packet tester, traced-run visualizer, 5 firewall tickets with HTTP/DNS goals and unsafe-fix constraints; atomic `reload` vs flushing `restart` for nftables.service | ✅ |
-| 3b | Module A lessons on the existing engine (TCP/UDP, ARP, routing, DNS, DHCP, NAT, MTU); Lab 1 as a guided multi-step lab | ⏳ |
+| 3b | **Module A**: "IP networking" and "TCP, UDP and DNS" lessons with subnetting practice, route lookup, encapsulation explorer, resolver tracer, 14 traced runs, 6 networking tickets; engine: nginx `listen` parsing and bind errors, `ip addr add/del`, ICMP host-unreachable from non-forwarding routers, `traceroute -q`, `nginx -t/-s reload` | ✅ |
+| 3c | Remaining Module A topics: DHCP, NAT/PAT, VLANs, IPv6/ND, MTU/PMTUD, TLS; Lab 1 as a guided multi-step lab | ⏳ |
 | 4 | Infrastructure Builder (drag-and-drop topology on top of the same `World` model; packet tracing and firewall decisions already exist in the engine) | ⏳ |
 | 5 | Windows/AD track: Windows host model (services, Defender Firewall, event log), DNS SRV, Kerberos AS/TGS exchange visualisation, NTLM, LDAP; RDP lesson; Lab 2 | ⏳ |
 | 6 | pfSense model (WAN/LAN/DMZ, NAT, state table, logs); Lab 3 | ⏳ |

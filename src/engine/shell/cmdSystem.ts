@@ -9,7 +9,7 @@ import { readFile, writeFile } from '../fs';
 import { formatEntry, isoTime } from '../sim/journal';
 import { fingerprintOfBlob, KEY_LABEL, parsePublicKey } from '../sim/keys';
 import {
-  bootHost, findService, reloadService, restartService, SERVICE_DEFS, sshdTest, startService, stopService, type SshdLoaded,
+  bootHost, findService, parseNginxListens, reloadService, restartService, SERVICE_DEFS, sshdTest, startService, stopService, type SshdLoaded,
 } from '../sim/services';
 import { knownHostName, knownHostsEntries, runSsh } from '../sim/ssh';
 import { resolve } from '../sim/dns';
@@ -593,6 +593,29 @@ const namedCheckzone: CommandDef = {
 // System
 // ---------------------------------------------------------------------------
 
+const nginxCmd: CommandDef = {
+  name: 'nginx',
+  summary: 'nginx control: -t tests the configuration, -s reload re-reads it',
+  usage: 'nginx -t | nginx -s reload',
+  run(args, ctx) {
+    const deny = PERM(ctx, 'nginx: [alert] could not open error log file: open() "/var/log/nginx/error.log" failed (13: Permission denied)');
+    if (deny) return deny;
+    const def = findService(ctx.host, 'nginx');
+    if (!def) return err('-bash: nginx: command not found', 127);
+    if (args[0] === '-t') {
+      const r = parseNginxListens(readFile(ctx.host, '/etc/nginx/nginx.conf') ?? '');
+      if (r.errors.length) return err([...r.errors, 'nginx: configuration file /etc/nginx/nginx.conf test failed'].join('\n'), 1);
+      return ok('nginx: the configuration file /etc/nginx/nginx.conf syntax is ok\nnginx: configuration file /etc/nginx/nginx.conf test is successful');
+    }
+    if (args[0] === '-s' && args[1] === 'reload') {
+      if (ctx.host.services.nginx.state !== 'active') return err('nginx: [error] invalid PID number "" in "/run/nginx.pid"', 1);
+      const r = reloadService(ctx.world, ctx.host, def);
+      return r.ok ? ok('') : err('nginx: [emerg] reload failed, see journalctl -u nginx', 1);
+    }
+    return err('nginx: this simulator supports -t and -s reload', 1);
+  },
+};
+
 const reboot: CommandDef = {
   name: 'reboot',
   summary: 'reboot the machine (runtime state is rebuilt from configuration files)',
@@ -612,5 +635,5 @@ const reboot: CommandDef = {
   },
 };
 
-export const SYSTEM_COMMANDS: CommandDef[] = [systemctl, journalctl, nft, iptables, ssh, sshKeygen, sshKeyscan, sshCopyId, sshd, rndc, namedCheckzone, reboot];
+export const SYSTEM_COMMANDS: CommandDef[] = [systemctl, journalctl, nft, iptables, ssh, sshKeygen, sshKeyscan, sshCopyId, sshd, rndc, namedCheckzone, nginxCmd, reboot];
 export { fingerprintOfBlob, base64Decode };

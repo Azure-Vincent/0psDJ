@@ -141,5 +141,20 @@ export const CAUSES: Record<string, Cause> = Object.fromEntries(
       signature: 'Clients on other subnets time out, but the server\'s own firewall shows no matching packets and tcpdump on the server sees nothing. Other ports through the same router work. The router\'s forward chain counters/policy drop it.',
       check: 'tcpdump on the server (silent?); on the router: nft list chain inet filter forward; traceroute -T -p PORT from the client.',
     },
+    {
+      id: 'client-netmask', title: 'Client has the wrong subnet mask (prefix length)', category: 'Network path', concept: 'net.cidr',
+      signature: 'The client believes remote hosts are on its own link: "ip route get <remote>" shows no "via", it ARPs for the remote address directly, ARP fails and it reports "No route to host" / "Destination Host Unreachable" from its own address. Local-subnet hosts still work.',
+      check: 'ip -4 addr (prefix length); ip route; ip route get <remote IP>; ip neigh (FAILED entry for the remote IP).',
+    },
+    {
+      id: 'router-forwarding-disabled', title: 'The router does not forward (net.ipv4.ip_forward=0)', category: 'Network path', concept: 'net.routing',
+      signature: 'The router itself answers (ping 10.0.10.1 works) but everything beyond it fails: the router returns ICMP host unreachable for packets it is asked to route. tcpdump on the router shows them arriving on one interface and never leaving on the other.',
+      check: 'On the router: sysctl net.ipv4.ip_forward; grep -r ip_forward /etc/sysctl.conf /etc/sysctl.d/; tcpdump on both interfaces.',
+    },
+    {
+      id: 'listen-loopback', title: 'Service listens only on 127.0.0.1 (loopback)', category: 'Service', concept: 'svc.listening',
+      signature: 'Connections from other hosts are refused (RST) while the same request from the server itself works. ss -tlnp shows 127.0.0.1:PORT instead of 0.0.0.0:PORT.',
+      check: 'ss -tlnp on the server; the service\'s listen/bind configuration (nginx: listen; sshd: ListenAddress).',
+    },
   ] as Cause[]).map((c) => [c.id, c]),
 );

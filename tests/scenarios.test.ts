@@ -25,6 +25,12 @@ const SYMPTOM: Record<string, RegExp> = {
   'fw-cidr-guest': /Connection timed out/,
   'fw-no-established': /\$ getent hosts ns1.corp.lab\n\(no output\)/,
   'fw-router-forward': /curl: \(28\)|after \d+ ms/,
+  'net-wrong-mask': /No route to host/,
+  'net-wrong-gateway': /No route to host/,
+  'net-ip-forward': /No route to host/,
+  'net-dns-resolvconf': /Temporary failure in name resolution/,
+  'net-hosts-override': /No route to host/,
+  'net-nginx-loopback': /Couldn't connect to server/,
 };
 
 describe.each(SSH_SCENARIOS.map((s) => [s.id, s] as const))('scenario %s', (id, scenario) => {
