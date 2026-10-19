@@ -735,6 +735,17 @@ function runSshInner(world: World, o: SshClientOptions, out: string[]): SshResul
     if (motd) out.push('', ...motd.replace(/\n$/, '').split('\n'));
   }
   if (!home) out.push(`Could not chdir to home directory ${pw!.home}: No such file or directory`);
+  if (remoteCmd) {
+    // exec channel: output, exit status, channel close, disconnect, TCP teardown.
+    enc('s2c', 40, 'SSH_MSG_CHANNEL_REQUEST "exit-status" 0', [], 'exit-status', 'The server reports the remote command\'s exit code, then closes the channel.');
+    enc('s2c', 12, 'SSH_MSG_CHANNEL_EOF + SSH_MSG_CHANNEL_CLOSE', [], 'CHANNEL_CLOSE (server)', 'No more data will be sent on this channel.');
+    enc('c2s', 12, 'SSH_MSG_CHANNEL_CLOSE', [], 'CHANNEL_CLOSE (client)', 'The client confirms the close.');
+    enc('c2s', 40, 'SSH_MSG_DISCONNECT reason=11 "disconnected by user"', [], 'DISCONNECT', 'With no channels left, the client ends the SSH connection and closes TCP.');
+    conn.close('client');
+    slog('INFO', `Received disconnect from ${cip} port ${cport}:11: disconnected by user`);
+    slog('INFO', `Disconnected from user ${user} ${cip} port ${cport}`);
+    if (ctxEff.usePAM) log(world, server, 'sshd', `pam_unix(sshd:session): session closed for user ${user}`, { pid: childPid, unit: 'ssh.service' });
+  }
   if (rec) {
     rec.setState(client.id, { ssh: 'session open' });
     rec.setState(server.id, { ssh: `session open (${pw!.shell})` });
