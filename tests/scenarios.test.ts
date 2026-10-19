@@ -1,0 +1,109 @@
+import { describe, expect, it } from 'vitest';
+import { buildSshLab } from '../src/engine/lab/sshLab';
+import { checkGoal, gradeDiagnosis, verifyScenario } from '../src/engine/scenarios/engine';
+import { SSH_SCENARIOS } from '../src/engine/scenarios/sshScenarios';
+import { CAUSES } from '../src/engine/scenarios/catalog';
+import { Lab } from './helpers';
+
+const SYMPTOM: Record<string, RegExp> = {
+  'ssh-config-typo': /Connection refused/,
+  'ssh-port-moved': /Connection refused/,
+  'ssh-firewall-drop': /Connection timed out/,
+  'ssh-firewall-reject': /No route to host/,
+  'ssh-dns-stale': /No route to host/,
+  'ssh-missing-gateway': /Connection timed out/,
+  'ssh-perms-strictmodes': /Permission denied \(publickey\)/,
+  'ssh-hostkey-changed': /REMOTE HOST IDENTIFICATION HAS CHANGED/,
+  'ssh-allowusers': /Permission denied \(publickey\)/,
+  'ssh-kex-legacy': /no matching key exchange method found/,
+  'ssh-client-key-perms': /UNPROTECTED PRIVATE KEY FILE/,
+  'ssh-bob-password': /Permission denied \(publickey\)/,
+  'ssh-dns-zone-error': /Temporary failure in name resolution/,
+  'ssh-monday-reboot': /Connection timed out/,
+};
+
+describe.each(SSH_SCENARIOS.map((s) => [s.id, s] as const))('scenario %s', (id, scenario) => {
+  it('is well-formed', () => {
+    expect(SYMPTOM[id]).toBeDefined();
+    for (const c of [...scenario.rootCauses, ...scenario.candidates, ...Object.keys(scenario.acceptable ?? {})]) expect(CAUSES[c], c).toBeDefined();
+    for (const c of scenario.rootCauses) expect(scenario.candidates).toContain(c);
+    expect(scenario.hints.length).toBeGreaterThanOrEqual(3);
+  });
+
+  it('breaks the baseline with the expected symptom, and the reference fix passes verification (incl. reboot)', () => {
+    const world = buildSshLab();
+    scenario.setup(world);
+    const before = scenario.goals.map((g) => checkGoal(world, g));
+    expect(before.some((g) => !g.ok)).toBe(true);
+    expect(before.flatMap((g) => g.lines).join('\n')).toMatch(SYMPTOM[id]);
+    expect(verifyScenario(world, scenario).passed).toBe(false);
+
+    const lab = new Lab(world);
+    for (const step of scenario.solution) {
+      for (const cmd of step.commands) {
+        const r = lab.run(step.host, step.user ?? 'root', cmd);
+        expect(r.needInput, `${step.host}: ${cmd}`).toBeUndefined();
+      }
+    }
+    const v = verifyScenario(lab.world, scenario);
+    expect(v.now.map((g) => g.lines.at(-1)), 'goal now').toEqual(v.now.map((g) => (g.ok ? g.lines.at(-1) : 'ok')));
+    expect(v.afterReboot.every((g) => g.ok), 'goal after reboot').toBe(true);
+    expect([...v.constraints, ...v.constraintsAfterReboot].filter((c) => c.required && !c.ok)).toEqual([]);
+    expect(v.passed).toBe(true);
+  });
+
+  it('grades the reference diagnosis as correct and a wrong one as wrong', () => {
+    expect(gradeDiagnosis(scenario, scenario.rootCauses).correct).toBe(true);
+    const wrong = scenario.candidates.find((c) => !scenario.rootCauses.includes(c) && !scenario.acceptable?.[c])!;
+    const g = gradeDiagnosis(scenario, [wrong]);
+    expect(g.correct).toBe(false);
+    expect(g.wrong[0].explanation.length).toBeGreaterThan(20);
+  });
+});
+
+describe('security constraints catch bad "fixes"', () => {
+  it('opening the firewall completely is rejected even though SSH works', () => {
+    const s = SSH_SCENARIOS.find((x) => x.id === 'ssh-firewall-drop')!;
+    const world = buildSshLab();
+    s.setup(world);
+    const lab = new Lab(world);
+    lab.run('srv01', 'root', "sed -i 's/policy drop;/policy accept;/' /etc/nftables.conf");
+    lab.run('srv01', 'root', 'nft -f /etc/nftables.conf');
+    const v = verifyScenario(lab.world, s);
+    expect(v.now.every((g) => g.ok)).toBe(true);
+    expect(v.passed).toBe(false);
+    expect(v.constraints.find((c) => c.id === 'fw-restrictive-srv01')?.ok).toBe(false);
+  });
+
+  it('a runtime-only firewall fix fails the reboot test', () => {
+    const s = SSH_SCENARIOS.find((x) => x.id === 'ssh-firewall-drop')!;
+    const world = buildSshLab();
+    s.setup(world);
+    const lab = new Lab(world);
+    lab.run('srv01', 'root', 'nft insert rule inet filter input ip saddr 10.0.10.0/24 tcp dport 22 accept');
+    const v = verifyScenario(lab.world, s);
+    expect(v.now.every((g) => g.ok)).toBe(true);
+    expect(v.afterReboot.every((g) => g.ok)).toBe(false);
+    expect(v.passed).toBe(false);
+  });
+
+  it('enabling password authentication to let bob in violates the policy', () => {
+    const s = SSH_SCENARIOS.find((x) => x.id === 'ssh-bob-password')!;
+    const world = buildSshLab();
+    s.setup(world);
+    const lab = new Lab(world);
+    lab.run('srv01', 'root', "sed -i 's/^PasswordAuthentication no/PasswordAuthentication yes/' /etc/ssh/sshd_config.d/10-hardening.conf");
+    lab.run('srv01', 'root', 'systemctl reload ssh');
+    expect(verifyScenario(lab.world, s).constraints.find((c) => c.id === 'sshd-policy')?.ok).toBe(false);
+  });
+
+  it('multi-fault: fixing only the firewall changes the symptom from timeout to refused', () => {
+    const s = SSH_SCENARIOS.find((x) => x.id === 'ssh-monday-reboot')!;
+    const world = buildSshLab();
+    s.setup(world);
+    const lab = new Lab(world);
+    lab.run('srv01', 'root', 'nft add rule inet filter input tcp dport 22 accept');
+    const r = lab.run('ws01', 'alice', 'ssh -o BatchMode=yes srv01.corp.lab');
+    expect(r.output).toMatch(/Connection refused/);
+  });
+});
