@@ -10,12 +10,14 @@ import { Glossary } from './pages/Glossary';
 import { History } from './pages/History';
 import { Settings } from './pages/Settings';
 import { Search } from './pages/Search';
+import { LESSONS } from '../content/lessons';
 
 const NAV: [string, string, string?][] = [
   ['dashboard', 'Dashboard'],
   ['curriculum', 'Curriculum'],
-  ['#Learn', ''],
-  ['lesson/ssh/what', 'SSH lesson', 'lesson'],
+  ['#Lessons', ''],
+  ...LESSONS.map((l): [string, string, string] => [`lesson/${l.id}/what`, l.title.split(':')[0], `lesson/${l.id}`]),
+  ['#Practice', ''],
   ['troubleshoot', 'Troubleshooting lab', 'troubleshoot'],
   ['commands', 'Diagnostic commands'],
   ['packets', 'Packet Lab'],
@@ -44,7 +46,7 @@ function Shell() {
   let page;
   switch (head) {
     case 'curriculum': page = <Curriculum />; break;
-    case 'lesson': page = <LessonPage key={a} section={b ?? 'what'} />; break;
+    case 'lesson': page = <LessonPage key={a} lessonId={a ?? 'ssh'} section={b ?? 'what'} />; break;
     case 'troubleshoot': page = a ? <TroubleshootWorkspace key={a} id={a} /> : <TroubleshootList />; break;
     case 'commands': page = <Commands />; break;
     case 'packets': page = <PacketLab />; break;
@@ -54,7 +56,7 @@ function Shell() {
     case 'search': page = <Search key={window.location.hash} />; break;
     default: page = <Dashboard />;
   }
-  const isActive = (path: string, prefix?: string) => (prefix ? head === prefix : route.join('/') === path || head === path);
+  const isActive = (path: string, prefix?: string) => (prefix ? route.join('/').startsWith(prefix) : route.join('/') === path || head === path);
 
   return (
     <div className="app">

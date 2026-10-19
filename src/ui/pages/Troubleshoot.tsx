@@ -2,8 +2,8 @@ import { useRef, useState } from 'react';
 import { CONCEPTS } from '../../content/concepts';
 import { buildSshLab } from '../../engine/lab/sshLab';
 import { CAUSES } from '../../engine/scenarios/catalog';
-import { gradeDiagnosis, verifyScenario, type DiagnosisGrade, type Verification } from '../../engine/scenarios/engine';
-import { SSH_SCENARIOS } from '../../engine/scenarios/sshScenarios';
+import { goalLabel, gradeDiagnosis, verifyScenario, type DiagnosisGrade, type Verification } from '../../engine/scenarios/engine';
+import { ALL_SCENARIOS, SCENARIO_SETS } from '../../engine/scenarios';
 import type { CauseCategory, Scenario } from '../../engine/scenarios/types';
 import type { CommandLogEntry } from '../../engine/shell/shell';
 import type { World } from '../../engine/types';
@@ -28,17 +28,20 @@ export function TroubleshootList() {
         Method: <strong>symptom</strong> (exact message) → <strong>locate</strong> the layer → <strong>evidence</strong> on both ends → <strong>hypothesis</strong> →
         <strong> test</strong> → <strong>fix persistently</strong> → <strong>verify</strong> (now, after reboot, and without weakening security).
       </div>
-      {ORDER.map((d) => (
-        <div key={d}>
-          <h2 style={{ textTransform: 'capitalize' }}>{d}</h2>
+      {SCENARIO_SETS.map((set) => (
+        <div key={set.id}>
+          <h2>{set.title}</h2>
           <div className="grid3">
-            {SSH_SCENARIOS.filter((s) => s.difficulty === d).map((s) => {
+            {set.scenarios.slice().sort((a, b) => ORDER.indexOf(a.difficulty) - ORDER.indexOf(b.difficulty)).map((s) => {
               const attempts = progress.attempts.filter((a) => a.scenarioId === s.id);
               const best = attempts.find((a) => a.status === 'resolved') ?? attempts.find((a) => a.status === 'revealed');
               return (
                 <div className="card" key={s.id}>
                   <div className="spread"><strong>{s.title}</strong>
-                    {best ? <span className={`badge ${best.status === 'resolved' ? 'ok' : 'warn'}`}>{best.status}</span> : attempts.length ? <span className="badge">{attempts.length} attempt(s)</span> : null}
+                    <span className="row">
+                      <span className="badge">{s.difficulty}</span>
+                      {best ? <span className={`badge ${best.status === 'resolved' ? 'ok' : 'warn'}`}>{best.status}</span> : attempts.length ? <span className="badge">{attempts.length} attempt(s)</span> : null}
+                    </span>
                   </div>
                   <p className="small">{s.ticket}</p>
                   <button className="primary" onClick={() => go(`troubleshoot/${s.id}`)}>Open ticket</button>
@@ -69,7 +72,7 @@ function GoalLine({ label, ok, lines }: { label: string; ok: boolean; lines: str
 }
 
 export function TroubleshootWorkspace({ id }: { id: string }) {
-  const scenario = SSH_SCENARIOS.find((s) => s.id === id);
+  const scenario = ALL_SCENARIOS.find((s) => s.id === id);
   const { progress, update } = useProgress();
   const worldRef = useRef<World | null>(null);
   const [labKey, setLabKey] = useState(0);
@@ -276,8 +279,8 @@ export function TroubleshootWorkspace({ id }: { id: string }) {
               <p className="small muted">Runs the goal connection now, reboots every host (runtime state rebuilt from files) and runs it again, then checks the security policy.</p>
               {verification && (
                 <>
-                  {verification.now.map((g, i) => <GoalLine key={`n${i}`} label={`Now: ${g.goal.user}@${g.goal.target}`} ok={g.ok} lines={g.lines} />)}
-                  {verification.afterReboot.map((g, i) => <GoalLine key={`r${i}`} label={`After reboot: ${g.goal.user}@${g.goal.target}`} ok={g.ok} lines={g.lines} />)}
+                  {verification.now.map((g, i) => <GoalLine key={`n${i}`} label={`Now: ${goalLabel(g.goal)}`} ok={g.ok} lines={g.lines} />)}
+                  {verification.afterReboot.map((g, i) => <GoalLine key={`r${i}`} label={`After reboot: ${goalLabel(g.goal)}`} ok={g.ok} lines={g.lines} />)}
                   {verification.constraints.map((c, i) => {
                     const after = verification.constraintsAfterReboot[i];
                     const ok = c.ok && after.ok;

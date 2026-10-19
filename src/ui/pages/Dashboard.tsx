@@ -1,6 +1,6 @@
 import { CONCEPTS } from '../../content/concepts';
-import { SSH_ASSESSMENT } from '../../content/ssh/assessment';
-import { SSH_SCENARIOS } from '../../engine/scenarios/sshScenarios';
+import { ASSESSMENTS, LESSONS } from '../../content/lessons';
+import { ALL_SCENARIOS } from '../../engine/scenarios';
 import type { ConceptId } from '../../engine/scenarios/types';
 import { CAUSES } from '../../engine/scenarios/catalog';
 import { mastery } from '../../learning/progress';
@@ -11,21 +11,20 @@ function misconceptionText(m: string): string | null {
   const cause = /^cause:([^@]+)@/.exec(m);
   if (cause) return `Suspected "${CAUSES[cause[1]]?.title}" when the evidence pointed elsewhere`;
   if (m.startsWith('predict:')) return `Mispredicted the effect of switching off "${m.split(':')[1]}"`;
-  if (m.startsWith('revealed:')) return `Needed the solution for "${SSH_SCENARIOS.find((s) => s.id === m.slice(9))?.title}"`;
+  if (m.startsWith('revealed:')) return `Needed the solution for "${ALL_SCENARIOS.find((s) => s.id === m.slice(9))?.title}"`;
   return null;
 }
 
 export function Dashboard() {
   const { progress } = useProgress();
-  const visited = progress.lessons.ssh?.visited ?? [];
+  const allQuestions = Object.values(ASSESSMENTS).flatMap((a) => a.questions);
   const resolved = new Set(progress.attempts.filter((a) => a.status === 'resolved').map((a) => a.scenarioId));
-  const correctQ = SSH_ASSESSMENT.questions.filter((q) => progress.questions[q.id]?.correct).length;
+  const correctQ = allQuestions.filter((q) => progress.questions[q.id]?.correct).length;
   const concepts = Object.keys(CONCEPTS) as ConceptId[];
   const struggling = concepts.filter((c) => mastery(progress.concepts[c]).level === 'struggling');
   // Recommend prerequisite review when a concept is struggling and its prerequisite is not yet proficient.
   const prereqs = [...new Set(struggling.flatMap((c) => CONCEPTS[c].prerequisites).filter((p) => mastery(progress.concepts[p]).level !== 'proficient'))];
-  const nextSection = SECTIONS.find((s) => !visited.includes(s.id));
-  const nextScenario = SSH_SCENARIOS.find((s) => !resolved.has(s.id));
+  const nextScenario = ALL_SCENARIOS.find((s) => !resolved.has(s.id));
   const recent = progress.attempts.slice(-5).reverse();
 
   return (
@@ -33,23 +32,29 @@ export function Dashboard() {
       <h1>Infrastructure Lab</h1>
       <p className="muted">Learn how infrastructure services work internally, and practise diagnosing them from evidence. Everything runs locally and offline.</p>
       <div className="grid3" style={{ marginTop: 12 }}>
-        <div className="card">
-          <h3>SSH lesson</h3>
-          <div className="meter"><div style={{ width: `${(visited.length / SECTIONS.length) * 100}%` }} /></div>
-          <p className="small muted">{visited.length} of {SECTIONS.length} sections visited</p>
-          <button className="primary" onClick={() => go(`lesson/ssh/${nextSection?.id ?? progress.lessons.ssh?.lastSection ?? 'what'}`)}>{visited.length ? 'Continue' : 'Start'}{nextSection ? `: ${nextSection.title}` : ''}</button>
-        </div>
+        {LESSONS.map((L) => {
+          const visited = progress.lessons[L.id]?.visited ?? [];
+          const nextSection = SECTIONS.find((s) => !visited.includes(s.id));
+          return (
+            <div className="card" key={L.id}>
+              <h3>{L.title}</h3>
+              <div className="meter"><div style={{ width: `${(visited.length / SECTIONS.length) * 100}%` }} /></div>
+              <p className="small muted">{visited.length} of {SECTIONS.length} sections visited</p>
+              <button className="primary" onClick={() => go(`lesson/${L.id}/${nextSection?.id ?? progress.lessons[L.id]?.lastSection ?? 'what'}`)}>{visited.length ? 'Continue' : 'Start'}{nextSection ? `: ${nextSection.title}` : ''}</button>
+            </div>
+          );
+        })}
         <div className="card">
           <h3>Troubleshooting</h3>
-          <div className="meter ok"><div style={{ width: `${(resolved.size / SSH_SCENARIOS.length) * 100}%` }} /></div>
-          <p className="small muted">{resolved.size} of {SSH_SCENARIOS.length} tickets resolved without revealing</p>
+          <div className="meter ok"><div style={{ width: `${(resolved.size / ALL_SCENARIOS.length) * 100}%` }} /></div>
+          <p className="small muted">{resolved.size} of {ALL_SCENARIOS.length} tickets resolved without revealing</p>
           {nextScenario && <button onClick={() => go(`troubleshoot/${nextScenario.id}`)}>Next ticket: {nextScenario.title}</button>}
         </div>
         <div className="card">
-          <h3>Assessment</h3>
-          <div className="meter"><div style={{ width: `${(correctQ / SSH_ASSESSMENT.questions.length) * 100}%` }} /></div>
-          <p className="small muted">{correctQ} of {SSH_ASSESSMENT.questions.length} questions answered correctly</p>
-          <button onClick={() => go('lesson/ssh/assess')}>Open assessment</button>
+          <h3>Assessments</h3>
+          <div className="meter"><div style={{ width: `${(correctQ / allQuestions.length) * 100}%` }} /></div>
+          <p className="small muted">{correctQ} of {allQuestions.length} questions answered correctly</p>
+          <div className="row">{LESSONS.map((L) => <button key={L.id} onClick={() => go(`lesson/${L.id}/assess`)}>{L.title.split(':')[0]}</button>)}</div>
         </div>
       </div>
 
@@ -92,7 +97,7 @@ export function Dashboard() {
           <tbody>
             {recent.map((a) => (
               <tr key={a.id}>
-                <td>{SSH_SCENARIOS.find((s) => s.id === a.scenarioId)?.title}</td>
+                <td>{ALL_SCENARIOS.find((s) => s.id === a.scenarioId)?.title}</td>
                 <td><span className={`badge ${a.status === 'resolved' ? 'ok' : a.status === 'revealed' ? 'warn' : ''}`}>{a.status}</span></td>
                 <td>{a.hintsUsed}</td>
                 <td>{a.diagnoses.length}</td>

@@ -143,8 +143,8 @@ export function SequenceDiagram({ events, lanes, segmentOf }: { events: TraceEve
                 />
               )}
               {ev.hops && ev.hops.length > 0 && (
-                <details className="layer">
-                  <summary>Path taken (per-hop decisions)</summary>
+                <details className="layer" open>
+                  <summary>Path taken (per-hop routing and firewall decisions)</summary>
                   <table><tbody>{ev.hops.map((h, i) => <tr key={i}><td className="mono">{h.host}</td><td>{h.note}</td></tr>)}</tbody></table>
                 </details>
               )}

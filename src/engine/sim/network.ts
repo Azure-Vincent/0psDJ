@@ -8,7 +8,7 @@
 // admin-prohibited) are generated where the real kernel would generate them and
 // are themselves routed back, so asymmetric failures behave realistically.
 
-import { evaluate, type PacketContext, type RejectType } from '../config/nft';
+import { evaluate, renderRule, type EvalResult, type PacketContext, type RejectType } from '../config/nft';
 import { inCidr, parseCidr, parseIp } from '../net/ip';
 import type { ArpPacket, ConntrackEntry, Host, Interface, Packet, Route, World } from '../types';
 import { kernelLog } from './journal';
@@ -187,6 +187,14 @@ function firewallLog(world: World, host: Host, prefix: string, p: Packet, iif: s
   kernelLog(world, host, `${prefix}IN=${iif ?? ''} OUT=${oif ?? ''} SRC=${p.src} DST=${p.dst} LEN=${packetLength(p)} TOS=0x00 PREC=0x00 TTL=${p.ttl} ID=${p.id & 0xffff} DF ${l4}`);
 }
 
+/** Human-readable firewall decision for hop notes ("nft inet filter input: rule 7 'tcp dport 22 accept'"). */
+export function describeDecision(hook: string, fw: EvalResult): string {
+  const d = fw.decidedBy;
+  if (!d) return `${hook}: no nftables base chain on this hook (accepted)`;
+  if (d.policy) return `nft ${d.table} ${d.chain}: no rule matched, chain policy ${fw.verdict}`;
+  return `nft ${d.table} ${d.chain}: rule handle ${d.rule!.handle} "${renderRule({ ...d.rule!, counter: null })}" → ${fw.verdict}`;
+}
+
 // ---------------------------------------------------------------------------
 // Transmission
 // ---------------------------------------------------------------------------
@@ -222,6 +230,14 @@ const ICMP_DESC: Record<string, { type: number; code: number; description: strin
   'ttl-exceeded': { type: 11, code: 0, description: 'Time-to-live exceeded (Time to live exceeded in transit)' },
 };
 
+const ICMP_EXPLAIN: Record<string, (h: string, p: Packet) => string> = {
+  'net-unreachable': (h) => `${h} has no route to the destination network and reports it to the sender. A TCP client in SYN_SENT fails with ENETUNREACH ("Network is unreachable").`,
+  'host-unreachable': (h, p) => `${h} tried to deliver the packet on the final network but nobody answered its ARP request for ${p.dst} (about 3 s of retries). The sender receives "No route to host" (EHOSTUNREACH), although routing itself works.`,
+  'port-unreachable': (h, p) => `${h} received a ${p.proto.toUpperCase()} datagram for a port with no listening socket (or a firewall rejected it with port-unreachable). For UDP this is how "connection refused" is signalled; resolvers move to the next server immediately.`,
+  'admin-prohibited': (h) => `A firewall rule on ${h} rejected the packet with "communication administratively prohibited" (type 3 code 13). Clients report "No route to host", which misleadingly suggests a routing problem.`,
+  'ttl-exceeded': (h) => `The TTL reached zero at ${h}, which discards the packet and reports "time exceeded". traceroute uses this deliberately to discover each router on the path.`,
+};
+
 /** Send an ICMP error from `host` about `offending`. Errors are never sent about ICMP errors. */
 export function sendIcmpError(world: World, host: Host, offending: Packet, kind: keyof typeof ICMP_DESC): IcmpErrorReturn | undefined {
   if (offending.icmp?.quoted) return undefined;
@@ -233,6 +249,7 @@ export function sendIcmpError(world: World, host: Host, offending: Packet, kind:
     icmp: { type: d.type, code: d.code, description: d.description, quoted: quote(offending) },
   };
   const res = transmit(world, host.id, pkt);
+  activeRecorder()?.describe(pkt.id, `ICMP ${d.description}`, ICMP_EXPLAIN[kind](host.hostname, offending));
   return { packet: pkt, from: host.id, delivered: res.status === 'delivered' };
 }
 
@@ -335,12 +352,10 @@ function transmitInner(world: World, fromHostId: string, original: Packet, opts:
         fw.logs.forEach((pre) => firewallLog(world, host, pre, p, ingress!.name, undefined));
         if (fw.verdict === 'accept') {
           ctConfirm(host, p, world.clock);
-          hops.push({ host: host.id, ingress: ingress.name, ttl: p.ttl, note: 'delivered to local socket layer' });
+          hops.push({ host: host.id, ingress: ingress.name, ttl: p.ttl, note: `input hook: ${describeDecision('input', fw)}; delivered to the local socket layer` });
           return { status: 'delivered', host: host.id, hops };
         }
-        const why = fw.decidedBy?.policy
-          ? `nft ${fw.decidedBy.table} ${fw.decidedBy.chain}: chain policy ${fw.verdict}`
-          : `nft ${fw.decidedBy?.table} ${fw.decidedBy?.chain}: rule handle ${fw.decidedBy?.rule?.handle} (${fw.verdict})`;
+        const why = describeDecision('input', fw);
         hops.push({ host: host.id, ingress: ingress.name, ttl: p.ttl, note: why });
         if (fw.verdict === 'drop') return { status: 'dropped', host: host.id, hops, reason: why };
         const r = handleReject(world, host, p, fw.rejectWith!);
@@ -365,9 +380,7 @@ function transmitInner(world: World, fromHostId: string, original: Packet, opts:
       const fw = evaluate(host.nft, 'forward', toContext(p, host, ingress.name, rd.dev));
       fw.logs.forEach((pre) => firewallLog(world, host, pre, p, ingress!.name, rd.dev));
       if (fw.verdict !== 'accept') {
-        const why = fw.decidedBy?.policy
-          ? `nft ${fw.decidedBy.table} ${fw.decidedBy.chain}: chain policy ${fw.verdict}`
-          : `nft ${fw.decidedBy?.table} ${fw.decidedBy?.chain}: rule handle ${fw.decidedBy?.rule?.handle} (${fw.verdict})`;
+        const why = describeDecision('forward', fw);
         hops.push({ host: host.id, ingress: ingress.name, ttl: p.ttl, note: why });
         if (fw.verdict === 'drop') return { status: 'dropped', host: host.id, hops, reason: why };
         const r = handleReject(world, host, p, fw.rejectWith!);
@@ -382,7 +395,7 @@ function transmitInner(world: World, fromHostId: string, original: Packet, opts:
         const error = sendIcmpError(world, host, p, 'host-unreachable');
         return { status: 'dropped', host: host.id, hops, reason: `no ARP reply from ${rd.nextHop}`, error };
       }
-      hops.push({ host: host.id, ingress: ingress.name, egress: egress.name, srcMac: egress.mac, dstMac: nh.mac, ttl: p.ttl, note: `forwarded via ${rd.route.dest}${rd.route.via ? ' via ' + rd.route.via : ''} dev ${egress.name}` });
+      hops.push({ host: host.id, ingress: ingress.name, egress: egress.name, srcMac: egress.mac, dstMac: nh.mac, ttl: p.ttl, note: `TTL ${p.ttl + 1}→${p.ttl}; forward hook: ${describeDecision('forward', fw)}; routed via ${rd.route.dest}${rd.route.via ? ' via ' + rd.route.via : ''} dev ${egress.name}` });
       capture(world, host, egress, 'out', egress.mac, nh.mac, p);
       capture(world, nh.host, nh.iface, 'in', egress.mac, nh.mac, p);
       host = nh.host;

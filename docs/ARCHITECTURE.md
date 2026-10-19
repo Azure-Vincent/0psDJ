@@ -224,7 +224,8 @@ options is implemented and unsupported options say so.
 | 0 | Foundation: Electron/React/Vite app shell, navigation, themes, search, local progress, glossary, curriculum map | ✅ |
 | 1 | Engine core: IPv4 forwarding, ARP, ICMP, conntrack, nftables, DNS, systemd services, journal, simulated shell | ✅ |
 | 2 | **Vertical slice: SSH**: 7-section lesson, protocol visualisation, deployment guides (Debian/RHEL/Windows) + sandbox, config explorer, 14 stateful troubleshooting tickets with verification, assessment with engine-graded practical questions, command reference & practice, packet lab with PCAP export, dependency map | ✅ |
-| 3 | Module A lessons using the existing engine (TCP/UDP, ARP, routing, DNS, DHCP, NAT, MTU) and Module D nftables/UFW lessons; Lab 1 as a guided multi-step lab | ⏳ |
+| 3a | Lesson registry (data-driven lesson pages with per-lesson widgets); **Module D nftables lesson** with hook diagram, CIDR calculator, rule-by-rule packet tester, traced-run visualizer, 5 firewall tickets with HTTP/DNS goals and unsafe-fix constraints; atomic `reload` vs flushing `restart` for nftables.service | ✅ |
+| 3b | Module A lessons on the existing engine (TCP/UDP, ARP, routing, DNS, DHCP, NAT, MTU); Lab 1 as a guided multi-step lab | ⏳ |
 | 4 | Infrastructure Builder (drag-and-drop topology on top of the same `World` model; packet tracing and firewall decisions already exist in the engine) | ⏳ |
 | 5 | Windows/AD track: Windows host model (services, Defender Firewall, event log), DNS SRV, Kerberos AS/TGS exchange visualisation, NTLM, LDAP; RDP lesson; Lab 2 | ⏳ |
 | 6 | pfSense model (WAN/LAN/DMZ, NAT, state table, logs); Lab 3 | ⏳ |
@@ -234,6 +235,6 @@ options is implemented and unsupported options say so.
 ### Adding a new service (checklist)
 1. Engine: add a `ServiceDef` in `sim/services.ts` (start/reload/listeners/config parsing) and any protocol simulator under `sim/` that records `TraceEvent`s.
 2. Shell: add the service's admin/diagnostic commands under `shell/`.
-3. Content: add a `Lesson`, an `Assessment`, command references and glossary entries.
-4. Scenarios: add `Scenario` objects with `setup`, `solution` and constraints; the generic scenario test proves each one breaks and is fixable.
+3. Content: add a `Lesson` and an `Assessment` and register them in `src/content/lessons.ts`; add command references and glossary entries. Optional interactive widgets are wired in `widgetsFor()` in `src/ui/pages/LessonPage.tsx`.
+4. Scenarios: add `Scenario` objects (goals: SSH login, HTTP request or name lookup) with `setup`, `solution` and constraints, and register the set in `src/engine/scenarios/index.ts`; the generic scenario test proves each one breaks and is fixable.
 5. Curriculum: flip the topic status to `available` with a link.
