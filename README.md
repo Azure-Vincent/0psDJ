@@ -74,7 +74,12 @@ npm run dist:dir       # unpacked app in release/<os>-unpacked/ (fastest, for te
 
 Packaging uses electron-builder (configuration in the `build` field of
 `package.json`); the app icon is `build/icon.png` (source `build/icon.svg`).
-Running as root on Linux (e.g. in a container) requires `--no-sandbox`.
+On Linux the packaged app starts through a small launcher (`build/afterPack.cjs`). Chromium sandboxes
+its renderers with unprivileged user namespaces or a setuid-root `chrome-sandbox` helper. Ubuntu 23.10+/24.04
+restrict the former through AppArmor, and an AppImage cannot carry the latter. On such systems, or when
+running as root, the launcher adds `--no-sandbox` and says so on stderr; everywhere else the sandbox stays on.
+The app loads only its own bundled pages. With the tar.gz build you can keep the sandbox on those systems:
+`sudo chown root:root chrome-sandbox && sudo chmod 4755 chrome-sandbox`.
 
 ### Run from source
 
