@@ -49,8 +49,11 @@ plan in `docs/ARCHITECTURE.md`.
 
 ### Download a build (no Node.js needed)
 
-Every push builds unsigned executables in GitHub Actions (`.github/workflows/build.yml`):
-open the latest **build** run and download the artifact for your OS.
+Pushing a version tag (`v1.2.0`, or publishing a GitHub release with such a tag) builds unsigned
+executables in GitHub Actions (`.github/workflows/build.yml`) and attaches them to the release:
+download them from the release's **Assets** list. The "Source code (zip/tar.gz)" archives GitHub adds
+to every release contain only the source; to run those, see "Build the executable yourself" or
+"Run from source" below. Every other push also builds the executables as artifacts of its **build** run.
 
 | OS | File | Run |
 |---|---|---|
