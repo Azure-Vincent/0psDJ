@@ -1,6 +1,14 @@
 import { useRef, useState } from 'react';
-import { emptyProgress, type Progress } from '../../learning/progress';
+import { emptyProgress, type Progress, type Theme } from '../../learning/progress';
 import { useProgress } from '../state';
+
+const THEMES: [Theme, string][] = [
+  ['system', 'Follow system (Paper / Ember)'],
+  ['light', 'Paper (soft light)'],
+  ['dark', 'Ember (soft dark)'],
+  ['contrast-light', 'High-contrast light'],
+  ['contrast-dark', 'High-contrast dark'],
+];
 
 export function Settings() {
   const { progress, update, reset, replace } = useProgress();
@@ -29,9 +37,10 @@ export function Settings() {
       <h1>Settings</h1>
       <div className="card" style={{ marginBottom: 12 }}>
         <h3>Theme</h3>
+        <p className="small muted">The default themes use tinted backgrounds, softer text contrast and coloured headings, code and diagrams, which is easier on the eyes over long sessions. The high-contrast themes keep the original black-on-white / white-on-black look.</p>
         <div className="row">
-          {(['system', 'light', 'dark'] as const).map((t) => (
-            <label key={t} className="row"><input type="radio" checked={progress.settings.theme === t} onChange={() => update((p) => ({ ...p, settings: { ...p.settings, theme: t } }))} />{t}</label>
+          {THEMES.map(([t, label]) => (
+            <label key={t} className="row"><input type="radio" checked={progress.settings.theme === t} onChange={() => update((p) => ({ ...p, settings: { ...p.settings, theme: t } }))} />{label}</label>
           ))}
         </div>
       </div>

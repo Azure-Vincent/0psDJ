@@ -136,7 +136,7 @@ export function RouteLookup() {
 interface Field { layer: 'eth' | 'arp' | 'ip' | 'l4' | 'payload' | 'pad'; name: string; start: number; end: number }
 
 const LAYER_COLOR: Record<Field['layer'], string> = {
-  eth: '#bf8700', arp: '#8250df', ip: '#1f6feb', l4: '#1a7f37', payload: '#cf222e', pad: '#8a94a3',
+  eth: 'var(--c-yellow)', arp: 'var(--c-violet)', ip: 'var(--c-blue)', l4: 'var(--c-green)', payload: 'var(--c-red)', pad: 'var(--c-gray)',
 };
 
 function dissect(b: Uint8Array): Field[] {

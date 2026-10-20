@@ -1,4 +1,138 @@
+/*
+ * Themes. The default light ("Paper") and dark ("Ember") palettes are tinted and
+ * use softer contrast (about 9:1 for body text instead of 15:1+) with coloured
+ * headings, code and diagrams, which is easier on the eyes for long sessions.
+ * "contrast-light" / "contrast-dark" keep the original high-contrast palettes.
+ * --c-* are the categorical colours used by diagrams and the terminal.
+ */
 :root {
+  /* Paper (light) */
+  --bg: #f3ead7;
+  --panel: #faf4e7;
+  --panel-2: #efe4cc;
+  --border: #dccfb3;
+  --text: #4b3f33;
+  --muted: #76675a;
+  --accent: #2d7f78;
+  --accent-soft: #dcebe4;
+  --on-accent: #ffffff;
+  --ok: #4f7a28;
+  --ok-soft: #e3ebd0;
+  --warn: #93600f;
+  --warn-soft: #f6e3bd;
+  --err: #b2463a;
+  --err-soft: #f5ddd5;
+  --code-bg: #efe3c9;
+  --code-fg: #8a3f6b;
+  --h1: #a3501f;
+  --h2: #2d7f78;
+  --h3: #6f4f8f;
+  --term-bg: #2a2724;
+  --term-fg: #e0d4bb;
+  --term-cmd: #9cbde3;
+  --term-prompt: #b5cf8a;
+  --term-root: #ef9a8f;
+  --term-err: #f2ab9f;
+  --term-note: #9a8f80;
+  --lane: #a89a84;
+  --c-red: #b2463a;
+  --c-orange: #b5651d;
+  --c-yellow: #93700f;
+  --c-green: #4f7a28;
+  --c-teal: #2d7f78;
+  --c-blue: #3d6aa3;
+  --c-violet: #7a4f9c;
+  --c-gray: #85786a;
+  --font: system-ui, -apple-system, 'Segoe UI', Roboto, Ubuntu, sans-serif;
+  --mono: ui-monospace, 'Cascadia Code', 'JetBrains Mono', Menlo, Consolas, monospace;
+  color-scheme: light;
+}
+
+/* Ember (dark): warm charcoal background, beige text, amber / teal / lavender accents */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']):not([data-theme='contrast-light']):not([data-theme='contrast-dark']) {
+    --bg: #262321;
+    --panel: #2d2a27;
+    --panel-2: #36322e;
+    --border: #4a443d;
+    --text: #ddd0b6;
+    --muted: #a89a84;
+    --accent: #7fc1b4;
+    --accent-soft: #2f3c39;
+    --on-accent: #1f1d1b;
+    --ok: #a9c47f;
+    --ok-soft: #313a27;
+    --warn: #e6b45e;
+    --warn-soft: #3d3222;
+    --err: #ec8a7f;
+    --err-soft: #432a26;
+    --code-bg: #34302c;
+    --code-fg: #e6b45e;
+    --h1: #e6b45e;
+    --h2: #7fc1b4;
+    --h3: #c4a3d6;
+    --term-bg: #1f1d1b;
+    --term-fg: #d6c9ae;
+    --term-cmd: #8fb3de;
+    --term-prompt: #a9c47f;
+    --term-root: #ec8a7f;
+    --term-err: #f0a99f;
+    --term-note: #8c8273;
+    --lane: #7a6f62;
+    --c-red: #ec8a7f;
+    --c-orange: #e89a62;
+    --c-yellow: #e6c46e;
+    --c-green: #a9c47f;
+    --c-teal: #7fc1b4;
+    --c-blue: #8fb3de;
+    --c-violet: #c4a3d6;
+    --c-gray: #9a8f80;
+    color-scheme: dark;
+  }
+}
+
+:root[data-theme='dark'] {
+  --bg: #262321;
+  --panel: #2d2a27;
+  --panel-2: #36322e;
+  --border: #4a443d;
+  --text: #ddd0b6;
+  --muted: #a89a84;
+  --accent: #7fc1b4;
+  --accent-soft: #2f3c39;
+  --on-accent: #1f1d1b;
+  --ok: #a9c47f;
+  --ok-soft: #313a27;
+  --warn: #e6b45e;
+  --warn-soft: #3d3222;
+  --err: #ec8a7f;
+  --err-soft: #432a26;
+  --code-bg: #34302c;
+  --code-fg: #e6b45e;
+  --h1: #e6b45e;
+  --h2: #7fc1b4;
+  --h3: #c4a3d6;
+  --term-bg: #1f1d1b;
+  --term-fg: #d6c9ae;
+  --term-cmd: #8fb3de;
+  --term-prompt: #a9c47f;
+  --term-root: #ec8a7f;
+  --term-err: #f0a99f;
+  --term-note: #8c8273;
+  --lane: #7a6f62;
+  --c-red: #ec8a7f;
+  --c-orange: #e89a62;
+  --c-yellow: #e6c46e;
+  --c-green: #a9c47f;
+  --c-teal: #7fc1b4;
+  --c-blue: #8fb3de;
+  --c-violet: #c4a3d6;
+  --c-gray: #9a8f80;
+  color-scheme: dark;
+}
+
+/* High-contrast palettes (the original look) */
+:root[data-theme='contrast-light'] {
   --bg: #f6f7f9;
   --panel: #ffffff;
   --panel-2: #f0f2f5;
@@ -7,6 +141,7 @@
   --muted: #5d6878;
   --accent: #1f6feb;
   --accent-soft: #e3edfd;
+  --on-accent: #ffffff;
   --ok: #1a7f37;
   --ok-soft: #e6f4ea;
   --warn: #9a6700;
@@ -14,38 +149,30 @@
   --err: #c62828;
   --err-soft: #fdecea;
   --code-bg: #f3f4f6;
+  --code-fg: inherit;
+  --h1: inherit;
+  --h2: inherit;
+  --h3: inherit;
   --term-bg: #0f141b;
   --term-fg: #d6dde6;
+  --term-cmd: #9ecbff;
+  --term-prompt: #7ee787;
+  --term-root: #ff9e9e;
+  --term-err: #ffb4ab;
+  --term-note: #8b949e;
   --lane: #8a94a3;
-  --font: system-ui, -apple-system, 'Segoe UI', Roboto, Ubuntu, sans-serif;
-  --mono: ui-monospace, 'Cascadia Code', 'JetBrains Mono', Menlo, Consolas, monospace;
+  --c-red: #cf222e;
+  --c-orange: #bc4c00;
+  --c-yellow: #bf8700;
+  --c-green: #1a7f37;
+  --c-teal: #0a7ea4;
+  --c-blue: #1f6feb;
+  --c-violet: #8250df;
+  --c-gray: #6e7781;
   color-scheme: light;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme='light']) {
-    --bg: #0d1117;
-    --panel: #151b23;
-    --panel-2: #1c2330;
-    --border: #2d3644;
-    --text: #e3e8ef;
-    --muted: #93a0b2;
-    --accent: #4c9aff;
-    --accent-soft: #15284a;
-    --ok: #3fb950;
-    --ok-soft: #12291a;
-    --warn: #d29922;
-    --warn-soft: #2e2410;
-    --err: #f47067;
-    --err-soft: #3a1513;
-    --code-bg: #1c2330;
-    --term-bg: #0a0d12;
-    --lane: #6b7686;
-    color-scheme: dark;
-  }
-}
-
-:root[data-theme='dark'] {
+:root[data-theme='contrast-dark'] {
   --bg: #0d1117;
   --panel: #151b23;
   --panel-2: #1c2330;
@@ -54,6 +181,7 @@
   --muted: #93a0b2;
   --accent: #4c9aff;
   --accent-soft: #15284a;
+  --on-accent: #ffffff;
   --ok: #3fb950;
   --ok-soft: #12291a;
   --warn: #d29922;
@@ -61,8 +189,26 @@
   --err: #f47067;
   --err-soft: #3a1513;
   --code-bg: #1c2330;
+  --code-fg: inherit;
+  --h1: inherit;
+  --h2: inherit;
+  --h3: inherit;
   --term-bg: #0a0d12;
+  --term-fg: #d6dde6;
+  --term-cmd: #9ecbff;
+  --term-prompt: #7ee787;
+  --term-root: #ff9e9e;
+  --term-err: #ffb4ab;
+  --term-note: #8b949e;
   --lane: #6b7686;
+  --c-red: #f47067;
+  --c-orange: #f0883e;
+  --c-yellow: #d29922;
+  --c-green: #3fb950;
+  --c-teal: #39c5cf;
+  --c-blue: #4c9aff;
+  --c-violet: #b083f0;
+  --c-gray: #8b949e;
   color-scheme: dark;
 }
 
@@ -71,11 +217,12 @@ html, body, #root { height: 100%; margin: 0; }
 body { background: var(--bg); color: var(--text); font: 14px/1.55 var(--font); }
 a { color: var(--accent); }
 code, pre, .mono { font-family: var(--mono); font-size: 12.5px; }
-code { background: var(--code-bg); padding: 1px 4px; border-radius: 4px; }
+code { background: var(--code-bg); color: var(--code-fg); padding: 1px 4px; border-radius: 4px; }
+pre code { color: inherit; }
 pre { background: var(--code-bg); padding: 10px 12px; border-radius: 6px; overflow: auto; margin: 8px 0; white-space: pre; }
-h1 { font-size: 22px; margin: 0 0 6px; }
-h2 { font-size: 18px; margin: 18px 0 8px; }
-h3 { font-size: 15px; margin: 16px 0 6px; }
+h1 { font-size: 22px; margin: 0 0 6px; color: var(--h1); }
+h2 { font-size: 18px; margin: 18px 0 8px; color: var(--h2); }
+h3 { font-size: 15px; margin: 16px 0 6px; color: var(--h3); }
 table { border-collapse: collapse; width: 100%; margin: 8px 0; }
 th, td { border: 1px solid var(--border); padding: 6px 8px; text-align: left; vertical-align: top; }
 th { background: var(--panel-2); font-weight: 600; }
@@ -85,7 +232,7 @@ button {
 }
 button:hover:not(:disabled) { border-color: var(--accent); }
 button:disabled { opacity: 0.5; cursor: default; }
-button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 button.danger { color: var(--err); }
 button.link { border: none; background: none; color: var(--accent); padding: 0; }
 input[type='text'], input:not([type]), select, textarea {
@@ -144,11 +291,11 @@ textarea { width: 100%; font-family: var(--mono); font-size: 12.5px; }
 
 /* Terminal */
 .terminal { background: var(--term-bg); color: var(--term-fg); font-family: var(--mono); font-size: 12.5px; border-radius: 6px; padding: 8px 10px; overflow: auto; height: 100%; min-height: 220px; white-space: pre-wrap; word-break: break-word; cursor: text; }
-.terminal .cmd { color: #9ecbff; }
-.terminal .prompt { color: #7ee787; }
-.terminal .root-prompt { color: #ff9e9e; }
-.terminal .err { color: #ffb4ab; }
-.terminal .note { color: #8b949e; font-style: italic; }
+.terminal .cmd { color: var(--term-cmd); }
+.terminal .prompt { color: var(--term-prompt); }
+.terminal .root-prompt { color: var(--term-root); }
+.terminal .err { color: var(--term-err); }
+.terminal .note { color: var(--term-note); font-style: italic; }
 .terminal input { background: transparent; border: none; color: inherit; font: inherit; padding: 0; width: 60%; outline: none; }
 .term-tabs { display: flex; gap: 2px; }
 .term-tabs button { border-bottom: none; border-radius: 6px 6px 0 0; font-size: 12px; padding: 4px 10px; }

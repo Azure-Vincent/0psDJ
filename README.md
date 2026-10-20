@@ -28,7 +28,7 @@ The foundation plus eight complete lessons sharing one simulated lab and trouble
 | **Diagnostic commands** | Reference for 30 Windows and Linux commands (purpose, arguments, example output, interpretation, limitations) and practice: choose-the-command and spot-the-abnormality exercises |
 | **Packet Lab** | 12 synthetic capture presets produced by the engine (including DHCP DORA, the Internet side of the NAT router, 802.1Q tags on the router trunk, and SLAAC/Neighbor Discovery/HTTP over IPv6), Wireshark-style list/detail/hex views, display filters (`ip.addr`, `tcp.flags.syn`, `dns`, `dhcp`, `icmp`, `ipv6`, `icmpv6`, `ipv6.addr`, `vlan.id`, `&&`, `||`, `!` …), **PCAP export** (valid checksums; opens in Wireshark), explanation of what is and is not visible without keys |
 | **Learning model** | Concept-level mastery (25 concepts) updated by answers, predictions and diagnoses; misconception tracking; prerequisite-aware review recommendations; troubleshooting history with every command run |
-| **App** | Offline; Windows/Linux/macOS via Electron; light/dark/system theme; global search; glossary (65 terms); progress saved locally with export/import/reset |
+| **App** | Offline; Windows/Linux/macOS via Electron; soft tinted themes (Paper light, Ember dark, following the system setting) plus high-contrast light/dark; global search; glossary (65 terms); progress saved locally with export/import/reset |
 
 ## What is planned (not implemented)
 

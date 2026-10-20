@@ -13,9 +13,11 @@ const TOP = 56;
 const LANE_W = 158;
 const LEFT = 30;
 
+// Theme colours (see the --c-* variables in styles.css).
 const PHASE_COLORS: Record<string, string> = {
-  DNS: '#8250df', ARP: '#bf8700', TCP: '#1f6feb', 'SSH transport': '#0969da', 'SSH key exchange': '#0a7ea4',
-  'SSH authentication': '#1a7f37', 'SSH session': '#1a7f37', ICMP: '#cf222e', Teardown: '#6e7781',
+  DNS: 'var(--c-violet)', ARP: 'var(--c-yellow)', DHCP: 'var(--c-orange)', NDP: 'var(--c-yellow)', TCP: 'var(--c-blue)',
+  'SSH transport': 'var(--c-blue)', 'SSH key exchange': 'var(--c-teal)', 'SSH authentication': 'var(--c-green)', 'SSH session': 'var(--c-green)',
+  ICMP: 'var(--c-red)', Teardown: 'var(--c-gray)',
 };
 
 function short(s: string, n = 46): string {
