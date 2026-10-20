@@ -25,6 +25,9 @@ export interface TroubleshootingAttempt {
   notes: { symptoms: string; evidence: string; hypothesis: string };
 }
 
+/** system / light / dark use the soft palettes; contrast-* the original high-contrast ones. */
+export type Theme = 'system' | 'light' | 'dark' | 'contrast-light' | 'contrast-dark';
+
 export interface Progress {
   version: 1;
   lessons: Record<string, { visited: string[]; lastSection?: string }>;
@@ -33,7 +36,7 @@ export interface Progress {
   exercises: Record<string, { attempts: number; correct: boolean }>;
   predictions: Record<string, { attempts: number; correct: boolean }>;
   attempts: TroubleshootingAttempt[];
-  settings: { theme: 'system' | 'light' | 'dark' };
+  settings: { theme: Theme };
 }
 
 export const STORAGE_KEY = 'infralab.progress.v1';
