@@ -79,6 +79,7 @@
       "icon": "build/icon.png",
       "category": "public.app-category.education",
       "identity": null
-    }
+    },
+    "afterPack": "build/afterPack.cjs"
   }
 }
