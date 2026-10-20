@@ -74,7 +74,7 @@ npm run dist:dir       # unpacked app in release/<os>-unpacked/ (fastest, for te
 
 Packaging uses electron-builder (configuration in the `build` field of
 `package.json`); the app icon is `build/icon.png` (source `build/icon.svg`).
-On Linux the packaged app starts through a small launcher (`build/afterPack.cjs`). Chromium sandboxes
+On Linux the packaged app starts through a small launcher (`build/afterPack.cjs`), and `npm run desktop` / `desktop:dev` through `scripts/electron-launch.cjs`, which applies the same rule. Chromium sandboxes
 its renderers with unprivileged user namespaces or a setuid-root `chrome-sandbox` helper. Ubuntu 23.10+/24.04
 restrict the former through AppArmor, and an AppImage cannot carry the latter. On such systems, or when
 running as root, the launcher adds `--no-sandbox` and says so on stderr; everywhere else the sandbox stays on.
