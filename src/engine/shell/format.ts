@@ -22,8 +22,9 @@ function describeIcmp6(p: Packet): string {
   const i = p.icmp!;
   const pre = `IP6 ${p.src} > ${p.dst}: ICMP6, `;
   switch (i.type) {
-    case 128: return `${pre}echo request, id ${i.id}, seq ${i.seq}, length 64`;
-    case 129: return `${pre}echo reply, id ${i.id}, seq ${i.seq}, length 64`;
+    case 128: return `${pre}echo request, id ${i.id}, seq ${i.seq}, length ${(i.size ?? 56) + 8}`;
+    case 129: return `${pre}echo reply, id ${i.id}, seq ${i.seq}, length ${(i.size ?? 56) + 8}`;
+    case 2: return `${pre}packet too big, mtu ${i.mtu}, length 1240`;
     case 133: return `${pre}router solicitation, length 16`;
     case 134: return `${pre}router advertisement, length ${24 + 32 * (i.nd?.prefixes?.length ?? 0) + (i.nd?.rdnss?.length ? 24 : 0) + 8}`;
     case 135: return `${pre}neighbor solicitation, who has ${i.nd?.target}, length 32`;
@@ -55,7 +56,7 @@ function describeIp4Style(p: Packet, isn: { a: number; b: number } | undefined, 
     else if (t.len > 0) seq = `, seq ${rel(t.seq, seqBase)}:${rel(t.seq + t.len, seqBase)}`;
     else if (!t.flags.includes('RST') || t.flags.includes('ACK')) seq = t.flags.includes('FIN') ? `, seq ${rel(t.seq, seqBase)}` : '';
     const ack = t.flags.includes('ACK') ? `, ack ${t.flags.includes('SYN') || ackBase === undefined ? t.ack : rel(t.ack, ackBase)}` : '';
-    const opts = t.flags.includes('SYN') ? ', options [mss 1460,sackOK,TS val 1520034 ecr 0,nop,wscale 7]' : '';
+    const opts = t.flags.includes('SYN') ? `, options [mss ${/MSS=(\d+)/.exec(t.options ?? '')?.[1] ?? 1460},sackOK,TS val 1520034 ecr 0,nop,wscale 7]` : '';
     return `${IP} ${p.src}.${t.sport} > ${p.dst}.${t.dport}: Flags [${tcpFlags(t.flags)}]${seq}${ack}, win ${t.window}${opts}, length ${t.len}`;
   }
   if (p.udp) {
@@ -81,12 +82,13 @@ function describeIp4Style(p: Packet, isn: { a: number; b: number } | undefined, 
   }
   if (p.icmp) {
     const i = p.icmp;
-    if (i.type === 8) return `IP ${p.src} > ${p.dst}: ICMP echo request, id ${i.id}, seq ${i.seq}, length 64`;
-    if (i.type === 0) return `IP ${p.src} > ${p.dst}: ICMP echo reply, id ${i.id}, seq ${i.seq}, length 64`;
+    if (i.type === 8) return `IP ${p.src} > ${p.dst}: ICMP echo request, id ${i.id}, seq ${i.seq}, length ${(i.size ?? 56) + 8}`;
+    if (i.type === 0) return `IP ${p.src} > ${p.dst}: ICMP echo reply, id ${i.id}, seq ${i.seq}, length ${(i.size ?? 56) + 8}`;
     if (i.type === 11) return `IP ${p.src} > ${p.dst}: ICMP time exceeded in-transit, length 36`;
     if (i.type === 3 && i.quoted) {
       const q = i.quoted;
       if (i.code === 3) return `IP ${p.src} > ${p.dst}: ICMP ${q.dst} ${q.proto} port ${q.dport} unreachable, length 36`;
+      if (i.code === 4) return `IP ${p.src} > ${p.dst}: ICMP ${q.dst} unreachable - need to frag (mtu ${i.mtu}), length 556`;
       if (i.code === 13) return `IP ${p.src} > ${p.dst}: ICMP host ${q.dst} unreachable - admin prohibited filter, length 36`;
       if (i.code === 1) return `IP ${p.src} > ${p.dst}: ICMP host ${q.dst} unreachable, length 36`;
       if (i.code === 0) return `IP ${p.src} > ${p.dst}: ICMP net ${q.dst} unreachable, length 36`;

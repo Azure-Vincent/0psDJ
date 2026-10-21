@@ -15,6 +15,8 @@ export interface FileNode {
   group: string;
   content: string;
   mtime: number;
+  /** Nominal size in bytes for large/binary files whose bytes the simulator does not store. */
+  size?: number;
 }
 
 export interface UserAccount {
@@ -53,6 +55,8 @@ export interface Interface {
   vlan?: { parent: string; id: number };
   /** Segment used when the interface is not cabled to a switch (fixed links such as the WAN). */
   staticSegment?: string | null;
+  /** Maximum IP packet size on this link (default 1500; loopback 65536). */
+  mtu?: number;
 }
 
 /** A cable between two interfaces (e.g. a host NIC and a switch port). */
@@ -163,6 +167,8 @@ export interface Host {
   capture: CapturedFrame[];
   nextPid: number;
   bootTime: number;
+  /** Path MTU learned from ICMP "fragmentation needed"/"packet too big" (destination -> MTU). Runtime only. */
+  pmtu?: Record<string, number>;
 }
 
 export interface Segment {
@@ -232,12 +238,16 @@ export interface IcmpHeader {
   seq?: number;
   /** For ICMP errors: summary of the offending datagram. */
   quoted?: { proto: L4Proto; src: string; dst: string; sport?: number; dport?: number };
+  /** Next-hop MTU in "fragmentation needed" (ICMP 3/4) and "packet too big" (ICMPv6 2) errors. */
+  mtu?: number;
+  /** Echo payload size in bytes (ping -s; default 56). */
+  size?: number;
   /** IPv6 Neighbor Discovery fields (RFC 4861). */
   nd?: { target?: string; lladdr?: string; prefixes?: { prefix: string; autonomous: boolean; valid: number }[]; rdnss?: string[]; routerLifetime?: number; flags?: string };
 }
 
 export interface AppLayer {
-  protocol: 'DNS' | 'SSH' | 'DATA' | 'DHCP';
+  protocol: 'DNS' | 'SSH' | 'DATA' | 'DHCP' | 'TLS';
   /** Short Wireshark-style "Info" text. */
   info: string;
   /** Decoded protocol fields visible to an observer. */
@@ -258,6 +268,8 @@ export interface Packet {
   udp?: UdpHeader;
   icmp?: IcmpHeader;
   app?: AppLayer;
+  /** IPv4 Don't Fragment bit. TCP sets it (path MTU discovery); ping only with -M do. IPv6 routers never fragment. */
+  df?: boolean;
 }
 
 export interface ArpPacket {

@@ -45,6 +45,12 @@ const SYMPTOM: Record<string, RegExp> = {
   'ipv6-server-gateway': /curl: \(28\)/,
   'case-no-internet': /curl: \(28\)/,
   'case-dns-outage': /Temporary failure in name resolution/,
+  'tls-expired': /certificate has expired/,
+  'tls-key-mismatch': /certificate has expired/,
+  'tls-wrong-cert': /no alternative certificate subject name matches target host name 'www\.corp\.lab'/,
+  'tls-missing-intermediate': /unable to get local issuer certificate/,
+  'tls-untrusted-root': /unable to get local issuer certificate/,
+  'mtu-uplink-mismatch': /curl: \(28\) Operation timed out after 30000 milliseconds with 0 out of 4718592 bytes received/,
 };
 
 describe.each(SSH_SCENARIOS.map((s) => [s.id, s] as const))('scenario %s', (id, scenario) => {

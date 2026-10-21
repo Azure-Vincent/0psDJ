@@ -6,7 +6,7 @@ export type ConceptId =
   | 'ssh.userauth' | 'ssh.authorized-keys' | 'linux.permissions' | 'ssh.config' | 'ssh.authz' | 'logs.journal'
   | 'net.cidr' | 'fw.path' | 'net.dhcp' | 'net.nat' | 'net.vlan' | 'net.ipv6' | 'net.ndp'
   | 'linux.fs' | 'net.ops' | 'ops.recovery' | 'win.services' | 'win.rdp' | 'ad.dns' | 'ad.kerberos' | 'ad.gpo'
-  | 'docker.lifecycle' | 'docker.networking' | 'pfsense.rules' | 'pfsense.nat';
+  | 'docker.lifecycle' | 'docker.networking' | 'pfsense.rules' | 'pfsense.nat' | 'tls.pki' | 'net.mtu';
 
 export type CauseCategory = 'Name resolution' | 'Network path' | 'Firewall' | 'Service' | 'Configuration' | 'Authentication' | 'Authorization' | 'Permissions' | 'Client' | 'Cryptography' | 'Persistence';
 
@@ -40,6 +40,8 @@ export interface HttpGoal {
   url: string;
   /** Extra curl options, e.g. "-6" to require IPv6. */
   curlFlags?: string;
+  /** Download the whole body (GET) instead of only the headers (HEAD). */
+  download?: boolean;
 }
 
 /** Name resolution (getent hosts) on a host must return the expected address. */

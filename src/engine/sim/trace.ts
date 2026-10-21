@@ -18,6 +18,8 @@ export type Phase =
   | 'SSH session'
   | 'ICMP'
   | 'NDP'
+  | 'TLS'
+  | 'HTTP'
   | 'Teardown';
 
 export interface EndpointState {

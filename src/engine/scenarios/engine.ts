@@ -44,10 +44,12 @@ export function checkGoal(world: World, goal: Goal): GoalResult {
     const user = goal.kind === 'http' ? goal.fromUser : 'root';
     const home = cur.hosts[goal.fromHost].users[user].home;
     const sh = new Shell(() => cur, (n) => (cur = n), { hostId: goal.fromHost, user, cwd: home });
-    const line = goal.kind === 'http' ? `curl ${goal.curlFlags ? goal.curlFlags + ' ' : ''}-I -m 10 ${goal.url}` : `getent hosts ${goal.name}`;
+    const line = goal.kind === 'http'
+      ? goal.download ? `curl ${goal.curlFlags ? goal.curlFlags + ' ' : ''}-sS -o /dev/null -w '%{http_code}\\n' -m 30 ${goal.url}` : `curl ${goal.curlFlags ? goal.curlFlags + ' ' : ''}-I -m 10 ${goal.url}`
+      : `getent hosts ${goal.name}`;
     const r = sh.execute(line);
     const lines = [`$ ${line}`, ...(r.output ? r.output.split('\n') : ['(no output)'])];
-    const ok = goal.kind === 'http' ? /^HTTP\/1\.1 200/.test(r.output) : r.code === 0 && r.output.startsWith(goal.expect + ' ');
+    const ok = goal.kind === 'http' ? (goal.download ? /^200$/m.test(r.output) && r.code === 0 : /^HTTP\/1\.1 200/.test(r.output)) : r.code === 0 && r.output.startsWith(goal.expect + ' ');
     return { goal, ok, lines };
   }
   const res = runSsh(w, {

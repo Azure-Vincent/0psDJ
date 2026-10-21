@@ -13,6 +13,7 @@ import { endSession, runSsh } from '../sim/ssh';
 import { makeKeyPair, type KeyType } from '../sim/keys';
 import type { Host, World } from '../types';
 import { addUser, createHost, newWorld, staticInterfaces } from './builder';
+import { EXT01_NGINX_CONF, installExt01Web, installSrv01Pki, SRV01_NGINX_CONF, trustCorpRoot } from './pkiLab';
 
 export const DEBIAN_SSHD_CONFIG = `
 # This is the sshd server system-wide configuration file.  See
@@ -450,7 +451,8 @@ export function buildSshLab(): World {
   writeFile(srv, '/etc/ssh/sshd_config.d/10-hardening.conf', HARDENING_CONF, t);
   installHostKeys(srv, t);
   mkdir(srv, '/etc/nginx', t);
-  writeFile(srv, '/etc/nginx/nginx.conf', 'user www-data;\nworker_processes auto;\nhttp {\n    server {\n        listen 80 default_server;\n        listen [::]:80 default_server;\n        root /var/www/html;\n    }\n}\n', t);
+  writeFile(srv, '/etc/nginx/nginx.conf', SRV01_NGINX_CONF, t);
+  installSrv01Pki(srv, t);
   addUser(srv, { name: 'alice', uid: 1001, gid: 1001, primaryGroup: 'alice', groups: ['sudo', 'adm'], home: '/home/alice', shell: '/bin/bash', gecos: 'Alice Admin', password: ALICE_SERVER_PASSWORD }, t);
   addUser(srv, { name: 'bob', uid: 1002, gid: 1002, primaryGroup: 'bob', groups: ['developers'], home: '/home/bob', shell: '/bin/bash', gecos: 'Bob Developer', password: BOB_PASSWORD }, t);
   addUser(srv, { name: 'backup', uid: 34, gid: 34, primaryGroup: 'backup', groups: [], home: '/var/backups', shell: '/usr/sbin/nologin', gecos: 'backup', password: null }, t, false);
@@ -492,7 +494,8 @@ export function buildSshLab(): World {
   });
   writeFile(ext, '/etc/network/interfaces', staticInterfaces([{ name: 'eth0', address: '203.0.113.80/24', gateway: '203.0.113.1' }]), t);
   writeFile(ext, '/etc/resolv.conf', '', t);
-  writeFile(ext, '/etc/nginx/nginx.conf', 'user www-data;\nworker_processes auto;\nhttp {\n    server {\n        listen 80 default_server;\n        root /var/www/html;\n    }\n}\n', t);
+  writeFile(ext, '/etc/nginx/nginx.conf', EXT01_NGINX_CONF, t);
+  installExt01Web(ext, t);
   addUser(ext, { name: 'guest', uid: 1000, gid: 1000, primaryGroup: 'guest', groups: [], home: '/home/guest', shell: '/bin/bash', gecos: 'Internet user', password: 'ext01-guest' }, t);
 
   // ---- dev01: developer workstation on VLAN 30 (dual-stack, SLAAC) ---------
@@ -504,6 +507,9 @@ export function buildSshLab(): World {
   writeFile(dev, '/etc/network/interfaces', staticInterfaces([{ name: 'eth0', address: '10.0.30.25/24', gateway: '10.0.30.1' }]) + '# IPv6: stateless autoconfiguration from the router advertisements\niface eth0 inet6 auto\n', t);
   writeFile(dev, '/etc/resolv.conf', 'search corp.lab\nnameserver 10.0.10.53\n', t);
   addUser(dev, { name: 'erin', uid: 1000, gid: 1000, primaryGroup: 'erin', groups: ['sudo'], home: '/home/erin', shell: '/bin/bash', gecos: 'Erin Developer', password: 'dev01-erin' }, t);
+
+  // The internal root CA is deployed to every corp.lab machine.
+  for (const h of [rtr, ns1, srv, ws, ws2, dev]) trustCorpRoot(h, t);
 
   // Boot everything. Order matters: the switch first (it creates the VLANs),
   // ns1 must serve DHCP before ws02 boots, rtr01 must advertise before dev01.

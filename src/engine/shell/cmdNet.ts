@@ -1,9 +1,9 @@
-// Network diagnostics: ip, ss, ping, traceroute, nc, curl, tcpdump, conntrack,
+// Network diagnostics: ip, ss, ping, traceroute, nc, tcpdump, conntrack,
 // sysctl, hostname, uname, date, dig, nslookup, host, getent.
 
 import { dnsQuery, lookupHostsFile, resolve } from '../sim/dns';
 import { isoTime } from '../sim/journal';
-import { echoIcmp, hostAddresses, icmpMeaning, nextId, sourceAddress, transmit } from '../sim/network';
+import { echoIcmp, hostAddresses, icmpMeaning, isFragNeeded, nextId, pathMtu, sourceAddress, transmit } from '../sim/network';
 import { allListeners } from '../sim/services';
 import { ERRNO_TEXT, tcpConnect } from '../sim/tcp';
 import type { CapturedFrame, Packet } from '../types';
@@ -84,9 +84,9 @@ function makePing(name: string, forced?: 6): CommandDef {
   return {
     name,
     summary: forced ? 'send ICMPv6 echo requests (same as ping -6)' : 'send ICMP / ICMPv6 echo requests',
-    usage: `${name} [-4|-6] [-c COUNT] [-W TIMEOUT] HOST`,
+    usage: `${name} [-4|-6] [-c COUNT] [-W TIMEOUT] [-s SIZE] [-M do|dont|want] HOST`,
     run(args, ctx) {
-      const { flags, rest } = parseFlags(args, ['-c', '-W', '-i', '-s', '-I']);
+      const { flags, rest } = parseFlags(args, ['-c', '-W', '-i', '-s', '-I', '-M']);
       const target = rest[0] ? stripZone(rest[0]) : undefined;
       if (!target) return err('ping: usage error: Destination address required', 2);
       const count = Math.min(Number(flags.get('-c') ?? 4), 10);
@@ -95,7 +95,12 @@ function makePing(name: string, forced?: 6): CommandDef {
       const dst = r.ip;
       const v6 = dst.includes(':');
       const named = r.fqdn !== dst;
-      const out = [v6 ? `PING ${named ? `${r.fqdn}(${r.fqdn} (${dst}))` : `${dst}(${dst})`} 56 data bytes` : `PING ${named ? r.fqdn : dst} (${dst}) 56(84) bytes of data.`];
+      const size = flags.has('-s') ? Number(flags.get('-s')) : 56;
+      if (!Number.isInteger(size) || size < 0 || size > 65507) return err(`ping: invalid argument: '${flags.get('-s')}': out of range: 0 <= value <= 65507`, 2);
+      const pmtudisc = (flags.get('-M') as string | undefined) ?? 'dont';
+      if (!['do', 'dont', 'want', 'probe'].includes(pmtudisc)) return err(`ping: invalid -M argument: ${pmtudisc}`, 2);
+      const df = pmtudisc === 'do' || pmtudisc === 'probe';
+      const out = [v6 ? `PING ${named ? `${r.fqdn}(${r.fqdn} (${dst}))` : `${dst}(${dst})`} ${size} data bytes` : `PING ${named ? r.fqdn : dst} (${dst}) ${size}(${size + 28}) bytes of data.`];
       let received = 0;
       let errors = 0;
       const times: number[] = [];
@@ -104,29 +109,34 @@ function makePing(name: string, forced?: 6): CommandDef {
       const errText = v6 ? ICMP6_ERROR_TEXT : ICMP4_ERROR_TEXT;
       for (let seq = 1; seq <= count; seq++) {
         const start = ctx.world.clock;
-        const req: Packet = { id: nextId(ctx.world), src, dst, ttl: 64, proto: 'icmp', icmp: echoIcmp(v6, false, icmpId, seq) };
+        const req: Packet = { id: nextId(ctx.world), src, dst, ttl: 64, proto: 'icmp', icmp: { ...echoIcmp(v6, false, icmpId, seq), size }, df };
         const d = transmit(ctx.world, ctx.host.id, req);
         if (d.status === 'local-error') {
           if (seq === 1 && d.errno === 'ENETUNREACH') return err('ping: connect: Network is unreachable', 2);
+          if (d.errno === 'EMSGSIZE') {
+            out.push(v6 ? `ping: local error: message too long, mtu: ${d.mtu}` : `ping: local error: message too long, mtu=${d.mtu}`);
+            errors++;
+          }
           if (d.errno === 'EHOSTUNREACH') {
             out.push(`From ${src} icmp_seq=${seq} ${errText.host}`);
             errors++;
           } else if (d.errno === 'EPERM') out.push('ping: sendmsg: Operation not permitted');
         } else if (d.status === 'delivered') {
           const target = ctx.world.hosts[d.host];
-          const rep: Packet = { id: nextId(ctx.world), src: d.final.dst, dst: d.final.src, ttl: 64, proto: 'icmp', icmp: echoIcmp(v6, true, icmpId, seq) };
+          const rep: Packet = { id: nextId(ctx.world), src: d.final.dst, dst: d.final.src, ttl: 64, proto: 'icmp', icmp: { ...echoIcmp(v6, true, icmpId, seq), size }, df };
           const back = transmit(ctx.world, target.id, rep);
           if (back.status === 'delivered') {
             const hopsBack = back.hops.filter((h) => h.egress && h.ingress).length;
             const t = ctx.world.clock - start + 0.15;
             times.push(t);
             received++;
-            out.push(`64 bytes from ${dst}: icmp_seq=${seq} ttl=${64 - hopsBack} time=${rtt(t)} ms`);
+            out.push(`${size + 8} bytes from ${dst}: icmp_seq=${seq} ttl=${64 - hopsBack} time=${rtt(t)} ms`);
           }
         } else if (d.error?.delivered) {
           const e = d.error.packet;
           errors++;
-          out.push(`From ${e.src} icmp_seq=${seq} ${errText[icmpMeaning(e)] ?? errText.host}`);
+          if (isFragNeeded(e)) out.push(v6 ? `From ${e.src} icmp_seq=${seq} Packet too big: mtu=${e.icmp!.mtu}` : `From ${e.src} icmp_seq=${seq} Frag needed and DF set (mtu = ${e.icmp!.mtu})`);
+          else out.push(`From ${e.src} icmp_seq=${seq} ${errText[icmpMeaning(e)] ?? errText.host}`);
         }
         ctx.world.clock = Math.max(ctx.world.clock, start + 1000);
       }
@@ -256,64 +266,6 @@ const nc: CommandDef = {
       lines.push(`nc: connect to ${target} (${addr}) port ${port} (tcp) failed: ${reason}`);
     }
     return err(flags.has('-v') ? lines.join('\n') : '', 1);
-  },
-};
-
-const curl: CommandDef = {
-  name: 'curl',
-  summary: 'transfer a URL (HTTP only in this simulator)',
-  usage: 'curl [-4|-6] [-I] [-v] [-m SECONDS] http://HOST[:PORT]/ (IPv6 literals as http://[2001:db8::10]/)',
-  run(args, ctx) {
-    const { flags, rest } = parseFlags(args, ['-m', '--max-time', '--connect-timeout']);
-    const url = rest[0];
-    const m = url ? /^(?:(https?):\/\/)?(\[[0-9a-fA-F:.]+\]|[^/:]+)(?::(\d+))?/.exec(url) : null;
-    if (!m) return err('curl: no URL specified!', 2);
-    const scheme = m[1] ?? 'http';
-    const port = Number(m[3] ?? (scheme === 'https' ? 443 : 80));
-    const hostname = m[2];
-    const r = resolve(ctx.world, ctx.host, hostname, { family: familyFlag(flags) });
-    if (!r.ok) return err(`curl: (6) Could not resolve host: ${hostname.replace(/^\[|\]$/g, '')}`, 6);
-    const max = flags.get('-m') ?? flags.get('--max-time') ?? flags.get('--connect-timeout');
-    const verbose = flags.has('-v');
-    const vlog: string[] = [];
-    const start = ctx.world.clock;
-    let c: ReturnType<typeof tcpConnect> | null = null;
-    // Happy Eyeballs (RFC 8305, curl's default 200 ms): try the first address;
-    // if it has not connected within 200 ms and an address of the other family
-    // exists, race that one. Errors that come back immediately fall through.
-    for (let k = 0; k < r.addrs.length; k++) {
-      const addr = r.addrs[k];
-      const otherFamilyLeft = r.addrs.slice(k + 1).some((a) => a.includes(':') !== addr.includes(':'));
-      const left = max ? Number(max) * 1000 - (ctx.world.clock - start) : undefined;
-      const budget = otherFamilyLeft ? Math.min(200, left ?? 200) : left;
-      vlog.push(`*   Trying ${hostPort(addr, port)}...`);
-      c = tcpConnect(ctx.world, ctx.host, addr, port, { timeoutMs: budget });
-      if (c.ok) break;
-      if (k < r.addrs.length - 1) vlog.push(`* connect to ${addr} port ${port} failed: ${ERRNO_TEXT[c.errno]}`);
-    }
-    if (!c || !c.ok) {
-      const elapsed = Math.round(ctx.world.clock - start);
-      const last = c && !c.ok ? c.errno : 'ETIMEDOUT';
-      const text = last === 'ECONNREFUSED' ? `Failed to connect to ${hostname} port ${port} after ${Math.max(1, elapsed)} ms: Couldn't connect to server`
-        : last === 'ETIMEDOUT' ? `Failed to connect to ${hostname} port ${port} after ${elapsed} ms: Couldn't connect to server`
-        : `Failed to connect to ${hostname} port ${port} after ${Math.max(3, elapsed)} ms: ${ERRNO_TEXT[last]}`;
-      return err(`${verbose ? vlog.join('\n') + '\n' : ''}curl: (${last === 'ETIMEDOUT' && max ? 28 : 7}) ${text}`, 7);
-    }
-    vlog.push(`* Connected to ${hostname.replace(/^\[|\]$/g, '')} (${c.conn.serverIp}) port ${port} (#0)`);
-    const server = c.conn.server;
-    const listener = allListeners(server).find((l) => l.port === c.conn.sv.localPort && l.proto === 'tcp');
-    c.conn.send('c2s', 78, { protocol: 'DATA', info: `GET / HTTP/1.1 Host: ${m[2]}`, fields: [] });
-    if (scheme === 'https' || listener?.process !== 'nginx') {
-      c.conn.close('server');
-      if (listener?.process === 'sshd') return err('curl: (1) Received HTTP/0.9 when not allowed', 1);
-      return err('curl: (35) OpenSSL SSL_connect: SSL_ERROR_SYSCALL in connection', 35);
-    }
-    c.conn.send('s2c', 850, { protocol: 'DATA', info: 'HTTP/1.1 200 OK', fields: [] });
-    c.conn.close('client');
-    const headers = ['HTTP/1.1 200 OK', 'Server: nginx/1.22.1', `Date: ${new Date(Math.floor(ctx.world.clock)).toUTCString()}`, 'Content-Type: text/html', 'Content-Length: 615', 'Connection: keep-alive'];
-    if (verbose) return ok([...vlog, `> ${flags.has('-I') ? 'HEAD' : 'GET'} / HTTP/1.1`, `> Host: ${hostname}${m[3] ? ':' + m[3] : ''}`, '>', ...headers.map((h) => `< ${h}`), '<'].join('\n'));
-    if (flags.has('-I')) return ok(headers.join('\n'));
-    return ok('<!DOCTYPE html>\n<html>\n<head>\n<title>Welcome to nginx!</title>\n...\n</html>');
   },
 };
 
@@ -656,7 +608,23 @@ const tracepath: CommandDef = {
       const msg = r.out.split('\n')[0];
       return err(`${rest[0]}: ${/Name or service not known|Temporary failure/.test(msg) ? msg.split(': ').slice(1).join(': ') : msg}`, 1);
     }
-    const out = [' 1?: [LOCALHOST]                      pmtu 1500'];
+    // Path MTU discovery: send full-size UDP probes with DF set; each "fragmentation needed"
+    // lowers the probe size. Routers that report a smaller MTU are annotated on their hop line.
+    const target = /\(([^)]+)\)/.exec(r.out.split('\n')[0])?.[1] ?? rest[0];
+    const startMtu = pathMtu(ctx.host, target);
+    let pmtu = startMtu;
+    const pmtuAt: Record<string, number> = {};
+    for (let i = 0; i < 5; i++) {
+      const v6 = target.includes(':');
+      const probe: Packet = { id: nextId(ctx.world), src: sourceAddress(ctx.host, target), dst: target, ttl: 64, proto: 'udp', udp: { sport: 44444, dport: 44444, len: pmtu - (v6 ? 48 : 28) }, df: true };
+      const d = transmit(ctx.world, ctx.host.id, probe);
+      const e = d.status === 'local-error' && d.errno === 'EMSGSIZE' ? null : d.error?.delivered && isFragNeeded(d.error.packet) ? d.error.packet : null;
+      if (d.status === 'local-error' && d.errno === 'EMSGSIZE' && d.mtu && d.mtu < pmtu) { pmtu = d.mtu; continue; }
+      if (!e || e.icmp!.mtu! >= pmtu) break;
+      pmtu = e.icmp!.mtu!;
+      pmtuAt[e.src] = pmtu;
+    }
+    const out = [` 1?: [LOCALHOST]                      pmtu ${startMtu}`];
     let hops = 0;
     let reached = false;
     for (const line of r.out.split('\n').slice(1)) {
@@ -673,10 +641,11 @@ const tracepath: CommandDef = {
       hops = ttl;
       const last = r.out.trim().endsWith(line.trim()) && !hm[3];
       const err = hm[3] ? ` ${hm[3].trim() === '!H' ? '!H' : hm[3].trim() === '!N' ? '!N' : '!A'}` : '';
+      if (pmtuAt[hm[1]]) out.push(`${String(ttl).padStart(2)}:  ${hm[1].padEnd(48)} ${(Number(hm[2]) - 0.05).toFixed(3)}ms pmtu ${pmtuAt[hm[1]]}`);
       out.push(`${String(ttl).padStart(2)}:  ${hm[1].padEnd(48)} ${(Number(hm[2]) - 0.05).toFixed(3)}ms ${last ? 'reached' : err.trim()}`.trimEnd());
       if (last) reached = true;
     }
-    out.push(reached ? `     Resume: pmtu 1500 hops ${hops} back ${hops} ` : '     Too many hops: pmtu 1500\n     Resume: pmtu 1500 ');
+    out.push(reached ? `     Resume: pmtu ${pmtu} hops ${hops} back ${hops} ` : `     Too many hops: pmtu ${pmtu}\n     Resume: pmtu ${pmtu} `);
     return ok(out.join('\n'));
   },
 };
@@ -729,5 +698,5 @@ const ethtool: CommandDef = {
   },
 };
 
-export const NET_COMMANDS: CommandDef[] = [ip, bridge, ifreload, rdisc6, ss, ping, ping6, traceroute, traceroute6, tracepath, ethtool, nc, curl, tcpdump, conntrack, sysctl, hostname, uname, date, dig, nslookup, hostCmd, getent];
+export const NET_COMMANDS: CommandDef[] = [ip, bridge, ifreload, rdisc6, ss, ping, ping6, traceroute, traceroute6, tracepath, ethtool, nc, tcpdump, conntrack, sysctl, hostname, uname, date, dig, nslookup, hostCmd, getent];
 export { isoTime, lookupHostsFile };

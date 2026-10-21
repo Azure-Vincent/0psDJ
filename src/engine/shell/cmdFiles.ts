@@ -35,6 +35,7 @@ export function virtualFile(host: Host, path: string): string | undefined {
       .join('\n') + '\n';
   }
   if (path === '/proc/sys/net/ipv4/ip_forward') return host.ipForward ? '1\n' : '0\n';
+  if (path === '/dev/null') return '';
   return undefined;
 }
 
@@ -43,6 +44,7 @@ const VIRTUAL_META: Record<string, Partial<FileNode>> = {
   '/etc/group': { mode: 0o644 },
   '/etc/shadow': { mode: 0o640, group: 'shadow' },
   '/proc/sys/net/ipv4/ip_forward': { mode: 0o644 },
+  '/dev/null': { mode: 0o666 },
 };
 
 export function getFile(ctx: CmdCtx, path: string): { node: FileNode | null; content?: string; error?: string } {
@@ -62,6 +64,7 @@ export function getFile(ctx: CmdCtx, path: string): { node: FileNode | null; con
 
 /** Write a file honouring Unix permissions. Returns an error string on failure. */
 export function writeChecked(ctx: CmdCtx, path: string, content: string, append = false): string | null {
+  if (path === '/dev/null') return null;
   const existing = ctx.host.fs[path];
   if (existing?.type === 'dir') return 'Is a directory';
   const parent = ctx.host.fs[dirname(path)];
@@ -77,7 +80,7 @@ export function writeChecked(ctx: CmdCtx, path: string, content: string, append 
 }
 
 function lsLine(name: string, n: FileNode, numeric: boolean, host: Host): string {
-  const size = n.type === 'dir' ? 4096 : n.content.length;
+  const size = n.type === 'dir' ? 4096 : n.size ?? n.content.length;
   const owner = numeric ? String(host.users[n.owner]?.uid ?? 0) : n.owner;
   const group = numeric ? String(host.users[n.group]?.gid ?? 0) : n.group;
   let mode = modeString(n);
@@ -385,7 +388,7 @@ const stat: CommandDef = {
       const uid = ctx.host.users[n.owner]?.uid ?? 0;
       out.push(
         `  File: ${a}`,
-        `  Size: ${n.type === 'dir' ? 4096 : n.content.length}\tBlocks: 8          IO Block: 4096   ${n.type === 'dir' ? 'directory' : 'regular file'}`,
+        `  Size: ${n.type === 'dir' ? 4096 : n.size ?? n.content.length}\tBlocks: 8          IO Block: 4096   ${n.type === 'dir' ? 'directory' : 'regular file'}`,
         `Access: (${(n.mode & 0o7777).toString(8).padStart(4, '0')}/${modeString(n)})  Uid: (${String(uid).padStart(5)}/${n.owner.padStart(8)})   Gid: (${String(ctx.host.users[n.group]?.gid ?? 0).padStart(5)}/${n.group.padStart(8)})`,
         `Modify: ${new Date(Math.floor(n.mtime)).toISOString().replace('T', ' ').replace('Z', ' +0000')}`,
       );
@@ -642,6 +645,7 @@ function copyOrMove(name: 'cp' | 'mv'): CommandDef {
       const d = ctx.host.fs[dst];
       const keep = name === 'mv' || flags.has('-a') || flags.has('-p') || flags.has('--preserve');
       d.mode = n.mode;
+      if (n.size !== undefined) d.size = n.size;
       if (keep && ctx.user.uid === 0) { d.owner = n.owner; d.group = n.group; }
       if (keep) d.mtime = n.mtime;
       if (name === 'mv') {

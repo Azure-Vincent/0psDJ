@@ -9,7 +9,7 @@ import { readFile, writeFile } from '../fs';
 import { formatEntry, isoTime } from '../sim/journal';
 import { fingerprintOfBlob, KEY_LABEL, parsePublicKey } from '../sim/keys';
 import {
-  bootHost, dhcpdTest, findService, parseNginxListens, reloadService, restartService, SERVICE_DEFS, sshdTest, startService, stopService, type SshdLoaded,
+  bootHost, dhcpdTest, findService, loadNginxServers, parseNginxListens, reloadService, restartService, SERVICE_DEFS, sshdTest, startService, stopService, type SshdLoaded,
 } from '../sim/services';
 import { dropIns, unitDirectives, unitPath, unitWantedBy } from '../sim/units';
 import { knownHostName, knownHostsEntries, runSsh } from '../sim/ssh';
@@ -712,6 +712,7 @@ const nginxCmd: CommandDef = {
     if (!def) return err('-bash: nginx: command not found', 127);
     if (args[0] === '-t') {
       const r = parseNginxListens(readFile(ctx.host, '/etc/nginx/nginx.conf') ?? '');
+      if (!r.errors.length) r.errors.push(...loadNginxServers(ctx.host).errors);
       if (r.errors.length) return err([...r.errors, 'nginx: configuration file /etc/nginx/nginx.conf test failed'].join('\n'), 1);
       return ok('nginx: the configuration file /etc/nginx/nginx.conf syntax is ok\nnginx: configuration file /etc/nginx/nginx.conf test is successful');
     }

@@ -2,8 +2,8 @@
 
 Infrastructure Lab is a free, offline desktop application for learning how to run,
 troubleshoot and recover the services that real networks depend on: IP routing,
-DNS, DHCP, NAT, VLANs, IPv6, SSH, firewalls, Linux services, Windows/RDP,
-Active Directory, Docker and pfSense.
+DNS, DHCP, NAT, VLANs, IPv6, MTU, TLS certificates, SSH, firewalls, Linux
+services, Windows/RDP, Active Directory, Docker and pfSense.
 
 ## Purpose
 
@@ -21,13 +21,13 @@ the causes apart, and how to confirm it is healthy again.
 
 ## What's inside
 
-- **15 lessons** (networking, remote access, identity, firewalls, containers,
+- **17 lessons** (networking, TLS, remote access, identity, firewalls, containers,
   Linux and Windows administration, safe recovery). Each lesson covers how it
   works, interactive diagrams, deployment guides for Ubuntu/Debian, RHEL,
   Windows, pfSense and Docker, configuration, an **Operate & recover** guide
   (files, logs, service management, diagnostic workflow, common failures) and a
   graded assessment.
-- **39 troubleshooting tickets**: a realistic fault is injected into the lab.
+- **45 troubleshooting tickets**: a realistic fault is injected into the lab.
   You investigate with real commands in terminals, record a diagnosis, repair
   it, and the app checks the fix now, after rebooting every machine, and
   against security rules, so "just open the firewall" does not count.
@@ -45,8 +45,9 @@ the causes apart, and how to confirm it is healthy again.
 The lab machines are not virtual machines. They are a **simulation** built
 into the app: a small network with a switch, a router, a DNS/DHCP server, a
 Linux server, workstations and an "Internet" host. Commands such as `ip`,
-`ss`, `systemctl`, `journalctl`, `nft`, `ssh`, `dig` and `tcpdump` behave like
-their Debian 12 counterparts and all work on one consistent model. When you
+`ss`, `systemctl`, `journalctl`, `nft`, `ssh`, `dig`, `curl`, `openssl` and
+`tcpdump` behave like their Debian 12 counterparts and all work on one
+consistent model. When you
 change a configuration file, the services, sockets, firewall decisions,
 packets and logs all follow from that change. Windows, Active Directory,
 Docker and pfSense are taught from documentation and representative output;
@@ -162,9 +163,11 @@ npm run typecheck    # TypeScript checks
 
 Simulated behaviour follows the relevant RFCs and the behaviour of Debian 12
 components (OpenSSH 9.2, BIND 9.18, ISC DHCP 4.4, radvd, ifupdown2, nftables,
-systemd 252). Where the simulation simplifies, for example synthetic
-cryptographic values, no spanning tree or DHCPv6, or `tcpdump` showing recent
-traffic rather than a live capture, the app says so next to the feature.
+systemd 252, nginx 1.22, OpenSSL 3.0, curl 7.88). Where the simulation
+simplifies, for example synthetic cryptographic values (certificates are
+readable PEM data, not real signatures), no spanning tree or DHCPv6, or
+`tcpdump` showing recent traffic rather than a live capture, the app says so
+next to the feature.
 Output for Windows, Active Directory, Docker, pfSense and Cisco IOS is
 representative of the versions named on each page; check exact wording against
 your own systems when it matters. The certification map is a study aid: it

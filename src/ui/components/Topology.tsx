@@ -24,7 +24,7 @@ export function Topology() {
       <text x={236} y={112} fontSize={11} style={{ fill: 'var(--muted)' }}>Internet</text>
       <text x={236} y={124} className="mono" style={{ fill: 'var(--muted)', fontSize: 9.5 }}>203.0.113.0/24</text>
       <line x1={190} y1={150} x2={240} y2={150} stroke="var(--warn)" strokeWidth={2} />
-      {box(240, 132, 'ext01', ['203.0.113.80', 'nginx :80'], 96)}
+      {box(240, 132, 'ext01', ['203.0.113.80', 'nginx :80, :443'], 96)}
       <line x1={115} y1={212} x2={115} y2={250} stroke="var(--ok)" />
       <path d="M190 192 H322 V250" fill="none" stroke="var(--lane)" strokeDasharray="5 3" />
       <text x={196} y={206} style={{ fill: 'var(--muted)', fontSize: 9.5 }}>trunk, tagged 30</text>
@@ -34,7 +34,7 @@ export function Topology() {
       <line x1={205} y1={250} x2={330} y2={250} stroke="var(--lane)" strokeWidth={3} />
       <line x1={115} y1={250} x2={115} y2={262} stroke="var(--ok)" />
       <line x1={270} y1={250} x2={270} y2={262} stroke="var(--lane)" />
-      {box(40, 262, 'srv01', ['10.0.20.10', '2001:db8:20::10', 'sshd :22, nginx :80'], 150)}
+      {box(40, 262, 'srv01', ['10.0.20.10', '2001:db8:20::10', 'sshd :22, nginx :80 :443'], 150)}
       {box(208, 262, 'dev01', ['10.0.30.25', 'IPv6 SLAAC', '2001:db8:30::/64'], 128)}
       <text x={8} y={356} style={{ fill: 'var(--muted)', fontSize: 9.5 }}>All LAN ports are on sw01 (VLAN-aware Linux bridge): access ports for</text>
       <text x={8} y={368} style={{ fill: 'var(--muted)', fontSize: 9.5 }}>VLAN 10/20/30, trunk swp7 to rtr01 eth3. Console: sw01.</text>

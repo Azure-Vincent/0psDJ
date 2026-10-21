@@ -11,6 +11,7 @@ function proto(f: CapturedFrame): string {
   if (p.app?.protocol === 'SSH') return 'SSHv2';
   if (p.app?.protocol === 'DNS') return 'DNS';
   if (p.app?.protocol === 'DHCP') return 'DHCP';
+  if (p.app?.protocol === 'TLS') return 'TLSv1.3';
   if (p.app?.protocol === 'DATA') return p.tcp?.sport === 80 || p.tcp?.dport === 80 ? 'HTTP' : 'DATA';
   if (p.icmp && p.src.includes(':')) return 'ICMPv6';
   return p.proto.toUpperCase();
