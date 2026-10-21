@@ -4,24 +4,32 @@ import { Dashboard } from './pages/Dashboard';
 import { Curriculum } from './pages/Curriculum';
 import { LessonPage } from './pages/LessonPage';
 import { TroubleshootList, TroubleshootWorkspace } from './pages/Troubleshoot';
-import { Commands } from './pages/Commands';
+import { Reference } from './pages/Reference';
+import { CaseStudyList, CaseStudyPage } from './pages/CaseStudies';
+import { Certification } from './pages/Certification';
 import { PacketLab } from './pages/PacketLab';
 import { Glossary } from './pages/Glossary';
 import { History } from './pages/History';
 import { Settings } from './pages/Settings';
 import { Search } from './pages/Search';
 import { LESSONS } from '../content/lessons';
+import { CURRICULUM } from '../content/curriculum';
 
 const NAV: [string, string, string?][] = [
   ['dashboard', 'Dashboard'],
   ['curriculum', 'Curriculum'],
-  ['#Lessons', ''],
-  ...LESSONS.map((l): [string, string, string] => [`lesson/${l.id}/what`, l.title.split(':')[0], `lesson/${l.id}`]),
+  // Lessons grouped by curriculum module, in module order.
+  ...CURRICULUM.flatMap((m): [string, string, string?][] => {
+    const ls = LESSONS.filter((l) => l.moduleId === m.id);
+    return ls.length ? [[`#${m.title}`, ''], ...ls.map((l): [string, string, string] => [`lesson/${l.id}/what`, l.title.split(':')[0], `lesson/${l.id}`])] : [];
+  }),
   ['#Practice', ''],
   ['troubleshoot', 'Troubleshooting lab', 'troubleshoot'],
-  ['commands', 'Diagnostic commands'],
+  ['cases', 'Case studies', 'cases'],
   ['packets', 'Packet Lab'],
   ['#Reference', ''],
+  ['reference', 'Reference library'],
+  ['certification', 'Certification map'],
   ['glossary', 'Glossary'],
   ['history', 'History'],
   ['settings', 'Settings'],
@@ -48,7 +56,10 @@ function Shell() {
     case 'curriculum': page = <Curriculum />; break;
     case 'lesson': page = <LessonPage key={a} lessonId={a ?? 'ssh'} section={b ?? 'what'} />; break;
     case 'troubleshoot': page = a ? <TroubleshootWorkspace key={a} id={a} /> : <TroubleshootList />; break;
-    case 'commands': page = <Commands />; break;
+    case 'commands': page = <Reference initialTab="command" />; break;
+    case 'reference': page = <Reference />; break;
+    case 'cases': page = a ? <CaseStudyPage key={a} id={a} /> : <CaseStudyList />; break;
+    case 'certification': page = <Certification />; break;
     case 'packets': page = <PacketLab />; break;
     case 'glossary': page = <Glossary />; break;
     case 'history': page = <History id={a} />; break;

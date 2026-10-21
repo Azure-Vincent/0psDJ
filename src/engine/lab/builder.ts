@@ -2,6 +2,7 @@
 
 import { emptyRuleset } from '../config/nft';
 import { mkdir, writeFile } from '../fs';
+import { installUnits } from '../sim/units';
 import type { Host, ServiceRuntime, UserAccount, World } from '../types';
 
 export const DEBIAN_MOTD = `
@@ -92,6 +93,7 @@ export function createHost(world: World, spec: HostSpec): Host {
   writeFile(host, '/etc/motd', DEBIAN_MOTD, t);
   writeFile(host, '/etc/nftables.conf', DEBIAN_DEFAULT_NFT, t, { mode: 0o755 });
   writeFile(host, '/etc/nsswitch.conf', 'passwd:         files systemd\ngroup:          files systemd\nshadow:         files\nhosts:          files dns\nnetworks:       files\n', t);
+  installUnits(host, t);
   addUser(host, { name: 'root', uid: 0, gid: 0, primaryGroup: 'root', groups: [], home: '/root', shell: '/bin/bash', gecos: 'root', password: 'r00t-console' }, t, false);
   world.hosts[host.id] = host;
   return host;

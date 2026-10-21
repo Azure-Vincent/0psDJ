@@ -13,7 +13,10 @@ coherent consequences everywhere.
 
 ## What is implemented
 
-The foundation plus eight complete lessons sharing one simulated lab and troubleshooting engine: **IP networking: addressing, ARP and routing**, **TCP, UDP and DNS**, **DHCP**, **NAT**, **VLANs** and **IPv6** (Module A), **SSH** (Module B) and **Linux firewalls with nftables** (Module D).
+Fifteen lessons sharing one simulated lab and troubleshooting engine, each with an **Operate & recover** guide:
+
+- Simulated (sandbox terminals and tickets): **IP networking**, **TCP, UDP and DNS**, **DHCP**, **NAT**, **VLANs**, **IPv6**, **Network configuration and recovery** (Module A); **SSH** (B); **Linux firewalls with nftables** (D); **Linux service administration: systemd, logs and the filesystem** and **Safe infrastructure recovery** (F).
+- Reference lessons (taught from documentation and representative output of named real versions, because the simulator only runs Debian-style Linux): **Windows Server administration and RDP** (B), **Active Directory, DNS and Kerberos** (C), **pfSense** (D), **Docker and container troubleshooting** (E).
 
 | Area | Implemented |
 |---|---|
@@ -21,23 +24,29 @@ The foundation plus eight complete lessons sharing one simulated lab and trouble
 | **Module A lessons** (7 sections each) | *IP networking*: prefixes and subnetting (generated practice problems), ARP, longest-prefix match, routers/TTL, ICMP, both directions; **encapsulation explorer** colouring every byte of real simulator frames; **route-lookup tool**; 7 traced runs (on-link vs routed, traceroute, wrong prefix, wrong gateway, ip_forward=0, missing return route); guides for Debian ifupdown, netplan, NetworkManager and Windows. *TCP, UDP and DNS*: sockets and ports, handshake/seq/ack/retransmission/teardown, UDP and ICMP port unreachable, the glibc resolver path and authoritative DNS; **resolver tracer**; 7 traced runs; guides for sockets, resolver configuration and Windows. 10 assessment questions each |
 | **DHCP and NAT lessons** (7 sections each) | *DHCP*: DORA over broadcast, relays, how ISC dhcpd picks an address (reservation → previous lease → pool), leases and T1/T2, what dhclient does with the options, rogue servers; **allocation simulator** running the engine's dhcpd.conf parser and allocator on any configuration and client list; 4 traced runs (DORA, wrong router option, no server, exhausted pool) with BOOTP packets exportable to PCAP; guides for isc-dhcp-server, ifupdown/NetworkManager/networkd clients and Windows. *NAT*: RFC 1918, masquerade/SNAT/DNAT, where NAT sits relative to filtering, conntrack tuples, typical mistakes; **NAT inspector** showing one flow on both sides of rtr01 plus its conntrack table; 4 traced runs (masquerade, port forward, missing masquerade, forward filter after DNAT); guides for nftables, iptables and Windows NAT. 9 and 8 assessment questions |
 | **nftables lesson** (7 sections) | Netfilter hooks, tables/chains/priorities, first-match rule evaluation, conntrack states, drop vs reject and the client symptom each produces, persistence (reload is atomic, restart flushes), iptables-nft/UFW/firewalld · hook diagram and **CIDR calculator** · **visualizer** of 7 traced runs (allowed, policy drop, reset, admin-prohibited, router forward drop, missing established rule, traceroute) where every hop names the exact deciding rule · deployment guides for Debian nftables, UFW, firewalld and Windows Defender Firewall · **packet tester** that evaluates any ruleset rule by rule · assessment (11 questions, firewall rules graded by the engine) |
+| **Operate & recover guides** (one per lesson) | The 10 architecture questions (purpose, internals, protocols, ports, processes, dependencies, request flow, authentication/authorisation, boot, crash behaviour); dependency diagram and message sequence; **files, directories, logs, registry keys and Event Viewer channels** with what they contain, when they are read and what bad values or permissions cause; **service management** per platform (Debian/Ubuntu, RHEL, Windows Server/10/11, pfSense, Docker): status, start/stop/restart/reload, enable at boot, failed units, dependencies, logs, why it failed, restoring after a config error, with commands marked **in simulator** when they run in the lab; **reload vs service restart vs interface restart vs reboot**; a layer-by-layer diagnostic workflow with healthy and broken output; common failures and the commands that tell them apart; verification checklist |
+| **Case studies A–G** | SSH connection refused, Linux server has no Internet, Windows domain login fails, Docker web app unreachable, pfSense blocks legitimate traffic, RDP stops working after a configuration change, multiple services fail at once (shared DNS dependency). Each has symptoms, an environment diagram, expected behaviour, dependencies, every command with output and interpretation, root cause, repair and why it works, what to restart (and what not to), verification and prevention. A, B and G use real simulator output and open as interactive tickets |
+| **Reference library** | 69 commands, 54 files/logs/registry keys and 28 recovery procedures across Linux, Windows, Docker, pfSense and Cisco IOS, faceted by OS, service, protocol and symptom; each command has syntax, arguments, example output, interpretation, common errors, permissions, risks, compatibility and related services. Lessons, guides, case studies and tickets deep-link to entries (`#/reference?id=…`) |
+| **Certification map** | CompTIA Network+ N10-009 and Cisco CCNA 200-301 v1.1 objectives, each marked covered / partial / gap with links into the app and notes on what is missing (e.g. wireless, OSPF, automation). It states that the app does not guarantee exam readiness and that objective titles must be checked against the vendors' current documents |
 | **Dependency map** | 12 dependencies of an SSH login; switch one off, predict the client message, then see the simulated output, server journal and trace |
 | **VLAN and IPv6 lessons** (7 sections each) | *VLANs*: broadcast domains, access vs trunk ports, the 802.1Q tag, PVID/native VLAN, per-VLAN MAC learning, VLAN sub-interfaces and router-on-a-stick, Cisco and Hyper-V equivalents; **VLAN explorer** that edits sw01's port table and recomputes the broadcast domains with the engine's layer-2 code; 4 traced runs whose hop notes show each switch port and tag. *IPv6*: notation (RFC 5952), address types, EUI-64 and SLAAC, router advertisements (radvd), Neighbor Discovery via solicited-node multicast, why ICMPv6 must pass firewalls, IPv6 forwarding, dual-stack address selection, Happy Eyeballs vs ssh; **IPv6 address explorer** (canonical/expanded form, type, solicited-node group, EUI-64 steps); 6 traced runs. 9 assessment questions each |
-| **Troubleshooting lab** | 37 tickets. VLAN/IPv6 set: desk port moved to the wrong VLAN, VLAN pruned from the router trunk, router sub-interface renamed to the wrong VLAN ID, ICMPv6 "hardening" that breaks Neighbor Discovery, a host sysctl baseline that disables IPv6 forwarding on the router, a server without an IPv6 default route (fixes must keep dev01 in VLAN 30 and on SLAAC, and keep firewalls and the hardening baseline). DHCP/NAT set: dhcpd listening on a non-existent interface, exhausted pool, wrong router option, missing masquerade, DNAT typo, forward rule written for the pre-DNAT port (fixes must keep ws02 on DHCP and must not open the router to the Internet). Networking set: wrong prefix length, wrong gateway, router with ip_forward=0 after a hardening script, resolv.conf typo, stale /etc/hosts entry, nginx bound to 127.0.0.1. Firewall set: stopped web server blamed on the firewall, leftover reject-with-reset, a /23 that blocks the office along with the guests, missing established rule (server cannot resolve names), router forward chain allowing only SSH; goals can be SSH logins, HTTP requests or name lookups, and unsafe fixes (policy accept, `udp sport 53 accept`, deleting the guest block) are rejected. SSH set: 14 tickets (beginner → advanced, including a two-fault ticket): sshd config errors, wrong port, firewall drop vs reject, stale DNS record, broken zone (SERVFAIL), missing return route, StrictModes permissions, client key permissions, host-key change, AllowUsers, KEX mismatch, missing authorized key, non-persistent firewall rule + disabled service. Per-ticket terminals (e.g. ws01, the DHCP laptop ws02, the Internet host ext01, consoles on srv01/ns1/rtr01), notes, evidence log, diagnosis with misconception feedback, progressive hints, verification **now, after rebooting every host, and against security constraints**, root-cause analysis and reference repair after resolution |
-| **Simulated shell** | `ip`, `ss`, `ping`, `traceroute` (UDP/TCP/ICMP), `dig`, `nslookup`, `host`, `getent`, `nc`, `curl`, `tcpdump`, `conntrack`, `nft`, `iptables` (iptables-nft view), `systemctl`, `journalctl`, `ssh` (-v, -p, -i, -o, interactive host-key and password prompts, remote commands), `ssh-keygen` (-lf, -R, -F), `ssh-keyscan`, `ssh-copy-id`, `sshd -t/-T [-C]`, `rndc`, `named-checkzone`, `dhclient` (-v, -r), `dhcpd -t`, `nginx -t`, `sysctl` (-w, --system, -p), `tee`, `ip -6` (addr/route/neigh/route get), `ip link add … type vlan`, `ip -d`/`-br`, `bridge vlan|fdb|link`, `ifreload -a`, `rdisc6`, `ping -6`/`ping6`, `traceroute -6`, `curl -4/-6/-v` (Happy Eyeballs), `ssh -4/-6`, `dig AAAA`, `getent ahosts`, `reboot`, `sudo`, file tools (`ls`, `cat`, `grep`, `sed -i`, `chmod`, `chown`, `stat`, `nano`/`vi` via an in-app editor …), pipes, redirection, `&&`/`||` |
-| **Diagnostic commands** | Reference for 30 Windows and Linux commands (purpose, arguments, example output, interpretation, limitations) and practice: choose-the-command and spot-the-abnormality exercises |
+| **Troubleshooting lab** | 39 tickets. Case-study set: a server without Internet (NAT restricted to one subnet plus a resolver "workaround" that added a second fault) and a DNS firewall CIDR mistake that breaks SSH, the intranet and VLAN 30 builds at once (the fix must keep the approved hardening). Each ticket workspace has an inline field manual with the relevant diagnostic workflows and command references. VLAN/IPv6 set: desk port moved to the wrong VLAN, VLAN pruned from the router trunk, router sub-interface renamed to the wrong VLAN ID, ICMPv6 "hardening" that breaks Neighbor Discovery, a host sysctl baseline that disables IPv6 forwarding on the router, a server without an IPv6 default route (fixes must keep dev01 in VLAN 30 and on SLAAC, and keep firewalls and the hardening baseline). DHCP/NAT set: dhcpd listening on a non-existent interface, exhausted pool, wrong router option, missing masquerade, DNAT typo, forward rule written for the pre-DNAT port (fixes must keep ws02 on DHCP and must not open the router to the Internet). Networking set: wrong prefix length, wrong gateway, router with ip_forward=0 after a hardening script, resolv.conf typo, stale /etc/hosts entry, nginx bound to 127.0.0.1. Firewall set: stopped web server blamed on the firewall, leftover reject-with-reset, a /23 that blocks the office along with the guests, missing established rule (server cannot resolve names), router forward chain allowing only SSH; goals can be SSH logins, HTTP requests or name lookups, and unsafe fixes (policy accept, `udp sport 53 accept`, deleting the guest block) are rejected. SSH set: 14 tickets (beginner → advanced, including a two-fault ticket): sshd config errors, wrong port, firewall drop vs reject, stale DNS record, broken zone (SERVFAIL), missing return route, StrictModes permissions, client key permissions, host-key change, AllowUsers, KEX mismatch, missing authorized key, non-persistent firewall rule + disabled service. Per-ticket terminals (e.g. ws01, the DHCP laptop ws02, the Internet host ext01, consoles on srv01/ns1/rtr01), notes, evidence log, diagnosis with misconception feedback, progressive hints, verification **now, after rebooting every host, and against security constraints**, root-cause analysis and reference repair after resolution |
+| **Simulated shell** | `systemctl` (status, start/stop/restart/reload, enable/disable, is-active/is-enabled/is-failed, `cat`, `show -p`, `list-dependencies [--reverse]`, `list-units [--failed]`, `--failed`) with the real Debian unit files on disk, `journalctl` (`-u -b -p -k -f -x -g --since`), `tracepath`, `ethtool [-i]`, `cp [-a]`, `mv`, `diff [-u]`, `ip`, `ss`, `ping`, `traceroute` (UDP/TCP/ICMP), `dig`, `nslookup`, `host`, `getent`, `nc`, `curl`, `tcpdump`, `conntrack`, `nft`, `iptables` (iptables-nft view), `systemctl`, `journalctl`, `ssh` (-v, -p, -i, -o, interactive host-key and password prompts, remote commands), `ssh-keygen` (-lf, -R, -F), `ssh-keyscan`, `ssh-copy-id`, `sshd -t/-T [-C]`, `rndc`, `named-checkzone`, `dhclient` (-v, -r), `dhcpd -t`, `nginx -t`, `sysctl` (-w, --system, -p), `tee`, `ip -6` (addr/route/neigh/route get), `ip link add … type vlan`, `ip -d`/`-br`, `bridge vlan|fdb|link`, `ifreload -a`, `rdisc6`, `ping -6`/`ping6`, `traceroute -6`, `curl -4/-6/-v` (Happy Eyeballs), `ssh -4/-6`, `dig AAAA`, `getent ahosts`, `reboot`, `sudo`, file tools (`ls`, `cat`, `grep`, `sed -i`, `chmod`, `chown`, `stat`, `nano`/`vi` via an in-app editor …), pipes, redirection, `&&`/`||` |
+| **Command practice** | Choose-the-command and spot-the-abnormality exercises (Reference library › Practice) |
 | **Packet Lab** | 12 synthetic capture presets produced by the engine (including DHCP DORA, the Internet side of the NAT router, 802.1Q tags on the router trunk, and SLAAC/Neighbor Discovery/HTTP over IPv6), Wireshark-style list/detail/hex views, display filters (`ip.addr`, `tcp.flags.syn`, `dns`, `dhcp`, `icmp`, `ipv6`, `icmpv6`, `ipv6.addr`, `vlan.id`, `&&`, `||`, `!` …), **PCAP export** (valid checksums; opens in Wireshark), explanation of what is and is not visible without keys |
-| **Learning model** | Concept-level mastery (25 concepts) updated by answers, predictions and diagnoses; misconception tracking; prerequisite-aware review recommendations; troubleshooting history with every command run |
+| **Learning model** | Concept-level mastery (37 concepts) updated by answers, predictions and diagnoses; misconception tracking; prerequisite-aware review recommendations; troubleshooting history with every command run |
 | **App** | Offline; Windows/Linux/macOS via Electron; soft tinted themes (Paper light, Ember dark, following the system setting) plus high-contrast light/dark; global search; glossary (65 terms); progress saved locally with export/import/reset |
 
 ## What is planned (not implemented)
 
-Shown in the app's Curriculum page as "planned", without buttons: the other
-Module A–F lessons (MTU/PMTUD, TLS, RDP, WinRM, VPN, Active Directory/Kerberos/LDAP/GPO, pfSense,
-Docker/containers, hypervisors, web/file/database/mail servers, NTP,
-logging), the visual Infrastructure Builder, and Labs 2–6 with
-their real-VM guides. Lab 1 is partially covered by the SSH lab. See the phased
-plan in `docs/ARCHITECTURE.md`.
+Shown in the app's Curriculum page as "planned", without buttons: MTU/PMTUD,
+TLS, VPNs, NTLM/LDAP/PKI/RADIUS, hypervisors, web/file/database/mail servers,
+NTP and logging infrastructure, a Windows/pfSense/Docker **simulator** (those
+technologies are reference lessons today), Cisco IOS and OSPF practice,
+wireless, the visual Infrastructure Builder, and full guided Labs 2–6 (partly
+covered by the reference lessons and case studies). The certification map lists
+the exam objectives that are not covered. See the phased plan in
+`docs/ARCHITECTURE.md`.
 
 ## Requirements
 
@@ -74,7 +83,7 @@ npm run dist:dir       # unpacked app in release/<os>-unpacked/ (fastest, for te
 
 Packaging uses electron-builder (configuration in the `build` field of
 `package.json`); the app icon is `build/icon.png` (source `build/icon.svg`).
-On Linux the packaged app starts through a small launcher (`build/afterPack.cjs`). Chromium sandboxes
+On Linux the packaged app starts through a small launcher (`build/afterPack.cjs`), and `npm run desktop` / `desktop:dev` through `scripts/electron-launch.cjs`, which applies the same rule. Chromium sandboxes
 its renderers with unprivileged user namespaces or a setuid-root `chrome-sandbox` helper. Ubuntu 23.10+/24.04
 restrict the former through AppArmor, and an AppImage cannot carry the latter. On such systems, or when
 running as root, the launcher adds `--no-sandbox` and says so on stderr; everywhere else the sandbox stays on.
@@ -92,7 +101,7 @@ npm run desktop:dev    # Electron window pointing at the dev server (run `npm ru
 ## Tests
 
 ```bash
-npm test               # Vitest: 268 tests
+npm test               # Vitest: 333 tests
 npm run typecheck
 ```
 
@@ -102,7 +111,11 @@ out vs no route, retransmission timing, reboot semantics), the shell
 (permissions, sudo, interactive prompts), every troubleshooting scenario
 (**fault → expected symptom → reference fix → verification passes, including
 after reboot**), security constraints rejecting bad fixes, all dependency-map
-outcomes, assessment grading, PCAP checksums and display filters.
+outcomes, assessment grading, PCAP checksums and display filters, systemd unit
+queries and file tools, and **content integrity**: every link from a lesson, guide,
+case study, curriculum topic or certification objective resolves, every
+command marked runnable in the simulator exists there, and reference lessons
+never claim simulator support.
 
 ## Project layout
 
@@ -111,7 +124,8 @@ electron/main.cjs        desktop shell (offline window, external links open in t
 build/                   app icon used by electron-builder
 .github/workflows/       CI: tests, then Linux/Windows/macOS executables as artifacts
 src/engine/              deterministic simulator (no DOM): network, services, ssh, shell, scenarios, pcap
-src/content/             lessons, assessments, command reference, glossary, curriculum (data)
+src/content/             lessons, assessments, guides, case studies, reference library,
+                         certification map, glossary, curriculum (data)
 src/learning/            grading and progress/mastery model
 src/ui/                  React app (pages and components)
 tests/                   Vitest suites
@@ -125,4 +139,10 @@ Behaviour follows RFC 4251–4254, 4253, 8308, 8709 (SSH), RFC 9293 (TCP), RFC 7
 (OpenSSH 9.2p1, BIND 9.18, ISC DHCP 4.4.3, radvd 2.19, ifupdown2, nftables 1.0.6, systemd 252). Where the simulation
 simplifies (IPv4 only, synthetic cryptographic values, one TCP segment per SSH
 message, no DHCP renewal timers, relays or DHCPRELEASE packet on the wire, ICMP errors not reverse-NATed, no spanning tree and symmetric VLAN membership, no DHCPv6, duplicate address detection, MLD, privacy addresses or path-MTU discovery, `getent hosts` using getaddrinfo() ordering, tcpdump showing recent traffic rather than a live capture), the app
-says so next to the feature. Reference links are listed in the SSH lesson.
+says so next to the feature. Reference links are listed in each lesson.
+
+Windows, Active Directory, Docker, pfSense and Cisco IOS content is not
+simulated: example output there is written to be representative of the
+versions named on each page (Windows Server 2022, Windows 11 23H2, Docker
+Engine 27 with Compose v2, pfSense CE 2.7.2, IOS XE 17), and is labelled as such.
+Check exact message wording against your own systems when it matters.

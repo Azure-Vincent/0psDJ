@@ -12,6 +12,7 @@ import { hostPort, inPrefix, normAddr, validPrefix } from '../net/addr';
 import { normalizePath, readFile } from '../fs';
 import { formatFrame } from './format';
 import { ip } from './cmdIp';
+import { hasCarrier } from '../sim/l2';
 import { bridge, ifreload, rdisc6 } from './cmdL2';
 import { virtualFile } from './cmdFiles';
 import { type CmdCtx, type CommandDef, err, ok, parseFlags } from './types';
@@ -639,5 +640,94 @@ const getent: CommandDef = {
   },
 };
 
-export const NET_COMMANDS: CommandDef[] = [ip, bridge, ifreload, rdisc6, ss, ping, ping6, traceroute, traceroute6, nc, curl, tcpdump, conntrack, sysctl, hostname, uname, date, dig, nslookup, hostCmd, getent];
+// tracepath: UDP probes with increasing TTL, like traceroute, but needs no
+// privileges and also reports the path MTU (always 1500 in the lab: no
+// links with a smaller MTU are modelled).
+const tracepath: CommandDef = {
+  name: 'tracepath',
+  summary: 'trace the path to a host, discovering the MTU (no root needed)',
+  usage: 'tracepath [-4|-6] [-n] [-m MAXHOPS] HOST',
+  run(args, ctx) {
+    const { flags, rest } = parseFlags(args, ['-m', '-p', '-l']);
+    if (!rest[0]) return err('Usage\n  tracepath [options] <destination>', 255);
+    const fam = flags.has('-6') ? ['-6'] : flags.has('-4') ? ['-4'] : [];
+    const r = traceroute.run([...fam, '-q', '1', '-m', String(flags.get('-m') ?? 30), rest[0]], ctx);
+    if (r.code !== 0) {
+      const msg = r.out.split('\n')[0];
+      return err(`${rest[0]}: ${/Name or service not known|Temporary failure/.test(msg) ? msg.split(': ').slice(1).join(': ') : msg}`, 1);
+    }
+    const out = [' 1?: [LOCALHOST]                      pmtu 1500'];
+    let hops = 0;
+    let reached = false;
+    for (const line of r.out.split('\n').slice(1)) {
+      const m = /^\s*(\d+)\s+(.*)$/.exec(line);
+      if (!m) {
+        if (line.trim().startsWith('...')) out.push(line.replace('traceroute', 'tracepath').replace('printing "* * *"', 'printing "no reply"'));
+        continue;
+      }
+      const ttl = Number(m[1]);
+      const cell = m[2].trim();
+      if (cell.startsWith('*')) { out.push(`${String(ttl).padStart(2)}:  no reply`); continue; }
+      const hm = /^(\S+) \(\S+\)\s+([\d.]+) ms( !\w)?/.exec(cell);
+      if (!hm) continue;
+      hops = ttl;
+      const last = r.out.trim().endsWith(line.trim()) && !hm[3];
+      const err = hm[3] ? ` ${hm[3].trim() === '!H' ? '!H' : hm[3].trim() === '!N' ? '!N' : '!A'}` : '';
+      out.push(`${String(ttl).padStart(2)}:  ${hm[1].padEnd(48)} ${(Number(hm[2]) - 0.05).toFixed(3)}ms ${last ? 'reached' : err.trim()}`.trimEnd());
+      if (last) reached = true;
+    }
+    out.push(reached ? `     Resume: pmtu 1500 hops ${hops} back ${hops} ` : '     Too many hops: pmtu 1500\n     Resume: pmtu 1500 ');
+    return ok(out.join('\n'));
+  },
+};
+
+// ethtool: link settings of a NIC. Lab NICs are emulated Intel 82540EM (e1000).
+const ethtool: CommandDef = {
+  name: 'ethtool',
+  summary: 'show NIC link settings (speed, duplex, link detected) or driver (-i)',
+  usage: 'ethtool IFACE | ethtool -i IFACE',
+  run(args, ctx) {
+    const { flags, rest } = parseFlags(args);
+    const name = rest[0];
+    if (!name) return err('ethtool: bad command line argument(s)\nFor more information run ethtool -h', 1);
+    const i = ctx.host.ifaces.find((x) => x.name === name);
+    if (!i) return err(`netlink error: no device matches name (offset 24)\nnetlink error: No such device`, 1);
+    if (flags.has('-i')) {
+      if (i.name === 'lo') return err('Cannot get driver information: Operation not supported', 71);
+      if (i.vlan) return ok('driver: 802.1Q VLAN Support\nversion: 1.8\nfirmware-version: N/A\nexpansion-rom-version: \nbus-info: \nsupports-statistics: no\nsupports-test: no\nsupports-eeprom-access: no\nsupports-register-dump: no\nsupports-priv-flags: no');
+      return ok('driver: e1000\nversion: 6.1.0-28-amd64\nfirmware-version: \nexpansion-rom-version: \nbus-info: 0000:00:03.0\nsupports-statistics: yes\nsupports-test: yes\nsupports-eeprom-access: yes\nsupports-register-dump: yes\nsupports-priv-flags: no');
+    }
+    const link = hasCarrier(ctx.world, ctx.host, i);
+    if (i.name === 'lo' || i.vlan) return ok(`Settings for ${i.name}:\n\tLink detected: ${link ? 'yes' : 'no'}`);
+    const lines = [
+      `Settings for ${i.name}:`,
+      '\tSupported ports: [ TP ]',
+      '\tSupported link modes:   10baseT/Half 10baseT/Full',
+      '\t                        100baseT/Half 100baseT/Full',
+      '\t                        1000baseT/Full',
+      '\tSupported pause frame use: No',
+      '\tSupports auto-negotiation: Yes',
+      '\tSupported FEC modes: Not reported',
+      '\tAdvertised link modes:  10baseT/Half 10baseT/Full',
+      '\t                        100baseT/Half 100baseT/Full',
+      '\t                        1000baseT/Full',
+      '\tAdvertised pause frame use: No',
+      '\tAdvertised auto-negotiation: Yes',
+      '\tAdvertised FEC modes: Not reported',
+      `\tSpeed: ${link ? '1000Mb/s' : 'Unknown!'}`,
+      `\tDuplex: ${link ? 'Full' : 'Unknown! (255)'}`,
+      '\tAuto-negotiation: on',
+      '\tPort: Twisted Pair',
+      '\tPHYAD: 0',
+      '\tTransceiver: internal',
+      '\tMDI-X: off (auto)',
+    ];
+    if (ctx.user.uid === 0) lines.push('\tSupports Wake-on: umbg', '\tWake-on: d', '\tCurrent message level: 0x00000007 (7)', '\t\t\t       drv probe link');
+    else lines.push('netlink error: Operation not permitted');
+    lines.push(`\tLink detected: ${link ? 'yes' : 'no'}`);
+    return ok(lines.join('\n'));
+  },
+};
+
+export const NET_COMMANDS: CommandDef[] = [ip, bridge, ifreload, rdisc6, ss, ping, ping6, traceroute, traceroute6, tracepath, ethtool, nc, curl, tcpdump, conntrack, sysctl, hostname, uname, date, dig, nslookup, hostCmd, getent];
 export { isoTime, lookupHostsFile };

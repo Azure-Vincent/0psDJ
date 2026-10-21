@@ -14,6 +14,10 @@ import { Inline, Markdown } from '../components/Markdown';
 import { SequenceDiagram } from '../components/SequenceDiagram';
 import { CidrCalculator, HookDiagram, PacketTester } from '../components/FirewallWidgets';
 import { RunVisualizer } from '../components/RunVisualizer';
+import { GuideView } from '../components/GuideView';
+import { LayeredDiagramView, StaticSequenceView } from '../components/Diagrams';
+import { CASE_STUDIES } from '../../content/cases';
+import { CERT_EXAMS } from '../../content/certification';
 import { EncapsulationExplorer, ResolverTracer, RouteLookup, SubnetPractice } from '../components/NetworkWidgets';
 import { DHCP_LANES, IPV6_LANES, LAB_LANES, NAT_LANES, VLAN_LANES, segmentOf } from '../components/labLanes';
 import { Ipv6Explorer, VlanExplorer } from '../components/L2V6Widgets';
@@ -28,6 +32,7 @@ export const SECTIONS: Section[] = [
   { id: 'visualize', title: 'Visualize' },
   { id: 'deploy', title: 'Deploy' },
   { id: 'config', title: 'Configuration' },
+  { id: 'operate', title: 'Operate & recover' },
   { id: 'troubleshoot', title: 'Troubleshooting' },
   { id: 'assess', title: 'Assessment' },
 ];
@@ -89,14 +94,14 @@ function Deploy({ L, specs }: { L: Lesson; specs: TermSpec[] }) {
   return (
     <div>
       <div className="callout warn small">
-        These are procedures for <strong>real systems</strong> (a VM or lab server). The application does not run Debian, RHEL or Windows. Steps marked
-        <span className="badge accent" style={{ margin: '0 4px' }}>simulated</span> can also be practised against the simulated lab in the sandbox.
+        These are procedures for <strong>real systems</strong> (a VM or lab server). The application does not run Debian, RHEL or Windows.
+        {specs.length > 0 && <> Steps marked <span className="badge accent" style={{ margin: '0 4px' }}>simulated</span> can also be practised against the simulated lab in the sandbox.</>}
       </div>
       <div className="row">
         {L.deployment.map((d) => (
           <button key={d.id} className={d.id === platform ? 'primary' : ''} onClick={() => setPlatform(d.id)}>{d.platform}</button>
         ))}
-        <button onClick={() => setSandbox((s) => !s)}>{sandbox ? 'Hide sandbox' : 'Open sandbox terminals'}</button>
+        {specs.length > 0 && <button onClick={() => setSandbox((s) => !s)}>{sandbox ? 'Hide sandbox' : 'Open sandbox terminals'}</button>}
       </div>
       {sandbox && <div style={{ marginTop: 12 }}><Sandbox specs={specs} /></div>}
       <h2>{guide.platform}</h2>
@@ -165,6 +170,26 @@ function Troubleshoot({ L }: { L: Lesson }) {
           ))}
         </tbody>
       </table>
+      {(L.caseStudyIds ?? []).length > 0 && (
+        <>
+          <h2>Case studies</h2>
+          <div className="grid3">
+            {L.caseStudyIds!.map((id) => CASE_STUDIES.find((x) => x.id === id)).filter((c) => !!c).map((c) => {
+              const id = c!.id;
+              return (
+                <div className="card" key={id}>
+                  <div className="spread"><strong>{c!.letter}. {c!.title}</strong><span className="badge">{c!.level}</span></div>
+                  <p className="small muted">{c!.platforms.join(' · ')}</p>
+                  <div className="spread">{c!.scenarioId ? <span className="badge accent">interactive ticket</span> : <span />}<button onClick={() => go(`cases/${id}`)}>Read</button></div>
+                </div>
+              );
+            })}
+          </div>
+        </>
+      )}
+      {L.scenarioIds.length === 0 ? (
+        <p className="callout small">This technology is not modelled by the simulator, so there are no interactive tickets for it. Work through the diagnostic workflow in <a href={`#/lesson/${L.id}/operate`}>Operate &amp; recover</a> and the case studies above on a real lab VM.</p>
+      ) : <>
       <h2>Practice scenarios</h2>
       <p className="muted small">Each scenario breaks the lab in a realistic way. You investigate with real commands, record a diagnosis, repair it, and the engine verifies the fix now, after a reboot of every host, and against the security policy.</p>
       <div className="grid3">
@@ -184,13 +209,14 @@ function Troubleshoot({ L }: { L: Lesson }) {
           );
         })}
       </div>
+      </>}
     </div>
   );
 }
 
 interface LessonWidgets {
   internals?: ReactNode;
-  visualize: ReactNode;
+  visualize?: ReactNode;
   configTool?: { title: string; node: ReactNode };
   sandbox: TermSpec[];
 }
@@ -276,18 +302,44 @@ function widgetsFor(id: string): LessonWidgets {
       sandbox: [ws01, srv01, rtr01],
     };
   }
-  return {
-    internals: <><h2>Interactive dependency map</h2><DependencyMap /></>,
-    visualize: <SshVisualize />,
-    configTool: { title: 'Effective-configuration explorer', node: <ConfigExplorer /> },
-    sandbox: [ws01, srv01],
-  };
+  if (id === 'ssh') {
+    return {
+      internals: <><h2>Interactive dependency map</h2><DependencyMap /></>,
+      visualize: <SshVisualize />,
+      configTool: { title: 'Effective-configuration explorer', node: <ConfigExplorer /> },
+      sandbox: [ws01, srv01],
+    };
+  }
+  if (id === 'systemd') return { sandbox: [srv01, ws01, { hostId: 'ns1', user: 'root', label: 'ns1 console (root)', banner: 'Sandbox: console on ns1 (bind9, isc-dhcp-server).' }] };
+  if (id === 'netops') return { sandbox: [ws01, rtr01, srv01, dev01] };
+  if (id === 'recovery') return { sandbox: [srv01, rtr01, ws01] };
+  return { sandbox: [] };
+}
+
+/** Lessons without a simulator visualisation show their guide's diagrams instead. */
+function GuideDiagrams({ L }: { L: Lesson }) {
+  if (!L.guide) return <p className="muted">No visualisation for this lesson.</p>;
+  return (
+    <div>
+      {L.mode === 'reference' && <p className="callout small">The simulator does not model this technology, so these diagrams are drawn from documentation rather than generated from a running lab.</p>}
+      <LayeredDiagramView d={L.guide.dependencies} />
+      {L.guide.sequence && <StaticSequenceView s={L.guide.sequence} />}
+    </div>
+  );
+}
+
+function objectiveTitle(id: string): string {
+  const [code, num] = id.split(':');
+  const exam = CERT_EXAMS.find((e) => e.code === code);
+  const o = exam?.domains.flatMap((d) => d.objectives).find((x) => x.id === id);
+  return o ? `${exam!.name} ${num} ${o.title}` : id;
 }
 
 export function LessonPage({ lessonId, section }: { lessonId: string; section: string }) {
   const { update } = useProgress();
   const L = getLesson(lessonId);
-  const sec = SECTIONS.find((s) => s.id === section) ? section : 'what';
+  const sections = SECTIONS.filter((s) => s.id !== 'operate' || L?.guide);
+  const sec = sections.find((s) => s.id === section) ? section : 'what';
   useEffect(() => {
     if (!L) return;
     update((p) => {
@@ -306,9 +358,16 @@ export function LessonPage({ lessonId, section }: { lessonId: string; section: s
         <div className="muted small">Module {L.moduleId} · {mod?.title} · {L.level}</div>
         <h1>{L.title}</h1>
         <div className="muted">{L.summary}</div>
+        {L.mode === 'reference' && <div className="callout small" style={{ marginTop: 8 }}><strong>Reference lesson.</strong> The simulator runs Debian-style Linux hosts and the lab network only; this technology is taught from documentation and representative output from the named real platforms. Practise it on your own lab VMs.</div>}
+        {(L.objectives ?? []).length > 0 && (
+          <div className="row small" style={{ marginTop: 6, gap: 4 }}>
+            <span className="muted">Supports:</span>
+            {L.objectives!.map((o) => <a key={o} className="badge" href={`#/certification?o=${encodeURIComponent(o)}`} title={objectiveTitle(o)}>{o}</a>)}
+          </div>
+        )}
       </div>
       <div className="tabs" role="tablist">
-        {SECTIONS.map((s, i) => (
+        {sections.map((s, i) => (
           <button key={s.id} role="tab" aria-selected={sec === s.id} className={sec === s.id ? 'active' : ''} onClick={() => go(`lesson/${L.id}/${s.id}`)}>
             <span className="n">{i + 1}</span>{s.title}
           </button>
@@ -324,9 +383,10 @@ export function LessonPage({ lessonId, section }: { lessonId: string; section: s
           <p className="small muted">Links open in your browser and need internet access; everything else in the app works offline.</p>
         </>
       )}
-      {sec === 'visualize' && w.visualize}
+      {sec === 'visualize' && (w.visualize ?? <GuideDiagrams L={L} />)}
       {sec === 'deploy' && <Deploy L={L} specs={w.sandbox} />}
       {sec === 'config' && <Config L={L} tool={w.configTool} />}
+      {sec === 'operate' && L.guide && <GuideView g={L.guide} simulated={L.mode !== 'reference'} />}
       {sec === 'troubleshoot' && <Troubleshoot L={L} />}
       {sec === 'assess' && <AssessmentView assessment={ASSESSMENTS[L.assessmentId]} />}
     </div>
