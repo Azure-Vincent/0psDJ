@@ -66,6 +66,7 @@ to every release contain only the source; to run those, see "Build the executabl
 
 | OS | File | Run |
 |---|---|---|
+| Linux (Ubuntu/Debian, **easiest**) | `InfrastructureLab-<version>-linux-amd64.deb` | double-click it (App Center / Software Install), or `sudo apt install ./InfrastructureLab-*.deb`; then start **Infrastructure Lab** from the application menu, or run `infrastructure-lab`. Remove with `sudo apt remove infrastructure-lab` |
 | Linux | `InfrastructureLab-<version>-linux-x86_64.AppImage` | `chmod +x InfrastructureLab-*.AppImage && ./InfrastructureLab-*.AppImage` (without FUSE: add `--appimage-extract-and-run`) |
 | Linux | `InfrastructureLab-<version>-linux-x64.tar.gz` | extract, then run `./infrastructure-lab` |
 | Windows | `InfrastructureLab-<version>-win-x64.exe` (portable) or `.zip` | double-click; SmartScreen warns because the build is unsigned ("More info" → "Run anyway") |
@@ -75,7 +76,7 @@ to every release contain only the source; to run those, see "Build the executabl
 
 ```bash
 npm install            # dependencies and the Electron runtime
-npm run dist:linux     # → release/InfrastructureLab-<version>-linux-x86_64.AppImage and .tar.gz
+npm run dist:linux     # → release/InfrastructureLab-<version>-linux-x86_64.AppImage, -linux-amd64.deb and -linux-x64.tar.gz
 npm run dist:win       # → portable .exe and .zip (run on Windows)
 npm run dist:mac       # → .dmg and .zip (run on macOS)
 npm run dist:dir       # unpacked app in release/<os>-unpacked/ (fastest, for testing)
@@ -87,12 +88,27 @@ On Linux the packaged app starts through a small launcher (`build/afterPack.cjs`
 its renderers with unprivileged user namespaces or a setuid-root `chrome-sandbox` helper. Ubuntu 23.10+/24.04
 restrict the former through AppArmor, and an AppImage cannot carry the latter. On such systems, or when
 running as root, the launcher adds `--no-sandbox` and says so on stderr; everywhere else the sandbox stays on.
-The app loads only its own bundled pages. With the tar.gz build you can keep the sandbox on those systems:
+The app loads only its own bundled pages. The `.deb` keeps the sandbox on: its post-install script (`build/deb-after-install.sh`) makes `chrome-sandbox` setuid root when user namespaces are restricted. With the tar.gz build you can do the same by hand:
 `sudo chown root:root chrome-sandbox && sudo chmod 4755 chrome-sandbox`.
 
 ### Run from source
 
+On Linux or macOS, from a clone or an extracted "Source code" archive, one command does everything:
+
 ```bash
+./launch.sh                 # first run: installs dependencies and builds; later runs start immediately
+./launch.sh --add-to-menu   # same, and adds "Infrastructure Lab" to your application menu
+./launch.sh --remove-from-menu
+```
+
+It needs Node.js 20 or newer (it tells you how to install it if it is missing), downloads the
+dependencies only on the first run or when `package-lock.json` changes, and rebuilds only when the
+source has changed. If the file is not executable (some archive tools drop the bit), run `sh launch.sh`.
+
+The individual steps, on any OS:
+
+```bash
+npm install            # once
 npm run desktop        # build and launch the desktop app (Windows, Linux, macOS)
 npm run dev            # or: development server at http://localhost:5173 in a browser
 npm run desktop:dev    # Electron window pointing at the dev server (run `npm run dev` first)

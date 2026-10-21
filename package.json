@@ -57,11 +57,13 @@
     "linux": {
       "target": [
         "AppImage",
+        "deb",
         "tar.gz"
       ],
       "category": "Education",
       "icon": "build/icon.png",
-      "synopsis": "Offline IT infrastructure learning lab"
+      "synopsis": "Offline IT infrastructure learning lab",
+      "maintainer": "Infrastructure Lab contributors <infrastructure-lab@users.noreply.github.com>"
     },
     "win": {
       "target": [
@@ -80,6 +82,11 @@
       "category": "public.app-category.education",
       "identity": null
     },
-    "afterPack": "build/afterPack.cjs"
+    "afterPack": "build/afterPack.cjs",
+    "deb": {
+      "packageCategory": "education",
+      "priority": "optional",
+      "afterInstall": "build/deb-after-install.sh"
+    }
   }
 }

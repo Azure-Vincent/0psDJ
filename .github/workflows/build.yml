@@ -53,6 +53,7 @@ jobs:
           name: InfrastructureLab-${{ runner.os }}
           path: |
             release/*.AppImage
+            release/*.deb
             release/*.tar.gz
             release/*.exe
             release/*.zip
