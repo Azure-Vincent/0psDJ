@@ -38,5 +38,7 @@ export const CONCEPTS: Record<ConceptId, { title: string; description: string; r
   'docker.networking': { title: 'Container networking', description: 'Bridge networks, port publishing, embedded DNS, and how published ports bypass host firewalls.', review: 'lesson/docker/internals', prerequisites: ['net.nat', 'svc.listening'] },
   'pfsense.rules': { title: 'pfSense firewall rules', description: 'Per-interface inbound rules, first match, default deny on new interfaces, states and logs.', review: 'lesson/pfsense/internals', prerequisites: ['fw.stateful'] },
   'pfsense.nat': { title: 'pfSense NAT', description: 'Outbound NAT modes, port forwards with associated rules, and NAT reflection.', review: 'lesson/pfsense/internals', prerequisites: ['net.nat'] },
+  'tls.pki': { title: 'TLS certificates and trust', description: 'Certificate chains, trust stores, validity periods, subjectAltName matching and certificate/key pairs, and the error each failure produces.', review: 'lesson/tls/internals', prerequisites: ['tcp.handshake'] },
+  'net.mtu': { title: 'MTU and path MTU discovery', description: 'Frame and packet sizes, the DF bit, ICMP "fragmentation needed", TCP MSS and why large transfers fail when small ones work.', review: 'lesson/mtu/internals', prerequisites: ['net.icmp', 'tcp.handshake'] },
   'logs.journal': { title: 'Reading the journal', description: 'journalctl filters and finding the line that explains a failure.', review: 'lesson/ssh/troubleshoot', prerequisites: [] },
 };

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { ASSESSMENTS, getLesson } from '../../content/lessons';
 import { CURRICULUM } from '../../content/curriculum';
 import type { Lesson, Section } from '../../content/types';
-import { DHCP_RUNS, FIREWALL_RUNS, IP_RUNS, IPV6_RUNS, NAT_RUNS, TRANSPORT_RUNS, VLAN_RUNS } from '../../engine/lab/visualRuns';
+import { DHCP_RUNS, FIREWALL_RUNS, IP_RUNS, IPV6_RUNS, MTU_RUNS, NAT_RUNS, TLS_RUNS, TRANSPORT_RUNS, VLAN_RUNS } from '../../engine/lab/visualRuns';
 import { OUTCOME_LABELS, SSH_DEPENDENCIES, freshLab, runWithFault } from '../../engine/lab/dependencies';
 import { ALL_SCENARIOS } from '../../engine/scenarios';
 import type { World } from '../../engine/types';
@@ -19,7 +19,8 @@ import { LayeredDiagramView, StaticSequenceView } from '../components/Diagrams';
 import { CASE_STUDIES } from '../../content/cases';
 import { CERT_EXAMS } from '../../content/certification';
 import { EncapsulationExplorer, ResolverTracer, RouteLookup, SubnetPractice } from '../components/NetworkWidgets';
-import { DHCP_LANES, IPV6_LANES, LAB_LANES, NAT_LANES, VLAN_LANES, segmentOf } from '../components/labLanes';
+import { DHCP_LANES, IPV6_LANES, LAB_LANES, MTU_LANES, NAT_LANES, TLS_LANES, VLAN_LANES, segmentOf } from '../components/labLanes';
+import { ChainInspector, MtuCalculator } from '../components/TlsMtuWidgets';
 import { Ipv6Explorer, VlanExplorer } from '../components/L2V6Widgets';
 import { DhcpAllocator, NatInspector } from '../components/NetServiceWidgets';
 import type { TermSpec } from '../components/LabTerminals';
@@ -285,6 +286,20 @@ function widgetsFor(id: string): LessonWidgets {
       visualize: <RunVisualizer runs={IPV6_RUNS} lanes={IPV6_LANES} />,
       configTool: { title: 'IPv6 address explorer', node: <Ipv6Explorer /> },
       sandbox: [dev01, rtr01, srv01],
+    };
+  }
+  if (id === 'tls') {
+    return {
+      visualize: <RunVisualizer runs={TLS_RUNS} lanes={TLS_LANES} />,
+      configTool: { title: 'Certificate chain inspector', node: <ChainInspector /> },
+      sandbox: [ws01, srv01, { hostId: 'ws02', user: 'dana', label: 'ws02 (dana)', banner: 'Sandbox: ws02, a laptop (DHCP). sudo password: ws02-dana.' }],
+    };
+  }
+  if (id === 'mtu') {
+    return {
+      visualize: <RunVisualizer runs={MTU_RUNS} lanes={MTU_LANES} />,
+      configTool: { title: 'MTU and MSS calculator', node: <MtuCalculator /> },
+      sandbox: [ws01, rtr01, { hostId: 'ext01', user: 'guest', label: 'ext01 (Internet)', banner: 'Sandbox: ext01, a server on the Internet (203.0.113.80) with a 4.5 MB download in /downloads/.' }],
     };
   }
   if (id === 'nftables') {

@@ -456,4 +456,30 @@ export const LINUX_COMMAND_REFS: CommandRef[] = [
     protocols: ['TCP', 'UDP', 'ICMP'],
     symptoms: ['Connection timed out', 'Connection refused', 'No route to host'],
   },
+  // ------------------------------------------------------------------- TLS
+  {
+    id: 'update-ca-certificates', name: 'update-ca-certificates', platform: 'Linux', category: 'TLS', simulator: 'update-ca-certificates',
+    purpose: 'Rebuilds the system trust bundle /etc/ssl/certs/ca-certificates.crt (Debian/Ubuntu) from the roots enabled in /etc/ca-certificates.conf plus every local root in /usr/local/share/ca-certificates/*.crt.',
+    syntax: 'update-ca-certificates [--fresh] [--verbose]',
+    args: [
+      { arg: '--fresh', meaning: 'Remove all generated links and the bundle, then rebuild from scratch' },
+      { arg: '--verbose', meaning: 'List each certificate added or removed' },
+    ],
+    example: {
+      command: 'sudo cp corp-lab-root-ca.crt /usr/local/share/ca-certificates/ && sudo update-ca-certificates',
+      output: 'Updating certificates in /etc/ssl/certs...\n1 added, 0 removed; done.\nRunning hooks in /etc/ca-certificates/update.d...\ndone.',
+    },
+    interpretation: '"1 added" = the new root is now trusted by OpenSSL, curl, wget, apt, Python and anything else that uses the bundle. "0 added" after copying a file usually means its name does not end in .crt or it is not PEM.',
+    limitations: 'Firefox (NSS), Java (cacerts), Python virtualenvs with certifi and Node.js use their own stores. RHEL equivalent: copy to /etc/pki/ca-trust/source/anchors/ and run update-ca-trust. The simulator rebuilds the bundle file but does not create the per-certificate hash links in /etc/ssl/certs.',
+    errors: [
+      { message: 'WARNING: corp.crt does not contain a certificate or CRL: skipping', meaning: 'The file is DER, empty or not a certificate: convert with `openssl x509 -inform der -in corp.cer -out corp.crt`.' },
+      { message: '/usr/sbin/update-ca-certificates: 104: cannot create /etc/ca-certificates.conf.new: Permission denied', meaning: 'Run it as root (sudo).' },
+    ],
+    permissions: 'root.',
+    risks: 'Every TLS client on the host trusts whatever you add: a wrong or attacker-supplied root lets its owner impersonate any site. Verify fingerprints out of band. Removing a root breaks every service it issued for.',
+    compat: 'ca-certificates on Debian 12 (20230311), Ubuntu 22.04/24.04.',
+    services: ['TLS', 'Web server'],
+    protocols: ['TLS', 'HTTPS'],
+    symptoms: ['Certificate not trusted'],
+  },
 ];

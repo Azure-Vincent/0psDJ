@@ -1,6 +1,6 @@
 import type { GlossaryEntry } from './types';
 
-export const GLOSSARY: GlossaryEntry[] = [
+const ENTRIES: GlossaryEntry[] = [
   { term: 'ARP', definition: 'Address Resolution Protocol (RFC 826). Maps an IPv4 address to a MAC address on the local segment by broadcasting "who has X?". Never crosses a router. Inspect with `ip neigh`.', related: ['MAC address', 'Default gateway'] },
   { term: 'authorized_keys', definition: 'Per-user file on an SSH server listing public keys that may log in as that user. Subject to StrictModes permission checks.', related: ['StrictModes', 'Public-key authentication'] },
   { term: 'Bastion host', definition: 'A hardened jump server that is the only allowed entry point for administrative SSH/RDP into a network segment (`ssh -J bastion target`).' },
@@ -35,7 +35,15 @@ export const GLOSSARY: GlossaryEntry[] = [
   { term: 'Match block (sshd)', definition: 'Conditional sshd_config section (Match User/Group/Address/...) overriding settings for matching connections. Ends at the next Match or end of file.' },
   { term: 'Native VLAN (PVID)', definition: 'The VLAN a switch port assigns to untagged frames and sends untagged. On trunks, use an unused VLAN (or tag everything) to avoid VLAN hopping.', related: ['VLAN', 'Trunk port'] },
   { term: 'Neighbor Discovery', definition: 'IPv6 replacement for ARP and router discovery (RFC 4861): Neighbor Solicitation/Advertisement and Router Solicitation/Advertisement, all ICMPv6. Firewalls must allow it (unlike ARP it passes nftables).', related: ['IPv6', 'ARP', 'SLAAC'] },
-  { term: 'MTU', definition: 'Maximum Transmission Unit: largest IP packet an interface sends without fragmentation (1500 on Ethernet).' },
+  { term: 'MTU', definition: 'Maximum Transmission Unit: largest IP packet a link carries in one frame (1500 on Ethernet, 1492 on PPPoE, 9000 with jumbo frames). Both ends of a link must agree; frames larger than the receiver\'s MTU are dropped silently.', related: ['MSS', 'Path MTU discovery'] },
+  { term: 'MSS', definition: 'TCP Maximum Segment Size: the largest amount of TCP data a host accepts in one segment, announced in the SYN (MTU − 40 for IPv4: 1460). Routers can clamp it (`tcp option maxseg size set rt mtu`).', related: ['MTU'] },
+  { term: 'Path MTU discovery', definition: 'PMTUD: senders set the DF bit; a router that cannot forward a too-large packet returns ICMP "fragmentation needed" (IPv6: "packet too big") with its next-hop MTU, and the sender sends smaller packets. Filtering that ICMP creates a black hole: small packets work, large ones vanish.', related: ['MTU', 'ICMP'] },
+  { term: 'TLS', definition: 'Transport Layer Security: encryption, integrity and server authentication on top of TCP (HTTPS, LDAPS, SMTPS). The server proves its identity with an X.509 certificate that the client verifies against its trust store.', related: ['X.509 certificate', 'Trust store'] },
+  { term: 'X.509 certificate', definition: 'A signed document binding a public key to names (subjectAltName) for a validity period (notBefore–notAfter), issued by a certificate authority. Inspect with `openssl x509 -noout -text`.', related: ['TLS', 'Intermediate CA', 'subjectAltName'] },
+  { term: 'subjectAltName', definition: 'The certificate extension listing the DNS names (and IP addresses) a certificate is valid for. Clients match the requested name against it; the CN is ignored when a SAN is present.', related: ['X.509 certificate'] },
+  { term: 'Intermediate CA', definition: 'A CA certificate between the root and the server certificate. Servers must send it with their own certificate (full chain); clients only have roots.', related: ['Trust store', 'X.509 certificate'] },
+  { term: 'Trust store', definition: 'The set of root CA certificates a client trusts. Debian: /etc/ssl/certs/ca-certificates.crt, built by update-ca-certificates from /usr/local/share/ca-certificates/*.crt and the distribution roots.', related: ['Intermediate CA', 'TLS'] },
+  { term: 'SNI', definition: 'Server Name Indication: the host name a TLS client sends in its ClientHello so that a server with several certificates on one IP address can pick the right one.', related: ['TLS'] },
   { term: 'NAT', definition: 'Network Address Translation: rewriting source and/or destination addresses (and ports) as packets traverse a router. Source NAT/masquerade hides private networks behind a public address; destination NAT publishes an inside server. Inspect translated flows with `conntrack -L`.', related: ['Masquerade', 'DNAT', 'Conntrack'] },
   { term: 'Masquerade', definition: 'Source NAT to the address of the outgoing interface, chosen per new connection (`oifname "eth2" masquerade`). Suited to uplinks with dynamic addresses.', related: ['NAT'] },
   { term: 'DNAT', definition: 'Destination NAT ("port forwarding"): rewrites the destination of new inbound connections in the prerouting hook, before routing and filtering (`dnat to 10.0.20.10:80`).', related: ['NAT', 'nftables'] },
@@ -67,3 +75,6 @@ export const GLOSSARY: GlossaryEntry[] = [
   { term: 'VLAN', definition: 'Virtual LAN: a separate broadcast domain on a shared switch, identified by a 12-bit ID (802.1Q). Access ports belong to one VLAN untagged; trunks carry several tagged. Traffic between VLANs must be routed.', related: ['Trunk port', 'Native VLAN (PVID)'] },
   { term: 'Zone file', definition: 'Text file with a DNS zone\'s records (SOA, NS, A, CNAME...). Validate with named-checkzone; increment the SOA serial on changes.' },
 ];
+
+/** Alphabetical (case-insensitive). */
+export const GLOSSARY: GlossaryEntry[] = [...ENTRIES].sort((a, b) => a.term.localeCompare(b.term, 'en', { sensitivity: 'base' }));

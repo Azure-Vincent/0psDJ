@@ -25,7 +25,8 @@ export type MatchExpr =
   | { kind: 'port'; proto: 'tcp' | 'udp' | 'th'; field: 'sport' | 'dport'; negate: boolean; values: string[] }
   | { kind: 'ctstate'; values: string[] }
   | { kind: 'iface'; field: 'iif' | 'oif' | 'iifname' | 'oifname'; negate: boolean; values: string[] }
-  | { kind: 'icmptype'; v6?: boolean; values: string[] };
+  | { kind: 'icmptype'; v6?: boolean; values: string[] }
+  | { kind: 'tcpflags'; values: string[] };
 
 export type Verdict =
   | { kind: 'accept' }
@@ -45,6 +46,8 @@ export interface Rule {
   log: { prefix: string } | null;
   verdict: Verdict | null;
   comment?: string;
+  /** "tcp option maxseg size set rt mtu | N": MSS clamping (non-terminal statement). */
+  setMss?: number | 'rt mtu';
 }
 
 export interface Chain {
@@ -199,6 +202,35 @@ export function parseRuleExpr(text: string, handle: number): Rule {
       case 'udp':
       case 'th': {
         const f = next();
+        if (t === 'tcp' && f === 'flags') {
+          // "tcp flags syn", "tcp flags { syn, rst }", "tcp flags & (syn|rst) == syn"
+          let v = next();
+          if (v === '&') {
+            next();
+            if (toks[i] === '==') i++;
+            v = next();
+          }
+          const vals = setValues(v).map((x) => x.replace(/[()]/g, ''));
+          for (const x of vals) if (!['syn', 'ack', 'fin', 'rst', 'psh', 'urg'].includes(x)) throw new NftError(`syntax error, unexpected ${x}`);
+          rule.matches.push({ kind: 'tcpflags', values: vals });
+          break;
+        }
+        if (t === 'tcp' && f === 'option') {
+          for (const want of ['maxseg', 'size', 'set']) {
+            const got = next();
+            if (got !== want) throw new NftError(`syntax error, unexpected ${got}, expecting ${want}`);
+          }
+          const v = next();
+          if (v === 'rt') {
+            if (next() !== 'mtu') throw new NftError('syntax error, unexpected end of rule, expecting mtu');
+            rule.setMss = 'rt mtu';
+          } else {
+            const n = Number(v);
+            if (!Number.isInteger(n) || n < 1 || n > 65535) throw new NftError(`syntax error, unexpected ${v}`);
+            rule.setMss = n;
+          }
+          break;
+        }
         if (f !== 'sport' && f !== 'dport') throw new NftError(`syntax error, unexpected ${f}`);
         const neg = negation();
         const vals = setValues(next()).map(validatePort);
@@ -409,6 +441,7 @@ export function renderMatch(m: MatchExpr): string {
     case 'ctstate': return `ct state ${m.values.join(',')}`;
     case 'iface': return `${m.field} ${neg(m.negate)}${fmtSet(m.values, true)}`;
     case 'icmptype': return `${m.v6 ? 'icmpv6' : 'icmp'} type ${fmtSet(m.values)}`;
+    case 'tcpflags': return `tcp flags ${m.values.length === 1 ? m.values[0] : `& (${m.values.join(' | ')}) == ${m.values[0]}`}`;
   }
 }
 
@@ -416,6 +449,7 @@ export function renderRule(r: Rule, withHandle = false): string {
   const parts = r.matches.map(renderMatch);
   if (r.counter) parts.push(`counter packets ${r.counter.packets} bytes ${r.counter.bytes}`);
   if (r.log) parts.push(r.log.prefix ? `log prefix "${r.log.prefix}"` : 'log');
+  if (r.setMss !== undefined) parts.push(`tcp option maxseg size set ${r.setMss}`);
   if (r.verdict) {
     const v = r.verdict;
     if (v.kind === 'reject') {
@@ -475,6 +509,10 @@ export interface PacketContext {
   oif?: string;
   ctState: 'new' | 'established' | 'related' | 'untracked';
   len: number;
+  /** TCP flags of the packet (lowercase). */
+  tcpFlags?: string[];
+  /** Set by an evaluated "tcp option maxseg size set ..." statement. */
+  setMss?: number | 'rt mtu';
 }
 
 export interface EvalResult {
@@ -518,6 +556,8 @@ function matchOne(m: MatchExpr, p: PacketContext): boolean {
     }
     case 'ctstate':
       return m.values.includes(p.ctState);
+    case 'tcpflags':
+      return p.proto === 'tcp' && m.values.some((f) => (p.tcpFlags ?? []).includes(f));
     case 'iface': {
       const name = m.field.startsWith('i') ? p.iif : p.oif;
       const hit = name !== undefined && m.values.includes(name);
@@ -583,6 +623,7 @@ function runChain(table: Table, chain: Chain, p: PacketContext, logs: string[], 
       rule.counter.bytes += p.len;
     }
     if (rule.log) logs.push(rule.log.prefix);
+    if (rule.setMss !== undefined) p.setMss = rule.setMss;
     const v = rule.verdict;
     if (!v) continue;
     const decided = { table: `${table.family} ${table.name}`, chain: chain.name, rule, policy: false };

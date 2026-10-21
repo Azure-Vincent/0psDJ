@@ -584,3 +584,225 @@ export const IPV6_ASSESSMENT: Assessment = {
     },
   ],
 };
+
+export const TLS_ASSESSMENT: Assessment = {
+  id: 'tls',
+  title: 'TLS and certificates knowledge check',
+  questions: [
+    {
+      id: 'tls-q-chain', kind: 'single', level: 'beginner',
+      prompt: 'Which certificates should an HTTPS server send in its Certificate message?',
+      options: [
+        { text: 'Its own certificate followed by the intermediate CA certificate(s)', correct: true },
+        { text: 'Only its own certificate', misconception: 'Clients have roots, not intermediates: without the intermediate they cannot build the chain ("unable to get local issuer certificate" at depth 0).' },
+        { text: 'Its own certificate, the intermediates and the root', misconception: 'Sending the root is harmless but useless: the client must already trust it, a root sent by the server proves nothing.' },
+        { text: 'Only the root, so the client can check it', misconception: 'The root is the client\'s trust anchor; the server proves its identity with its own certificate.' },
+      ],
+      concepts: ['tls.pki'],
+      explanation: 'nginx sends the ssl_certificate file as is, so it must contain the leaf followed by the intermediates (a "full chain").',
+    },
+    {
+      id: 'tls-q-depth', kind: 'single', level: 'intermediate',
+      prompt: 'Only Dana\'s new laptop fails. On it, `openssl s_client` shows the exhibit. What is the most likely cause?',
+      exhibit: 'depth=1 C = US, O = Corp Lab, CN = Corp Lab Issuing CA 1\nverify error:num=20:unable to get local issuer certificate\nverify return:1\ndepth=0 CN = www.corp.lab\nverify return:1\n---\nCertificate chain\n 0 s:CN = www.corp.lab\n   i:C = US, O = Corp Lab, CN = Corp Lab Issuing CA 1\n 1 s:C = US, O = Corp Lab, CN = Corp Lab Issuing CA 1\n   i:C = US, O = Corp Lab, CN = Corp Lab Root CA',
+      options: [
+        { text: 'The laptop does not trust Corp Lab Root CA', correct: true },
+        { text: 'The server does not send the intermediate', misconception: 'The chain shows two certificates, and the error is at depth 1 (the intermediate\'s issuer), not at depth 0.' },
+        { text: 'The certificate has expired', misconception: 'That would be error 10.' },
+        { text: 'The certificate does not cover www.corp.lab', misconception: 'Name checks are separate from chain verification; s_client does not even check the name by default.' },
+      ],
+      concepts: ['tls.pki'],
+      explanation: 'The chain is complete up to the intermediate; the client cannot find its issuer (the root) in its own trust store. Other clients work because they have the root.',
+    },
+    {
+      id: 'tls-q-san', kind: 'single', level: 'beginner',
+      prompt: 'A certificate has CN = www.corp.lab and subjectAltName = DNS:srv01.corp.lab. Does `curl https://www.corp.lab/` accept it?',
+      options: [
+        { text: 'No: when a subjectAltName is present, clients ignore the CN', correct: true },
+        { text: 'Yes: the CN matches', misconception: 'The CN fallback only applies when the certificate has no DNS subjectAltName at all (and browsers dropped it entirely).' },
+        { text: 'Yes, because www.corp.lab is a CNAME for srv01', misconception: 'Clients compare the name they asked for, not where DNS points.' },
+      ],
+      concepts: ['tls.pki'],
+      explanation: 'curl: "(60) SSL: no alternative certificate subject name matches target host name \'www.corp.lab\'". Request certificates with every name in the SAN.',
+    },
+    {
+      id: 'tls-q-reload', kind: 'single', level: 'intermediate',
+      prompt: 'You copied a renewed certificate over the old file but kept the old key, then ran `systemctl reload nginx`. What do clients see?',
+      options: [
+        { text: 'The old certificate: the reload failed (key values mismatch) and nginx kept its previous configuration', correct: true },
+        { text: 'The new certificate', misconception: 'nginx refuses a certificate whose public key does not match the private key.' },
+        { text: 'Connection refused: nginx stopped', misconception: 'A failed reload does not stop the running master; a restart or reboot would.' },
+      ],
+      concepts: ['tls.pki', 'svc.systemd'],
+      explanation: 'nginx validates the new configuration before switching. Check `nginx -t` and the reload\'s exit status; compare moduli of certificate and key.',
+    },
+    {
+      id: 'tls-q-match', kind: 'text', level: 'intermediate',
+      prompt: 'Which openssl command prints the modulus of the private key /etc/ssl/private/www.corp.lab.key (to compare it with the certificate\'s)?',
+      accept: [/^openssl (rsa|pkey) -in \/etc\/ssl\/private\/www\.corp\.lab\.key (-noout )?-modulus( -noout)?$/, /^openssl (rsa|pkey) -noout -modulus -in \/etc\/ssl\/private\/www\.corp\.lab\.key$/, /^openssl (rsa|pkey) -modulus -noout -in \/etc\/ssl\/private\/www\.corp\.lab\.key$/],
+      placeholder: 'openssl ...', concepts: ['tls.pki'],
+      explanation: '`openssl rsa -in KEY -noout -modulus` (pipe both into `openssl md5` to compare short hashes with `openssl x509 -in CERT -noout -modulus`).',
+    },
+    {
+      id: 'tls-q-trust', kind: 'order', level: 'intermediate',
+      prompt: 'Put the steps to trust an internal root CA on a Debian client in order.',
+      items: [
+        'Download the root certificate (PEM)',
+        'Compare its SHA-256 fingerprint with the value published by the PKI team',
+        'Copy it to /usr/local/share/ca-certificates/ with a .crt extension',
+        'Run update-ca-certificates',
+        'Test with curl -I https://www.corp.lab/ (no -k)',
+      ],
+      concepts: ['tls.pki'],
+      explanation: 'The fingerprint check is what makes an HTTP download safe; update-ca-certificates only picks up *.crt files.',
+    },
+    {
+      id: 'tls-q-k', kind: 'multi', level: 'beginner',
+      prompt: 'Which of these are acceptable fixes for "unable to get local issuer certificate" on all clients after a renewal? (Select all that apply.)',
+      options: [
+        { text: 'Install the full chain (certificate + intermediate) on the server and reload', correct: true },
+        { text: 'Add the intermediate to every client\'s trust store', misconception: 'Works until the CA rotates intermediates; the server is supposed to send them.' },
+        { text: 'Use curl -k in the scripts', misconception: 'Disables authentication: any on-path attacker could impersonate the server.' },
+        { text: 'Verify with s_client that the chain now has two certificates', correct: true },
+      ],
+      concepts: ['tls.pki'],
+      explanation: 'Fix the server, then check what it serves from a clean client.',
+    },
+    {
+      id: 'tls-q-errors', kind: 'single', level: 'advanced',
+      prompt: 'curl connects to port 443 and immediately prints "(35) ... wrong version number". What is going on?',
+      options: [
+        { text: 'The port speaks plain HTTP (no "ssl" on the listen line, or the wrong port)', correct: true },
+        { text: 'The certificate has expired', misconception: 'That is a (60) verification error after the handshake started.' },
+        { text: 'The firewall blocks TLS', misconception: 'A firewall drop would give a connect timeout; this server answered, just not with TLS.' },
+      ],
+      concepts: ['tls.pki', 'tcp.handshake'],
+      explanation: 'The client received bytes that are not a TLS record (an HTTP error page). The reverse case, http:// to a TLS port, returns nginx\'s "400 The plain HTTP request was sent to HTTPS port".',
+    },
+    {
+      id: 'tls-q-sni', kind: 'single', level: 'intermediate',
+      prompt: 'One nginx server on one IP address serves www.corp.lab and shop.corp.lab with two different certificates. How does it know which certificate to send?',
+      options: [
+        { text: 'From the SNI extension in the ClientHello, which carries the host name before any certificate is sent', correct: true },
+        { text: 'From the HTTP Host header', misconception: 'The Host header is encrypted and arrives only after the handshake, when the certificate has already been chosen.' },
+        { text: 'It sends both and the client picks one', misconception: 'A server presents exactly one certificate chain per handshake.' },
+        { text: 'From the client\'s IP address', misconception: 'Clients of both sites come from the same addresses.' },
+      ],
+      concepts: ['tls.pki'],
+      explanation: 'nginx matches the SNI name against server_name to pick the server block (and its ssl_certificate). Clients connecting by IP address send no SNI and get the default server.',
+    },
+    {
+      id: 'tls-q-ext', kind: 'single', level: 'beginner',
+      prompt: 'You copied corp-root.pem into /usr/local/share/ca-certificates/ and ran update-ca-certificates, which printed "0 added, 0 removed". Why?',
+      options: [
+        { text: 'Only files ending in .crt are picked up: rename it to corp-root.crt and run it again', correct: true },
+        { text: 'update-ca-certificates needs --fresh to see new files', misconception: '--fresh only rebuilds everything from scratch; it does not change which files are considered.' },
+        { text: 'The bundle is updated but the count is always 0', misconception: 'It counts certificates added and removed; 0 added means the file was ignored.' },
+        { text: 'A reboot is needed', misconception: 'The bundle file is rewritten immediately; clients read it on their next connection.' },
+      ],
+      concepts: ['tls.pki'],
+      explanation: 'Debian\'s update-ca-certificates reads *.crt (PEM content) under /usr/local/share/ca-certificates. A DER file must be converted with openssl x509 -inform der first.',
+    },
+  ],
+};
+
+export const MTU_ASSESSMENT: Assessment = {
+  id: 'mtu',
+  title: 'MTU and path MTU discovery knowledge check',
+  questions: [
+    {
+      id: 'mtu-q-ping', kind: 'text', level: 'beginner',
+      prompt: 'Which `-s` value makes `ping -M do -s N` send exactly a 1500-byte IPv4 packet?',
+      accept: ['1472'], placeholder: '1472?', concepts: ['net.mtu'],
+      explanation: '1472 bytes of data + 8 bytes ICMP header + 20 bytes IPv4 header = 1500.',
+    },
+    {
+      id: 'mtu-q-mss', kind: 'text', level: 'beginner',
+      prompt: 'A host\'s interface MTU is 1492 (PPPoE). Which TCP MSS does it announce for IPv4 connections?',
+      accept: ['1452'], placeholder: 'bytes', concepts: ['net.mtu', 'tcp.handshake'],
+      explanation: 'MSS = MTU − 20 (IPv4 header) − 20 (TCP header) = 1452. For IPv6 subtract 60: 1432.',
+    },
+    {
+      id: 'mtu-q-signature', kind: 'single', level: 'intermediate',
+      prompt: 'ping, DNS, SSH logins and `curl -I` work, but downloads stop at 0 bytes and some HTTPS sites never load. What do you test first?',
+      options: [
+        { text: 'The largest packet that passes: ping -M do -s 1472, then smaller sizes', correct: true },
+        { text: 'DNS resolution', misconception: 'Names resolve: the connections open and headers come back.' },
+        { text: 'The firewall rules for port 443', misconception: 'Port 443 connects; only large packets are lost.' },
+        { text: 'Restart the web server', misconception: 'The server answers headers; its large responses are what disappear.' },
+      ],
+      concepts: ['net.mtu'],
+      explanation: '"Small works, big hangs" is the MTU signature. ping with DF and decreasing sizes finds the limit.',
+    },
+    {
+      id: 'mtu-q-icmp', kind: 'single', level: 'intermediate',
+      prompt: 'Which ICMP message makes path MTU discovery work over IPv4?',
+      options: [
+        { text: 'Type 3 code 4: destination unreachable, fragmentation needed and DF set', correct: true },
+        { text: 'Type 11: time exceeded', misconception: 'That is TTL expiry (traceroute).' },
+        { text: 'Type 0/8: echo reply/request', misconception: 'Blocking ping is harmless for PMTUD; blocking type 3 is not.' },
+        { text: 'Type 5: redirect', misconception: 'Redirects point hosts at a better gateway.' },
+      ],
+      concepts: ['net.mtu', 'net.icmp'],
+      explanation: 'It carries the next-hop MTU. IPv6 uses ICMPv6 type 2 (packet too big), and routers never fragment.',
+    },
+    {
+      id: 'mtu-q-mismatch', kind: 'single', level: 'advanced',
+      prompt: 'rtr01\'s eth2 is set to MTU 1492; the ISP side of the same link uses 1500. Why does ws01 get no "fragmentation needed" message for downloads from the Internet?',
+      options: [
+        { text: 'The 1500-byte frames are dropped by rtr01\'s eth2 on receipt; no router forwarding decision happens, so no ICMP is generated', correct: true },
+        { text: 'Because ICMP is blocked by ws01\'s firewall', misconception: 'Nothing is generated in the first place: the drop happens in the NIC/driver on receipt.' },
+        { text: 'Because TCP never uses DF', misconception: 'Linux TCP sets DF; and here the problem is in the other direction.' },
+      ],
+      concepts: ['net.mtu'],
+      explanation: 'A mismatch on one link is invisible to PMTUD. Fix both ends to the same MTU (or clamp MSS so senders never exceed it).',
+    },
+    {
+      id: 'mtu-q-clamp', kind: 'single', level: 'advanced',
+      prompt: 'What does `tcp flags syn tcp option maxseg size set rt mtu` in rtr01\'s forward chain do?',
+      options: [
+        { text: 'Rewrites the MSS option in forwarded SYNs to the route MTU minus 40, so both endpoints send segments that fit', correct: true },
+        { text: 'Fragments large TCP packets', misconception: 'Nothing is fragmented: the endpoints simply choose smaller segments.' },
+        { text: 'Sets the interface MTU', misconception: 'It changes TCP headers, not interfaces.' },
+        { text: 'Also fixes UDP traffic', misconception: 'Only TCP has an MSS option.' },
+      ],
+      concepts: ['net.mtu', 'fw.stateful'],
+      explanation: 'MSS clamping is standard on PPPoE and VPN gateways (Cisco: ip tcp adjust-mss).',
+    },
+    {
+      id: 'mtu-q-black', kind: 'multi', level: 'intermediate',
+      prompt: 'Which configurations can create a path MTU black hole? (Select all that apply.)',
+      options: [
+        { text: 'A firewall rule "drop all ICMP" placed before "ct state established,related accept"', correct: true },
+        { text: 'A tunnel with a smaller MTU in the middle of the path, combined with filtered ICMP', correct: true },
+        { text: 'A stateful firewall that accepts related traffic', misconception: 'Related ICMP errors (including fragmentation needed) are accepted: that is what makes PMTUD work through stateful firewalls.' },
+        { text: 'Blocking only ICMP echo requests', misconception: 'Ping filtering does not affect PMTUD.' },
+      ],
+      concepts: ['net.mtu', 'fw.stateful'],
+      explanation: 'The sender must receive the type 3/4 (or ICMPv6 type 2) message; anything that drops it creates a black hole.',
+    },
+    {
+      id: 'mtu-q-v6', kind: 'single', level: 'intermediate',
+      prompt: 'An IPv6 router receives a 1500-byte packet for a link with MTU 1400. What does it do?',
+      options: [
+        { text: 'Drops it and sends ICMPv6 "packet too big" (type 2) with mtu 1400 to the sender', correct: true },
+        { text: 'Fragments it into two packets', misconception: 'IPv6 routers never fragment; only the sending host may (with a fragment header).' },
+        { text: 'Forwards it anyway', misconception: 'A link cannot carry a packet larger than its MTU.' },
+        { text: 'Sends ICMPv6 time exceeded', misconception: 'That reports an expired hop limit.' },
+      ],
+      concepts: ['net.mtu', 'net.ipv6'],
+      explanation: 'IPv6 depends entirely on PMTUD (RFC 8201), which is why ICMPv6 type 2 must never be filtered.',
+    },
+    {
+      id: 'mtu-q-jumbo', kind: 'single', level: 'advanced',
+      prompt: 'Two backup servers were set to MTU 9000. SSH between them works, but backups hang. `ping -M do -s 8972` between them gets no reply and no error. What is the most likely cause?',
+      options: [
+        { text: 'A switch between them still forwards only 1500-byte frames and drops the jumbo frames silently', correct: true },
+        { text: 'A router is sending "fragmentation needed" that a firewall drops', misconception: 'The servers are on the same VLAN: no router is involved, and a switch never sends ICMP.' },
+        { text: 'MSS clamping is missing on the servers', misconception: 'Both ends announce MSS 8960, which is correct for their MTU; the problem is the device between them.' },
+      ],
+      concepts: ['net.mtu'],
+      explanation: 'Jumbo frames must be enabled on every device in the layer-2 path. Silence (not an error) for large pings is the signature of frames dropped below layer 3.',
+    },
+  ],
+};

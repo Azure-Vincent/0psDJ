@@ -5,7 +5,7 @@ import { normAddr } from '../net/addr';
 import { broadcastOf, parseCidr, parseIp } from '../net/ip';
 import { canonicalIp6, linkLocalFromMac, parseCidr6, parseIp6 } from '../net/ip6';
 import { hasCarrier, recomputeL2 } from '../sim/l2';
-import { LOOPBACK, lookupRoute, routeTable, routeTable6 } from '../sim/network';
+import { ifaceMtu, LOOPBACK, lookupRoute, routeTable, routeTable6 } from '../sim/network';
 import type { Host, Interface, Route, World } from '../types';
 import { type CmdCtx, type CommandDef, err, ok } from './types';
 
@@ -48,7 +48,7 @@ function state(h: Host, i: Interface): string {
 function linkLines(h: Host, i: Interface, idx: number, detail: boolean): string[] {
   const lo = i.name === LOOPBACK;
   const master = h.bridge?.ports[i.name] ? ` master ${h.bridge.name}` : '';
-  const out = [`${idx + 1}: ${ifName(i)}: <${flagsOf(h, i)}> mtu ${lo ? 65536 : 1500} qdisc ${lo ? 'noqueue' : i.vlan ? 'noqueue' : 'fq_codel'}${master} state ${state(h, i)} group default qlen 1000`];
+  const out = [`${idx + 1}: ${ifName(i)}: <${flagsOf(h, i)}> mtu ${ifaceMtu(i)} qdisc ${lo ? 'noqueue' : i.vlan ? 'noqueue' : 'fq_codel'}${master} state ${state(h, i)} group default qlen 1000`];
   out.push(`    link/${lo ? 'loopback' : 'ether'} ${i.mac} brd ${lo ? '00:00:00:00:00:00' : 'ff:ff:ff:ff:ff:ff'}`);
   if (detail && i.vlan) out.push(`    vlan protocol 802.1Q id ${i.vlan.id} <REORDER_HDR> `);
   if (detail && master) out.push(`    bridge_slave state ${i.up ? 'forwarding' : 'disabled'} priority 32 cost 100 `);
@@ -183,7 +183,8 @@ export const ip: CommandDef = {
         const rd = lookupRoute(host, dst);
         if (!rd) return err('RTNETLINK answers: Network is unreachable', 2);
         if (v6) return ok(`${dst} from :: ${rd.route.via ? `via ${rd.route.via} ` : ''}dev ${rd.dev} ${rd.route.proto === 'ra' ? 'proto ra ' : rd.route.proto === 'kernel' ? 'proto kernel ' : ''}src ${rd.src} metric ${rd.route.proto === 'kernel' ? 256 : 1024} pref medium`);
-        return ok(`${dst} ${rd.route.via ? `via ${rd.route.via} ` : ''}dev ${rd.dev} src ${rd.src} uid ${ctx.user.uid} \n    cache `);
+        const pm = host.pmtu?.[dst];
+        return ok(`${dst} ${rd.route.via ? `via ${rd.route.via} ` : ''}dev ${rd.dev} src ${rd.src} uid ${ctx.user.uid} \n    cache ${pm ? `expires 599sec mtu ${pm} ` : ''}`);
       }
       if (sub === 'add' || sub === 'del' || sub === 'delete' || sub === 'replace') {
         const deny = needRoot(ctx);
@@ -279,6 +280,17 @@ export const ip: CommandDef = {
           if (iface.name !== LOOPBACK && !host.bridge?.ports[iface.name] && !(iface.addrs6 ?? []).some((a) => a.scope === 'link')) {
             iface.addrs6 = [...(iface.addrs6 ?? []), { address: linkLocalFromMac(iface.mac), prefix: 64, scope: 'link', origin: 'kernel' }];
           }
+        }
+        const mtuIdx = rest.indexOf('mtu');
+        if (mtuIdx >= 0) {
+          const mtu = Number(rest[mtuIdx + 1]);
+          if (!Number.isInteger(mtu)) return err(`Error: argument "${rest[mtuIdx + 1] ?? ''}" is wrong: Invalid "mtu" value`, 255);
+          if (mtu < 68) return err('Error: mtu less than device minimum.', 2);
+          if (mtu > 9216) return err('Error: mtu greater than device maximum.', 2);
+          const parent = iface.vlan ? host.ifaces.find((x) => x.name === iface.vlan!.parent) : undefined;
+          if (parent && mtu > ifaceMtu(parent)) return err('Error: mtu greater than device maximum.', 2);
+          iface.mtu = mtu;
+          host.pmtu = {};
         }
         if (rest.includes('down')) {
           iface.up = false;

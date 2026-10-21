@@ -10,6 +10,8 @@ import type { World } from '../types';
 import { freshLab } from './dependencies';
 import { formatLease } from '../config/dhcpd';
 import { RTR01_NFT } from './sshLab';
+import { fullchain, WWW_CERT, WWW_CERT_2025 } from './pkiLab';
+import { certPem, CORP_ISSUING, keyPem } from '../sim/pki';
 
 export interface VisualRun {
   id: string;
@@ -257,5 +259,55 @@ export const IPV6_RUNS: VisualRun[] = [
     id: 'no-forwarding', label: 'Router with IPv6 forwarding disabled', host: 'dev01', user: 'erin', command: 'curl -6 -I -m 3 http://srv01.corp.lab/',
     description: 'net.ipv6.conf.all.forwarding=0 on rtr01. The SYN reaches rtr01, which is not its destination and may not route it: IPv6 discards it silently (no ICMPv6 error, unlike IPv4\'s host-unreachable). curl retries and times out.',
     setup: (w) => script(w, 'rtr01', ['sysctl -w net.ipv6.conf.all.forwarding=0']),
+  },
+];
+
+function serveCert(w: World, chainPem: string, keyPem?: string) {
+  writeFile(w.hosts.srv01, '/etc/ssl/certs/www.corp.lab.crt', chainPem, w.clock);
+  if (keyPem) writeFile(w.hosts.srv01, '/etc/ssl/private/www.corp.lab.key', keyPem, w.clock);
+  script(w, 'srv01', ['systemctl reload nginx']);
+}
+
+export const TLS_RUNS: VisualRun[] = [
+  {
+    id: 'https-ok', label: 'HTTPS with a verified chain', host: 'ws01', user: 'alice', command: 'curl -v -I https://www.corp.lab/',
+    description: 'After the TCP handshake ws01 sends a ClientHello with SNI www.corp.lab. nginx answers with ServerHello and its certificate flight (www.corp.lab + Corp Lab Issuing CA 1): about 2.6 kB, so it spans two full-size segments. curl builds the chain up to Corp Lab Root CA from /etc/ssl/certs/ca-certificates.crt, checks the dates and finds www.corp.lab in the subjectAltName; only then does the encrypted HTTP request travel.',
+  },
+  {
+    id: 'tls-expired', label: 'Expired certificate: the client aborts', host: 'ws01', user: 'alice', command: 'curl -v -I https://www.corp.lab/',
+    description: 'srv01 serves last year\'s certificate (notAfter 17 Oct 2026). TCP and the first half of the handshake are identical, but after receiving the certificate curl sends a fatal "certificate expired" alert and closes: no HTTP request is ever sent. Nothing in the network is wrong.',
+    setup: (w) => serveCert(w, fullchain(WWW_CERT_2025.cert, CORP_ISSUING.cert), keyPem(WWW_CERT_2025.key)),
+  },
+  {
+    id: 'tls-chain', label: 'Missing intermediate', host: 'ws01', user: 'alice', command: 'openssl s_client -connect www.corp.lab:443 </dev/null',
+    description: 'The certificate file holds only the leaf. The certificate flight is smaller (one certificate) and s_client cannot link www.corp.lab to any trusted root: error 20 at depth 0, then 21 "unable to verify the first certificate". The fix belongs on the server (full chain), not on every client.',
+    setup: (w) => serveCert(w, certPem(WWW_CERT.cert)),
+  },
+  {
+    id: 'tls-name', label: 'Name not in the certificate', host: 'ws01', user: 'alice', command: 'curl -v -I https://10.0.20.10/',
+    description: 'Same server, same certificate, but the client asked for 10.0.20.10. The chain verifies; the name check fails because the subjectAltName lists only www.corp.lab and srv01.corp.lab. curl closes the connection after the handshake.',
+  },
+];
+
+export const MTU_RUNS: VisualRun[] = [
+  {
+    id: 'pmtud', label: 'Path MTU discovery: "fragmentation needed"', host: 'ws01', user: 'alice', command: 'ping -c 2 -M do -s 1472 203.0.113.80',
+    description: 'rtr01\'s eth2 has MTU 1492. The first 1500-byte echo request (DF set) reaches rtr01, which cannot forward it: it drops the packet and returns ICMP type 3 code 4 with mtu 1492. ws01 caches PMTU 1492 for 203.0.113.80, so the second ping fails locally with "message too long" without sending anything.',
+    setup: (w) => script(w, 'rtr01', ['ip link set dev eth2 mtu 1492']),
+  },
+  {
+    id: 'mismatch', label: 'MTU mismatch: large segments vanish', host: 'ws01', user: 'alice', command: 'curl -m 5 -o /dev/null http://203.0.113.80/downloads/tools-2.4.1.tar.gz',
+    description: 'Same 1492 on rtr01\'s eth2, but ext01\'s side of the link is 1500. The handshake and the request are small and pass; the response headers (a short segment) arrive; the first full 1500-byte data segment from ext01 is dropped by rtr01\'s eth2 on receipt. No router forwards it, so no ICMP is sent; ext01 retransmits with exponential backoff until curl gives up.',
+    setup: (w) => script(w, 'rtr01', ['ip link set dev eth2 mtu 1492']),
+  },
+  {
+    id: 'clamp', label: 'MSS clamping fixes TCP', host: 'ws01', user: 'alice', command: 'curl -I http://203.0.113.80/downloads/tools-2.4.1.tar.gz',
+    description: 'rtr01 rewrites the MSS option of forwarded SYNs leaving eth2 to the route MTU minus 40 (1452). ws01\'s SYN leaves with mss 1460 and arrives at ext01 with mss 1452, so ext01 never sends a segment larger than 1492 bytes. Compare the SYN on both sides of rtr01 in the packet inspector.',
+    setup: (w) => script(w, 'rtr01', ['ip link set dev eth2 mtu 1492', 'nft add rule inet filter forward oifname "eth2" tcp flags syn tcp option maxseg size set rt mtu']),
+  },
+  {
+    id: 'tracepath', label: 'tracepath finds the bottleneck', host: 'ws01', user: 'alice', command: 'tracepath -n 203.0.113.80',
+    description: 'tracepath sends UDP probes with DF set and increasing TTL. The first full-size probe draws "fragmentation needed (mtu 1492)" from rtr01; tracepath reports pmtu 1492 at that hop, shrinks its probes and continues to the destination.',
+    setup: (w) => script(w, 'rtr01', ['ip link set dev eth2 mtu 1492']),
   },
 ];

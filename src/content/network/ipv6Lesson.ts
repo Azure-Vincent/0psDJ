@@ -27,7 +27,7 @@ export const IPV6_LESSON: Lesson = {
 ### In the lab
 The **IPv6 pilot** runs in the development VLAN 30: rtr01 advertises **2001:db8:30::/64** with **radvd**; dev01 configures itself (SLAAC). srv01 has the static address **2001:db8:20::10** and ns1 publishes an **AAAA** record for srv01. Everything else stays IPv4-only, like many real networks in transition. (2001:db8::/32 is the documentation prefix.)
 
-> The simulator implements IPv6 addresses (link-local EUI-64, static, SLAAC), routing with longest-prefix match, Neighbor Discovery (NS/NA via solicited-node multicast) and router discovery (RS/RA from radvd), ICMPv6 echo and errors, IPv6 forwarding (silent drop when disabled), nftables ip6/inet/icmpv6 matching with "untracked" ND messages, AAAA records with getaddrinfo() address selection, curl Happy Eyeballs vs ssh sequential fallback, and IPv6/ICMPv6 in tcpdump and PCAP export. Not modelled: DHCPv6, privacy (temporary) addresses, duplicate address detection, MLD, path-MTU discovery, extension headers.
+> The simulator implements IPv6 addresses (link-local EUI-64, static, SLAAC), routing with longest-prefix match, Neighbor Discovery (NS/NA via solicited-node multicast) and router discovery (RS/RA from radvd), ICMPv6 echo and errors, IPv6 forwarding (silent drop when disabled), nftables ip6/inet/icmpv6 matching with "untracked" ND messages, AAAA records with getaddrinfo() address selection, curl Happy Eyeballs vs ssh sequential fallback, and IPv6/ICMPv6 in tcpdump and PCAP export. ICMPv6 "packet too big" and path-MTU discovery are covered in the MTU lesson. Not modelled: DHCPv6, privacy (temporary) addresses, duplicate address detection, MLD, extension headers.
 `,
 
   internals: `

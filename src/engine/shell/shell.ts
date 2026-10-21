@@ -7,14 +7,15 @@
 import { normalizePath } from '../fs';
 import { endSession } from '../sim/ssh';
 import type { World } from '../types';
-import { FILE_COMMANDS, resolvePath, writeChecked } from './cmdFiles';
+import { FILE_COMMANDS, getFile, resolvePath, writeChecked } from './cmdFiles';
 import { NET_COMMANDS } from './cmdNet';
+import { HTTP_COMMANDS } from './cmdHttp';
 import { SYSTEM_COMMANDS } from './cmdSystem';
 import { parseCommandLine } from './tokenize';
 import { type CmdCtx, type CmdResult, type CommandDef, type EditorRequest, NeedInput, type SessionFrame } from './types';
 
 export const COMMANDS: Record<string, CommandDef> = Object.fromEntries(
-  [...FILE_COMMANDS, ...NET_COMMANDS, ...SYSTEM_COMMANDS].map((c) => [c.name, c]),
+  [...FILE_COMMANDS, ...NET_COMMANDS, ...HTTP_COMMANDS, ...SYSTEM_COMMANDS].map((c) => [c.name, c]),
 );
 
 export interface ExecResult {
@@ -89,12 +90,25 @@ export class Shell {
           let input = stdin;
           let segOut = '';
           for (const seg of item.pipeline) {
-            const r = runArgv(frame, seg.argv, input);
+            if (seg.stdinFile) {
+              const h = world.hosts[frame.hostId];
+              const f = getFile(makeCtx(frame, undefined), normalizePath(seg.stdinFile, frame.cwd, h.users[frame.user].home));
+              if (f.error) { segOut = `-bash: ${seg.stdinFile}: ${f.error}`; code = 1; break; }
+              input = f.content;
+            }
+            // Like bash, open (and truncate) the redirect target before the command runs:
+            // "cat a b > a" reads an already empty a.
+            let redirectPath: string | undefined;
             if (seg.redirect) {
               const host = world.hosts[frame.hostId];
-              const ctxUser = host.users[frame.user];
-              const path = normalizePath(seg.redirect.file, frame.cwd, ctxUser.home);
-              const e = writeChecked(makeCtx(frame, undefined), path, r.out ? r.out + '\n' : '', seg.redirect.append);
+              redirectPath = normalizePath(seg.redirect.file, frame.cwd, host.users[frame.user].home);
+              const e = writeChecked(makeCtx(frame, undefined), redirectPath, '', true);
+              const trunc = e ?? (seg.redirect.append ? null : writeChecked(makeCtx(frame, undefined), redirectPath, ''));
+              if (trunc) { segOut = `-bash: ${seg.redirect.file}: ${trunc}`; code = 1; input = ''; continue; }
+            }
+            const r = runArgv(frame, seg.argv, input);
+            if (seg.redirect && redirectPath) {
+              const e = writeChecked(makeCtx(frame, undefined), redirectPath, r.out ? r.out + '\n' : '', true);
               segOut = e ? `-bash: ${seg.redirect.file}: ${e}` : '';
               code = e ? 1 : r.code;
             } else {

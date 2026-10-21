@@ -36,6 +36,19 @@ export const IPV6_LANES: Lane[] = [
   { id: 'ns1', label: 'ns1', sub: 'DNS (A + AAAA)' },
 ];
 
+export const TLS_LANES: Lane[] = [
+  { id: 'ws01', label: 'ws01', sub: 'curl / openssl' },
+  { id: 'ns1', label: 'ns1', sub: 'DNS www → srv01' },
+  { id: 'rtr01', label: 'rtr01', sub: 'router' },
+  { id: 'srv01', label: 'srv01', sub: 'nginx :443' },
+];
+
+export const MTU_LANES: Lane[] = [
+  { id: 'ws01', label: 'ws01', sub: 'office · mtu 1500' },
+  { id: 'rtr01', label: 'rtr01', sub: 'eth2 uplink' },
+  { id: 'ext01', label: 'ext01', sub: 'Internet 203.0.113.80' },
+];
+
 export function segmentOf(host: string, iface?: string): string {
   if (host === 'rtr01') return iface === 'eth1' ? 'srv20' : iface === 'eth2' ? 'wan' : iface?.startsWith('eth3') ? 'dev30 (VLAN 30)' : 'lan10';
   if (host === 'srv01') return 'srv20';

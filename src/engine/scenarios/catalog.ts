@@ -216,5 +216,40 @@ export const CAUSES: Record<string, Cause> = Object.fromEntries(
       signature: 'IPv6 packets reach the server (tcpdump there shows SYNs) but replies cannot be routed back to other subnets; the client times out. The server reaches hosts on its own /64 only.',
       check: 'ip -6 route on the server (no "default via"); the inet6 stanza in /etc/network/interfaces.',
     },
+    {
+      id: 'tls-cert-expired', title: 'The server certificate has expired', category: 'Cryptography', concept: 'tls.pki',
+      signature: 'Every client that verifies certificates fails with "certificate has expired" (curl (60), browsers NET::ERR_CERT_DATE_INVALID), from every network, at the same moment. TCP connects fine; the TLS handshake is aborted by the client after it receives the certificate.',
+      check: 'openssl s_client -connect host:443 </dev/null | openssl x509 -noout -dates (what the server actually presents); openssl x509 -noout -enddate -in the configured file; compare with "date".',
+    },
+    {
+      id: 'tls-key-mismatch', title: 'Certificate and private key do not belong together', category: 'Configuration', concept: 'tls.pki',
+      signature: 'nginx -t fails with "SSL_CTX_use_PrivateKey(...) failed ... key values mismatch". A reload fails, so the old certificate stays in memory and keeps being served; a restart or reboot takes the HTTPS site down entirely.',
+      check: 'nginx -t; journalctl -u nginx; compare "openssl x509 -noout -modulus -in CERT | openssl md5" with "openssl rsa -noout -modulus -in KEY | openssl md5".',
+    },
+    {
+      id: 'tls-name-mismatch', title: 'Certificate does not cover the host name clients use', category: 'Cryptography', concept: 'tls.pki',
+      signature: 'The chain verifies, but the client rejects the name: curl "(60) SSL: no alternative certificate subject name matches target host name". Names listed in the certificate\'s subjectAltName work; others fail.',
+      check: 'openssl x509 -noout -ext subjectAltName on the served certificate; curl -v (subjectAltName lines); which ssl_certificate does the server block use?',
+    },
+    {
+      id: 'tls-chain-incomplete', title: 'Server does not send the intermediate CA certificate', category: 'Configuration', concept: 'tls.pki',
+      signature: 'Clients that trust the root still fail with "unable to get local issuer certificate" (depth 0) and s_client shows a chain of length 1 ("unable to verify the first certificate"). Browsers that cached the intermediate may still work, which makes it look intermittent.',
+      check: 'openssl s_client -connect host:443 (Certificate chain section: how many certificates?); grep -c BEGIN on the ssl_certificate file; openssl verify -untrusted INTERMEDIATE CERT.',
+    },
+    {
+      id: 'tls-untrusted-root', title: 'Client does not trust the issuing root CA', category: 'Client', concept: 'tls.pki',
+      signature: 'Only some clients fail with "unable to get local issuer certificate" while others connect fine to the same server. The server sends the complete chain (s_client depth=1 error), but this client\'s trust store lacks the root.',
+      check: 'Compare the failing client with a working one; grep the root\'s subject in /etc/ssl/certs/ca-certificates.crt; ls /usr/local/share/ca-certificates.',
+    },
+    {
+      id: 'mtu-mismatch', title: 'MTU mismatch on a link', category: 'Network path', concept: 'net.mtu',
+      signature: 'Small packets work (ping, DNS, ssh login, curl -I, TCP handshakes) but large transfers and TLS handshakes stall after the first packets. The two ends of one link use different MTUs, so full-size frames are dropped silently by the side with the smaller MTU; no ICMP error is generated.',
+      check: 'ip link on both ends of each link on the path; ping -M do -s 1472 (and smaller) to find the largest size that passes; tracepath; tcpdump showing repeated retransmissions of full-size segments.',
+    },
+    {
+      id: 'pmtud-blackhole', title: 'Path MTU discovery black hole (ICMP "fragmentation needed" filtered)', category: 'Firewall', concept: 'net.mtu',
+      signature: 'Like an MTU problem: small packets work, large ones stall. A router on the path has a smaller MTU and sends ICMP "fragmentation needed", but a firewall drops it, so the sender never lowers its segment size.',
+      check: 'ping -M do -s SIZE: an error reply (Frag needed) means PMTUD works; silence means the ICMP is lost. Check firewalls for rules dropping ICMP type 3 / ICMPv6 type 2.',
+    },
   ] as Cause[]).map((c) => [c.id, c]),
 );

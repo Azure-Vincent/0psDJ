@@ -249,6 +249,7 @@ function toContext(p: Packet, host: Host, iif?: string, oif?: string): PacketCon
     oif,
     ctState: ctState(host, p),
     len: packetLength(p),
+    tcpFlags: p.tcp?.flags.map((f) => f.toLowerCase()),
   };
 }
 
@@ -428,7 +429,7 @@ export type Delivery =
   | { status: 'delivered'; host: string; hops: HopRecord[]; error?: undefined; /** The packet as received (after any NAT on the path). */ final: Packet }
   | { status: 'dropped'; host: string; hops: HopRecord[]; reason: string; error?: IcmpErrorReturn }
   | { status: 'rejected'; host: string; hops: HopRecord[]; reason: string; rejectWith: RejectType; error?: IcmpErrorReturn; rst?: { packet: Packet; delivered: boolean } }
-  | { status: 'local-error'; host: string; hops: HopRecord[]; errno: 'ENETUNREACH' | 'EHOSTUNREACH' | 'EPERM'; reason: string; error?: undefined };
+  | { status: 'local-error'; host: string; hops: HopRecord[]; errno: 'ENETUNREACH' | 'EHOSTUNREACH' | 'EPERM' | 'EMSGSIZE'; reason: string; error?: undefined; mtu?: number };
 
 export interface IcmpErrorReturn {
   packet: Packet;
@@ -443,6 +444,7 @@ const ICMP_DESC: Record<string, { type: number; code: number; description: strin
   'port-unreachable': { type: 3, code: 3, description: 'Destination unreachable (Port unreachable)' },
   'admin-prohibited': { type: 3, code: 13, description: 'Destination unreachable (Communication administratively filtered)' },
   'ttl-exceeded': { type: 11, code: 0, description: 'Time-to-live exceeded (Time to live exceeded in transit)' },
+  'frag-needed': { type: 3, code: 4, description: 'Destination unreachable (Fragmentation needed)' },
 };
 
 const ICMP6_DESC: Record<string, { type: number; code: number; description: string }> = {
@@ -451,6 +453,7 @@ const ICMP6_DESC: Record<string, { type: number; code: number; description: stri
   'port-unreachable': { type: 1, code: 4, description: 'Destination unreachable (Port unreachable)' },
   'admin-prohibited': { type: 1, code: 1, description: 'Destination unreachable (Communication with destination administratively prohibited)' },
   'ttl-exceeded': { type: 3, code: 0, description: 'Time exceeded (Hop limit exceeded in transit)' },
+  'frag-needed': { type: 2, code: 0, description: 'Packet too big' },
 };
 
 const ICMP_EXPLAIN: Record<string, (h: string, p: Packet) => string> = {
@@ -461,10 +464,66 @@ const ICMP_EXPLAIN: Record<string, (h: string, p: Packet) => string> = {
   'port-unreachable': (h, p) => `${h} received a ${p.proto.toUpperCase()} datagram for a port with no listening socket (or a firewall rejected it with port-unreachable). For UDP this is how "connection refused" is signalled; resolvers move to the next server immediately.`,
   'admin-prohibited': (h) => `A firewall rule on ${h} rejected the packet with "communication administratively prohibited" (type 3 code 13). Clients report "No route to host", which misleadingly suggests a routing problem.`,
   'ttl-exceeded': (h, p) => `The ${p.dst.includes(':') ? 'hop limit' : 'TTL'} reached zero at ${h}, which discards the packet and reports "time exceeded". traceroute uses this deliberately to discover each router on the path.`,
+  'frag-needed': (h, p) => p.dst.includes(':')
+    ? `The packet (${packetSize(p)} bytes) is larger than the MTU of ${h}'s next link. IPv6 routers never fragment, so ${h} drops it and sends ICMPv6 "Packet Too Big" with the link MTU. The sender lowers its path MTU and resends smaller packets. If a firewall drops this message, large transfers hang: a path MTU black hole.`
+    : `The packet (${packetSize(p)} bytes) is larger than the MTU of ${h}'s next link and has the Don't Fragment bit set (TCP always sets it for path MTU discovery). ${h} drops it and sends ICMP "fragmentation needed" with the next-hop MTU. The sender lowers its path MTU and resends smaller segments. If a firewall drops this message, small packets work but large transfers hang: a path MTU black hole.`,
 };
 
+
+// ---------------------------------------------------------------------------
+// MTU and path MTU discovery
+// ---------------------------------------------------------------------------
+
+export const DEFAULT_MTU = 1500;
+
+export function ifaceMtu(i: Interface): number {
+  return i.mtu ?? (i.name === LOOPBACK ? 65536 : DEFAULT_MTU);
+}
+
+/** Size of the IP packet in bytes (IP header + transport header + payload). */
+export function packetSize(p: Packet): number {
+  const ip = p.dst.includes(':') ? 40 : 20;
+  if (p.tcp) return ip + (p.tcp.flags.includes('SYN') ? 40 : 32) + p.tcp.len;
+  if (p.udp) return ip + 8 + p.udp.len;
+  if (p.icmp) return ip + 8 + (p.icmp.quoted ? 28 : p.icmp.nd ? 24 : p.icmp.size ?? 56);
+  return ip;
+}
+
+/** IPv4 packets may be fragmented by routers unless DF is set; TCP sets DF. IPv6 is never fragmented in transit. */
+function dontFragment(p: Packet): boolean {
+  return p.dst.includes(':') || (p.df ?? p.proto === 'tcp');
+}
+
+/** Is this an ICMP "fragmentation needed" / ICMPv6 "packet too big" error? */
+export function isFragNeeded(p: Packet): boolean {
+  const i = p.icmp;
+  if (!i || i.mtu === undefined) return false;
+  return p.src.includes(':') ? i.type === 2 : i.type === 3 && i.code === 4;
+}
+
+/** Path MTU towards `dst` as known to `host` (learned PMTU, else the egress interface MTU). */
+export function pathMtu(host: Host, dst: string): number {
+  const rd = lookupRoute(host, dst);
+  const egress = rd ? host.ifaces.find((i) => i.name === rd.dev) : undefined;
+  const link = egress ? ifaceMtu(egress) : DEFAULT_MTU;
+  return Math.min(link, host.pmtu?.[dst] ?? Infinity);
+}
+
+/**
+ * MTU checks for a packet leaving `host` on `egress` towards `peer`.
+ * Returns null when it fits; otherwise what happens to it.
+ */
+function mtuCheck(p: Packet, egress: Interface, peer: Interface): { fits: false; size: number; mtu: number; where: 'egress' | 'peer'; df: boolean } | null {
+  const size = packetSize(p);
+  const out = ifaceMtu(egress);
+  if (size > out) return { fits: false, size, mtu: out, where: 'egress', df: dontFragment(p) };
+  // A frame larger than the receiving NIC's MTU is discarded by that NIC (no ICMP: it is a layer-2 drop).
+  if (size > ifaceMtu(peer)) return { fits: false, size, mtu: ifaceMtu(peer), where: 'peer', df: dontFragment(p) };
+  return null;
+}
+
 /** Send an ICMP error from `host` about `offending`. Errors are never sent about ICMP errors. */
-export function sendIcmpError(world: World, host: Host, offending: Packet, kind: keyof typeof ICMP_DESC): IcmpErrorReturn | undefined {
+export function sendIcmpError(world: World, host: Host, offending: Packet, kind: keyof typeof ICMP_DESC, mtu?: number): IcmpErrorReturn | undefined {
   if (offending.icmp?.quoted || isNdp(offending)) return undefined;
   const v6 = offending.src.includes(':');
   const route = lookupRoute(host, offending.src);
@@ -472,7 +531,7 @@ export function sendIcmpError(world: World, host: Host, offending: Packet, kind:
   const d = (v6 ? ICMP6_DESC : ICMP_DESC)[kind];
   const pkt: Packet = {
     id: nextId(world), src, dst: offending.src, ttl: 64, proto: 'icmp',
-    icmp: { type: d.type, code: d.code, description: d.description, quoted: quote(offending) },
+    icmp: { type: d.type, code: d.code, description: d.description, quoted: quote(offending), ...(mtu ? { mtu } : {}) },
   };
   const res = transmit(world, host.id, pkt);
   activeRecorder()?.describe(pkt.id, `${v6 ? 'ICMPv6' : 'ICMP'} ${d.description}`, ICMP_EXPLAIN[kind](host.hostname, offending));
@@ -655,6 +714,10 @@ function transmitInner(world: World, fromHostId: string, original: Packet, opts:
         fw.logs.forEach((pre) => firewallLog(world, host, pre, p, ingress!.name, undefined));
         if (fw.verdict === 'accept') {
           ctConfirm(host, p, world.clock);
+          if (isFragNeeded(p) && p.icmp!.quoted) {
+            // The kernel records the smaller path MTU for that destination (route exception, ~10 min).
+            host.pmtu = { ...(host.pmtu ?? {}), [p.icmp!.quoted.dst]: p.icmp!.mtu! };
+          }
           hops.push({ host: host.id, ingress: ingress.name, ttl: p.ttl, note: `${nat.notes.map((n) => n + '; ').join('')}input hook: ${describeDecision('input', fw)}; delivered to the local socket layer` });
           return { status: 'delivered', host: host.id, hops, final: clonePacket(p) };
         }
@@ -687,7 +750,8 @@ function transmitInner(world: World, fromHostId: string, original: Packet, opts:
         const error = sendIcmpError(world, host, p, 'net-unreachable');
         return { status: 'dropped', host: host.id, hops, reason: 'no route', error };
       }
-      const fw = evaluate(host.nft, 'forward', toContext(p, host, ingress.name, rd.dev));
+      const fctx = toContext(p, host, ingress.name, rd.dev);
+      const fw = evaluate(host.nft, 'forward', fctx);
       fw.logs.forEach((pre) => firewallLog(world, host, pre, p, ingress!.name, rd.dev));
       if (fw.verdict !== 'accept') {
         const why = describeDecision('forward', fw);
@@ -698,6 +762,16 @@ function transmitInner(world: World, fromHostId: string, original: Packet, opts:
       }
       ctConfirm(host, p, world.clock);
       const egress = host.ifaces.find((i) => i.name === rd.dev)!;
+      let clampNote = '';
+      if (fctx.setMss !== undefined && p.tcp?.flags.includes('SYN')) {
+        // MSS clamping: lower the MSS option in SYNs crossing this router so neither end sends segments too big for the path.
+        const limit = fctx.setMss === 'rt mtu' ? ifaceMtu(egress) - (p.dst.includes(':') ? 60 : 40) : fctx.setMss;
+        const cur = Number(/MSS=(\d+)/.exec(p.tcp.options ?? '')?.[1] ?? 1460);
+        if (cur > limit) {
+          p.tcp = { ...p.tcp, options: (p.tcp.options ?? '').replace(/MSS=\d+/, `MSS=${limit}`) };
+          clampNote = `; MSS option clamped ${cur}→${limit} (tcp option maxseg size set ${fctx.setMss})`;
+        }
+      }
       const nh = resolveNeighbor(world, host, egress, rd.nextHop);
       if (!nh) {
         world.clock += 3000; // ARP / ND resolution gives up after ~3 s (3 probes, 1 s apart)
@@ -705,9 +779,19 @@ function transmitInner(world: World, fromHostId: string, original: Packet, opts:
         const error = sendIcmpError(world, host, p, 'host-unreachable');
         return { status: 'dropped', host: host.id, hops, reason: `no ${rd.nextHop.includes(':') ? 'neighbor advertisement' : 'ARP reply'} from ${rd.nextHop}`, error };
       }
+      const big = mtuCheck(p, egress, nh.iface);
+      if (big && big.where === 'egress' && big.df) {
+        hops.push({ host: host.id, ingress: ingress.name, egress: egress.name, ttl: p.ttl, note: `packet of ${big.size} bytes exceeds the MTU ${big.mtu} of ${egress.name} and ${p.dst.includes(':') ? 'IPv6 is never fragmented by routers' : 'has DF (Don\'t Fragment) set'}: dropped, ICMP ${p.dst.includes(':') ? 'packet too big' : 'fragmentation needed'} (mtu ${big.mtu}) sent back` });
+        const error = sendIcmpError(world, host, { ...p, ttl: p.ttl + 1 }, 'frag-needed', big.mtu);
+        return { status: 'dropped', host: host.id, hops, reason: `packet too big for ${egress.name} (mtu ${big.mtu})`, error };
+      }
+      if (big && big.where === 'peer') {
+        hops.push({ host: host.id, ingress: ingress.name, egress: egress.name, ttl: p.ttl, note: `frame of ${big.size} bytes is larger than the MTU (${big.mtu}) of ${nh.host.hostname} ${nh.iface.name}: the receiving NIC discards it (no ICMP error: a layer-2 drop)` });
+        return { status: 'dropped', host: nh.host.id, hops, reason: `frame larger than ${nh.host.hostname} ${nh.iface.name} MTU ${big.mtu}` };
+      }
       natPostrouting(world, host, p, nat, egress.name, egress.address);
       const sw = switchPath(world, host, egress, nh.host, nh.iface);
-      hops.push({ host: host.id, ingress: ingress.name, egress: egress.name, srcMac: egress.mac, dstMac: nh.mac, ttl: p.ttl, note: `TTL ${p.ttl + 1}→${p.ttl}; forward hook: ${describeDecision('forward', fw)}; routed via ${rd.route.dest}${rd.route.via ? ' via ' + rd.route.via : ''} dev ${egress.name}${nat.notes.length ? '; ' + nat.notes.join('; ') : ''}${sw ? '; ' + sw : ''}` });
+      hops.push({ host: host.id, ingress: ingress.name, egress: egress.name, srcMac: egress.mac, dstMac: nh.mac, ttl: p.ttl, note: `TTL ${p.ttl + 1}→${p.ttl}; forward hook: ${describeDecision('forward', fw)}; routed via ${rd.route.dest}${rd.route.via ? ' via ' + rd.route.via : ''} dev ${egress.name}${nat.notes.length ? '; ' + nat.notes.join('; ') : ''}${clampNote}${sw ? '; ' + sw : ''}${big ? `; fragmented into ${Math.ceil((big.size - 20) / (big.mtu - 20))} fragments for the ${big.mtu}-byte MTU of ${egress.name}` : ''}` });
       capture(world, host, egress, 'out', egress.mac, nh.mac, p);
       capture(world, nh.host, nh.iface, 'in', egress.mac, nh.mac, p);
       host = nh.host;
@@ -748,10 +832,22 @@ function transmitInner(world: World, fromHostId: string, original: Packet, opts:
       hops.push({ host: host.id, egress: egress.name, ttl: p.ttl, note: `${rd.nextHop.includes(':') ? 'Neighbor Discovery' : 'ARP'} for next hop ${rd.nextHop} failed (no answer on ${egress.name})` });
       return { status: 'local-error', host: host.id, hops, errno: 'EHOSTUNREACH', reason: `no ${rd.nextHop.includes(':') ? 'neighbor advertisement' : 'ARP reply'} from ${rd.nextHop}` };
     }
+    const big = mtuCheck(p, egress, nh.iface);
+    const learned = host.pmtu?.[p.dst];
+    if ((big && big.where === 'egress' && big.df) || (learned !== undefined && dontFragment(p) && packetSize(p) > learned)) {
+      const mtu = big?.where === 'egress' ? big.mtu : learned!;
+      hops.push({ host: host.id, egress: egress.name, ttl: p.ttl, note: `packet of ${packetSize(p)} bytes is larger than the ${big?.where === 'egress' ? `MTU of ${egress.name}` : 'learned path MTU'} (${mtu}) and may not be fragmented` });
+      return { status: 'local-error', host: host.id, hops, errno: 'EMSGSIZE', reason: `message too long, mtu=${mtu}`, mtu };
+    }
+    if (big && big.where === 'peer') {
+      hops.push({ host: host.id, egress: egress.name, ttl: p.ttl, note: `frame of ${big.size} bytes is larger than the MTU (${big.mtu}) of ${nh.host.hostname} ${nh.iface.name}: the receiving NIC discards it (no ICMP error: a layer-2 drop)` });
+      capture(world, host, egress, 'out', egress.mac, nh.mac, p);
+      return { status: 'dropped', host: nh.host.id, hops, reason: `frame larger than ${nh.host.hostname} ${nh.iface.name} MTU ${big.mtu}` };
+    }
     const onat = natLookup(host, p);
     natPostrouting(world, host, p, onat, egress.name, egress.address);
     const sw = switchPath(world, host, egress, nh.host, nh.iface);
-    hops.push({ host: host.id, egress: egress.name, srcMac: egress.mac, dstMac: nh.mac, ttl: p.ttl, note: `route ${rd.route.dest}${rd.route.via ? ' via ' + rd.route.via : ''} dev ${egress.name}${onat.notes.length ? '; ' + onat.notes.join('; ') : ''}${sw ? '; ' + sw : ''}` });
+    hops.push({ host: host.id, egress: egress.name, srcMac: egress.mac, dstMac: nh.mac, ttl: p.ttl, note: `route ${rd.route.dest}${rd.route.via ? ' via ' + rd.route.via : ''} dev ${egress.name}${onat.notes.length ? '; ' + onat.notes.join('; ') : ''}${sw ? '; ' + sw : ''}${big ? `; fragmented into ${Math.ceil((big.size - 20) / (big.mtu - 20))} fragments for the ${big.mtu}-byte MTU` : ''}` });
     capture(world, host, egress, 'out', egress.mac, nh.mac, p);
     capture(world, nh.host, nh.iface, 'in', egress.mac, nh.mac, p);
     host = nh.host;

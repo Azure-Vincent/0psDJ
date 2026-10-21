@@ -1,6 +1,6 @@
 // Shell-like tokenizer: quotes, escapes, pipes, redirection, && / || / ;
 
-export type Segment = { argv: string[]; redirect?: { file: string; append: boolean } };
+export type Segment = { argv: string[]; redirect?: { file: string; append: boolean }; stdinFile?: string };
 export type Pipeline = Segment[];
 export type CommandList = { pipeline: Pipeline; op: ';' | '&&' | '||' | null }[];
 
@@ -23,6 +23,13 @@ export function tokenizeLine(line: string): string[] {
       if (cur || has) { out.push(cur); cur = ''; has = false; }
       continue;
     }
+    // stderr redirection (2>file, 2>>file, 2>&1): the simulator has one output stream, so it is parsed and ignored.
+    if (c === '2' && !cur && !has && line[i + 1] === '>') {
+      const op = line[i + 2] === '>' ? '2>>' : '2>';
+      out.push('\u0000' + op);
+      i += op.length - 1;
+      continue;
+    }
     const two = line.slice(i, i + 2);
     if (two === '&&' || two === '||' || two === '>>') {
       if (cur || has) { out.push(cur); cur = ''; has = false; }
@@ -30,7 +37,7 @@ export function tokenizeLine(line: string): string[] {
       i++;
       continue;
     }
-    if (c === '|' || c === ';' || c === '>') {
+    if (c === '|' || c === ';' || c === '>' || c === '<') {
       if (cur || has) { out.push(cur); cur = ''; has = false; }
       out.push('\u0000' + c);
       continue;
@@ -59,6 +66,12 @@ export function parseCommandLine(line: string): CommandList {
     if (t.startsWith('\u0000')) {
       const op = t.slice(1);
       if (op === '|') { endSeg(); continue; }
+      if (op === '2>' || op === '2>>' || op === '<') {
+        const file = toks[++i];
+        if (!file || file.startsWith('\u0000')) throw new Error('syntax error near unexpected token `newline\'');
+        if (op === '<') seg.stdinFile = file;
+        continue;
+      }
       if (op === '>' || op === '>>') {
         const file = toks[++i];
         if (!file || file.startsWith('\u0000')) throw new Error('syntax error near unexpected token `newline\'');

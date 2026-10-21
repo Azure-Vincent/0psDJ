@@ -6,11 +6,11 @@
 
 import type { AppLayer, Host, Packet, TcpFlag, World } from '../types';
 import { seededInt } from '../util/sha256';
-import { type Delivery, icmpMeaning, makeRst, nextId, sourceAddress, transmit } from './network';
+import { type Delivery, icmpMeaning, isFragNeeded, makeRst, nextId, pathMtu, sourceAddress, transmit } from './network';
 import { findListener } from './services';
 import { activeRecorder } from './trace';
 
-export type ConnectErrno = 'ECONNREFUSED' | 'ETIMEDOUT' | 'EHOSTUNREACH' | 'ENETUNREACH' | 'EPERM';
+export type ConnectErrno = 'ECONNREFUSED' | 'ETIMEDOUT' | 'EHOSTUNREACH' | 'ENETUNREACH' | 'EPERM' | 'EMSGSIZE';
 
 export const ERRNO_TEXT: Record<ConnectErrno, string> = {
   ECONNREFUSED: 'Connection refused',
@@ -18,6 +18,7 @@ export const ERRNO_TEXT: Record<ConnectErrno, string> = {
   EHOSTUNREACH: 'No route to host',
   ENETUNREACH: 'Network is unreachable',
   EPERM: 'Operation not permitted',
+  EMSGSIZE: 'Message too long',
 };
 
 /** The connection as the server sees it (differs from the client's view behind NAT). */
@@ -49,8 +50,81 @@ export class TcpConn {
     this.sv = sv ?? { local: serverIp, localPort: serverPort, peer: clientIp, peerPort: clientPort };
   }
 
-  /** Send a data segment. Returns false if it did not reach the peer. */
+  /** MSS each side advertised in its SYN, as received by the peer (after any MSS clamping on the path). */
+  mssFromClient = 1460;
+  mssFromServer = 1460;
+  /** Absolute clock (ms) after which sends give up (curl -m, ssh ConnectTimeout...). */
+  deadline?: number;
+  /** Why the last send failed: the peer never acknowledged (retransmissions exhausted) or the deadline passed. */
+  lastError?: 'ETIMEDOUT' | 'deadline';
+
+  /**
+   * Send `len` bytes of application data. Data larger than the path allows is split into
+   * MSS-sized segments; an ICMP "fragmentation needed" lowers the path MTU and the data is
+   * resent in smaller segments. Segments that vanish (e.g. because that ICMP error is
+   * filtered) are retransmitted with exponential backoff until net.ipv4.tcp_retries2 (15)
+   * is exhausted or the deadline passes. Returns ok=false if the data did not reach the peer.
+   */
   send(dir: 'c2s' | 's2c', len: number, app?: AppLayer, flags: TcpFlag[] = ['PSH', 'ACK']): { ok: boolean; packet: Packet; delivery: Delivery } {
+    if (len === 0) return this.sendSegment(dir, 0, app, flags);
+    const c2s = dir === 'c2s';
+    const sender = c2s ? this.client : this.server;
+    const dst = c2s ? this.serverIp : this.sv.peer;
+    const v6 = dst.includes(':');
+    const rec = activeRecorder();
+    const maxPayload = () => Math.max(64, Math.min(c2s ? this.mssFromServer : this.mssFromClient, pathMtu(sender, dst) - (v6 ? 60 : 40)) - 12);
+    let remaining = len;
+    let first: { ok: boolean; packet: Packet; delivery: Delivery } | null = null;
+    let last: { ok: boolean; packet: Packet; delivery: Delivery } | null = null;
+    while (remaining > 0) {
+      let rto = 200;
+      let retries = 0;
+      for (;;) {
+        const seg = Math.min(remaining, maxPayload());
+        const isLast = seg === remaining;
+        const r = this.sendSegment(dir, seg, first ? undefined : app, isLast ? flags : ['ACK'], true);
+        first ??= r;
+        last = r;
+        if (r.ok) {
+          this.advance(dir, seg);
+          remaining -= seg;
+          break;
+        }
+        const d = r.delivery;
+        if ((d.status === 'local-error' && d.errno === 'EMSGSIZE') || (d.error?.delivered && isFragNeeded(d.error.packet))) {
+          // Path MTU lowered: resend immediately in smaller segments.
+          rec?.describe(r.packet.id, `TCP segment too big (${seg} bytes of data)`, `This segment did not fit the path MTU. ${d.status === 'local-error' ? `The sender already knows the path MTU is ${d.mtu}.` : `A router answered with ICMP ${v6 ? '"packet too big"' : '"fragmentation needed"'} (mtu ${d.error!.packet.icmp!.mtu}), so the kernel lowers the path MTU for ${dst}`} and resends the data in smaller segments. This is path MTU discovery working as designed.`);
+          continue;
+        }
+        if (this.deadline !== undefined && this.world.clock + rto >= this.deadline) {
+          this.world.clock = Math.max(this.world.clock, this.deadline);
+          this.lastError = 'deadline';
+          return { ...last, ok: false };
+        }
+        if (++retries > 15) {
+          this.lastError = 'ETIMEDOUT';
+          return { ...last, ok: false };
+        }
+        rec?.describe(r.packet.id, `TCP segment lost (${seg} bytes)`, `No acknowledgement came back for this segment, so the kernel retransmits it after ${rto} ms, doubling the timeout each time (up to net.ipv4.tcp_retries2=15 retransmissions, about 15 minutes). If small packets get through but full-size segments are retransmitted forever and no ICMP error arrives, suspect a path MTU black hole: a link with a smaller MTU whose "fragmentation needed" messages are filtered.`);
+        this.world.clock += rto;
+        rto = Math.min(rto * 2, 120_000);
+      }
+    }
+    return first!.ok ? last! : first!;
+  }
+
+  /** Account for `n` bytes delivered without simulating each segment (bulk transfers). */
+  skip(dir: 'c2s' | 's2c', n: number): void {
+    this.advance(dir, n);
+  }
+
+  private advance(dir: 'c2s' | 's2c', n: number): void {
+    if (dir === 'c2s') this.clientSeq = (this.clientSeq + n) >>> 0;
+    else this.serverSeq = (this.serverSeq + n) >>> 0;
+  }
+
+  /** Transmit one segment. With `deferAdvance`, the sequence number only advances once the caller knows it arrived. */
+  private sendSegment(dir: 'c2s' | 's2c', len: number, app?: AppLayer, flags: TcpFlag[] = ['PSH', 'ACK'], deferAdvance = false): { ok: boolean; packet: Packet; delivery: Delivery } {
     const c2s = dir === 'c2s';
     const p: Packet = {
       id: nextId(this.world),
@@ -70,9 +144,7 @@ export class TcpConn {
       },
       app,
     };
-    const advance = len + (flags.includes('FIN') ? 1 : 0);
-    if (c2s) this.clientSeq = (this.clientSeq + advance) >>> 0;
-    else this.serverSeq = (this.serverSeq + advance) >>> 0;
+    if (!deferAdvance) this.advance(dir, len + (flags.includes('FIN') ? 1 : 0));
     this.world.clock += 0.3;
     const delivery = transmit(this.world, c2s ? this.client.id : this.server.id, p);
     return { ok: delivery.status === 'delivered', packet: p, delivery };
@@ -97,6 +169,20 @@ export type ConnectResult =
   | { ok: true; conn: TcpConn; elapsedMs: number; attempts: number }
   | { ok: false; errno: ConnectErrno; elapsedMs: number; attempts: number; detail: string };
 
+/** MTU of the interface `host` would use to reach `dst` (ignores learned path MTU, as the SYN's MSS does). */
+function linkMtu(host: Host, dst: string): number {
+  const prev = host.pmtu;
+  host.pmtu = undefined;
+  const m = pathMtu(host, dst);
+  host.pmtu = prev;
+  return m;
+}
+
+function mssOf(options?: string): number | undefined {
+  const m = /MSS=(\d+)/.exec(options ?? '');
+  return m ? Number(m[1]) : undefined;
+}
+
 function ephemeralPort(world: World, host: Host): number {
   return seededInt(`${host.id}:${world.counter}`, 40000, 60999);
 }
@@ -116,17 +202,20 @@ export function tcpConnect(world: World, client: Host, dstIp: string, dport: num
   const srcIp = sourceAddress(client, dstIp);
   const rec = activeRecorder();
   if (rec) rec.phase = 'TCP';
+  // Each side advertises MSS = its outgoing interface MTU minus IP and TCP headers.
+  const hdr = dstIp.includes(':') ? 60 : 40;
+  const clientMss = linkMtu(client, dstIp) - hdr;
 
   let rto = 1000;
   for (let attempt = 0; attempt <= synRetries; attempt++) {
     const syn: Packet = {
       id: nextId(world), src: srcIp, dst: dstIp, ttl: 64, proto: 'tcp',
-      tcp: { sport, dport, seq: isn, ack: 0, flags: ['SYN'], window: 64240, len: 0, options: 'MSS=1460,SACK_PERM,TS,WS=128' },
+      tcp: { sport, dport, seq: isn, ack: 0, flags: ['SYN'], window: 64240, len: 0, options: `MSS=${clientMss},SACK_PERM,TS,WS=128` },
     };
     if (rec) rec.setState(client.id, { tcp: 'SYN_SENT' });
     const d = transmit(world, client.id, syn);
     rec?.describe(syn.id, attempt === 0 ? 'TCP SYN' : `TCP SYN (retransmission #${attempt})`, attempt === 0
-      ? `Step 1 of the three-way handshake. The client picks a random Initial Sequence Number (ISN=${isn}) and advertises options: MSS 1460 (largest segment it accepts), SACK permitted, timestamps and window scaling. Socket state: SYN_SENT.`
+      ? `Step 1 of the three-way handshake. The client picks a random Initial Sequence Number (ISN=${isn}) and advertises options: MSS ${clientMss} (largest segment it accepts: its interface MTU minus ${hdr} bytes of headers), SACK permitted, timestamps and window scaling. Socket state: SYN_SENT.`
       : `No SYN-ACK arrived within the retransmission timeout, so the kernel resends the identical SYN (same ISN and source port). Linux doubles the timeout each time (1, 2, 4, 8, 16, 32 s) and gives up after net.ipv4.tcp_syn_retries=6 retransmissions (~127 s). Repeated identical SYNs in a capture mean "nothing is answering".`);
     const fail = (errno: ConnectErrno, detail: string): ConnectResult => {
       if (rec) rec.setState(client.id, { tcp: 'CLOSED' });
@@ -147,15 +236,18 @@ export function tcpConnect(world: World, client: Host, dstIp: string, dport: num
       } else {
         const sisn = seededInt(`isn:${server.id}:${dport}:${world.counter}`, 1, 0x7fffffff);
         if (rec) rec.setState(server.id, { tcp: 'SYN_RECV' });
+        const serverMss = linkMtu(server, sv.peer) - hdr;
         const synack: Packet = {
           id: nextId(world), src: sv.local, dst: sv.peer, ttl: 64, proto: 'tcp',
-          tcp: { sport: sv.localPort, dport: sv.peerPort, seq: sisn, ack: (isn + 1) >>> 0, flags: ['SYN', 'ACK'], window: 65160, len: 0, options: 'MSS=1460,SACK_PERM,TS,WS=128' },
+          tcp: { sport: sv.localPort, dport: sv.peerPort, seq: sisn, ack: (isn + 1) >>> 0, flags: ['SYN', 'ACK'], window: 65160, len: 0, options: `MSS=${serverMss},SACK_PERM,TS,WS=128` },
         };
         world.clock += 0.3;
         const r = transmit(world, server.id, synack);
         rec?.describe(synack.id, 'TCP SYN-ACK', `Step 2. ${listener.process} (pid ${listener.pid}) has a listening socket on ${listener.addr}:${listener.port}, so the kernel accepts the SYN, stores a half-open connection (SYN_RECV), picks its own ISN (${sisn}) and acknowledges the client's ISN+1 (Ack=${(isn + 1) >>> 0}). The application is not involved yet: the kernel completes the handshake and queues the connection for accept().`);
         if (r.status === 'delivered') {
           const conn = new TcpConn(world, client, server, srcIp, dstIp, sport, dport, (isn + 1) >>> 0, (sisn + 1) >>> 0, sv);
+          conn.mssFromClient = mssOf(f.tcp!.options) ?? clientMss;
+          conn.mssFromServer = mssOf(r.final.tcp!.options) ?? serverMss;
           if (rec) rec.setState(client.id, { tcp: 'ESTABLISHED' });
           const ack = conn.send('c2s', 0, undefined, ['ACK']);
           rec?.describe(ack.packet.id, 'TCP ACK (handshake complete)', `Step 3. The client acknowledges the server's ISN+1. Both sides are now ESTABLISHED and each knows the other's starting sequence number, so lost or reordered data can be detected. Firewalls with connection tracking now classify further packets of this flow as "established".`);

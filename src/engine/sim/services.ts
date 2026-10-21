@@ -10,6 +10,8 @@ import { DhcpConfigError, parseDhcpdConf } from '../config/dhcpd';
 import { dhcpAcquire, type DhcpdLoaded } from './dhcp';
 import { inCidr, parseCidr } from '../net/ip';
 import { readFile } from '../fs';
+import { parseNginxServers } from '../config/nginx';
+import { type Cert, parseCerts, parseKey } from './pki';
 import type { Host, ServiceRuntime, World } from '../types';
 import { log } from './journal';
 import { isLocalAddress, LOOPBACK } from './network';
@@ -291,8 +293,53 @@ const nftables: ServiceDef = {
 // nginx (present so that port ownership and `ss` output are realistic)
 // ---------------------------------------------------------------------------
 
+export interface NginxLoadedServer {
+  listens: { addr: string; port: number; ssl: boolean; def: boolean }[];
+  names: string[];
+  root: string;
+  index: string[];
+  ret?: { code: number; target: string };
+  /** Certificate chain and key id as read at (re)load time: nginx keeps them in memory. */
+  tls?: { chain: Cert[]; keyId: string; certPath: string };
+}
+
 export interface NginxLoaded {
   binds: { addr: string; port: number }[];
+  servers?: NginxLoadedServer[];
+}
+
+const NO_FILE = (path: string) => `BIO_new_file() failed (SSL: error:80000002:system library::No such file or directory:calling fopen(${path}, r) error:10000080:BIO routines::no such file)`;
+
+/**
+ * Load the server blocks the way nginx does at start and reload, including the TLS
+ * certificate/key checks (missing file, no PEM data, key values mismatch).
+ */
+export function loadNginxServers(host: Host, file = '/etc/nginx/nginx.conf'): { servers: NginxLoadedServer[]; errors: string[] } {
+  const errors: string[] = [];
+  const servers: NginxLoadedServer[] = [];
+  for (const s of parseNginxServers(readFile(host, file) ?? '')) {
+    const ls: NginxLoadedServer = { listens: s.listens.map(({ addr, port, ssl, def }) => ({ addr, port, ssl, def })), names: s.names, root: s.root, index: s.index, ret: s.ret };
+    const sslListen = s.listens.find((l) => l.ssl);
+    if (sslListen) {
+      if (!s.cert) {
+        errors.push(`nginx: [emerg] no "ssl_certificate" is defined for the "listen ... ssl" directive in ${file}:${sslListen.line}`);
+        continue;
+      }
+      const certText = readFile(host, s.cert.path);
+      if (certText === undefined) { errors.push(`nginx: [emerg] cannot load certificate "${s.cert.path}": ${NO_FILE(s.cert.path)}`); continue; }
+      const chain = parseCerts(certText).filter((c): c is Cert => !!c);
+      if (chain.length === 0) { errors.push(`nginx: [emerg] cannot load certificate "${s.cert.path}": PEM_read_bio_X509_AUX() failed (SSL: error:0480006C:PEM routines::no start line:Expecting: TRUSTED CERTIFICATE)`); continue; }
+      if (!s.key) { errors.push(`nginx: [emerg] no "ssl_certificate_key" is defined for certificate "${s.cert.path}" in ${file}:${s.cert.line}`); continue; }
+      const keyText = readFile(host, s.key.path);
+      if (keyText === undefined) { errors.push(`nginx: [emerg] cannot load certificate key "${s.key.path}": ${NO_FILE(s.key.path)}`); continue; }
+      const key = parseKey(keyText);
+      if (!key) { errors.push(`nginx: [emerg] cannot load certificate key "${s.key.path}": PEM_read_bio_PrivateKey() failed (SSL: error:1E08010C:DECODER routines::unsupported:No supported data to decode. Input type: PEM)`); continue; }
+      if (key.keyId !== chain[0].keyId) { errors.push(`nginx: [emerg] SSL_CTX_use_PrivateKey("${s.key.path}") failed (SSL: error:05800074:x509 certificate routines::key values mismatch)`); continue; }
+      ls.tls = { chain, keyId: key.keyId, certPath: s.cert.path };
+    }
+    servers.push(ls);
+  }
+  return { servers, errors };
 }
 
 /** Parse the `listen` directives of nginx.conf (nginx -t subset). Returns errors in nginx's format. */
@@ -324,7 +371,10 @@ export function parseNginxListens(text: string, file = '/etc/nginx/nginx.conf'):
 }
 
 function nginxLoad(world: World, host: Host, pid: number): NginxLoaded | null {
-  const { binds, errors } = parseNginxListens(readFile(host, '/etc/nginx/nginx.conf') ?? '');
+  const parsed = parseNginxListens(readFile(host, '/etc/nginx/nginx.conf') ?? '');
+  const { binds } = parsed;
+  const loaded = parsed.errors.length ? { servers: [], errors: [] } : loadNginxServers(host);
+  const errors = [...parsed.errors, ...loaded.errors];
   for (const e of errors) log(world, host, 'nginx', e, { pid, unit: 'nginx.service', priority: 'err' });
   if (errors.length) {
     log(world, host, 'nginx', 'nginx: configuration file /etc/nginx/nginx.conf test failed', { pid, unit: 'nginx.service', priority: 'err' });
@@ -341,7 +391,7 @@ function nginxLoad(world: World, host: Host, pid: number): NginxLoaded | null {
       return null;
     }
   }
-  return { binds };
+  return { binds, servers: loaded.servers };
 }
 
 const nginx: ServiceDef = {
@@ -517,6 +567,7 @@ export function applyNetworkConfig(world: World, host: Host): string[] {
     i.prefix = null;
     i.up = false;
     i.addrs6 = [];
+    delete i.mtu;
   }
   const autoCfg = ifaces.filter((c) => c.auto && c.name !== LOOPBACK);
   // VLAN sub-interfaces (Debian "vlan" package: eth3.30 → raw device eth3, VLAN id 30)
@@ -533,6 +584,11 @@ export function applyNetworkConfig(world: World, host: Host): string[] {
     const iface = host.ifaces.find((i) => i.name === cfg.name);
     if (!iface) continue;
     iface.up = true;
+    if (cfg.options.mtu !== undefined) {
+      const mtu = Number(cfg.options.mtu);
+      if (Number.isInteger(mtu) && mtu >= 68 && mtu <= 9216) iface.mtu = mtu;
+      else errors.push(`${cfg.name}: invalid mtu ${cfg.options.mtu} (68-9216)`);
+    }
     if (iface.vlan) {
       const parent = host.ifaces.find((i) => i.name === iface.vlan!.parent);
       if (parent) parent.up = true; // ifup brings the raw device up first
@@ -684,6 +740,7 @@ export function bootHost(world: World, host: Host): void {
   host.conntrack = [];
   host.nat = [];
   host.neighbors = [];
+  host.pmtu = {};
   host.routes6 = [];
   host.nft = emptyRuleset();
   for (const rt of Object.values(host.services)) {
