@@ -101,7 +101,7 @@ npm run desktop:dev    # Electron window pointing at the dev server (run `npm ru
 ## Tests
 
 ```bash
-npm test               # Vitest: 335 tests
+npm test               # Vitest: 333 tests
 npm run typecheck
 ```
 

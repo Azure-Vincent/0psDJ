@@ -3,3 +3,6 @@ dist/
 release/
 *.log
 .DS_Store
+
+# local scratch tests
+tests/zz-*
