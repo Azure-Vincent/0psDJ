@@ -679,6 +679,30 @@ export const TLS_ASSESSMENT: Assessment = {
       concepts: ['tls.pki', 'tcp.handshake'],
       explanation: 'The client received bytes that are not a TLS record (an HTTP error page). The reverse case, http:// to a TLS port, returns nginx\'s "400 The plain HTTP request was sent to HTTPS port".',
     },
+    {
+      id: 'tls-q-sni', kind: 'single', level: 'intermediate',
+      prompt: 'One nginx server on one IP address serves www.corp.lab and shop.corp.lab with two different certificates. How does it know which certificate to send?',
+      options: [
+        { text: 'From the SNI extension in the ClientHello, which carries the host name before any certificate is sent', correct: true },
+        { text: 'From the HTTP Host header', misconception: 'The Host header is encrypted and arrives only after the handshake, when the certificate has already been chosen.' },
+        { text: 'It sends both and the client picks one', misconception: 'A server presents exactly one certificate chain per handshake.' },
+        { text: 'From the client\'s IP address', misconception: 'Clients of both sites come from the same addresses.' },
+      ],
+      concepts: ['tls.pki'],
+      explanation: 'nginx matches the SNI name against server_name to pick the server block (and its ssl_certificate). Clients connecting by IP address send no SNI and get the default server.',
+    },
+    {
+      id: 'tls-q-ext', kind: 'single', level: 'beginner',
+      prompt: 'You copied corp-root.pem into /usr/local/share/ca-certificates/ and ran update-ca-certificates, which printed "0 added, 0 removed". Why?',
+      options: [
+        { text: 'Only files ending in .crt are picked up: rename it to corp-root.crt and run it again', correct: true },
+        { text: 'update-ca-certificates needs --fresh to see new files', misconception: '--fresh only rebuilds everything from scratch; it does not change which files are considered.' },
+        { text: 'The bundle is updated but the count is always 0', misconception: 'It counts certificates added and removed; 0 added means the file was ignored.' },
+        { text: 'A reboot is needed', misconception: 'The bundle file is rewritten immediately; clients read it on their next connection.' },
+      ],
+      concepts: ['tls.pki'],
+      explanation: 'Debian\'s update-ca-certificates reads *.crt (PEM content) under /usr/local/share/ca-certificates. A DER file must be converted with openssl x509 -inform der first.',
+    },
   ],
 };
 
@@ -756,6 +780,29 @@ export const MTU_ASSESSMENT: Assessment = {
       ],
       concepts: ['net.mtu', 'fw.stateful'],
       explanation: 'The sender must receive the type 3/4 (or ICMPv6 type 2) message; anything that drops it creates a black hole.',
+    },
+    {
+      id: 'mtu-q-v6', kind: 'single', level: 'intermediate',
+      prompt: 'An IPv6 router receives a 1500-byte packet for a link with MTU 1400. What does it do?',
+      options: [
+        { text: 'Drops it and sends ICMPv6 "packet too big" (type 2) with mtu 1400 to the sender', correct: true },
+        { text: 'Fragments it into two packets', misconception: 'IPv6 routers never fragment; only the sending host may (with a fragment header).' },
+        { text: 'Forwards it anyway', misconception: 'A link cannot carry a packet larger than its MTU.' },
+        { text: 'Sends ICMPv6 time exceeded', misconception: 'That reports an expired hop limit.' },
+      ],
+      concepts: ['net.mtu', 'net.ipv6'],
+      explanation: 'IPv6 depends entirely on PMTUD (RFC 8201), which is why ICMPv6 type 2 must never be filtered.',
+    },
+    {
+      id: 'mtu-q-jumbo', kind: 'single', level: 'advanced',
+      prompt: 'Two backup servers were set to MTU 9000. SSH between them works, but backups hang. `ping -M do -s 8972` between them gets no reply and no error. What is the most likely cause?',
+      options: [
+        { text: 'A switch between them still forwards only 1500-byte frames and drops the jumbo frames silently', correct: true },
+        { text: 'A router is sending "fragmentation needed" that a firewall drops', misconception: 'The servers are on the same VLAN: no router is involved, and a switch never sends ICMP.' },
+        { text: 'MSS clamping is missing on the servers', misconception: 'Both ends announce MSS 8960, which is correct for their MTU; the problem is the device between them.' },
+      ],
+      concepts: ['net.mtu'],
+      explanation: 'Jumbo frames must be enabled on every device in the layer-2 path. Silence (not an error) for large pings is the signature of frames dropped below layer 3.',
     },
   ],
 };

@@ -56,7 +56,7 @@ Signature Algorithm: sha256WithRSAEncryption (made with the ISSUER's private key
 \`\`\`
 - **subjectAltName (SAN)** is what clients match against. The CN is ignored when a SAN is present (all modern clients). Wildcards match exactly one label: *.corp.lab matches www.corp.lab, not corp.lab or a.b.corp.lab. IP addresses must be listed as IP: entries.
 - **Basic Constraints CA:TRUE** marks a CA certificate. A leaf certificate cannot sign others (error 24 "invalid CA certificate").
-- Public CAs now issue certificates for at most 398 days (moving to 47 days by 2029), which is why renewal must be automated.
+- Publicly trusted certificates are short-lived: since March 2026 at most 200 days, falling to 100 days in March 2027 and 47 days in March 2029 (CA/Browser Forum ballot SC-081). Renewal must be automated. Internal CAs set their own limits (the lab certificate is valid for 397 days).
 
 ### Chains and trust stores
 \`\`\`
@@ -119,7 +119,7 @@ Validity checks use the client's clock. A client whose clock is years off reject
       steps: [
         { title: 'Trust a root (machine store)', command: 'Import-Certificate -FilePath .\\corp-lab-root-ca.crt -CertStoreLocation Cert:\\LocalMachine\\Root\n# Domain-wide: GPO Computer Configuration > Policies > Windows Settings > Security Settings > Public Key Policies > Trusted Root Certification Authorities', what: 'Adds the root to Trusted Root Certification Authorities.', why: 'In AD environments an Enterprise CA root is distributed automatically.', expected: '' },
         { title: 'Inspect and bind', command: 'Get-ChildItem Cert:\\LocalMachine\\My | Format-List Subject, DnsNameList, NotAfter, HasPrivateKey\nNew-WebBinding -Name "Default Web Site" -Protocol https -Port 443 -HostHeader www.corp.lab -SslFlags 1', what: 'Lists machine certificates (HasPrivateKey must be True) and adds an SNI binding.', why: 'IIS binds a certificate from the store to IP:port or host name (SNI).', expected: 'HasPrivateKey : True' },
-        { title: 'Test', command: 'Test-NetConnection www.corp.lab -Port 443\ncurl.exe -v https://www.corp.lab/', what: 'Port and TLS test (curl.exe uses Schannel and the Windows store).', why: '', expected: '' },
+        { title: 'Test', command: 'Test-NetConnection www.corp.lab -Port 443\ncurl.exe -v https://www.corp.lab/', what: 'Port and TLS test (curl.exe uses Schannel and the Windows store).', why: 'Test-NetConnection proves the TCP port is open; curl.exe -v then shows whether Windows (Schannel and the Windows certificate store) trusts the chain, which can differ from Linux clients and from browsers with their own store.', expected: '' },
       ],
     },
   ],
@@ -151,11 +151,11 @@ TLS configuration is mostly about **which files** a server loads and **which roo
   ],
 
   directives: [
-    { name: 'listen 443 ssl', compiledDefault: '—', recommended: 'listen 443 ssl; listen [::]:443 ssl;', explanation: 'Enables TLS on the socket. Without "ssl" nginx speaks plain HTTP on 443 and clients report "wrong version number".', security: '' },
+    { name: 'listen 443 ssl', compiledDefault: '—', recommended: 'listen 443 ssl; listen [::]:443 ssl;', explanation: 'Enables TLS on the socket. Without "ssl" nginx speaks plain HTTP on 443 and clients report "wrong version number".', security: 'Listen on 443 only with ssl; serving the same content over plain HTTP on another port undermines HTTPS (redirect port 80 instead).' },
     { name: 'ssl_certificate', compiledDefault: '—', recommended: 'Full chain: leaf, then intermediates', explanation: 'Sent to clients exactly as in the file. Leaf only = "unable to get local issuer certificate" on clean clients.', security: 'Public data; mode 0644 is fine.' },
     { name: 'ssl_certificate_key', compiledDefault: '—', recommended: 'Matching private key, 0600/0640', explanation: 'Must match the leaf\'s public key, otherwise nginx -t: "key values mismatch".', security: 'Anyone who reads it can impersonate the site: keep it unreadable for other users, never copy it into tickets or repositories.' },
     { name: 'ssl_protocols', compiledDefault: 'TLSv1.2 TLSv1.3 (nginx ≥ 1.23.4); TLSv1 TLSv1.1 TLSv1.2 TLSv1.3 in 1.22', recommended: 'TLSv1.2 TLSv1.3', explanation: 'Protocol versions offered.', security: 'Disable TLS 1.0/1.1 (RFC 8996).' },
-    { name: 'server_name', compiledDefault: '"" (matches requests without a name)', recommended: 'All names on the certificate', explanation: 'Selects the server block by SNI (TLS) and Host header (HTTP).', security: '' },
+    { name: 'server_name', compiledDefault: '"" (matches requests without a name)', recommended: 'All names on the certificate', explanation: 'Selects the server block by SNI (TLS) and Host header (HTTP).', security: 'Requests whose SNI/Host matches no server_name go to the default server: make that a block that returns an error or redirect, not an unintended site with a mismatching certificate.' },
     { name: 'curl -k / --insecure', compiledDefault: 'off', recommended: 'Never in scripts', explanation: 'Skips chain and name verification.', security: 'Turns TLS into encryption without authentication: any on-path attacker can impersonate the server.' },
   ],
 

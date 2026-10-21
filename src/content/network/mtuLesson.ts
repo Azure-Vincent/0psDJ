@@ -88,7 +88,7 @@ Each side announces the MSS derived from **its own** interface MTU, and each sen
         { title: 'Add the rule', command: 'sudo nft add rule inet filter forward oifname "eth2" tcp flags syn tcp option maxseg size set rt mtu', what: 'Rewrites the MSS option of SYNs leaving via eth2 to the route MTU minus 40.', why: '"rt mtu" follows the interface/route MTU automatically; a fixed value (`set 1452`) is also possible. Clamping in both directions needs the rule for SYN-ACKs too (iifname "eth2").', expected: '', simulated: true },
         { title: 'Persist it', command: 'sudoedit /etc/nftables.conf   # in chain forward:\n        oifname "eth2" tcp flags syn tcp option maxseg size set rt mtu\nsudo nft -c -f /etc/nftables.conf && sudo systemctl reload nftables', what: 'Same rule in the configuration file.', why: 'Runtime rules disappear at reboot.', expected: '', simulated: true },
         { title: 'Check the effect', command: 'sudo tcpdump -n -i eth2 -c 4 tcp', what: 'SYNs leaving eth2 should carry the clamped MSS.', why: 'Compare with the same SYN on the LAN side (mss 1460).', expected: 'IP 203.0.113.2.45451 > 203.0.113.80.80: Flags [S], seq ..., options [mss 1452,...]', simulated: true },
-        { title: 'iptables equivalent', command: 'iptables -t mangle -A FORWARD -o ppp0 -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu', what: 'The classic form on older systems and many appliances.', why: '', expected: '' },
+        { title: 'iptables equivalent', command: 'iptables -t mangle -A FORWARD -o ppp0 -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu', what: 'The classic form on older systems and many appliances.', why: 'Older systems and many appliances still use iptables. --clamp-mss-to-pmtu is the equivalent of nft "set rt mtu"; the rule belongs in the mangle table FORWARD chain for traffic leaving the smaller interface.', expected: '' },
       ],
     },
     {
@@ -122,11 +122,11 @@ MTU arithmetic is where most mistakes happen. The calculator below works out the
   ],
 
   directives: [
-    { name: 'mtu (interface)', compiledDefault: '1500 (Ethernet), 65536 (lo)', recommended: 'Equal on both ends of each link', explanation: 'Largest IP packet sent on the interface; frames larger than it are dropped on receipt.', security: '' },
-    { name: 'tcp option maxseg size set rt mtu', compiledDefault: '—', recommended: 'On routers with PPPoE/VPN/tunnel uplinks', explanation: 'Clamps the MSS of forwarded SYNs to the route MTU − 40.', security: '' },
+    { name: 'mtu (interface)', compiledDefault: '1500 (Ethernet), 65536 (lo)', recommended: 'Equal on both ends of each link', explanation: 'Largest IP packet sent on the interface; frames larger than it are dropped on receipt.', security: 'Not a security setting, but oversized frames dropped on receipt produce failures that look like filtering; document MTUs so they are not mistaken for firewall problems.' },
+    { name: 'tcp option maxseg size set rt mtu', compiledDefault: '—', recommended: 'On routers with PPPoE/VPN/tunnel uplinks', explanation: 'Clamps the MSS of forwarded SYNs to the route MTU − 40.', security: 'Rewrites a TCP header field of forwarded traffic; harmless, and it affects only SYN segments.' },
     { name: 'ICMP type 3 (destination unreachable) / ICMPv6 type 2', compiledDefault: 'accepted as related by stateful firewalls', recommended: 'Never drop ("ct state related accept" first; RFC 4890 for IPv6)', explanation: 'Carries "fragmentation needed" / "packet too big" for PMTUD.', security: 'Dropping it does not improve security; it creates black holes.' },
-    { name: 'net.ipv4.tcp_mtu_probing', compiledDefault: '0', recommended: '1 on hosts behind known black holes', explanation: 'Packetization-layer PMTUD: TCP lowers the segment size itself after repeated timeouts (RFC 4821). Not modelled in the simulator.', security: '' },
-    { name: 'net.ipv4.ip_no_pmtu_disc', compiledDefault: '0', recommended: '0', explanation: '1 = send without DF (allow fragmentation). Hides problems and costs performance.', security: '' },
+    { name: 'net.ipv4.tcp_mtu_probing', compiledDefault: '0', recommended: '1 on hosts behind known black holes', explanation: 'Packetization-layer PMTUD: TCP lowers the segment size itself after repeated timeouts (RFC 4821). Not modelled in the simulator.', security: 'None; it only changes how the host reacts to lost large segments.' },
+    { name: 'net.ipv4.ip_no_pmtu_disc', compiledDefault: '0', recommended: '0', explanation: '1 = send without DF (allow fragmentation). Hides problems and costs performance.', security: 'Fragmented packets are harder for firewalls and IDS to inspect and are often dropped; keep PMTUD on.' },
   ],
 
   troubleshootingIntro: `
