@@ -1,4 +1,6 @@
-import { COMMAND_REFS } from '../../content/commands';
+import { REF_ENTRIES } from '../../content/reference';
+import { CASE_STUDIES } from '../../content/cases';
+import { CERT_EXAMS } from '../../content/certification';
 import { GLOSSARY } from '../../content/glossary';
 import { ASSESSMENTS, LESSONS } from '../../content/lessons';
 import { ALL_SCENARIOS } from '../../engine/scenarios';
@@ -25,9 +27,24 @@ export function searchAll(query: string): Hit[] {
     ];
     for (const [id, title, text] of sections) if (text.toLowerCase().includes(q)) hits.push({ kind: 'Lesson', title: `${L.title} › ${title}`, snippet: snippet(text, q), link: `lesson/${L.id}/${id}` });
   }
-  for (const c of COMMAND_REFS) {
-    const text = `${c.name} ${c.purpose} ${c.syntax} ${c.interpretation} ${c.limitations}`;
-    if (text.toLowerCase().includes(q)) hits.push({ kind: `Command (${c.platform})`, title: c.name, snippet: snippet(c.purpose, q), link: `commands?id=${c.id}&q=${encodeURIComponent(c.name)}` });
+  for (const L of LESSONS) {
+    const g = L.guide;
+    if (!g) continue;
+    const text = [g.purpose, ...g.architecture.map((a) => `${a.q} ${a.a}`), ...g.files.map((f) => `${f.path} ${f.contains} ${f.problems}`),
+      ...g.management.flatMap((m) => m.tasks.map((t) => `${t.task} ${t.command} ${t.explain}`)), ...g.workflow.map((w) => `${w.question} ${w.command} ${w.broken}`),
+      ...g.failures.map((f) => `${f.symptom} ${f.causes.join(' ')} ${f.fix}`)].join(' \n ');
+    if (text.toLowerCase().includes(q)) hits.push({ kind: 'Lesson', title: `${L.title} › Operate & recover`, snippet: snippet(text, q), link: `lesson/${L.id}/operate` });
+  }
+  const KIND = { command: 'Command', file: 'File / log', procedure: 'Procedure' } as const;
+  for (const e of REF_ENTRIES) {
+    if (e.text.toLowerCase().includes(q)) hits.push({ kind: `${KIND[e.kind]} (${e.os})`, title: e.title, snippet: snippet(e.text, q), link: `reference?id=${encodeURIComponent(e.id)}` });
+  }
+  for (const c of CASE_STUDIES) {
+    const text = [c.title, c.symptoms, c.rootCause, ...c.investigation.map((i) => `${i.command} ${i.output} ${i.interpretation}`)].join(' \n ');
+    if (text.toLowerCase().includes(q)) hits.push({ kind: 'Case study', title: `${c.letter}. ${c.title}`, snippet: snippet(text, q), link: `cases/${c.id}` });
+  }
+  for (const e of CERT_EXAMS) for (const d of e.domains) for (const o of d.objectives) {
+    if (`${o.id} ${o.title}`.toLowerCase().includes(q)) hits.push({ kind: `${e.name} objective (${o.coverage})`, title: `${o.id} ${o.title}`, snippet: '', link: `certification?o=${encodeURIComponent(o.id)}` });
   }
   for (const g of GLOSSARY) if (`${g.term} ${g.definition}`.toLowerCase().includes(q)) hits.push({ kind: 'Glossary', title: g.term, snippet: snippet(g.definition, q), link: `glossary?q=${encodeURIComponent(g.term)}` });
   for (const s of ALL_SCENARIOS) if (`${s.title} ${s.ticket}`.toLowerCase().includes(q)) hits.push({ kind: 'Troubleshooting ticket', title: s.title, snippet: snippet(s.ticket, q), link: `troubleshoot/${s.id}` });
@@ -42,7 +59,7 @@ export function Search() {
   return (
     <div className="page">
       <h1>Search: “{q}”</h1>
-      {hits.length === 0 && <p className="muted">No results. Searches lessons, commands, glossary, tickets, assessment and curriculum.</p>}
+      {hits.length === 0 && <p className="muted">No results. Searches lessons, guides, the reference library, case studies, certification objectives, glossary, tickets, assessments and curriculum.</p>}
       {hits.map((h, i) => (
         <div key={i} className="card" style={{ marginBottom: 8, cursor: 'pointer' }} onClick={() => go(h.link)}>
           <div className="small muted">{h.kind}</div>

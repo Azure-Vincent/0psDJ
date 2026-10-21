@@ -43,6 +43,8 @@ const SYMPTOM: Record<string, RegExp> = {
   'ipv6-icmp-hardening': /No route to host/,
   'ipv6-forwarding-hardening': /curl: \(28\)/,
   'ipv6-server-gateway': /curl: \(28\)/,
+  'case-no-internet': /curl: \(28\)/,
+  'case-dns-outage': /Temporary failure in name resolution/,
 };
 
 describe.each(SSH_SCENARIOS.map((s) => [s.id, s] as const))('scenario %s', (id, scenario) => {

@@ -44,8 +44,98 @@ export interface ConfigDirective {
 }
 
 export interface Section {
-  id: 'what' | 'internals' | 'visualize' | 'deploy' | 'config' | 'troubleshoot' | 'assess';
+  id: 'what' | 'internals' | 'visualize' | 'deploy' | 'config' | 'operate' | 'troubleshoot' | 'assess';
   title: string;
+}
+
+// --- Diagrams (data-driven, rendered as SVG) ----------------------------------
+
+/** A layered diagram: dependencies (or topology). Row 0 is drawn at the top. */
+export interface LayeredDiagram {
+  title: string;
+  /** Optional caption shown under the diagram. */
+  caption?: RichText;
+  rows: { label?: string; nodes: { id: string; label: string; sub?: string; kind?: 'client' | 'server' | 'network' | 'service' | 'os' | 'data' | 'external' }[] }[];
+  /** [from, to, label?]: "from depends on / connects to" "to". */
+  edges: [string, string, string?][];
+}
+
+/** A hand-specified message sequence (for technologies the simulator does not model). */
+export interface StaticSequence {
+  title: string;
+  caption?: RichText;
+  lanes: { id: string; label: string; sub?: string }[];
+  steps: { from: string; to: string; label: string; note?: RichText; fail?: boolean }[];
+}
+
+// --- Operate & recover guide (one per technology) -------------------------------
+
+export type GuideFileKind = 'config' | 'config-dir' | 'auth' | 'log' | 'unit' | 'startup' | 'cert' | 'data' | 'runtime' | 'registry' | 'eventlog' | 'binary';
+
+export interface GuideFile {
+  path: string;
+  platform: string;
+  kind: GuideFileKind;
+  /** What it contains. */
+  contains: RichText;
+  /** When it is read or written (boot, service start, every login, ...). */
+  accessed: RichText;
+  /** What goes wrong with bad values or permissions. */
+  problems: RichText;
+  /** Expected owner/mode, if it matters. */
+  perms?: string;
+}
+
+export interface ManagementTask {
+  task: string;
+  command: string;
+  explain: RichText;
+  risk?: RichText;
+  /** True when the command works in the simulator sandbox. */
+  sim?: boolean;
+}
+
+export interface DiagnosticStep {
+  /** The question this step answers ("Is the daemon running?"). */
+  question: string;
+  command: string;
+  /** What healthy output looks like. */
+  healthy: string;
+  /** What a failure looks like and what it means. */
+  broken: RichText;
+  /** Where to go next depending on the result. */
+  next: RichText;
+  sim?: boolean;
+}
+
+export interface FailureMode {
+  symptom: string;
+  causes: RichText[];
+  /** Commands that tell the causes apart. */
+  diagnose: string[];
+  fix: RichText;
+  verify: string;
+}
+
+export interface ServiceGuide {
+  /** One paragraph: what the service is for. */
+  purpose: RichText;
+  /** Answers to the architecture questions (internals, protocols, auth, boot, crash behaviour ...). */
+  architecture: { q: string; a: RichText }[];
+  ports: { port: string; proto: string; purpose: string }[];
+  processes: { name: string; platform: string; role: RichText }[];
+  dependencies: LayeredDiagram;
+  sequence?: StaticSequence;
+  files: GuideFile[];
+  management: { platform: string; tasks: ManagementTask[] }[];
+  /** Reload vs restart vs interface restart vs reboot, for this technology. */
+  actions: { action: string; when: RichText; effect: RichText; risk: RichText }[];
+  /** Ordered troubleshooting workflow (layer by layer). */
+  workflow: DiagnosticStep[];
+  failures: FailureMode[];
+  verification: { check: string; command: string; expect: string }[];
+  /** Reference-library entry ids (commands, files, procedures). */
+  refIds: string[];
 }
 
 export interface Lesson {
@@ -66,6 +156,90 @@ export interface Lesson {
   scenarioIds: string[];
   assessmentId: string;
   references: Reference[];
+  /** "simulated" lessons have a sandbox and tickets; "reference" lessons are taught from documentation and real-system examples only. */
+  mode?: 'simulated' | 'reference';
+  /** Operate & recover guide (architecture, files, logs, service management, diagnostic workflow). */
+  guide?: ServiceGuide;
+  /** End-to-end case studies related to this lesson. */
+  caseStudyIds?: string[];
+  /** Certification objective ids (e.g. "N10-009:5.3", "CCNA:2.1") this lesson supports. */
+  objectives?: string[];
+}
+
+// --- Case studies -----------------------------------------------------------------
+
+export interface CaseStudy {
+  id: string;
+  letter: string;
+  title: string;
+  level: Level;
+  platforms: string[];
+  /** Interactive ticket that reproduces this case in the simulator, if any. */
+  scenarioId?: string;
+  /** Where the example output comes from (simulator, or representative output of a named real platform/version). */
+  outputSource: RichText;
+  symptoms: RichText;
+  environment: LayeredDiagram;
+  expected: RichText;
+  dependencies: string[];
+  investigation: { title: string; host?: string; command: string; output: string; interpretation: RichText }[];
+  rootCause: RichText;
+  repair: { title: string; host?: string; commands: string; why: RichText }[];
+  restart: RichText;
+  verify: { command: string; host?: string; output: string; meaning: RichText }[];
+  prevention: RichText[];
+  lessonIds: string[];
+  refIds?: string[];
+}
+
+// --- Reference library ------------------------------------------------------------
+
+export interface FileRef {
+  id: string;
+  path: string;
+  platform: string;
+  kind: GuideFileKind;
+  services: string[];
+  purpose: RichText;
+  contents: RichText;
+  accessed: RichText;
+  permissions: string;
+  problems: RichText;
+  example?: string;
+  relatedCommands?: string[];
+}
+
+export interface Procedure {
+  id: string;
+  title: string;
+  platform: string;
+  services: string[];
+  symptoms: string[];
+  purpose: RichText;
+  /** Ordered steps; commands are shown verbatim. */
+  steps: { title: string; command?: string; why: RichText }[];
+  risks: RichText;
+  verify: RichText;
+}
+
+// --- Certification mapping ----------------------------------------------------------
+
+export interface CertObjective {
+  id: string;
+  title: string;
+  coverage: 'covered' | 'partial' | 'gap';
+  /** App routes that cover it (lesson/..., troubleshoot/..., cases/..., reference?id=...). */
+  links: string[];
+  note?: RichText;
+}
+
+export interface CertExam {
+  id: string;
+  name: string;
+  code: string;
+  version: string;
+  officialUrl: string;
+  domains: { id: string; title: string; weight: string; objectives: CertObjective[] }[];
 }
 
 // --- Assessments --------------------------------------------------------------
@@ -130,7 +304,7 @@ export interface Assessment {
 export interface CommandRef {
   id: string;
   name: string;
-  platform: 'Linux' | 'Windows';
+  platform: 'Linux' | 'Windows' | 'Docker' | 'pfSense' | 'Cisco IOS';
   category: string;
   purpose: RichText;
   syntax: string;
@@ -140,6 +314,18 @@ export interface CommandRef {
   limitations: RichText;
   /** Name of the simulator command that implements it, if any. */
   simulator?: string;
+  /** Common error messages and what they mean. */
+  errors?: { message: string; meaning: string }[];
+  /** Privileges required (root/sudo, Administrator, group membership ...). */
+  permissions?: string;
+  /** What can go wrong when running it (disconnects, data loss ...). */
+  risks?: string;
+  /** Platform/version compatibility notes. */
+  compat?: string;
+  /** Services, protocols and symptoms this command is used for (reference facets). */
+  services?: string[];
+  protocols?: string[];
+  symptoms?: string[];
 }
 
 export interface CommandExercise {

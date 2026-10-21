@@ -11,6 +11,9 @@ import { mastery, recordConcepts, type TroubleshootingAttempt } from '../../lear
 import { LabTerminals } from '../components/LabTerminals';
 import { Topology } from '../components/Topology';
 import { go, useProgress } from '../state';
+import { LESSONS } from '../../content/lessons';
+import { getRef } from '../../content/reference';
+import { RefDetail } from './Reference';
 
 const ORDER: Scenario['difficulty'][] = ['beginner', 'intermediate', 'advanced'];
 
@@ -214,6 +217,7 @@ export function TroubleshootWorkspace({ id }: { id: string }) {
               )}
               {hintsShown === 0 && <p className="small muted">Hints become more specific each time. Try to collect evidence first.</p>}
             </div>
+            <FieldManual scenarioId={scenario.id} />
             {struggling.length > 0 && (
               <div className="callout warn small">
                 You have struggled with {struggling.map((c) => CONCEPTS[c].title).join(', ')} before. Review:{' '}
@@ -316,6 +320,37 @@ export function TroubleshootWorkspace({ id }: { id: string }) {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * Field manual for a ticket: the diagnostic workflows and command references of the lessons that use it,
+ * shown inline so the lab terminals keep their state. No solution spoilers: only generic workflows.
+ */
+function FieldManual({ scenarioId }: { scenarioId: string }) {
+  const [open, setOpen] = useState<string | null>(null);
+  const lessons = LESSONS.filter((l) => l.scenarioIds.includes(scenarioId) && l.guide);
+  if (lessons.length === 0) return null;
+  const cmds = [...new Set(lessons.flatMap((l) => l.guide!.refIds))].filter((id) => getRef(id)?.kind === 'command').slice(0, 10);
+  const toggle = (k: string) => setOpen(open === k ? null : k);
+  const flow = lessons.find((l) => `wf:${l.id}` === open);
+  return (
+    <div className="card small">
+      <h3>Field manual</h3>
+      <p className="muted">Generic diagnostic workflows and command references for the technologies involved.</p>
+      <div className="row" style={{ gap: 4 }}>
+        {lessons.map((l) => <button key={l.id} className={`small${open === `wf:${l.id}` ? ' primary' : ''}`} onClick={() => toggle(`wf:${l.id}`)}>{l.title.split(':')[0]} workflow</button>)}
+      </div>
+      <div className="row" style={{ gap: 4, marginTop: 6 }}>
+        {cmds.map((id) => <button key={id} className={`small${open === id ? ' primary' : ''}`} onClick={() => toggle(id)}>{getRef(id)!.title}</button>)}
+      </div>
+      {flow && (
+        <ol style={{ paddingLeft: 18, marginTop: 8 }}>
+          {flow.guide!.workflow.map((w) => <li key={w.question} style={{ marginBottom: 6 }}><strong>{w.question.replace(/^\d+\.\s*/, '')}</strong><pre style={{ margin: '2px 0', whiteSpace: 'pre-wrap' }}>{w.command}</pre></li>)}
+        </ol>
+      )}
+      {open && !open.startsWith('wf:') && <RefDetail id={open} />}
     </div>
   );
 }

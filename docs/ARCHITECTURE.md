@@ -98,12 +98,15 @@ dashboard recommends it *and* any prerequisite that is not yet proficient.
 │ Dashboard    │ Lesson: tabs 1 What · 2 How it works (+dependency map) ·        │
 │ Curriculum   │   3 Visualize (sequence diagram | inspector) · 4 Deploy         │
 │ LEARN        │   (platform guides + sandbox terminals) · 5 Configuration       │
-│  SSH lesson  │   (effective-config explorer, directive table) ·                │
-│  Troublesh.  │   6 Troubleshooting (error→layer map, tickets) · 7 Assessment   │
-│  Commands    │                                                                 │
+│  (by module) │   (effective-config explorer, directive table) ·                │
+│ PRACTICE     │   6 Operate & recover (guide) · 7 Troubleshooting (error→layer  │
+│  Troublesh.  │   map, case studies, tickets) · 8 Assessment                    │
+│  Case stud.  │ Case study: 12 elements, environment diagram, linked ticket     │
 │  Packet Lab  │ Troubleshooting workspace (3 columns):                          │
 │ REFERENCE    │  ticket/briefing/topology/hints │ terminals: ws01 · srv01 ·     │
-│  Glossary    │                                 │ ns1 · rtr01 consoles          │
+│  Ref. library│  field manual (workflows, refs) │ ns1 · rtr01 consoles          │
+│  Cert. map   │                                 │                               │
+│  Glossary    │                                 │                               │
 │  History     │                                 │ │ notes · evidence log ·      │
 │  Settings    │                                 │ │ diagnosis · verify · RCA    │
 │ offline note │                                                                 │
@@ -128,8 +131,23 @@ Lesson { id, moduleId, title, level, concepts[], what, internals,            // 
          configFiles[], directives[] { name, compiledDefault, distroDefault, recommended, explanation, security },
          troubleshootingIntro, errorMap[], scenarioIds[], assessmentId, references[] }
 
+         mode?: 'simulated' | 'reference', guide?: ServiceGuide, caseStudyIds?[], objectives?[] }
+
+ServiceGuide { purpose, architecture[] {q, a}, ports[], processes[],
+               dependencies: LayeredDiagram, sequence?: StaticSequence,
+               files[] { path, platform, kind (config|log|unit|registry|eventlog…), contains, accessed, problems, perms },
+               management[] { platform, tasks[] { task, command, explain, risk?, sim? } },
+               actions[] (reload vs restart vs interface restart vs reboot), workflow[] { question, command, healthy, broken, next, sim? },
+               failures[] { symptom, causes[], diagnose[], fix, verify }, verification[], refIds[] }
+CaseStudy { id, letter, scenarioId?, outputSource, symptoms, environment, expected, dependencies[],
+            investigation[] { host, command, output, interpretation }, rootCause, repair[], restart, verify[], prevention[], lessonIds[], refIds[] }
+FileRef { id 'file:…', path, platform, kind, services[], purpose, contents, accessed, permissions, problems, example?, relatedCommands[] }
+Procedure { id 'proc:…', title, platform, services[], symptoms[], purpose, steps[] { title, command?, why }, risks, verify }
+CertExam { code, version, officialUrl, domains[] { weight, objectives[] { id 'N10-009:5.3', coverage, links[], note } } }
+
 Question = single | multi | order | text | nft-rule | sshd-config            // practical kinds graded by the engine
-CommandRef { name, platform, purpose, syntax, args[], example, interpretation, limitations, simulator? }
+CommandRef { name, platform, purpose, syntax, args[], example, interpretation, limitations, simulator?,
+             errors[], permissions, risks, compat, services[], protocols[], symptoms[] }   // reference-library facets
 CommandExercise = choose-command (acceptCommands, mustMatch) | spot-abnormal (output[], abnormal[])
 CurriculumModule { id, title, dependsOn[], topics[] { title, level, status, link? } }
 
@@ -232,6 +250,7 @@ options is implemented and unsupported options say so.
 | 3c | **DHCP and NAT**: ISC dhcpd model (dhcpd.conf parser, allocation order, lease file, INTERFACESv4), dhclient DORA with real BOOTP bytes, broadcast delivery on the segment; nftables nat chains (masquerade, snat/dnat with ports), per-flow translation reversed for replies, conntrack listing; Internet segment (rtr01 eth2, ext01) and DHCP laptop ws02; two lessons with allocation simulator and NAT inspector, 8 traced runs, 6 tickets with per-ticket terminals | ✅ |
 | 3d | Packaging: electron-builder configuration (AppImage/tar.gz, portable exe/zip, dmg/zip), app icon, CI building unsigned executables on Linux, Windows and macOS | ✅ |
 | 3e | **VLANs and IPv6**: switch sw01 as a VLAN-aware Linux bridge (ifupdown2 bridge-access/bridge-vids/bridge-pvid, `bridge` command, per-VLAN MAC learning) with cabling (`World.links`); broadcast domains derived from port membership and host tagging (VLAN sub-interfaces); 802.1Q in tcpdump/PCAP; dual-stack engine (addresses incl. link-local, IPv6 routing table, Neighbor Discovery through nftables, ICMPv6 errors, separate IPv6 forwarding), radvd + SLAAC, AAAA records and RFC 6724 ordering, Happy Eyeballs in curl and sequential fallback in ssh; two lessons, 10 traced runs, VLAN and IPv6 explorers, 6 tickets | ✅ |
+| 3g | **Operations expansion**: content schema for service guides, case studies, reference library (commands, files/logs, procedures) and certification map; "Operate & recover" tab on every lesson; seven new lessons (systemd/filesystem, network recovery, safe recovery simulated; Windows/RDP, AD/Kerberos, Docker, pfSense as reference lessons); case studies A–G; engine: Debian unit files on disk, `systemctl cat/show/list-dependencies/--failed/is-failed`, `journalctl -f`, `tracepath`, `ethtool`, `cp`/`mv`/`diff`, two case-study tickets; content-integrity tests | ✅ |
 | 3f | Remaining Module A topics: MTU/PMTUD, TLS; DHCP relay and renewal, DHCPv6; Lab 1 as a guided multi-step lab | ⏳ |
 | 4 | Infrastructure Builder (drag-and-drop topology on top of the same `World` model; packet tracing and firewall decisions already exist in the engine) | ⏳ |
 | 5 | Windows/AD track: Windows host model (services, Defender Firewall, event log), DNS SRV, Kerberos AS/TGS exchange visualisation, NTLM, LDAP; RDP lesson; Lab 2 | ⏳ |
@@ -242,6 +261,6 @@ options is implemented and unsupported options say so.
 ### Adding a new service (checklist)
 1. Engine: add a `ServiceDef` in `sim/services.ts` (start/reload/listeners/config parsing) and any protocol simulator under `sim/` that records `TraceEvent`s.
 2. Shell: add the service's admin/diagnostic commands under `shell/`.
-3. Content: add a `Lesson` and an `Assessment` and register them in `src/content/lessons.ts`; add command references and glossary entries. Optional interactive widgets are wired in `widgetsFor()` in `src/ui/pages/LessonPage.tsx`.
+3. Content: add a `Lesson` (with a `ServiceGuide` for the Operate & recover tab) and an `Assessment` and register them in `src/content/lessons.ts`; add command, file and procedure entries to the reference library (`src/content/reference/`), glossary entries, and objective links in `src/content/certification.ts`. Mark a command `sim: true` only if it runs in the simulator exactly as written; `tests/content-integrity.test.ts` checks this and every cross-link. Optional interactive widgets are wired in `widgetsFor()` in `src/ui/pages/LessonPage.tsx`.
 4. Scenarios: add `Scenario` objects (goals: SSH login, HTTP request or name lookup) with `setup`, `solution` and constraints, and register the set in `src/engine/scenarios/index.ts`; the generic scenario test proves each one breaks and is fixable.
 5. Curriculum: flip the topic status to `available` with a link.

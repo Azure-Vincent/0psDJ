@@ -11,6 +11,7 @@ import { fingerprintOfBlob, KEY_LABEL, parsePublicKey } from '../sim/keys';
 import {
   bootHost, dhcpdTest, findService, parseNginxListens, reloadService, restartService, SERVICE_DEFS, sshdTest, startService, stopService, type SshdLoaded,
 } from '../sim/services';
+import { dropIns, unitDirectives, unitPath, unitWantedBy } from '../sim/units';
 import { knownHostName, knownHostsEntries, runSsh } from '../sim/ssh';
 import { resolve } from '../sim/dns';
 import { dhcpAcquire, dhcpRelease } from '../sim/dhcp';
@@ -18,6 +19,7 @@ import { tcpConnect, ERRNO_TEXT } from '../sim/tcp';
 import { base64Decode } from '../util/sha256';
 import { resolvePath } from './cmdFiles';
 import { type CmdCtx, type CommandDef, err, ok, parseFlags } from './types';
+import type { Host, ServiceRuntime } from '../types';
 
 const PERM = (ctx: CmdCtx, msg: string) => (ctx.user.uid !== 0 ? err(msg, 1) : null);
 
@@ -34,22 +36,98 @@ function dayTime(ms: number): string {
   return `${['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][d.getUTCDay()]} ${isoTime(ms)}`;
 }
 
+/** `systemctl list-dependencies`: Requires/Wants of the unit (from its file), plus the implicit default dependencies. */
+function dependencyTree(host: Host, name: string, unit: string, reverse: boolean): string[] {
+  const dot = (u: string) => {
+    const def = SERVICE_DEFS.find((d) => d.unit === u);
+    const rt = def && host.services[def.name];
+    if (!rt) return '\u25cf';
+    return rt.state === 'active' ? '\u25cf' : rt.state === 'failed' ? '\u00d7' : '\u25cb';
+  };
+  if (reverse) {
+    const target = unitWantedBy(name);
+    const lines = [unit, `\u25cf \u2514\u2500${target}`];
+    if (target === 'multi-user.target') lines.push('\u25cf   \u2514\u2500graphical.target');
+    else lines.push('\u25cf   \u2514\u2500basic.target', '\u25cf     \u2514\u2500multi-user.target');
+    return lines;
+  }
+  const dir = unitDirectives(host, name, unit);
+  const deps = [...(dir.Requires ?? []), ...(dir.Wants ?? [])];
+  const defaultDeps = (dir.DefaultDependencies ?? ['yes'])[0] !== 'no';
+  if (defaultDeps) deps.unshift('-.mount', 'system.slice', 'sysinit.target');
+  const uniq = [...new Set(deps)].sort((a, b) => a.localeCompare(b));
+  const lines = [unit];
+  uniq.forEach((d, i) => {
+    const last = i === uniq.length - 1;
+    lines.push(`${dot(d)} ${last ? '\u2514' : '\u251c'}\u2500${d}`);
+    if (d === 'sysinit.target') {
+      // Targets are expanded recursively. Only the units the simulator models are listed under sysinit.target.
+      const kids = ['systemd-journald.service', 'systemd-sysctl.service', 'systemd-tmpfiles-setup.service', ...(host.services.nftables ? ['nftables.service'] : [])].sort();
+      kids.forEach((k, j) => lines.push(`${dot(k)} ${last ? ' ' : '\u2502'} ${j === kids.length - 1 ? '\u2514' : '\u251c'}\u2500${k}`));
+    }
+  });
+  return lines;
+}
+
+/** `systemctl show`: a subset of real properties, all derived from the simulated state. */
+function showProps(clock: number, host: Host, name: string, unit: string, description: string, rt: ServiceRuntime, prop: string | true | undefined, valueOnly: boolean): string[] {
+  const dir = unitDirectives(host, name, unit);
+  const def = SERVICE_DEFS.find((d) => d.name === name)!;
+  const sub = rt.state === 'active' ? (def.oneshot ? 'exited' : 'running') : rt.state === 'failed' ? 'failed' : 'dead';
+  const props: [string, string][] = [
+    ['Id', unit],
+    ['Names', [unit, ...def.aliases.filter((a) => a.endsWith('.service') && a !== unit)].join(' ')],
+    ['Description', description],
+    ['LoadState', 'loaded'],
+    ['ActiveState', rt.state],
+    ['SubState', sub],
+    ['Result', rt.result || 'success'],
+    ['MainPID', String(rt.state === 'active' && !def.oneshot ? rt.pid ?? 0 : 0)],
+    ['ExecMainStatus', rt.state === 'failed' ? '255' : '0'],
+    ['Type', (dir.Type ?? ['simple'])[0]],
+    ['Restart', (dir.Restart ?? ['no'])[0]],
+    ['NRestarts', '0'],
+    ['FragmentPath', unitPath(name) ?? ''],
+    ['DropInPaths', dropIns(host, unit).join(' ')],
+    ['UnitFileState', rt.enabled ? 'enabled' : 'disabled'],
+    ['Requires', (dir.Requires ?? []).join(' ')],
+    ['Wants', (dir.Wants ?? []).join(' ')],
+    ['WantedBy', unitWantedBy(name)],
+    ['After', (dir.After ?? []).join(' ')],
+    ['Before', (dir.Before ?? []).join(' ')],
+    ['StateChangeTimestamp', rt.since ? dayTime(rt.since) + ' UTC' : ''],
+    ['ActiveEnterTimestampMonotonic', String(Math.max(0, rt.since - host.bootTime) * 1000)],
+  ];
+  void clock;
+  const wanted = typeof prop === 'string' ? prop.split(',') : null;
+  return props.filter(([k]) => !wanted || wanted.includes(k)).map(([k, v]) => (valueOnly ? v : `${k}=${v}`));
+}
+
 const systemctl: CommandDef = {
   name: 'systemctl',
   summary: 'control systemd services',
-  usage: 'systemctl status|start|stop|restart|reload|enable|disable|is-active|is-enabled UNIT | systemctl list-units --type=service',
+  usage: 'systemctl status|start|stop|restart|reload|enable|disable|is-active|is-enabled|is-failed|cat|show|list-dependencies UNIT | systemctl list-units [--failed] | systemctl --failed',
   run(args, ctx) {
-    const { flags, rest } = parseFlags(args);
+    const { flags, rest } = parseFlags(args, ['-p', '--property', '--state']);
     const [verb, ...units] = rest;
     const host = ctx.host;
+    const failedOnly = flags.has('--failed') || flags.get('--state') === 'failed';
     if (!verb || verb === 'list-units') {
-      const lines = ['  UNIT                       LOAD   ACTIVE   SUB     DESCRIPTION'];
+      const rows: string[][] = [];
       for (const d of SERVICE_DEFS) {
         const rt = host.services[d.name];
         if (!rt) continue;
+        if (failedOnly ? rt.state !== 'failed' : rt.state === 'inactive' && !flags.has('--all') && !flags.has('-a')) continue;
         const sub = rt.state === 'active' ? (d.oneshot ? 'exited' : 'running') : rt.state === 'failed' ? 'failed' : 'dead';
-        lines.push(`${rt.state === 'failed' ? '●' : ' '} ${d.unit.padEnd(26)} loaded ${rt.state.padEnd(8)} ${sub.padEnd(7)} ${d.description}`);
+        rows.push([rt.state === 'failed' ? '●' : ' ', d.unit, 'loaded', rt.state, sub, d.description]);
       }
+      const w = Math.max(4, ...rows.map((r) => r[1].length));
+      const lines = [`  ${'UNIT'.padEnd(w)} LOAD   ACTIVE   SUB     DESCRIPTION`];
+      for (const r of rows) lines.push(`${r[0]} ${r[1].padEnd(w)} ${r[2]} ${r[3].padEnd(8)} ${r[4].padEnd(7)} ${r[5]}`);
+      lines.push('', 'LOAD   = Reflects whether the unit definition was properly loaded.', 'ACTIVE = The high-level unit activation state, i.e. generalization of SUB.', 'SUB    = The low-level unit activation state, values depend on unit type.');
+      lines.push(`${rows.length} loaded units listed.${failedOnly ? '' : ' Pass --all to see loaded but inactive units, too.'}`);
+      if (!failedOnly) lines.push('To show all installed unit files use \'systemctl list-unit-files\'.');
+      lines.push('(The simulator lists the lab\'s modelled services only, not every unit a real system has.)');
       return ok(lines.join('\n'));
     }
     if (verb === 'daemon-reload') return PERM(ctx, 'Failed to reload daemon: Access denied') ?? ok('');
@@ -62,6 +140,9 @@ const systemctl: CommandDef = {
       if (!def) {
         if (verb === 'status') { out.push(`Unit ${u.endsWith('.service') ? u : u + '.service'} could not be found.`); code = 4; continue; }
         if (verb === 'is-active') { out.push('inactive'); code = 3; continue; }
+        if (verb === 'is-failed') { out.push('inactive'); code = 1; continue; }
+        if (verb === 'cat') { out.push(`No files found for ${u.endsWith('.service') ? u : u + '.service'}.`); code = 1; continue; }
+        if (verb === 'list-dependencies') { out.push(`${u.endsWith('.service') ? u : u + '.service'}`); continue; }
         out.push(`Failed to ${verb} ${u}.service: Unit ${u}.service not found.`);
         code = 5;
         continue;
@@ -82,7 +163,12 @@ const systemctl: CommandDef = {
               ? `failed (Result: ${rt.result}) since ${dayTime(rt.since)}; ${ago(ctx.world.clock - rt.since)}`
               : rt.since ? `inactive (dead) since ${dayTime(rt.since)}; ${ago(ctx.world.clock - rt.since)}` : 'inactive (dead)';
           out.push(`${icon} ${def.unit} - ${def.description}`);
-          out.push(`     Loaded: loaded (/lib/systemd/system/${def.unit}; ${rt.enabled ? 'enabled' : 'disabled'}; preset: enabled)`);
+          const frag = unitPath(def.name) ?? `/lib/systemd/system/${def.unit}`;
+          out.push(frag.startsWith('/run/systemd/generator')
+            ? `     Loaded: loaded (/etc/init.d/${def.unit.replace(/\.service$/, '')}; generated)`
+            : `     Loaded: loaded (${frag}; ${rt.enabled ? 'enabled' : 'disabled'}; preset: enabled)`);
+          const drop = dropIns(host, def.unit);
+          if (drop.length) out.push(`    Drop-In: /etc/systemd/system/${def.unit}.d`, `             └─${drop.map((d) => d.split('/').pop()).join(', ')}`);
           out.push(`     Active: ${active}`);
           if (def.name === 'ssh') {
             out.push('       Docs: man:sshd(8)', '             man:sshd_config(5)');
@@ -144,6 +230,22 @@ const systemctl: CommandDef = {
           out.push(rt.enabled ? 'enabled' : 'disabled');
           if (!rt.enabled) code = 1;
           break;
+        case 'is-failed':
+          out.push(rt.state);
+          if (rt.state !== 'failed') code = 1;
+          break;
+        case 'cat': {
+          const files = [unitPath(def.name), ...dropIns(host, def.unit)].filter((p): p is string => !!p && readFile(host, p) !== undefined);
+          if (files.length === 0) { out.push(`No files found for ${def.unit}.`); code = 1; break; }
+          files.forEach((f, i) => out.push(`${i ? '\n' : ''}# ${f}`, readFile(host, f)!.replace(/\n$/, '')));
+          break;
+        }
+        case 'list-dependencies':
+          out.push(...dependencyTree(host, def.name, def.unit, flags.has('--reverse')));
+          break;
+        case 'show':
+          out.push(...showProps(ctx.world.clock, host, def.name, def.unit, def.description, rt, flags.get('-p') ?? flags.get('--property'), flags.has('--value')));
+          break;
         default:
           return err(`Unknown command verb ${verb}.`, 1);
       }
@@ -155,7 +257,7 @@ const systemctl: CommandDef = {
 const journalctl: CommandDef = {
   name: 'journalctl',
   summary: 'query the systemd journal',
-  usage: 'journalctl [-u UNIT] [-t IDENT] [-k] [-b] [-p PRIORITY] [-n N] [-e] [-g PATTERN] [--since "N min ago"]',
+  usage: 'journalctl [-u UNIT] [-t IDENT] [-k] [-b] [-p PRIORITY] [-n N] [-e] [-f] [-x] [-g PATTERN] [--since "N min ago"]',
   run(args, ctx) {
     const { flags } = parseFlags(args, ['-u', '-n', '-p', '-t', '-g', '--since', '--grep', '--unit', '--lines', '--priority', '--identifier']);
     if (ctx.user.uid !== 0 && !ctx.user.groups.includes('adm')) {
@@ -194,10 +296,12 @@ const journalctl: CommandDef = {
       entries = entries.filter((e) => re.test(e.message));
     }
     const n = flags.get('-n') ?? flags.get('--lines');
-    const limit = n !== undefined ? Number(n === true ? 10 : n) : flags.has('-e') ? 1000 : 300;
+    const follow = flags.has('-f') || flags.has('--follow');
+    const limit = n !== undefined ? Number(n === true ? 10 : n) : follow ? 10 : flags.has('-e') ? 1000 : 300;
     const shown = entries.slice(-limit);
-    if (shown.length === 0) return ok('-- No entries --');
-    return ok(shown.map(formatEntry).join('\n'));
+    const note = follow ? '\n(simulator: -f shows the last entries and returns instead of waiting; run it again after reproducing the problem to see new lines)' : '';
+    if (shown.length === 0) return ok('-- No entries --' + note);
+    return ok(shown.map(formatEntry).join('\n') + note);
   },
 };
 

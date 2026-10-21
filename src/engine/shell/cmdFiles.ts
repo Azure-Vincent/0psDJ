@@ -2,7 +2,7 @@
 // chmod, chown, stat, cd, pwd, id, whoami, editors, passwd, usermod.
 
 import { basename, canAccess, canTraverse, dirname, listDir, mkdir, modeString, normalizePath, writeFile } from '../fs';
-import { formatSyslogTime } from '../sim/journal';
+import { formatSyslogTime, isoTime } from '../sim/journal';
 import type { FileNode, Host } from '../types';
 import { type CmdCtx, type CommandDef, err, ok, parseFlags } from './types';
 
@@ -619,7 +619,112 @@ const tee: CommandDef = {
   },
 };
 
-export const FILE_COMMANDS: CommandDef[] = [tee, sed, 
+// cp / mv / diff: the backup-validate-rollback workflow (cp -a file file.bak, diff -u) needs them.
+function copyOrMove(name: 'cp' | 'mv'): CommandDef {
+  return {
+    name,
+    summary: name === 'cp' ? 'copy a file (-a/-p keep mode, owner and timestamps)' : 'move or rename a file',
+    usage: `${name}${name === 'cp' ? ' [-a|-p]' : ''} SOURCE DEST`,
+    run(args, ctx) {
+      const { flags, rest } = parseFlags(args);
+      if (rest.length < 2) return err(`${name}: missing destination file operand after '${rest[0] ?? ''}'\nTry '${name} --help' for more information.`);
+      const [srcArg, dstArg] = rest;
+      const src = resolvePath(ctx, srcArg);
+      const n = ctx.host.fs[src];
+      if (!n) return err(`${name}: cannot stat '${srcArg}': No such file or directory`);
+      if (n.type === 'dir') return err(name === 'cp' ? `cp: -r not specified; omitting directory '${srcArg}'` : `mv: moving directories is not supported in the simulator`);
+      if (!canTraverse(ctx.host, src, ctx.user) || !canAccess(n, ctx.user, 'r')) return err(`${name}: cannot open '${srcArg}' for reading: Permission denied`);
+      let dst = resolvePath(ctx, dstArg);
+      if (ctx.host.fs[dst]?.type === 'dir') dst = `${dst === '/' ? '' : dst}/${basename(src)}`;
+      if (dst === src) return err(`${name}: '${srcArg}' and '${dstArg}' are the same file`);
+      const e = writeChecked(ctx, dst, n.content ?? '');
+      if (e) return err(`${name}: cannot create regular file '${dstArg}': ${e}`);
+      const d = ctx.host.fs[dst];
+      const keep = name === 'mv' || flags.has('-a') || flags.has('-p') || flags.has('--preserve');
+      d.mode = n.mode;
+      if (keep && ctx.user.uid === 0) { d.owner = n.owner; d.group = n.group; }
+      if (keep) d.mtime = n.mtime;
+      if (name === 'mv') {
+        const parent = ctx.host.fs[dirname(src)];
+        if (parent && !canAccess(parent, ctx.user, 'w')) return err(`mv: cannot remove '${srcArg}': Permission denied`);
+        delete ctx.host.fs[src];
+      }
+      return ok('');
+    },
+  };
+}
+
+/** Line diff (LCS) rendered like `diff -u` (3 lines of context) or classic `diff`. */
+function lineDiff(a: string[], b: string[]): { op: ' ' | '-' | '+'; line: string; ai: number; bi: number }[] {
+  const m = a.length;
+  const n = b.length;
+  const L: number[][] = Array.from({ length: m + 1 }, () => new Array<number>(n + 1).fill(0));
+  for (let i = m - 1; i >= 0; i--) for (let j = n - 1; j >= 0; j--) L[i][j] = a[i] === b[j] ? L[i + 1][j + 1] + 1 : Math.max(L[i + 1][j], L[i][j + 1]);
+  const out: { op: ' ' | '-' | '+'; line: string; ai: number; bi: number }[] = [];
+  let i = 0;
+  let j = 0;
+  while (i < m || j < n) {
+    if (i < m && j < n && a[i] === b[j]) { out.push({ op: ' ', line: a[i], ai: i++, bi: j++ }); }
+    else if (i < m && (j >= n || L[i + 1][j] >= L[i][j + 1])) out.push({ op: '-', line: a[i], ai: i++, bi: j });
+    else out.push({ op: '+', line: b[j], ai: i, bi: j++ });
+  }
+  return out;
+}
+
+const diff: CommandDef = {
+  name: 'diff',
+  summary: 'compare two files line by line (-u for unified format)',
+  usage: 'diff [-u] FILE1 FILE2',
+  run(args, ctx) {
+    const { flags, rest } = parseFlags(args);
+    if (rest.length < 2) return err(`diff: missing operand after '${rest[0] ?? 'diff'}'\ndiff: Try 'diff --help' for more information.`, 2);
+    const texts: string[][] = [];
+    for (const f of rest.slice(0, 2)) {
+      const p = resolvePath(ctx, f);
+      const n = ctx.host.fs[p];
+      if (!n) return err(`diff: ${f}: No such file or directory`, 2);
+      if (!canAccess(n, ctx.user, 'r')) return err(`diff: ${f}: Permission denied`, 2);
+      texts.push((n.content ?? '').replace(/\n$/, '').split('\n'));
+    }
+    const d = lineDiff(texts[0], texts[1]);
+    if (d.every((x) => x.op === ' ')) return ok('');
+    const out: string[] = [];
+    if (flags.has('-u')) {
+      const t = (f: string) => `${f}\t${isoTime(ctx.host.fs[resolvePath(ctx, f)].mtime).replace(' UTC', '.000000000 +0000')}`;
+      out.push(`--- ${t(rest[0])}`, `+++ ${t(rest[1])}`);
+      const changed = d.map((x, k) => (x.op !== ' ' ? k : -1)).filter((k) => k >= 0);
+      let k = 0;
+      while (k < changed.length) {
+        let start = Math.max(0, changed[k] - 3);
+        let end = Math.min(d.length - 1, changed[k] + 3);
+        while (k + 1 < changed.length && changed[k + 1] - 3 <= end + 1) { k++; end = Math.min(d.length - 1, changed[k] + 3); }
+        k++;
+        const hunk = d.slice(start, end + 1);
+        const aLines = hunk.filter((x) => x.op !== '+').length;
+        const bLines = hunk.filter((x) => x.op !== '-').length;
+        const aStart = (hunk.find((x) => x.op !== '+')?.ai ?? hunk[0].ai) + (aLines ? 1 : 0);
+        const bStart = (hunk.find((x) => x.op !== '-')?.bi ?? hunk[0].bi) + (bLines ? 1 : 0);
+        out.push(`@@ -${aStart},${aLines} +${bStart},${bLines} @@`, ...hunk.map((x) => x.op + x.line));
+        start = end;
+      }
+    } else {
+      for (let k = 0; k < d.length;) {
+        if (d[k].op === ' ') { k++; continue; }
+        const del: typeof d = [];
+        const addl: typeof d = [];
+        const a0 = d[k].ai;
+        const b0 = d[k].bi;
+        while (k < d.length && d[k].op !== ' ') { (d[k].op === '-' ? del : addl).push(d[k]); k++; }
+        const r = (s: number, c: number) => (c <= 1 ? String(s + (c ? 1 : 0)) : `${s + 1},${s + c}`);
+        const head = del.length && addl.length ? `${r(a0, del.length)}c${r(b0, addl.length)}` : del.length ? `${r(a0, del.length)}d${b0}` : `${a0}a${r(b0, addl.length)}`;
+        out.push(head, ...del.map((x) => `< ${x.line}`), ...(del.length && addl.length ? ['---'] : []), ...addl.map((x) => `> ${x.line}`));
+      }
+    }
+    return { out: out.join('\n'), code: 1 };
+  },
+};
+
+export const FILE_COMMANDS: CommandDef[] = [tee, sed, copyOrMove('cp'), copyOrMove('mv'), diff,
   ls, cat, headTail('head'), headTail('tail'), grep, wc, echo, touch, mkdirCmd, rm, chmod, chown, stat, cd, pwd,
   whoami, id, editor, { ...editor, name: 'vi' }, { ...editor, name: 'vim' }, { ...editor, name: 'editor' }, passwd, usermod,
 ];
