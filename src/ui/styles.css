@@ -351,3 +351,12 @@ textarea { width: 100%; font-family: var(--mono); font-size: 12.5px; }
   .seq-wrap { grid-template-columns: 1fr; }
   .app { grid-template-columns: 190px 1fr; }
 }
+
+/* Infrastructure Builder */
+.builder-grid { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 12px; margin-top: 10px; align-items: start; }
+.builder-canvas { width: 100%; height: auto; display: block; touch-action: none; user-select: none; background: var(--panel); border-radius: 6px; }
+.builder-inspector { max-height: calc(100vh - 140px); overflow: auto; }
+.builder-inspector h4 { margin: 12px 0 4px; }
+.builder-inspector label { display: inline-flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.builder-run { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); gap: 12px; margin-top: 10px; align-items: start; }
+@media (max-width: 1000px) { .builder-grid, .builder-run { grid-template-columns: 1fr; } }

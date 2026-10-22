@@ -108,7 +108,7 @@ describe('VLANs on sw01', () => {
     lab.run('rtr01', 'root', 'ip link set eth3.31 up');
     expect(lab.world.hosts.rtr01.ifaces.find((i) => i.name === 'eth3.31')!.segment).toBeNull(); // VLAN 31 not on the trunk
     lab.run('sw01', 'root', 'bridge vlan add dev swp7 vid 31');
-    expect(lab.world.hosts.rtr01.ifaces.find((i) => i.name === 'eth3.31')!.segment).toBe('vlan31');
+    expect(lab.world.hosts.rtr01.ifaces.find((i) => i.name === 'eth3.31')!.segment).toBe('sw01-vlan31');
     expect(lab.run('rtr01', 'root', 'ip link add link eth9 name eth9.5 type vlan id 5').output).toMatch(/Cannot find device "eth9"/);
   });
 });

@@ -41,7 +41,7 @@ export function Curriculum() {
           ))}
         </tbody>
       </table>
-      <p className="small muted">Also planned: the visual Infrastructure Builder (topology design with simulated packet tracing). See docs/ARCHITECTURE.md for the phased plan.</p>
+      <p className="small muted">Design your own networks in the <a href="#/builder">Infrastructure Builder</a>: draw machines, switches and routers, then build and trace packets through them. See docs/ARCHITECTURE.md for the phased plan.</p>
     </div>
   );
 }

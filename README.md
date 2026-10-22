@@ -35,6 +35,12 @@ For every technology it answers the same questions:
   intranet web server in nine steps (switch port, static address, DNS, SSH
   keys and hardening, firewall, web page). The simulator checks each step
   against the running machines, and the last step reboots everything.
+- **An Infrastructure Builder**: draw your own network (workstations, servers,
+  routers, VLAN-aware switches), set addresses, gateways, VLANs, firewall
+  rules and NAT, then build it. Every device becomes a simulated Debian
+  machine configured from the files the design generates. You get terminals
+  on each machine and a packet tracer that shows every hop and every firewall
+  and NAT decision.
 - **54 troubleshooting tickets**, each injecting a realistic fault into the
   lab. You investigate with real commands in terminals, record a diagnosis and
   repair the fault. The app then checks your fix immediately, again after
@@ -148,6 +154,11 @@ Start with **Curriculum** for the learning path, or open a lesson from the
 sidebar. Each lesson has tabs from "What is it?" to "Assessment".
 **Guided labs** walks you through building something step by step, with a
 **Check step** button, hints and a reference solution for every step.
+**Infrastructure Builder** lets you design a network on a canvas: add devices,
+press **Connect** and click two devices to cable them, then click a device to
+set its addresses and rules. The checks below the canvas list mistakes such as
+duplicate addresses or an unreachable gateway. **Build & run** starts the
+network. Designs are saved in the browser and can be exported as JSON.
 **Troubleshooting lab** lists the tickets. Each ticket opens a workspace with
 terminals on the affected machines, a notes area, hints that get more specific
 each time you ask, and a **Verify** button. Lesson sandboxes reset with one

@@ -224,6 +224,24 @@ is kept for the browser session and rebuilt on demand by replaying the reference
 solutions of completed steps. `tests/labs.test.ts` proves that every step fails
 before its solution and passes after it.
 
+### 5.4c Infrastructure Builder
+A builder design (`Design` in `src/engine/builder/design.ts`) is plain JSON:
+nodes (kind, name, position, interfaces with IPv4/prefix, switch ports with
+access VLAN or trunk VLANs, gateway, static routes, services, input firewall,
+and on routers a forward policy with exceptions and source NAT) and cables
+between interfaces. `validateDesign()` returns errors (which block building)
+and warnings. `buildDesignWorld()` creates one Debian host per node with
+`createHost()` and writes the configuration as files: `/etc/network/interfaces`
+(static addresses, `gateway`, `up ip route add`, `eth0.20` sub-interfaces),
+ifupdown2 bridge configuration on switches, `/etc/nftables.conf`, the router's
+`ip_forward` sysctl, `/etc/hosts` with every machine, sshd and nginx. Cables to a
+switch become `World.links`; a cable between two machines becomes a private
+point-to-point segment. Then every host boots (switches first), so the running
+state comes from the files exactly as in the lab. `traceCommand()` runs one
+command with the recorder on a copy of the world and extracts the firewall,
+NAT and drop decisions from the hop notes. Cables between switches are not
+modelled yet: `segmentForVlan()` gives each switch its own broadcast domain per VLAN.
+
 ### 5.5 Diagnosis, hints, misconceptions
 The learner records hypotheses from a catalogue of plausible causes. Wrong
 choices are answered with *what that cause would look like and how to test it*
@@ -267,7 +285,7 @@ options is implemented and unsupported options say so.
 | 3f | **MTU and TLS**: interface MTU, packet sizes and DF, router ICMP fragmentation-needed / packet-too-big, PMTU cache (`ip route get`), silent drops on receiving MTU, TCP MSS, segmentation and retransmission backoff, nftables MSS clamping, `ping -s/-M`, `tracepath` PMTU; HTTP server blocks and file serving (status codes, large files), X.509 model (PEM certificates/keys/CSRs, lab CA hierarchy, public roots), OpenSSL-style verification, Debian trust store and `update-ca-certificates`, nginx `listen ssl` with load-time certificate/key checks, curl HTTPS (`-k`, `--cacert`, `--resolve`, `-o`, `-w`), `openssl x509/verify/s_client/req/genrsa/rsa`; stdin/stderr redirection; two lessons with chain inspector and MTU calculator, 8 traced runs, 6 tickets | ✅ |
 | 3h | **DHCP relay and renewal, interfaces and virtual switches**: isc-dhcp-relay on rtr01 (giaddr, -id/-iu, packet sockets that bypass nftables), dhcpd subnet selection by giaddr ("unknown network segment"), RFC 2131 lease timers (T1 renew, T2 rebind, expiry, 300 s retry) replayed as simulated time passes (`sleep`), INIT-REBOOT and DHCPNAK, dev02 on VLAN 30; interface engine: bridge device in `ip link`, dummy interfaces, /sys/class/net attributes, ifupdown failure for missing devices; sed addresses and ranges; interfaces lesson with guide, 5 DHCP traced runs, 6 tickets | ✅ |
 | 3i | **DHCPv6 and Lab 1**: ISC dhcpd -6 under isc-dhcp-server (INTERFACESv6, dhcpd6.conf, dhcpd6.leases, DUID-LLT), dhclient -6 (Solicit/Advertise/Request/Reply, Information-request, Renew/Rebind/expiry, Release) with nftables applying on both ends, ifupdown `inet6 dhcp`/`autoconf 0`, RA M/O flags, ICMPv6 "beyond scope" for link-local sources; IPv6 lesson sections, 3 visual runs, 3 tickets. Guided labs (`src/engine/labs`): steps with engine-evaluated checks, reference solutions, replay to resume, and a final reboot test; **Lab 1: Basic Linux Server** (srv02 from switch port to hardened web server, 9 steps); `printf`, `grep -e …`, `bridge vlan show dev` | ✅ |
-| 4 | Infrastructure Builder (drag-and-drop topology on top of the same `World` model; packet tracing and firewall decisions already exist in the engine) | ⏳ |
+| 4 | **Infrastructure Builder** (`src/engine/builder`, `src/ui/pages/Builder.tsx`): drag-and-drop design of hosts, servers, routers (VLAN sub-interfaces, static routes, forward policy, masquerade) and VLAN-aware switches; validation (addresses, gateways, cabling, VLANs on trunks, firewall vs. services); generation of a `World` from real config files; terminals, reboot-all and a packet tracer listing firewall/NAT decisions; three templates; JSON import/export. VLAN broadcast domains are now per switch | ✅ |
 | 5 | Windows/AD track: Windows host model (services, Defender Firewall, event log), DNS SRV, Kerberos AS/TGS exchange visualisation, NTLM, LDAP; RDP lesson; Lab 2 | ⏳ |
 | 6 | pfSense model (WAN/LAN/DMZ, NAT, state table, logs); Lab 3 | ⏳ |
 | 7 | Containers: image layers, namespaces, bridge networking, port publishing; Docker Compose; Lab 4 | ⏳ |

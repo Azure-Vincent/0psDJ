@@ -84,9 +84,12 @@ export function bridgeFromConfig(ifaces: IfaceConfig[], errors: string[]): Bridg
   return { name: br.name, vlanAware, ports };
 }
 
-/** Broadcast-domain id for a VLAN: the lab segment that declares this VLAN, or a generic name. */
-export function segmentForVlan(world: World, vid: number): string {
-  return Object.values(world.segments).find((s) => s.vlan === vid)?.id ?? `vlan${vid}`;
+/**
+ * Broadcast-domain id for a VLAN on a switch: the lab segment that declares this VLAN, otherwise one
+ * per switch and VLAN (switches are not cabled to each other, so their VLANs are separate domains).
+ */
+export function segmentForVlan(world: World, vid: number, switchId?: string): string {
+  return Object.values(world.segments).find((s) => s.vlan === vid)?.id ?? (switchId ? `${switchId}-vlan${vid}` : `vlan${vid}`);
 }
 
 /** VLAN a host interface's frames belong to on the switch, or null if they are dropped / not delivered back. */
@@ -121,7 +124,7 @@ export function recomputeL2(world: World): void {
         i.segment = i.vlan ? null : i.staticSegment ?? i.segment;
         continue;
       }
-      i.segment = m ? (world.hosts[m.switchId].bridge!.vlanAware ? segmentForVlan(world, m.vid) : `${m.switchId}-flat`) : null;
+      i.segment = m ? (world.hosts[m.switchId].bridge!.vlanAware ? segmentForVlan(world, m.vid, m.switchId) : `${m.switchId}-flat`) : null;
     }
   }
 }
