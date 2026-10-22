@@ -48,3 +48,24 @@ describe('sed (GNU subset)', () => {
     expect(sed("sed '1,d' f")).toBe("sed: -e expression #1, char 3: unexpected `,'");
   });
 });
+
+describe('printf, grep -e, bridge vlan show dev', () => {
+  it('printf expands escapes and %s, and writes files through redirection', () => {
+    const sh = lab();
+    expect(sh("printf 'a\\tb %s=%d\\n' x 7")).toBe('a\tb x=7');
+    sh("printf 'one\\ntwo\\n' > /root/p");
+    expect(sh('cat /root/p')).toBe('one\ntwo');
+  });
+
+  it('grep accepts several -e patterns', () => {
+    const sh = lab();
+    expect(sh('grep -e b -e d f')).toBe('b\nd');
+    expect(sh('grep -c -e a -e e f')).toBe('2');
+  });
+
+  it('bridge vlan show dev PORT lists only that port', () => {
+    const l = new Lab();
+    expect(l.run('sw01', 'root', 'bridge vlan show dev swp6').output).toBe('port              vlan-id  \nswp6              20 PVID Egress Untagged');
+    expect(l.run('sw01', 'root', 'bridge vlan show dev nope').output).toBe('Cannot find device "nope"');
+  });
+});

@@ -31,7 +31,11 @@ For every technology it answers the same questions:
   Windows, pfSense, Docker), configuration reference, an **Operate & recover**
   guide (files, logs, service management, diagnostic workflow, common
   failures) and a graded assessment.
-- **51 troubleshooting tickets**, each injecting a realistic fault into the
+- **A guided lab**: build a freshly installed Debian server into a hardened
+  intranet web server in nine steps (switch port, static address, DNS, SSH
+  keys and hardening, firewall, web page). The simulator checks each step
+  against the running machines, and the last step reboots everything.
+- **54 troubleshooting tickets**, each injecting a realistic fault into the
   lab. You investigate with real commands in terminals, record a diagnosis and
   repair the fault. The app then checks your fix immediately, again after
   rebooting every machine, and against security rules, so "just open the
@@ -142,6 +146,8 @@ is stored separately and is kept; it can also be exported and imported under
 
 Start with **Curriculum** for the learning path, or open a lesson from the
 sidebar. Each lesson has tabs from "What is it?" to "Assessment".
+**Guided labs** walks you through building something step by step, with a
+**Check step** button, hints and a reference solution for every step.
 **Troubleshooting lab** lists the tickets. Each ticket opens a workspace with
 terminals on the affected machines, a notes area, hints that get more specific
 each time you ask, and a **Verify** button. Lesson sandboxes reset with one
@@ -159,7 +165,7 @@ npm run typecheck    # TypeScript checks
 
 | Path | Contents |
 |---|---|
-| `src/engine/` | the simulator: network, services, shell commands, troubleshooting scenarios, PCAP |
+| `src/engine/` | the simulator: network, services, shell commands, troubleshooting scenarios, guided labs, PCAP |
 | `src/content/` | lessons, guides, case studies, reference library, certification map, glossary (plain data) |
 | `src/ui/` | the React interface |
 | `src/learning/` | grading and progress tracking |

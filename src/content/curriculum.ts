@@ -119,7 +119,7 @@ export const CURRICULUM: CurriculumModule[] = [
 ];
 
 export const LABS = [
-  { id: 'lab1', title: 'Lab 1: Basic Linux Server', status: 'partial' as const, note: 'The SSH lab (ws01, srv01, ns1, rtr01) covers networking, SSH, users, permissions and connectivity troubleshooting in simulation. A separate real-VM guide is in the SSH lesson\'s Deployment section.' },
+  { id: 'lab1', title: 'Lab 1: Basic Linux Server', status: 'available' as const, link: 'labs/lab1', note: 'Guided, 9 verified steps: build a fresh Debian server (srv02) from switch port to hardened web server, with DNS, SSH keys, nftables and a reboot test.' },
   { id: 'lab2', title: 'Lab 2: Windows Domain', status: 'partial' as const, note: 'No Windows simulator. The AD/Kerberos and Windows/RDP lessons include real-VM build guides, and case studies C and F walk through domain login and RDP failures.' },
   { id: 'lab3', title: 'Lab 3: Segmented Enterprise Network (pfSense)', status: 'partial' as const, note: 'Segmentation is simulated with a Linux router and VLAN switch; the pfSense lesson and case study E cover the same design on pfSense.' },
   { id: 'lab4', title: 'Lab 4: Containerized Application', status: 'partial' as const, note: 'Docker lesson with a Compose example, and case study D (unreachable web app). Not simulated.' },

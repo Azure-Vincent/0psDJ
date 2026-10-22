@@ -37,7 +37,7 @@ export function Curriculum() {
       <table>
         <tbody>
           {LABS.map((l) => (
-            <tr key={l.id}><td>{l.title}{l.note && <div className="small muted">{l.note}</div>}</td><td style={{ width: 100 }}><span className={`badge ${STATUS[l.status]}`}>{l.status}</span></td></tr>
+            <tr key={l.id}><td>{'link' in l && l.link ? <a href={`#/${l.link}`}>{l.title}</a> : l.title}{l.note && <div className="small muted">{l.note}</div>}</td><td style={{ width: 100 }}><span className={`badge ${STATUS[l.status]}`}>{l.status}</span></td></tr>
           ))}
         </tbody>
       </table>

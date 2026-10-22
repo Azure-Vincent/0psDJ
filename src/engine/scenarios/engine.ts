@@ -68,7 +68,9 @@ export function checkGoal(world: World, goal: Goal): GoalResult {
 export function rebootAll(world: World): World {
   const w = structuredClone(world);
   w.sessions = [];
-  for (const id of ['sw01', 'rtr01', 'ns1', 'srv01', 'ws01', 'ws02', 'ext01', 'dev01', 'dev02']) if (w.hosts[id]) bootHost(w, w.hosts[id]);
+  // Infrastructure first (switch, router, DNS/DHCP), then servers and clients; hosts added by a lab boot last.
+  const order = ['sw01', 'rtr01', 'ns1', 'srv01', 'ws01', 'ws02', 'ext01', 'dev01', 'dev02'];
+  for (const id of [...order, ...Object.keys(w.hosts).filter((h) => !order.includes(h))]) if (w.hosts[id]) bootHost(w, w.hosts[id]);
   w.clock += 30_000;
   return w;
 }
