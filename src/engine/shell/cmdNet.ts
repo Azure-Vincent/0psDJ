@@ -679,7 +679,7 @@ const ethtool: CommandDef = {
     if (flags.has('-i')) {
       if (i.name === 'lo') return err('Cannot get driver information: Operation not supported', 71);
       if (i.vlan) return ok('driver: 802.1Q VLAN Support\nversion: 1.8\nfirmware-version: N/A\nexpansion-rom-version: \nbus-info: \nsupports-statistics: no\nsupports-test: no\nsupports-eeprom-access: no\nsupports-register-dump: no\nsupports-priv-flags: no');
-      return ok('driver: e1000\nversion: 6.1.0-28-amd64\nfirmware-version: \nexpansion-rom-version: \nbus-info: 0000:00:03.0\nsupports-statistics: yes\nsupports-test: yes\nsupports-eeprom-access: yes\nsupports-register-dump: yes\nsupports-priv-flags: no');
+      return ok('driver: e1000\nversion: 6.1.0-28-amd64\nfirmware-version: \nexpansion-rom-version: \nbus-info: 0000:01:00.0\nsupports-statistics: yes\nsupports-test: yes\nsupports-eeprom-access: yes\nsupports-register-dump: yes\nsupports-priv-flags: no');
     }
     const link = hasCarrier(ctx.world, ctx.host, i);
     if (i.name === 'lo' || i.vlan) return ok(`Settings for ${i.name}:\n\tLink detected: ${link ? 'yes' : 'no'}`);

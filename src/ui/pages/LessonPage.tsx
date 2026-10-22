@@ -295,6 +295,15 @@ function widgetsFor(id: string): LessonWidgets {
       sandbox: [ws01, srv01, { hostId: 'ws02', user: 'dana', label: 'ws02 (dana)', banner: 'Sandbox: ws02, a laptop (DHCP). sudo password: ws02-dana.' }],
     };
   }
+  if (id === 'netif') {
+    return {
+      sandbox: [
+        { hostId: 'srv01', user: 'root', label: 'srv01 console (root)', banner: 'Sandbox: console on srv01. Try: ip -br link, ip -d link show eth0, ls /sys/class/net, ethtool -i eth0, ip link add dummy0 type dummy.' },
+        { hostId: 'sw01', user: 'root', label: 'sw01 console (root)', banner: 'Sandbox: console on the switch sw01 (Linux bridge br0). Try: ip -d link show br0, bridge link, bridge vlan show, bridge fdb show br0.' },
+        rtr01,
+      ],
+    };
+  }
   if (id === 'mtu') {
     return {
       visualize: <RunVisualizer runs={MTU_RUNS} lanes={MTU_LANES} />,

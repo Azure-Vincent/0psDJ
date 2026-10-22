@@ -14,8 +14,15 @@ export const bridge: CommandDef = {
   usage: 'bridge vlan show | bridge vlan add|del dev PORT vid VID [pvid] [untagged] | bridge link show | bridge fdb show',
   run(args, ctx) {
     const h = ctx.host;
-    if (!h.bridge) return err(h.kind === 'switch' ? 'bridge: no bridge configured (check /etc/network/interfaces, then ifreload -a)' : 'This host has no bridge (it is not a switch).', 1);
     const [obj, sub = 'show', ...rest] = args;
+    // Without a bridge, iproute2 lists nothing; changes fail on the named device.
+    if (!h.bridge) {
+      if (['add', 'del', 'delete', 'replace'].includes(sub)) {
+        const dev = rest[rest.indexOf('dev') + 1];
+        return err(dev && h.ifaces.some((i) => i.name === dev) ? 'RTNETLINK answers: Operation not supported' : `Cannot find device "${dev ?? ''}"`, 2);
+      }
+      return ok('');
+    }
     if (obj === 'vlan' || obj === 'v') {
       if (sub === 'show' || sub === 'list') return ok(formatBridgeVlans(h));
       if (sub === 'add' || sub === 'del' || sub === 'delete') {

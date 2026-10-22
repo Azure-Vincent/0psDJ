@@ -633,7 +633,7 @@ export function applyNetworkConfig(world: World, host: Host): string[] {
   const { ifaces, errors } = parseInterfaces(readFile(host, '/etc/network/interfaces') ?? '');
   host.routes = [];
   host.routes6 = [];
-  host.ifaces = host.ifaces.filter((i) => !i.vlan);
+  host.ifaces = host.ifaces.filter((i) => !i.vlan && !i.kind);
   for (const i of host.ifaces) {
     if (i.name === LOOPBACK) { i.addrs6 = [{ address: '::1', prefix: 128, scope: 'host', origin: 'kernel' }]; continue; }
     i.address = null;
@@ -655,9 +655,17 @@ export function applyNetworkConfig(world: World, host: Host): string[] {
   }
   if (host.kind === 'switch') host.bridge = bridgeFromConfig(ifaces, errors);
   const slaac: string[] = [];
+  const missing = new Set<string>();
   for (const cfg of autoCfg) {
     const iface = host.ifaces.find((i) => i.name === cfg.name);
-    if (!iface) continue;
+    if (!iface) {
+      // ifupdown cannot configure a NIC that does not exist (renamed after a hardware or VM change).
+      if (host.kind !== 'switch' && !cfg.options['bridge-ports'] && !missing.has(cfg.name)) {
+        missing.add(cfg.name);
+        errors.push(`Cannot find device "${cfg.name}"`, `ifup: failed to bring up ${cfg.name}`);
+      }
+      continue;
+    }
     iface.up = true;
     if (cfg.options.mtu !== undefined) {
       const mtu = Number(cfg.options.mtu);

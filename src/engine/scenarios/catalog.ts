@@ -266,5 +266,15 @@ export const CAUSES: Record<string, Cause> = Object.fromEntries(
       signature: 'Relayed clients get no address. The server receives their requests and logs "DHCPDISCOVER from <mac> via <giaddr>: unknown network segment": it cannot find a subnet that contains the relay\'s address (giaddr), so it does not answer.',
       check: 'journalctl -u isc-dhcp-server on the server; the subnet declarations in dhcpd.conf compared with the relay agent\'s address on the client network.',
     },
+    {
+      id: 'nic-renamed', title: 'Network configuration refers to an interface name that no longer exists', category: 'Configuration', concept: 'net.interfaces',
+      signature: 'After new hardware, a VM migration or a template change the host has no address at all. "ip -br link" shows a NIC with a different name (ens18, enp1s0) in state DOWN; networking.service failed with "Cannot find device \\"eth0\\"". Nothing in the network changed.',
+      check: 'ip -br link and ip -br addr on the host console; journalctl -u networking -b; compare the iface names in /etc/network/interfaces (or netplan/NetworkManager) with the NICs that exist.',
+    },
+    {
+      id: 'bridge-port-missing', title: 'Switch port not attached to the bridge', category: 'Network path', concept: 'net.interfaces',
+      signature: 'One host is isolated although its own configuration and its cable (link UP, carrier) are fine. Its frames reach the switch port but the port is not a member of the (virtual) switch: "bridge link show" lacks it and "ip -d link show <port>" shows no "master". ARP for the host fails from the gateway.',
+      check: 'bridge link show / bridge vlan show on the switch; ip -d link show <port>; bridge-ports in the switch configuration.',
+    },
   ] as Cause[]).map((c) => [c.id, c]),
 );

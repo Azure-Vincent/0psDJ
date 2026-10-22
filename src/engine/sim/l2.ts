@@ -149,6 +149,7 @@ export function formatBridgeVlans(host: Host): string {
 /** Physical link state (carrier): cabled NICs need the switch port up; uncabled ones need a segment. */
 export function hasCarrier(world: World, host: Host, iface: Interface): boolean {
   if (iface.name === 'lo') return true;
+  if (iface.kind === 'dummy') return iface.up;
   if (iface.vlan) {
     const parent = host.ifaces.find((i) => i.name === iface.vlan!.parent);
     return !!parent && parent.up && hasCarrier(world, host, parent);

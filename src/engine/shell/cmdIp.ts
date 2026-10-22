@@ -32,14 +32,27 @@ function ifName(i: Interface): string {
 
 let W: World;
 
+const isBridgeDev = (h: Host, i: Interface) => !!h.bridge && i.name === h.bridge.name;
+
+/** Interfaces as `ip link` lists them: the host's NICs plus, on the switch, the bridge device itself. */
+function linkList(h: Host): Interface[] {
+  if (!h.bridge) return h.ifaces;
+  const first = h.ifaces.find((i) => h.bridge!.ports[i.name]);
+  return [...h.ifaces, { name: h.bridge.name, mac: first?.mac ?? '00:00:00:00:00:00', segment: null, address: null, prefix: null, up: true, addrs6: [] }];
+}
+
 function flagsOf(h: Host, i: Interface): string {
   if (i.name === LOOPBACK) return 'LOOPBACK,UP,LOWER_UP';
+  if (isBridgeDev(h, i)) return 'BROADCAST,MULTICAST,UP,LOWER_UP';
+  if (i.kind === 'dummy') return i.up ? 'BROADCAST,NOARP,UP,LOWER_UP' : 'BROADCAST,NOARP';
   if (!i.up) return 'BROADCAST,MULTICAST';
   return hasCarrier(W, h, i) ? 'BROADCAST,MULTICAST,UP,LOWER_UP' : i.vlan ? 'BROADCAST,MULTICAST,UP' : 'NO-CARRIER,BROADCAST,MULTICAST,UP';
 }
 
 function state(h: Host, i: Interface): string {
   if (i.name === LOOPBACK) return 'UNKNOWN';
+  if (isBridgeDev(h, i)) return 'UP';
+  if (i.kind === 'dummy') return i.up ? 'UNKNOWN' : 'DOWN';
   if (!i.up) return 'DOWN';
   if (hasCarrier(W, h, i)) return 'UP';
   return i.vlan ? 'LOWERLAYERDOWN' : 'DOWN';
@@ -48,11 +61,13 @@ function state(h: Host, i: Interface): string {
 function linkLines(h: Host, i: Interface, idx: number, detail: boolean): string[] {
   const lo = i.name === LOOPBACK;
   const master = h.bridge?.ports[i.name] ? ` master ${h.bridge.name}` : '';
-  const out = [`${idx + 1}: ${ifName(i)}: <${flagsOf(h, i)}> mtu ${ifaceMtu(i)} qdisc ${lo ? 'noqueue' : i.vlan ? 'noqueue' : 'fq_codel'}${master} state ${state(h, i)} group default qlen 1000`];
+  const out = [`${idx + 1}: ${ifName(i)}: <${flagsOf(h, i)}> mtu ${ifaceMtu(i)} qdisc ${lo || i.vlan || i.kind || isBridgeDev(h, i) ? 'noqueue' : 'fq_codel'}${master} state ${state(h, i)} group default qlen 1000`];
   out.push(`    link/${lo ? 'loopback' : 'ether'} ${i.mac} brd ${lo ? '00:00:00:00:00:00' : 'ff:ff:ff:ff:ff:ff'}`);
   if (detail && i.vlan) out.push(`    vlan protocol 802.1Q id ${i.vlan.id} <REORDER_HDR> `);
   if (detail && master) out.push(`    bridge_slave state ${i.up ? 'forwarding' : 'disabled'} priority 32 cost 100 `);
-  if (!lo && !i.vlan && !h.bridge?.ports[i.name] && !detail) out.push(`    altname enp${idx}s0`);
+  if (detail && isBridgeDev(h, i)) out.push(`    bridge forward_delay 1500 hello_time 200 max_age 2000 ageing_time 30000 stp_state 1 priority 32768 vlan_filtering ${h.bridge!.vlanAware ? 1 : 0} vlan_protocol 802.1Q bridge_id 8000.${i.mac} `);
+  if (detail && i.kind === 'dummy') out.push('    dummy ');
+  if (!lo && !i.vlan && !i.kind && !isBridgeDev(h, i) && !h.bridge?.ports[i.name] && !detail && !/^en/.test(i.name)) out.push(`    altname enp${idx}s0`);
   return out;
 }
 
@@ -62,7 +77,7 @@ function addrLines(i: Interface, fam: 0 | 4 | 6, now: number): string[] {
   if (fam !== 6 && i.address && (i.up || lo)) {
     // dhclient-script installs DHCP addresses with the lease time as lifetime ("dynamic").
     const left = i.dhcp ? Math.max(0, Math.floor((i.dhcp.expires - now) / 1000)) : null;
-    out.push(`    inet ${i.address}/${i.prefix}${lo ? '' : ` brd ${broadcastOf(i.address, i.prefix!)}`} scope ${lo ? 'host' : 'global'}${left !== null ? ' dynamic' : ''} ${i.name}`);
+    out.push(`    inet ${i.address}/${i.prefix}${lo || i.prefix! >= 31 ? '' : ` brd ${broadcastOf(i.address, i.prefix!)}`} scope ${lo ? 'host' : 'global'}${left !== null ? ' dynamic' : ''} ${i.name}`);
     out.push(left !== null ? `       valid_lft ${left}sec preferred_lft ${left}sec` : '       valid_lft forever preferred_lft forever');
   }
   if (fam !== 4 && (i.up || lo)) {
@@ -249,7 +264,18 @@ export const ip: CommandDef = {
         const name = rest[rest.indexOf('name') + 1];
         const type = rest[rest.indexOf('type') + 1];
         const id = Number(rest[rest.indexOf('id') + 1]);
-        if (rest.indexOf('link') < 0 || rest.indexOf('name') < 0 || type !== 'vlan' || rest.indexOf('id') < 0) return err('Usage: ip link add link DEV name NAME type vlan id ID (only VLAN links are simulated)', 255);
+        if (type === 'dummy') {
+          const dname = rest[rest.indexOf('add') + 1] === 'name' ? rest[rest.indexOf('add') + 2] : rest[rest.indexOf('add') + 1];
+          if (!dname || dname === 'type') return err('Not enough information: "dev" argument is required.', 255);
+          if (host.ifaces.some((i) => i.name === dname)) return err('RTNETLINK answers: File exists', 2);
+          const n = host.ifaces.length + 1;
+          host.ifaces.push({ name: dname, mac: `be:ef:${host.id.length.toString(16).padStart(2, '0')}:00:00:${n.toString(16).padStart(2, '0')}`, segment: null, address: null, prefix: null, up: false, addrs6: [], kind: 'dummy' });
+          return ok('');
+        }
+        if (type === 'veth' || type === 'bridge' || type === 'bond') {
+          return err(`[Infrastructure Lab: "${type}" interfaces are taught in the lesson but not simulated on lab hosts (no network namespaces or host bridges). Supported: type vlan, type dummy.]`, 2);
+        }
+        if (rest.indexOf('link') < 0 || rest.indexOf('name') < 0 || type !== 'vlan' || rest.indexOf('id') < 0) return err('Usage: ip link add link DEV name NAME type vlan id ID | ip link add NAME type dummy', 255);
         const parent = host.ifaces.find((i) => i.name === parentName);
         if (!parent) return err(`Cannot find device "${parentName}"`, 1);
         if (!Number.isInteger(id) || id < 1 || id > 4094) return err('Error: argument "' + rest[rest.indexOf('id') + 1] + '" is wrong: id is invalid', 255);
@@ -264,7 +290,7 @@ export const ip: CommandDef = {
         const name = rest[1] === 'dev' ? rest[2] : rest[1];
         const iface = host.ifaces.find((i) => i.name === name);
         if (!iface) return err(`Cannot find device "${name}"`, 1);
-        if (!iface.vlan) return err('RTNETLINK answers: Operation not supported (physical interfaces cannot be deleted)', 2);
+        if (!iface.vlan && !iface.kind) return err('RTNETLINK answers: Operation not supported (physical interfaces cannot be deleted)', 2);
         host.ifaces = host.ifaces.filter((i) => i !== iface);
         host.routes = host.routes.filter((r) => r.dev !== name);
         host.routes6 = (host.routes6 ?? []).filter((r) => r.dev !== name);
@@ -303,7 +329,7 @@ export const ip: CommandDef = {
         return ok('');
       }
       const dev = devArg(rest);
-      const list = host.ifaces.map((i, idx) => ({ i, idx })).filter(({ i }) => !dev || i.name === dev);
+      const list = linkList(host).map((i, idx) => ({ i, idx })).filter(({ i }) => !dev || i.name === dev);
       if (dev && list.length === 0) return err(`Device "${dev}" does not exist.`, 1);
       if (brief) return ok(list.map(({ i }) => `${ifName(i).padEnd(16)} ${state(host, i).padEnd(14)} ${i.mac} <${flagsOf(host, i)}> `).join('\n'));
       return ok(list.flatMap(({ i, idx }) => linkLines(host, i, idx, detail)).join('\n'));

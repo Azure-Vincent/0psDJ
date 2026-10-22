@@ -59,6 +59,8 @@ export interface Interface {
   mtu?: number;
   /** dhclient's binding for this interface (RFC 2131 timers, absolute clock values in ms). */
   dhcp?: DhcpBinding;
+  /** Virtual interface created at runtime with `ip link add … type dummy` (gone after a reboot). */
+  kind?: 'dummy';
   /** dhclient found no server and sleeps; it tries again at this time (ms). */
   dhcpRetryAt?: number;
 }

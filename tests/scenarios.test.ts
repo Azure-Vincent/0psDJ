@@ -54,6 +54,8 @@ const SYMPTOM: Record<string, RegExp> = {
   'dhcp-relay-iu': /Could not resolve host|Network is unreachable/,
   'dhcp-relay-subnet': /Could not resolve host|Network is unreachable/,
   'dhcp-lease-expiry': /Could not resolve host|Network is unreachable/,
+  'netif-renamed-nic': /Couldn't connect to server|No route to host/,
+  'netif-bridge-port': /Couldn't connect to server|No route to host/,
   'mtu-uplink-mismatch': /curl: \(28\) Operation timed out after 30000 milliseconds with 0 out of 4718592 bytes received/,
 };
 

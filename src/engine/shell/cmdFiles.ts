@@ -36,6 +36,24 @@ export function virtualFile(host: Host, path: string): string | undefined {
   }
   if (path === '/proc/sys/net/ipv4/ip_forward') return host.ipForward ? '1\n' : '0\n';
   if (path === '/dev/null') return '';
+  const sys = /^\/sys\/class\/net\/([^/]+)\/([a-z_]+)$/.exec(path);
+  if (sys) {
+    const i = host.ifaces.find((x) => x.name === sys[1]);
+    if (!i) return undefined;
+    const lo = i.name === 'lo';
+    const carrier = lo || (i.up && (i.segment !== null || !!host.bridge?.ports[i.name]));
+    const files: Record<string, string> = {
+      operstate: lo ? 'unknown' : !i.up ? 'down' : carrier ? 'up' : i.vlan ? 'lowerlayerdown' : 'down',
+      carrier: carrier ? '1' : '0',
+      address: i.mac,
+      mtu: String(i.mtu ?? (lo ? 65536 : 1500)),
+      speed: lo ? '-1' : carrier ? '1000' : '-1',
+      duplex: lo ? 'unknown' : carrier ? 'full' : 'unknown',
+      type: lo ? '772' : '1',
+      ifindex: String(host.ifaces.indexOf(i) + 1),
+    };
+    return files[sys[2]] !== undefined ? files[sys[2]] + '\n' : undefined;
+  }
   return undefined;
 }
 
@@ -49,6 +67,11 @@ const VIRTUAL_META: Record<string, Partial<FileNode>> = {
 
 export function getFile(ctx: CmdCtx, path: string): { node: FileNode | null; content?: string; error?: string } {
   const v = virtualFile(ctx.host, path);
+  // The kernel refuses carrier/speed/duplex of an interface that is administratively down.
+  const down = /^\/sys\/class\/net\/([^/]+)\/(carrier|speed|duplex)$/.exec(path);
+  if (v !== undefined && down && ctx.host.ifaces.some((i) => i.name === down[1] && i.name !== 'lo' && !i.up)) {
+    return { node: { type: 'file', mode: 0o444, owner: 'root', group: 'root', content: '', mtime: ctx.host.bootTime }, error: 'Invalid argument' };
+  }
   if (v !== undefined) {
     const node: FileNode = { type: 'file', mode: 0o644, owner: 'root', group: 'root', content: v, mtime: ctx.host.bootTime, ...VIRTUAL_META[path] };
     if (!canAccess(node, ctx.user, 'r')) return { node, error: 'Permission denied' };
@@ -103,6 +126,12 @@ const ls: CommandDef = {
     let code = 0;
     for (const t of targets) {
       const path = resolvePath(ctx, t);
+      // sysfs: one directory per network interface, a few attribute files each.
+      const sysIf = /^\/sys\/class\/net(?:\/([^/]+))?$/.exec(path);
+      if (sysIf && (!sysIf[1] || ctx.host.ifaces.some((i) => i.name === sysIf[1]))) {
+        out.push((sysIf[1] ? ['address', 'carrier', 'duplex', 'ifindex', 'mtu', 'operstate', 'speed', 'type'] : ctx.host.ifaces.map((i) => i.name).concat(ctx.host.bridge ? [ctx.host.bridge.name] : []).sort()).join('  '));
+        continue;
+      }
       const n = ctx.host.fs[path] ?? (virtualFile(ctx.host, path) !== undefined ? { type: 'file' as const, mode: 0o644, owner: 'root', group: 'root', content: virtualFile(ctx.host, path)!, mtime: ctx.host.bootTime } : undefined);
       if (!n) {
         out.push(`ls: cannot access '${t}': No such file or directory`);

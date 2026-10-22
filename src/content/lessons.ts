@@ -1,8 +1,10 @@
-import { DHCP_ASSESSMENT, IP_ASSESSMENT, IPV6_ASSESSMENT, MTU_ASSESSMENT, NAT_ASSESSMENT, TLS_ASSESSMENT, TRANSPORT_ASSESSMENT, VLAN_ASSESSMENT } from './network/assessments';
+import { DHCP_ASSESSMENT, IP_ASSESSMENT, IPV6_ASSESSMENT, MTU_ASSESSMENT, NAT_ASSESSMENT, NETIF_ASSESSMENT, TLS_ASSESSMENT, TRANSPORT_ASSESSMENT, VLAN_ASSESSMENT } from './network/assessments';
 import { TLS_LESSON } from './network/tlsLesson';
 import { MTU_LESSON } from './network/mtuLesson';
 import { TLS_GUIDE } from './guides/tls';
 import { MTU_GUIDE } from './guides/mtu';
+import { NETIF_LESSON } from './network/netifLesson';
+import { NETIF_GUIDE } from './guides/netif';
 import { IPV6_LESSON } from './network/ipv6Lesson';
 import { VLAN_LESSON } from './network/vlanLesson';
 import { DHCP_LESSON } from './network/dhcpLesson';
@@ -37,6 +39,7 @@ export const LESSONS: Lesson[] = [
   { ...DHCP_LESSON, guide: DHCP_GUIDE, objectives: ['N10-009:3.4', 'N10-009:5.3', '200-301:4.3', '200-301:4.6'] },
   { ...NAT_LESSON, guide: NAT_GUIDE, caseStudyIds: ['linux-no-internet'], objectives: ['N10-009:1.7', '200-301:1.7', '200-301:4.1'] }, { ...VLAN_LESSON, guide: VLAN_GUIDE, objectives: ['N10-009:2.2', '200-301:1.13', '200-301:2.1', '200-301:2.2'] },
   { ...IPV6_LESSON, guide: IPV6_GUIDE, objectives: ['N10-009:3.4', '200-301:1.8', '200-301:1.9', '200-301:3.3'] },
+  { ...NETIF_LESSON, guide: NETIF_GUIDE, objectives: ['N10-009:2.2', 'N10-009:5.2', '200-301:1.12', '200-301:1.13'] },
   { ...MTU_LESSON, guide: MTU_GUIDE, objectives: ['N10-009:5.2', 'N10-009:5.5', '200-301:1.4'] },
   { ...TLS_LESSON, guide: TLS_GUIDE, objectives: ['N10-009:1.4', 'N10-009:4.1', 'N10-009:5.3', '200-301:2.8', '200-301:5.4'] },
   { ...SSH_LESSON, guide: SSH_GUIDE, caseStudyIds: ['ssh-refused'], objectives: ['N10-009:3.5', 'N10-009:5.3', '200-301:4.8', '200-301:2.8'] },
@@ -55,6 +58,7 @@ export const ASSESSMENTS: Record<string, Assessment> = {
   [IPV6_ASSESSMENT.id]: IPV6_ASSESSMENT,
   [TLS_ASSESSMENT.id]: TLS_ASSESSMENT,
   [MTU_ASSESSMENT.id]: MTU_ASSESSMENT,
+  [NETIF_ASSESSMENT.id]: NETIF_ASSESSMENT,
   [PFSENSE_ASSESSMENT.id]: PFSENSE_ASSESSMENT,
   [SYSTEMD_ASSESSMENT.id]: SYSTEMD_ASSESSMENT,
   [NETOPS_ASSESSMENT.id]: NETOPS_ASSESSMENT,

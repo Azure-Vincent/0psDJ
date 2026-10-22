@@ -28,7 +28,7 @@ export const CURRICULUM: CurriculumModule[] = [
       { title: 'VLANs and segmentation', level: 'intermediate', status: 'available', link: 'lesson/vlan' },
       { title: 'Network configuration and recovery (complete lesson: ip/ss/tracepath/ethtool, NetworkManager, systemd-networkd, netplan, Windows NetTCPIP)', level: 'intermediate', status: 'available', link: 'lesson/netops/what' },
       { title: 'TLS and certificates (complete lesson)', level: 'intermediate', status: 'available', link: 'lesson/tls/what', note: 'TLS 1.3 handshake, X.509 chains, trust stores, nginx HTTPS, openssl and curl diagnostics, 5 tickets.' },
-      { title: 'Network interfaces and virtual switches', level: 'intermediate', status: 'planned' },
+      { title: 'Network interfaces and virtual switches (complete lesson)', level: 'intermediate', status: 'available', link: 'lesson/netif/what', note: 'Interface types, names (eth0 vs predictable names), admin state vs carrier, /sys/class/net, Linux bridges, hypervisor virtual switches, bonding, 2 tickets.' },
       { title: 'MTU, fragmentation, path MTU discovery (complete lesson)', level: 'advanced', status: 'available', link: 'lesson/mtu/what', note: 'MTU and MSS, DF and ICMP fragmentation-needed, black holes, MSS clamping, ping -M do and tracepath, 1 ticket.' },
     ],
   },
