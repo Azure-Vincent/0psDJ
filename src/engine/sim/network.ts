@@ -63,7 +63,8 @@ export function routeTable6(host: Host): Route[] {
 /** Connected routes derived from interface addresses plus configured routes. */
 export function routeTable(host: Host): Route[] {
   const connected: Route[] = host.ifaces
-    .filter((i) => i.up && i.address && i.prefix !== null && i.name !== LOOPBACK)
+    // A /32 address gets no prefix route: it covers no other host.
+    .filter((i) => i.up && i.address && i.prefix !== null && i.prefix < 32 && i.name !== LOOPBACK)
     .map((i) => {
       const c = parseCidr(`${i.address}/${i.prefix}`)!;
       return { dest: `${formatNet(c.network)}/${c.prefix}`, dev: i.name, proto: 'kernel' as const, src: i.address! };

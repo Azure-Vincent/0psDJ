@@ -74,6 +74,8 @@ export interface DhcpBinding {
   /** T2: broadcast rebinding to any server. */
   rebindAt: number;
   expires: number;
+  /** Next retransmission while RENEWING or REBINDING (ms). */
+  nextTry?: number;
   state: 'bound' | 'renewing' | 'rebinding';
 }
 

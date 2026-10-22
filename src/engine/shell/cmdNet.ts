@@ -473,12 +473,17 @@ const date: CommandDef = {
 const sleep: CommandDef = {
   name: 'sleep',
   summary: 'let simulated time pass (timers such as DHCP renewals run meanwhile)',
-  usage: 'sleep SECONDS[s|m|h]  (at most 2h in the simulator)',
+  usage: 'sleep NUMBER[s|m|h|d]...  (the sum; at most 2h in the simulator)',
   run(args, ctx) {
-    const m = /^(\d+(?:\.\d+)?)([smh]?)$/.exec(args[0] ?? '');
-    if (!m) return err(args[0] ? `sleep: invalid time interval '${args[0]}'\nTry 'sleep --help' for more information.` : "sleep: missing operand\nTry 'sleep --help' for more information.", 1);
-    const ms = Number(m[1]) * ({ s: 1000, m: 60_000, h: 3_600_000 }[m[2] || 's'] as number);
-    ctx.world.clock += Math.min(ms, 7_200_000);
+    if (!args.length) return err("sleep: missing operand\nTry 'sleep --help' for more information.", 1);
+    // GNU sleep: floating-point numbers with an optional unit; several arguments are added up.
+    let ms = 0;
+    for (const a of args) {
+      const m = /^(\d*\.?\d+(?:e[+-]?\d+)?|\d+\.)([smhd]?)$/i.exec(a);
+      if (!m) return err(`sleep: invalid time interval '${a}'\nTry 'sleep --help' for more information.`, 1);
+      ms += Number(m[1]) * ({ s: 1000, m: 60_000, h: 3_600_000, d: 86_400_000 }[m[2] || 's'] as number);
+    }
+    ctx.world.clock += Math.round(Math.min(ms, 7_200_000));
     maintainLeases(ctx.world, true);
     return ok('');
   },

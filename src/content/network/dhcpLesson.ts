@@ -61,8 +61,8 @@ A lease is valid for the lease time (option 51); the server also sends T1 (optio
 | Time after the ACK | Client state | What it does |
 |---|---|---|
 | 0 s | BOUND | uses the address (\`ip addr\` shows \`dynamic\`, \`valid_lft 600sec\` counting down) |
-| T1 = 50 % = 300 s | RENEWING | DHCPREQUEST **unicast to the server that granted the lease** (ciaddr = its address). An ACK restarts the clock. |
-| T2 = 87.5 % = 525 s | REBINDING | the server did not answer: DHCPREQUEST **broadcast**, so any server (or relay) for this network may extend the lease |
+| T1 = 50 % = 300 s | RENEWING | DHCPREQUEST **unicast to the server that granted the lease** (ciaddr = its address), retransmitted until T2. An ACK restarts the clock. |
+| T2 = 87.5 % = 525 s | REBINDING | the server did not answer: DHCPREQUEST **broadcast**, retransmitted until expiry, so any server (or relay) for this network may extend the lease |
 | 100 % = 600 s | INIT | the lease expired: the address and default route are **removed**; dhclient starts over with DISCOVER and retries every 5 minutes while nobody answers |
 
 So when a DHCP server dies, **nothing happens at first**: clients keep working until their own lease runs out, then drop off one by one at different times. Long leases (8–24 h in offices) ride out short outages; short ones recycle addresses quickly (guest Wi-Fi). dhcpd appends every change to the lease file; the last entry for an address wins.

@@ -7,6 +7,7 @@ import { canonicalIp6, linkLocalFromMac, parseCidr6, parseIp6 } from '../net/ip6
 import { hasCarrier, recomputeL2 } from '../sim/l2';
 import { ifaceMtu, LOOPBACK, lookupRoute, routeTable, routeTable6 } from '../sim/network';
 import type { Host, Interface, Route, World } from '../types';
+import { seededInt } from '../util/sha256';
 import { type CmdCtx, type CommandDef, err, ok } from './types';
 
 const needRoot = (ctx: CmdCtx) => (ctx.user.uid !== 0 ? err('RTNETLINK answers: Operation not permitted', 2) : null);
@@ -131,7 +132,8 @@ export const ip: CommandDef = {
       const iface = host.ifaces.find((i) => i.name === dev);
       if (!iface) return err(`Cannot find device "${dev ?? ''}"`, 1);
       if (rest[0] === 'flush') {
-        if (fam !== 6) { iface.address = null; iface.prefix = null; host.routes = host.routes.filter((r) => r.dev !== iface.name); }
+        // Removing the leased address by hand ends the DHCP binding (no renewal timers for it).
+        if (fam !== 6) { iface.address = null; iface.prefix = null; iface.dhcp = undefined; host.routes = host.routes.filter((r) => r.dev !== iface.name); }
         if (fam !== 4) iface.addrs6 = (iface.addrs6 ?? []).filter((a) => a.scope === 'link' && fam !== 6);
         return ok('');
       }
@@ -164,13 +166,14 @@ export const ip: CommandDef = {
       if (iface.address !== addr) return err('RTNETLINK answers: Cannot assign requested address', 2);
       iface.address = null;
       iface.prefix = null;
+      iface.dhcp = undefined;
       host.routes = host.routes.filter((r) => r.dev !== iface.name || !r.via);
       return ok('');
     }
 
     if (isAddr) {
       const dev = devArg(rest);
-      const list = host.ifaces.map((i, idx) => ({ i, idx })).filter(({ i }) => !dev || i.name === dev);
+      const list = linkList(host).map((i, idx) => ({ i, idx })).filter(({ i }) => !dev || i.name === dev);
       if (dev && list.length === 0) return err(`Device "${dev}" does not exist.`, 1);
       if (brief) {
         return ok(list.map(({ i }) => {
@@ -265,11 +268,20 @@ export const ip: CommandDef = {
         const type = rest[rest.indexOf('type') + 1];
         const id = Number(rest[rest.indexOf('id') + 1]);
         if (type === 'dummy') {
-          const dname = rest[rest.indexOf('add') + 1] === 'name' ? rest[rest.indexOf('add') + 2] : rest[rest.indexOf('add') + 1];
-          if (!dname || dname === 'type') return err('Not enough information: "dev" argument is required.', 255);
-          if (host.ifaces.some((i) => i.name === dname)) return err('RTNETLINK answers: File exists', 2);
-          const n = host.ifaces.length + 1;
-          host.ifaces.push({ name: dname, mac: `be:ef:${host.id.length.toString(16).padStart(2, '0')}:00:00:${n.toString(16).padStart(2, '0')}`, segment: null, address: null, prefix: null, up: false, addrs6: [], kind: 'dummy' });
+          // ip link add [dev|name] NAME type dummy
+          const words = rest.slice(1, rest.indexOf('type'));
+          const dname = words[0] === 'dev' || words[0] === 'name' ? words[1] : words[0];
+          if (!dname) return err('Not enough information: "dev" argument is required.', 255);
+          if (linkList(host).some((i) => i.name === dname)) return err('RTNETLINK answers: File exists', 2);
+          // The kernel gives a dummy device a random, locally administered unicast MAC.
+          let mac = '';
+          for (let k = 0; !mac || linkList(host).some((i) => i.mac === mac); k++) {
+            const bytes = [0, 1, 2, 3, 4, 5].map((b) => seededInt(`dummy:${host.id}:${dname}:${ctx.world.counter}:${k}:${b}`, 0, 255));
+            bytes[0] = (bytes[0] & 0xfc) | 0x02;
+            mac = bytes.map((b) => b.toString(16).padStart(2, '0')).join(':');
+          }
+          ctx.world.counter++;
+          host.ifaces.push({ name: dname, mac, segment: null, address: null, prefix: null, up: false, addrs6: [], kind: 'dummy' });
           return ok('');
         }
         if (type === 'veth' || type === 'bridge' || type === 'bond') {

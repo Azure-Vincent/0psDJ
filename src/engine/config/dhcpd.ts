@@ -92,6 +92,7 @@ export function parseDhcpdConf(text: string, file = '/etc/dhcp/dhcpd.conf'): Dhc
     }
     semi();
   };
+  const seconds = (v: Tok) => (/^\d+$/.test(v.t) ? Number(v.t) : err(v.line, 'expecting number.'));
   const block = (onStmt: (t: Tok) => void) => {
     const open = next();
     if (open.t !== '{') err(open.line, 'expecting left brace.');
@@ -103,8 +104,8 @@ export function parseDhcpdConf(text: string, file = '/etc/dhcp/dhcpd.conf'): Dhc
     const t = next();
     switch (t.t) {
       case 'option': option(cfg.options); break;
-      case 'default-lease-time': cfg.defaultLeaseTime = Number(next().t); semi(); break;
-      case 'max-lease-time': cfg.maxLeaseTime = Number(next().t); semi(); break;
+      case 'default-lease-time': cfg.defaultLeaseTime = seconds(next()); semi(); break;
+      case 'max-lease-time': cfg.maxLeaseTime = seconds(next()); semi(); break;
       case 'authoritative': cfg.authoritative = true; semi(); break;
       case 'ddns-update-style': case 'log-facility': next(); semi(); break;
       case 'subnet': {

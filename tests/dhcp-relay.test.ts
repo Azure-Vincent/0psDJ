@@ -53,8 +53,9 @@ describe('DHCP lease timers', () => {
     expect(lab.run('ws02', 'root', 'cat /var/lib/dhcp/dhclient.eth0.leases').output).toMatch(/renew \d \d{4}\/\d\d\/\d\d [\d:]+;\n  rebind .*;\n  expire .*;/);
     lab.run('ns1', 'root', 'systemctl stop isc-dhcp-server');
     lab.run('ws02', 'root', 'sleep 650');
-    const j = lab.run('ws02', 'root', 'journalctl -t dhclient -n 14').output;
-    expect(j).toMatch(/DHCPREQUEST for 10\.0\.10\.100 on eth0 to 10\.0\.10\.53 port 67\n.*DHCPREQUEST for 10\.0\.10\.100 on eth0 to 255\.255\.255\.255 port 67\n.*DHCPREQUEST for 10\.0\.10\.100 on eth0 to 255\.255\.255\.255 port 67\n.*No DHCPOFFERS received\.\n.*No working leases in persistent database - sleeping\.\n.*DHCPDISCOVER on eth0/);
+    const j = lab.run('ws02', 'root', 'journalctl -t dhclient -n 16').output;
+    // RENEWING retries by unicast until T2, REBINDING retries by broadcast until expiry.
+    expect(j).toMatch(/08:44:08 .*DHCPREQUEST for 10\.0\.10\.100 on eth0 to 10\.0\.10\.53 port 67\n.*08:45:08 .*to 10\.0\.10\.53 port 67\n.*08:46:08 .*to 10\.0\.10\.53 port 67\n.*08:46:53 .*DHCPREQUEST for 10\.0\.10\.100 on eth0 to 255\.255\.255\.255 port 67\n(.*to 255\.255\.255\.255 port 67\n)+.*No DHCPOFFERS received\.\n.*No working leases in persistent database - sleeping\.\n.*DHCPDISCOVER on eth0/);
     expect(j).not.toMatch(/Internet Systems Consortium/);
     expect(lab.run('ws02', 'root', 'ip -4 addr show eth0').output).toBe('');
     expect(lab.run('ws02', 'dana', 'ping -c 1 10.0.10.53').output).toMatch(/Network is unreachable/);
@@ -97,3 +98,47 @@ describe('sed address ranges', () => {
     expect(lab.run('ws01', 'alice', "sed 's/a/' f.txt").output).toMatch(/unterminated/);
   });
 });
+
+describe('DHCP lease timer review fixes', () => {
+  it('rejects a non-numeric lease time and survives a zero lease time without NaN', () => {
+    const lab = new Lab();
+    lab.run('ns1', 'root', "sed -i 's/default-lease-time [0-9]*;/default-lease-time 1h;/' /etc/dhcp/dhcpd.conf");
+    expect(lab.run('ns1', 'root', 'dhcpd -t -cf /etc/dhcp/dhcpd.conf').output).toMatch(/expecting number/);
+    lab.run('ns1', 'root', "sed -i 's/default-lease-time 1h;/default-lease-time 0;/' /etc/dhcp/dhcpd.conf");
+    lab.run('ns1', 'root', 'systemctl restart isc-dhcp-server');
+    lab.run('ws02', 'root', 'dhclient -v eth0');
+    lab.run('ws02', 'root', 'sleep 20');
+    const a = lab.run('ws02', 'root', 'ip -4 addr show eth0').output;
+    expect(a).not.toMatch(/NaN/);
+    expect(lab.run('ws02', 'root', 'cat /var/lib/dhcp/dhclient.eth0.leases').output).not.toMatch(/NaN/);
+  });
+
+  it('removing the leased address by hand ends the binding; a static address is not "dynamic"', () => {
+    const lab = new Lab();
+    lab.run('ws02', 'root', 'ip addr flush dev eth0');
+    lab.run('ws02', 'root', 'ip addr add 10.0.10.77/24 dev eth0');
+    const a = lab.run('ws02', 'root', 'ip -4 addr show eth0').output;
+    expect(a).toMatch(/inet 10\.0\.10\.77\/24 brd 10\.0\.10\.255 scope global eth0\n +valid_lft forever/);
+    lab.run('ws02', 'root', 'sleep 700');
+    expect(lab.run('ws02', 'root', 'ip -4 addr show eth0').output).toMatch(/10\.0\.10\.77/);
+    expect(lab.run('ws02', 'root', 'journalctl -t dhclient').output).not.toMatch(/null/);
+  });
+
+  it('keeps every journal in time order across hosts over a long gap', () => {
+    const lab = new Lab();
+    lab.run('ws02', 'root', 'sleep 1h');
+    const times = lab.run('ns1', 'root', 'journalctl -u isc-dhcp-server').output.split('\n').map((l) => l.slice(7, 15));
+    for (let i = 1; i < times.length; i++) expect(times[i] >= times[i - 1], `line ${i}`).toBe(true);
+  });
+
+  it('a renewal retried between T1 and T2 succeeds once the server is back', () => {
+    const lab = new Lab();
+    lab.run('ns1', 'root', 'systemctl stop isc-dhcp-server');
+    lab.run('ws02', 'root', 'sleep 320'); // past T1: the first renewal fails
+    lab.run('ns1', 'root', 'systemctl start isc-dhcp-server');
+    lab.run('ws02', 'root', 'sleep 90'); // still before T2
+    const j = lab.run('ws02', 'root', 'journalctl -t dhclient -n 3').output;
+    expect(j).toMatch(/to 10\.0\.10\.53 port 67\n.*DHCPACK of 10\.0\.10\.100 from 10\.0\.10\.53\n.*bound to 10\.0\.10\.100/);
+  });
+});
+

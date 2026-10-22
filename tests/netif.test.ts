@@ -73,3 +73,42 @@ describe('bridge ports at runtime', () => {
     expect(lab.run('srv01', 'root', 'bridge link').output).toBe('');
   });
 });
+
+describe('interface review fixes', () => {
+  it('dummy devices: "dev NAME" syntax, unique MACs, survive a networking restart, gone after reboot', () => {
+    const lab = new Lab();
+    lab.run('srv01', 'root', 'ip link add dev dummy0 type dummy');
+    lab.run('srv01', 'root', 'ip link add dummy1 type dummy');
+    lab.run('srv01', 'root', 'ip link del dummy0');
+    lab.run('srv01', 'root', 'ip link add name dummy2 type dummy');
+    const links = lab.run('srv01', 'root', 'ip -br link').output;
+    expect(links).not.toMatch(/^dev /m);
+    const macs = [...links.matchAll(/^dummy\d +\S+ +(\S+)/gm)].map((m) => m[1]);
+    expect(macs).toHaveLength(2);
+    expect(new Set(macs).size).toBe(2);
+    for (const m of macs) expect(parseInt(m.slice(0, 2), 16) & 3).toBe(2); // locally administered unicast
+    lab.run('srv01', 'root', 'ip link set dummy1 up');
+    expect(lab.run('srv01', 'root', 'cat /sys/class/net/dummy1/operstate /sys/class/net/dummy1/carrier').output).toBe('unknown\n1');
+    expect(lab.run('srv01', 'root', 'cat /sys/class/net/dummy1/speed').output).toBe('cat: /sys/class/net/dummy1/speed: Invalid argument');
+    lab.run('srv01', 'root', 'systemctl restart networking');
+    expect(lab.run('srv01', 'root', 'ip -br link').output).toMatch(/dummy1/);
+    lab.run('srv01', 'root', 'reboot');
+    expect(lab.run('srv01', 'root', 'ip -br link').output).not.toMatch(/dummy/);
+  });
+
+  it('a /32 address adds no prefix route', () => {
+    const lab = new Lab();
+    lab.run('srv01', 'root', 'ip link add dummy0 type dummy');
+    lab.run('srv01', 'root', 'ip addr add 192.0.2.1/32 dev dummy0');
+    lab.run('srv01', 'root', 'ip link set dummy0 up');
+    expect(lab.run('srv01', 'root', 'ip route').output).not.toMatch(/192\.0\.2\.1/);
+  });
+
+  it('br0 on sw01 appears consistently in ip link, ip addr and /sys/class/net', () => {
+    const lab = new Lab();
+    expect(lab.run('sw01', 'root', 'ip addr show br0').output).toMatch(/br0: <BROADCAST,MULTICAST,UP,LOWER_UP>/);
+    expect(lab.run('sw01', 'root', 'cat /sys/class/net/br0/operstate').output).toBe('up');
+    expect(lab.run('sw01', 'root', 'ls /sys/class/net/br0').output).toMatch(/operstate/);
+    expect(lab.run('srv01', 'root', 'bridge vlan add vid 10').output).toMatch(/^Usage: bridge vlan/);
+  });
+});

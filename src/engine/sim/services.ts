@@ -633,9 +633,11 @@ export function applyNetworkConfig(world: World, host: Host): string[] {
   const { ifaces, errors } = parseInterfaces(readFile(host, '/etc/network/interfaces') ?? '');
   host.routes = [];
   host.routes6 = [];
-  host.ifaces = host.ifaces.filter((i) => !i.vlan && !i.kind);
+  // Dummy devices made with ip link add are not ifupdown's: a networking restart leaves them alone.
+  host.ifaces = host.ifaces.filter((i) => !i.vlan);
   for (const i of host.ifaces) {
     if (i.name === LOOPBACK) { i.addrs6 = [{ address: '::1', prefix: 128, scope: 'host', origin: 'kernel' }]; continue; }
+    if (i.kind) continue;
     i.address = null;
     i.prefix = null;
     i.up = false;
@@ -832,6 +834,7 @@ export function bootHost(world: World, host: Host): void {
     rt.loaded = null;
     rt.result = 'success';
   }
+  host.ifaces = host.ifaces.filter((i) => !i.kind); // runtime-only devices are gone after a reboot
   for (const i of host.ifaces) if (i.name === LOOPBACK) { i.up = true; i.address = '127.0.0.1'; i.prefix = 8; }
   world.clock += 1000;
   host.bootTime = world.clock;

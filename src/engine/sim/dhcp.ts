@@ -375,6 +375,7 @@ export function dhcpAcquire(world: World, client: Host, iface: Interface, opts: 
   const chosen = got.find((g) => g.host.id === s.host.id);
   if (!chosen) {
     dl('No DHCPOFFERS received.');
+    iface.dhcpRetryAt = world.clock + RETRY_MS;
     return null;
   }
   serverLog(world, chosen, `DHCPREQUEST for ${ip} (${s.iface.address}) from ${iface.mac} (${client.hostname}) via ${via(chosen)}`);
@@ -382,7 +383,10 @@ export function dhcpAcquire(world: World, client: Host, iface: Interface, opts: 
   recordLease(world, chosen, ip, iface.mac, client.hostname, leaseTime);
   serverLog(world, chosen, `DHCPACK on ${ip} to ${iface.mac} (${client.hostname}) via ${via(chosen)}`);
   const am = msg(5, xid, iface.mac, { yiaddr: ip, siaddr: s.iface.address!, giaddr: chosen.relay?.giaddr }, options(chosen, leaseTime), [{ name: 'Options', value: describeOpts(chosen) }]);
-  if (!replyToClient(world, chosen, client, iface, am, ip, `DHCPACK ${ip}`, `The server records the lease in /var/lib/dhcp/dhcpd.leases and confirms it. The client now configures ${ip}/${s.subnet.prefix}, a default route via the offered router and the DNS servers (written to /etc/resolv.conf by dhclient-script). It will renew after half the lease time (T1).`)) return null;
+  if (!replyToClient(world, chosen, client, iface, am, ip, `DHCPACK ${ip}`, `The server records the lease in /var/lib/dhcp/dhcpd.leases and confirms it. The client now configures ${ip}/${s.subnet.prefix}, a default route via the offered router and the DNS servers (written to /etc/resolv.conf by dhclient-script). It will renew after half the lease time (T1).`)) {
+    iface.dhcpRetryAt = world.clock + RETRY_MS;
+    return null;
+  }
   const lease = leaseFrom(chosen, ip, leaseTime);
   dl(`DHCPACK of ${ip} from ${chosen.relay?.giaddr ?? s.iface.address}`);
   dl(`bound to ${ip} -- renewal in ${Math.floor(leaseTime / 2)} seconds.`);
@@ -397,7 +401,9 @@ function describeOpts(s: ServerCandidate): string {
 
 function binding(world: World, lease: DhcpLease): DhcpBinding {
   const t = world.clock;
-  return { server: lease.server, leaseTime: lease.leaseTime, obtained: t, renewAt: t + lease.leaseTime * 500, rebindAt: t + lease.leaseTime * 875, expires: t + lease.leaseTime * 1000, state: 'bound' };
+  // A zero lease time would make every timer fire at once; keep at least one second.
+  const secs = Math.max(1, lease.leaseTime);
+  return { server: lease.server, leaseTime: secs, obtained: t, renewAt: t + secs * 500, rebindAt: t + secs * 875, expires: t + secs * 1000, state: 'bound' };
 }
 
 export function applyLease(world: World, host: Host, iface: Interface, lease: DhcpLease): void {
@@ -473,57 +479,80 @@ export function dhcpRenew(world: World, client: Host, iface: Interface, mode: 'r
   return false;
 }
 
+/** dhclient keeps retransmitting while RENEWING/REBINDING; the simulator retries once a minute. */
+const RETRANSMIT_MS = 60_000;
+
+/** When the next timer of this interface fires, if it has one. */
+function nextEvent(iface: Interface): number | undefined {
+  const b = iface.dhcp;
+  if (b) {
+    if (b.state === 'bound') return b.renewAt;
+    const until = b.state === 'renewing' ? b.rebindAt : b.expires;
+    return Math.min(until, b.nextTry ?? until);
+  }
+  return iface.address ? undefined : iface.dhcpRetryAt;
+}
+
 /**
- * Replay the DHCP client timers of every host up to the current time: renew at T1, rebind at T2,
- * drop the address at expiry. Events are logged at the time they would have happened. A client that
- * renews successfully over a long gap is assumed to have kept renewing with the same server, so
- * only the first and the latest exchange are simulated.
+ * Replay the DHCP client timers of every host up to the current time: renew at T1 (retried until
+ * T2), rebind at T2 (retried until expiry), drop the address at expiry, and retry every 5 minutes
+ * without a lease. Events of all hosts are processed in time order, so the journals stay ordered.
+ * A client that renews successfully over a long gap is assumed to have kept renewing with the same
+ * server, so only the first and the latest exchange are simulated; long outages are summarised.
  */
 export function maintainLeases(world: World, record = false): void {
   const now = world.clock;
+  const retries = new Map<Interface, number>();
   withRecorder(record ? activeRecorder() : null, () => {
-    for (const host of Object.values(world.hosts)) {
-      for (const iface of host.ifaces) {
-        for (let guard = 0; guard < 6 && iface.dhcp && iface.dhcp.renewAt <= now; guard++) {
-          const b: DhcpBinding = iface.dhcp;
-          if (b.state === 'bound') {
-            world.clock = b.renewAt;
-            if (dhcpRenew(world, host, iface, 'renew')) {
-              // Healthy server: skip ahead to the last renewal before now.
-              const nb = iface.dhcp!;
-              const half = nb.leaseTime * 500;
-              const skips = Math.floor((now - nb.renewAt) / half) - 1;
-              if (skips > 0) for (const k of ['obtained', 'renewAt', 'rebindAt', 'expires'] as const) nb[k] += skips * half;
-              continue;
-            }
-            b.state = 'renewing';
-          }
-          if (b.state === 'renewing') {
-            if (b.rebindAt > now) break;
-            world.clock = b.rebindAt;
-            b.state = 'rebinding';
-            if (dhcpRenew(world, host, iface, 'rebind')) continue;
-          }
-          if (b.expires > now) break;
-          world.clock = b.expires;
-          const dl = clientLog(world, host, host.nextPid);
-          dl(`DHCPREQUEST for ${iface.address} on ${iface.name} to 255.255.255.255 port 67`);
-          dl(`No DHCPOFFERS received.`);
-          dl(`No working leases in persistent database - sleeping.`);
-          dropAddress(host, iface);
-          iface.dhcpRetryAt = world.clock;
-        }
-        // A sleeping dhclient tries again every 5 minutes; long outages are summarised.
-        for (let tries = 0; iface.dhcpRetryAt !== undefined && iface.dhcpRetryAt <= now && !iface.address; tries++) {
-          if (tries === 2) {
-            iface.dhcpRetryAt += Math.ceil((now - iface.dhcpRetryAt) / RETRY_MS) * RETRY_MS;
-            if (iface.dhcpRetryAt <= now) iface.dhcpRetryAt += RETRY_MS;
-            break;
-          }
-          world.clock = iface.dhcpRetryAt;
-          dhcpAcquire(world, host, iface, { retry: true });
+    for (let guard = 0; guard < 2000; guard++) {
+      let next: { host: Host; iface: Interface; at: number } | null = null;
+      for (const host of Object.values(world.hosts)) {
+        for (const iface of host.ifaces) {
+          const at = nextEvent(iface);
+          if (at !== undefined && at <= now && (!next || at < next.at)) next = { host, iface, at };
         }
       }
+      if (!next) break;
+      const { host, iface, at } = next;
+      world.clock = at;
+      const b = iface.dhcp;
+      if (!b) {
+        // A sleeping dhclient tries again every 5 minutes; after two attempts, skip to the last one.
+        const tries = retries.get(iface) ?? 0;
+        retries.set(iface, tries + 1);
+        if (tries >= 2) {
+          iface.dhcpRetryAt = at + Math.ceil((now - at) / RETRY_MS) * RETRY_MS;
+          if (iface.dhcpRetryAt <= now) iface.dhcpRetryAt += RETRY_MS;
+          continue;
+        }
+        dhcpAcquire(world, host, iface, { retry: true });
+        continue;
+      }
+      if (b.state === 'bound' || (b.state === 'renewing' && at < b.rebindAt)) {
+        if (dhcpRenew(world, host, iface, 'renew')) {
+          // Healthy server: skip ahead to the last renewal before now.
+          const nb = iface.dhcp!;
+          const half = nb.leaseTime * 500;
+          const skips = Math.floor((now - nb.renewAt) / half) - 1;
+          if (skips > 0) for (const k of ['obtained', 'renewAt', 'rebindAt', 'expires'] as const) nb[k] += skips * half;
+          continue;
+        }
+        b.state = 'renewing';
+        b.nextTry = at + RETRANSMIT_MS;
+        continue;
+      }
+      if (at < b.expires) {
+        b.state = 'rebinding';
+        if (dhcpRenew(world, host, iface, 'rebind')) continue;
+        b.nextTry = at + RETRANSMIT_MS;
+        continue;
+      }
+      const dl = clientLog(world, host, host.nextPid);
+      dl(`DHCPREQUEST for ${iface.address} on ${iface.name} to 255.255.255.255 port 67`);
+      dl(`No DHCPOFFERS received.`);
+      dl(`No working leases in persistent database - sleeping.`);
+      dropAddress(host, iface);
+      iface.dhcpRetryAt = at;
     }
   });
   world.clock = Math.max(world.clock, now);
