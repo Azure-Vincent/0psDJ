@@ -288,6 +288,7 @@ export const ip: CommandDef = {
         const deny = needRoot(ctx);
         if (deny) return deny;
         const name = rest[1] === 'dev' ? rest[2] : rest[1];
+        if (!name) return err('Not enough information: "dev" argument is required.', 255);
         const iface = host.ifaces.find((i) => i.name === name);
         if (!iface) return err(`Cannot find device "${name}"`, 1);
         if (!iface.vlan && !iface.kind) return err('RTNETLINK answers: Operation not supported (physical interfaces cannot be deleted)', 2);
@@ -301,6 +302,7 @@ export const ip: CommandDef = {
         const deny = needRoot(ctx);
         if (deny) return deny;
         const name = rest[1] === 'dev' ? rest[2] : rest[1];
+        if (!name) return err('Not enough information: "dev" argument is required.', 255);
         const iface = host.ifaces.find((i) => i.name === name);
         if (!iface) return err(`Cannot find device "${name}"`);
         if (rest.includes('up')) {
@@ -324,6 +326,23 @@ export const ip: CommandDef = {
           iface.up = false;
           host.routes = host.routes.filter((r) => r.dev !== name);
           host.routes6 = (host.routes6 ?? []).filter((r) => r.dev !== name);
+        }
+        const masterIdx = rest.indexOf('master');
+        if (masterIdx >= 0) {
+          const master = rest[masterIdx + 1] ?? '';
+          if (!host.bridge || master !== host.bridge.name) {
+            return host.ifaces.some((i) => i.name === master) ? err('RTNETLINK answers: Operation not supported', 2) : err(`Device "${master}" does not exist.`, 1);
+          }
+          // A new bridge port joins the bridge's default VLAN 1, untagged (default_pvid).
+          if (!host.bridge.ports[name]) {
+            const ports = { ...host.bridge.ports, [name]: { vids: [1], pvid: 1, untagged: [1] } };
+            // Keep ports in ifindex order, as the kernel lists them.
+            host.bridge.ports = Object.fromEntries(host.ifaces.filter((i) => ports[i.name]).map((i) => [i.name, ports[i.name]]));
+          }
+        }
+        if (rest.includes('nomaster') && host.bridge?.ports[name]) {
+          delete host.bridge.ports[name];
+          host.bridge.fdb = (host.bridge.fdb ?? []).filter((f) => f.port !== name);
         }
         recomputeL2(ctx.world);
         return ok('');

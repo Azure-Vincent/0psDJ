@@ -72,6 +72,7 @@ export const NETIF_GUIDE: ServiceGuide = {
         { task: 'Apply /etc/network/interfaces changes', command: 'ifreload -a', explain: 'ifupdown2: brings the running state in line with the file (bridge ports, VLANs, addresses).', risk: 'A mistake in the file applies immediately to every interface.', sim: true },
         { task: 'Restart networking (ifupdown)', command: 'systemctl restart networking', explain: 'Re-runs ifdown/ifup for all auto stanzas.', risk: 'Interrupts all connectivity briefly; from a remote shell only with a rollback plan.', sim: true },
         { task: 'Bridge members, VLANs, MAC table', command: 'bridge link\nbridge vlan show\nbridge fdb show br0', explain: 'On sw01: is the port a member, in which VLAN, and has it learned the server\'s MAC?', sim: true },
+        { task: 'Attach or detach a bridge port (runtime)', command: 'ip link set swp6 nomaster\nip link set swp6 master br0\nbridge vlan add dev swp6 vid 20 pvid untagged\nbridge vlan del dev swp6 vid 1', explain: 'nomaster: the port keeps carrier but is no longer switched. A new port joins VLAN 1 (the default PVID) until you set its VLAN.', risk: 'Runtime only: ifreload -a or a reboot restores what /etc/network/interfaces says.', sim: true },
         { task: 'A dummy interface', command: 'ip link add dummy0 type dummy\nip addr add 192.0.2.1/32 dev dummy0\nip link set dummy0 up', explain: 'A stable address independent of NICs.', sim: true },
       ],
     },
@@ -79,7 +80,6 @@ export const NETIF_GUIDE: ServiceGuide = {
       platform: 'Linux (real systems, not simulated)',
       tasks: [
         { task: 'Create a bridge and add a port', command: 'ip link add br0 type bridge\nip link set eth1 master br0\nip link set br0 up', explain: 'Runtime only; persist in /etc/network/interfaces, netplan or a .netdev file.' },
-        { task: 'Remove a port from a bridge', command: 'ip link set eth1 nomaster', explain: 'The port keeps carrier but is no longer switched.' },
         { task: 'Bond status', command: 'cat /proc/net/bonding/bond0', explain: 'Mode, active slave, per-slave MII status, LACP partner.' },
         { task: 'veth pair / namespaces', command: 'ip link add veth0 type veth peer name veth1\nip netns add test; ip link set veth1 netns test', explain: 'How containers are wired; ip -n test link shows the other end.' },
         { task: 'Naming candidates', command: 'udevadm test-builtin net_id /sys/class/net/eth0', explain: 'ID_NET_NAME_ONBOARD/SLOT/PATH/MAC values udev would use.' },

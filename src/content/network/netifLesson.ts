@@ -41,7 +41,7 @@ Interface problems look like "the server is down" from the outside, but the caus
 - Kernel state is readable under **/sys/class/net/** (operstate, carrier, address, mtu, speed, duplex, type, ifindex).
 - You can create **dummy** interfaces (\`ip link add dummy0 type dummy\`) on any host.
 
-> The simulator implements interface names and indexes, admin state (UP), carrier (LOWER_UP / NO-CARRIER), operstate, MAC and MTU, VLAN sub-interfaces, dummy interfaces, the sw01 bridge (membership, VLAN filtering, MAC learning, \`master br0\`/\`bridge_slave\` details), /sys/class/net attributes, \`ethtool\`, and ifupdown failures for interfaces named in /etc/network/interfaces that do not exist. Not simulated on lab hosts: creating bridges, bonds, veth pairs or tun/tap devices (\`ip link add\` explains this), udev renaming rules and network namespaces. Those are taught here with real command output.
+> The simulator implements interface names and indexes, admin state (UP), carrier (LOWER_UP / NO-CARRIER), operstate, MAC and MTU, VLAN sub-interfaces, dummy interfaces, the sw01 bridge (membership, runtime \`ip link set PORT master br0\` / \`nomaster\`, VLAN filtering, MAC learning, \`master br0\`/\`bridge_slave\` details), /sys/class/net attributes, \`ethtool\`, and ifupdown failures for interfaces named in /etc/network/interfaces that do not exist. Not simulated on lab hosts: creating bridges, bonds, veth pairs or tun/tap devices (\`ip link add\` explains this), udev renaming rules and network namespaces. Those are taught here with real command output.
 `,
 
   internals: `

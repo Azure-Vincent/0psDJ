@@ -56,3 +56,20 @@ describe('network interfaces', () => {
     expect(lab.run('srv01', 'root', 'ip neigh').output).toMatch(/10\.0\.20\.1 dev eth0 FAILED/);
   });
 });
+
+describe('bridge ports at runtime', () => {
+  it('ip link set PORT master/nomaster changes membership until ifreload or reboot', () => {
+    const lab = new Lab();
+    expect(lab.run('sw01', 'root', 'ip link set swp6 master br9').output).toBe('Device "br9" does not exist.');
+    expect(lab.run('sw01', 'root', 'ip link set swp6 master swp5').output).toBe('RTNETLINK answers: Operation not supported');
+    lab.run('sw01', 'root', 'ip link set swp6 nomaster');
+    expect(lab.run('sw01', 'root', 'bridge link').output).not.toMatch(/swp6/);
+    expect(lab.run('ws01', 'alice', 'curl -I -m 5 http://srv01.corp.lab/').output).toMatch(/No route to host/);
+    lab.run('sw01', 'root', 'ip link set swp6 master br0');
+    expect(lab.run('sw01', 'root', 'bridge vlan show').output).toMatch(/swp5 +20 PVID Egress Untagged\nswp6 +1 PVID Egress Untagged\nswp7/);
+    lab.run('sw01', 'root', 'bridge vlan add dev swp6 vid 20 pvid untagged');
+    lab.run('sw01', 'root', 'bridge vlan del dev swp6 vid 1');
+    expect(lab.run('ws01', 'alice', 'curl -I http://srv01.corp.lab/').output).toMatch(/^HTTP\/1\.1 200 OK/);
+    expect(lab.run('srv01', 'root', 'bridge link').output).toBe('');
+  });
+});
