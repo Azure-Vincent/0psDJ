@@ -8,30 +8,34 @@ services, Windows/RDP, Active Directory, Docker and pfSense.
 ## Purpose
 
 Most courses explain what a service is; few teach what to do when it breaks.
-Infrastructure Lab is built for students and new administrators, for example
-teams preparing for defensive competitions such as CCDC, Network+ or CCNA candidates,
-and junior sysadmins. It trains the skill that matters in an outage:
-**finding the cause from evidence** instead of guessing, fixing it safely, and
-proving the fix holds.
+Infrastructure Lab is for students and new administrators: teams preparing for
+defensive competitions such as CCDC, Network+ and CCNA candidates, and junior
+sysadmins. It trains the skill that matters in an outage: **finding the cause
+from evidence** instead of guessing, fixing it safely, and proving that the fix
+holds.
 
-For every technology it answers the same questions: what it is and how it
-works, what it depends on, where its configuration and logs live, how to check,
-start, stop, reload and restart it, why it typically fails, which commands tell
-the causes apart, and how to confirm it is healthy again.
+For every technology it answers the same questions:
+
+- What is it, how does it work, and what does it depend on?
+- Where do its configuration and logs live?
+- How do you check, start, stop, reload and restart it?
+- Why does it typically fail, and which commands tell the causes apart?
+- How do you confirm that it is healthy again?
 
 ## What's inside
 
-- **18 lessons** (networking, interfaces and virtual switches, TLS, remote
+- **18 lessons** on networking, interfaces and virtual switches, TLS, remote
   access, identity, firewalls, containers, Linux and Windows administration,
-  safe recovery). Each lesson covers how it works, interactive diagrams,
-  deployment guides for Ubuntu/Debian, RHEL, Windows, pfSense and Docker,
-  configuration, an **Operate & recover** guide
-  (files, logs, service management, diagnostic workflow, common failures) and a
-  graded assessment.
-- **51 troubleshooting tickets**: a realistic fault is injected into the lab.
-  You investigate with real commands in terminals, record a diagnosis, repair
-  it, and the app checks the fix now, after rebooting every machine, and
-  against security rules, so "just open the firewall" does not count.
+  and safe recovery. Each lesson explains how the technology works, with
+  interactive diagrams, and includes deployment guides (Ubuntu/Debian, RHEL,
+  Windows, pfSense, Docker), configuration reference, an **Operate & recover**
+  guide (files, logs, service management, diagnostic workflow, common
+  failures) and a graded assessment.
+- **51 troubleshooting tickets**, each injecting a realistic fault into the
+  lab. You investigate with real commands in terminals, record a diagnosis and
+  repair the fault. The app then checks your fix immediately, again after
+  rebooting every machine, and against security rules, so "just open the
+  firewall" does not count.
 - **7 end-to-end case studies**: SSH refused, a server with no Internet, a failed
   domain login, an unreachable Docker app, pfSense blocking traffic, RDP broken
   by a policy change, and several services failing at once.
@@ -39,7 +43,9 @@ the causes apart, and how to confirm it is healthy again.
   procedures for Linux, Windows, Docker, pfSense and Cisco IOS.
 - **Packet Lab** with Wireshark-style captures (exportable as PCAP), a
   certification objective map for Network+ and CCNA, a glossary, and progress
-  tracking. Everything is stored locally and works without Internet.
+  tracking.
+
+Everything is stored locally, and the app works without an Internet connection.
 
 ### How the lab works
 
@@ -47,12 +53,11 @@ The lab machines are not virtual machines. They are a **simulation** built
 into the app: a small network with a switch, a router, a DNS/DHCP server, a
 Linux server, workstations and an "Internet" host. Commands such as `ip`,
 `ss`, `systemctl`, `journalctl`, `nft`, `ssh`, `dig`, `curl`, `openssl` and
-`tcpdump` behave like their Debian 12 counterparts and all work on one
-consistent model. When you
-change a configuration file, the services, sockets, firewall decisions,
-packets and logs all follow from that change. Windows, Active Directory,
-Docker and pfSense are taught from documentation and representative output;
-they are not simulated.
+`tcpdump` behave like their Debian 12 counterparts and all act on one
+consistent model: when you change a configuration file, the services, sockets,
+firewall decisions, packets and logs all follow from that change. Windows,
+Active Directory, Docker and pfSense are not simulated; they are taught from
+documentation and representative output.
 
 ## Installation
 
@@ -64,7 +69,8 @@ The app runs on **Linux, Windows and macOS**. You need:
 - **The source code**: `git clone https://github.com/Azure-Vincent/0psDJ.git`,
   or **Code → Download ZIP** on the GitHub page, then extract it.
 - **Internet access for the first start only**, to download the dependencies
-  (including the Electron runtime; about 600 MB on disk). After that the app works offline.
+  (including the Electron runtime; about 600 MB on disk). After that, the app
+  works offline.
 
 ### Linux
 
@@ -135,10 +141,11 @@ is stored separately and is kept; it can also be exported and imported under
 ## Using the app
 
 Start with **Curriculum** for the learning path, or open a lesson from the
-sidebar. Each lesson has tabs from "What is it?" to "Assessment". **Troubleshooting
-lab** lists the tickets; each opens a workspace with terminals on the affected
-machines, a notes area, hints that get more specific each time, and a
-**Verify** button. Lesson sandboxes reset with one click, so experiment freely.
+sidebar. Each lesson has tabs from "What is it?" to "Assessment".
+**Troubleshooting lab** lists the tickets. Each ticket opens a workspace with
+terminals on the affected machines, a notes area, hints that get more specific
+each time you ask, and a **Verify** button. Lesson sandboxes reset with one
+click, so experiment freely.
 
 ## For developers
 
@@ -165,12 +172,13 @@ npm run typecheck    # TypeScript checks
 Simulated behaviour follows the relevant RFCs and the behaviour of Debian 12
 components (OpenSSH 9.2, BIND 9.18, ISC DHCP 4.4, radvd, ifupdown2, nftables,
 systemd 252, nginx 1.22, OpenSSL 3.0, curl 7.88). Where the simulation
-simplifies, for example synthetic cryptographic values (certificates are
-readable PEM data, not real signatures), no spanning tree or DHCPv6, or
-`tcpdump` showing recent traffic rather than a live capture, the app says so
-next to the feature.
+simplifies, the app says so next to the feature. Examples: cryptographic values
+are synthetic (certificates are readable PEM data without real signatures),
+spanning tree and DHCPv6 are not simulated, and `tcpdump` shows recent traffic
+rather than a live capture.
+
 Output for Windows, Active Directory, Docker, pfSense and Cisco IOS is
-representative of the versions named on each page; check exact wording against
-your own systems when it matters. The certification map is a study aid: it
-does not guarantee exam readiness, and objectives should be checked against
-the vendors' current documents.
+representative of the versions named on each page; check the exact wording
+against your own systems when it matters. The certification map is a study
+aid, not a guarantee of exam readiness: check objectives against the vendors'
+current documents.
