@@ -213,6 +213,12 @@ subnet 10.0.10.0 netmask 255.255.255.0 {
     option routers 10.0.10.1;
 }
 
+# Development VLAN 30: requests arrive through the relay agent on rtr01 (giaddr 10.0.30.1)
+subnet 10.0.30.0 netmask 255.255.255.0 {
+    range 10.0.30.100 10.0.30.150;
+    option routers 10.0.30.1;
+}
+
 # Reservations
 host printer01 {
     hardware ethernet 52:54:00:e5:00:21;
@@ -269,13 +275,39 @@ iface swp8
     alias dev01
     bridge-access 30
 
+auto swp9
+iface swp9
+    alias dev02 (hot desk, dev)
+    bridge-access 30
+
 auto br0
 iface br0
     bridge-vlan-aware yes
-    bridge-ports swp1 swp2 swp3 swp4 swp5 swp6 swp7 swp8
+    bridge-ports swp1 swp2 swp3 swp4 swp5 swp6 swp7 swp8 swp9
     bridge-vids 10 20 30
     bridge-pvid 1
     bridge-stp yes
+`;
+
+export const DHCRELAY_DEFAULTS = `# Defaults for isc-dhcp-relay initscript
+# sourced by /etc/init.d/isc-dhcp-relay
+# installed at /etc/default/isc-dhcp-relay by the maintainer scripts
+
+#
+# This is a POSIX shell fragment
+#
+
+# What servers should the DHCP relay forward requests to?
+# NET-58: DHCP for the development VLAN comes from ns1
+SERVERS="10.0.10.53"
+
+# On what interfaces should the DHCP relay (dhrelay) serve DHCP requests?
+# Left empty: the interfaces are given with -id/-iu below.
+INTERFACES=""
+
+# Additional options that are passed to the DHCP relay daemon?
+# -id: downstream (clients, VLAN 30)   -iu: upstream (towards the server)
+OPTIONS="-id eth3.30 -iu eth0"
 `;
 
 export const RADVD_CONF = `# /etc/radvd.conf - IPv6 router advertisements (NET-40: IPv6 pilot on the dev VLAN)
@@ -393,14 +425,14 @@ export function buildSshLab(): World {
   // Cabling: every office and server NIC goes to a port of the switch sw01.
   world.links = [
     ['ws01', 'eth0', 'swp1'], ['ws02', 'eth0', 'swp2'], ['ns1', 'eth0', 'swp3'], ['rtr01', 'eth0', 'swp4'],
-    ['rtr01', 'eth1', 'swp5'], ['srv01', 'eth0', 'swp6'], ['rtr01', 'eth3', 'swp7'], ['dev01', 'eth0', 'swp8'],
+    ['rtr01', 'eth1', 'swp5'], ['srv01', 'eth0', 'swp6'], ['rtr01', 'eth3', 'swp7'], ['dev01', 'eth0', 'swp8'], ['dev02', 'eth0', 'swp9'],
   ].map(([host, iface, port]) => ({ a: { host, iface }, b: { host: 'sw01', iface: port } }));
   const t = world.clock;
 
   // ---- sw01: VLAN-aware switch ----------------------------------------------
   const sw = createHost(world, {
     id: 'sw01', hostname: 'sw01', domain: 'corp.lab', role: 'Access switch (Linux bridge with VLAN filtering)', kind: 'switch',
-    ifaces: Array.from({ length: 8 }, (_, k) => ({ name: `swp${k + 1}`, mac: `52:54:00:5e:00:${(k + 1).toString(16).padStart(2, '0')}`, segment: null })),
+    ifaces: Array.from({ length: 9 }, (_, k) => ({ name: `swp${k + 1}`, mac: `52:54:00:5e:00:${(k + 1).toString(16).padStart(2, '0')}`, segment: null })),
     services: [],
   });
   writeFile(sw, '/etc/network/interfaces', SW01_INTERFACES, t);
@@ -415,9 +447,10 @@ export function buildSshLab(): World {
       { name: 'eth2', mac: '52:54:00:a1:00:03', segment: 'wan' },
       { name: 'eth3', mac: '52:54:00:a1:00:04', segment: null },
     ],
-    services: ['nftables', 'radvd'],
+    services: ['nftables', 'radvd', 'dhcrelay'],
   });
   writeFile(rtr, '/etc/network/interfaces', RTR01_INTERFACES, t);
+  writeFile(rtr, '/etc/default/isc-dhcp-relay', DHCRELAY_DEFAULTS, t);
   writeFile(rtr, '/etc/sysctl.d/99-router.conf', '# Enable IPv4 forwarding between eth0 (LAN) and eth1 (servers)\nnet.ipv4.ip_forward=1\n# IPv6 routing for the pilot (NET-40)\nnet.ipv6.conf.all.forwarding=1\n', t);
   writeFile(rtr, '/etc/radvd.conf', RADVD_CONF, t);
   writeFile(rtr, '/etc/nftables.conf', RTR01_NFT, t, { mode: 0o755 });
@@ -511,9 +544,20 @@ export function buildSshLab(): World {
   // The internal root CA is deployed to every corp.lab machine.
   for (const h of [rtr, ns1, srv, ws, ws2, dev]) trustCorpRoot(h, t);
 
+  // ---- dev02: hot-desk laptop on VLAN 30, DHCP through the relay on rtr01 ----
+  const dev2 = createHost(world, {
+    id: 'dev02', hostname: 'dev02', domain: 'corp.lab', role: 'Hot-desk laptop (VLAN 30, DHCP via the relay on rtr01)',
+    ifaces: [{ name: 'eth0', mac: '52:54:00:e7:00:2a', segment: null }],
+    services: ['nftables'],
+  });
+  writeFile(dev2, '/etc/network/interfaces', '# The primary network interface\nauto lo\niface lo inet loopback\n\nauto eth0\niface eth0 inet dhcp\n', t);
+  writeFile(dev2, '/etc/resolv.conf', '', t);
+  addUser(dev2, { name: 'jordan', uid: 1000, gid: 1000, primaryGroup: 'jordan', groups: ['sudo'], home: '/home/jordan', shell: '/bin/bash', gecos: 'Jordan Tester', password: 'dev02-jordan' }, t);
+  trustCorpRoot(dev2, t);
+
   // Boot everything. Order matters: the switch first (it creates the VLANs),
   // ns1 must serve DHCP before ws02 boots, rtr01 must advertise before dev01.
-  for (const h of [sw, rtr, ns1, srv, ws, ws2, ext, dev]) bootHost(world, h);
+  for (const h of [sw, rtr, ns1, srv, ws, ws2, ext, dev, dev2]) bootHost(world, h);
 
   // History: alice connected yesterday-style earlier today, accepting the host key.
   world.clock += 60_000;

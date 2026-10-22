@@ -293,4 +293,19 @@ export const PROCEDURES_LINUX: Procedure[] = [
     risks: 'Changing the MTU of the interface you are connected through can stall your session; use the console. Clamping helps TCP only.',
     verify: 'A full download and an HTTPS handshake complete; ping -M do -s 1472 passes (or reports the documented MTU); the configuration survives a reboot.',
   },
+  {
+    id: 'proc:dhcp-relay', title: 'Diagnose DHCP on a relayed VLAN', platform: 'Linux router (isc-dhcp-relay) · ISC DHCP server · any client',
+    services: ['DHCP', 'Routing'],
+    symptoms: ['No IP address'],
+    purpose: 'Clients on one VLAN get no address while the DHCP server serves other networks: find where the relayed exchange stops.',
+    steps: [
+      { title: 'Confirm the scope of the problem', command: 'sudo dhclient -v eth0   # on an affected client\nip -4 addr show eth0', why: 'Only DISCOVERs and "No DHCPOFFERS received" on clients of one VLAN, while clients on the server\'s own network work, points at the relay path.' },
+      { title: 'Does the server see the requests?', command: 'journalctl -u isc-dhcp-server -n 30   # on the server', why: 'Nothing for the client MAC → the requests never arrive (relay stopped or pointed elsewhere). "via <giaddr>: unknown network segment" → declare that subnet. DISCOVER and OFFER logged → the reply is lost on the way back.' },
+      { title: 'Check the relay', command: 'systemctl status isc-dhcp-relay\ncat /etc/default/isc-dhcp-relay', why: 'Running? SERVERS = the server\'s address? -id on the client VLAN interface and -iu on the server-facing interface?' },
+      { title: 'Follow the packets on both sides of the router', command: 'sudo tcpdump -n -i eth3.30 port 67 or port 68\nsudo tcpdump -n -i eth0 port 67 or arp', why: 'Client side shows broadcasts from the clients; server side should show "10.0.10.1.67 > 10.0.10.53.67 Request" and "10.0.10.53.67 > 10.0.30.1.67 Reply". ARP for another address = SERVERS wrong. Replies on eth0 but nothing on eth3.30 = the relay does not receive them (-iu, firewall).' },
+      { title: 'Fix and retest from a client', command: 'sudo systemctl restart isc-dhcp-relay\nsudo dhclient -v eth0   # on the client', why: 'Restart the component you changed (relay or server), then run a full exchange from a client on the relayed VLAN.' },
+    ],
+    risks: 'Restarting the relay or server is safe for existing leases. Do not "fix" it by giving clients static addresses or opening the router firewall completely.',
+    verify: 'The client shows "DHCPACK of … from <relay address>", ip -4 addr has a dynamic address in the VLAN\'s range, and the server journal shows the exchange "via <giaddr>".',
+  },
 ];

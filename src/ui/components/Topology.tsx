@@ -10,7 +10,7 @@ export function Topology() {
     </g>
   );
   return (
-    <svg viewBox="0 0 340 372" width="100%" style={{ maxWidth: 480 }} role="img" aria-label="Lab topology">
+    <svg viewBox="0 0 340 424" width="100%" style={{ maxWidth: 480 }} role="img" aria-label="Lab topology">
       <text x={8} y={14} fontSize={11} style={{ fill: 'var(--muted)' }}>VLAN 10 office · 10.0.10.0/24</text>
       <line x1={10} y1={22} x2={330} y2={22} stroke="var(--accent)" strokeWidth={3} />
       {box(4, 34, 'ws01', ['10.0.10.25', 'static (alice)'], 98)}
@@ -20,7 +20,7 @@ export function Topology() {
       <line x1={167} y1={22} x2={167} y2={34} stroke="var(--accent)" />
       <line x1={279} y1={22} x2={279} y2={34} stroke="var(--accent)" />
       <line x1={110} y1={22} x2={110} y2={110} stroke="var(--accent)" />
-      {box(40, 110, 'rtr01', ['eth0 10.0.10.1', 'eth1 10.0.20.1', 'eth2 203.0.113.2', 'eth3.30 10.0.30.1', 'NAT, nftables, radvd'], 150)}
+      {box(40, 110, 'rtr01', ['eth0 10.0.10.1', 'eth1 10.0.20.1', 'eth2 203.0.113.2', 'eth3.30 10.0.30.1', 'NAT, nft, radvd, dhcrelay'], 150)}
       <text x={236} y={112} fontSize={11} style={{ fill: 'var(--muted)' }}>Internet</text>
       <text x={236} y={124} className="mono" style={{ fill: 'var(--muted)', fontSize: 9.5 }}>203.0.113.0/24</text>
       <line x1={190} y1={150} x2={240} y2={150} stroke="var(--warn)" strokeWidth={2} />
@@ -31,13 +31,15 @@ export function Topology() {
       <text x={8} y={244} fontSize={11} style={{ fill: 'var(--muted)' }}>VLAN 20 servers</text>
       <line x1={10} y1={250} x2={190} y2={250} stroke="var(--ok)" strokeWidth={3} />
       <text x={214} y={244} fontSize={11} style={{ fill: 'var(--muted)' }}>VLAN 30 dev</text>
-      <line x1={205} y1={250} x2={330} y2={250} stroke="var(--lane)" strokeWidth={3} />
+      <line x1={199} y1={250} x2={330} y2={250} stroke="var(--lane)" strokeWidth={3} />
       <line x1={115} y1={250} x2={115} y2={262} stroke="var(--ok)" />
       <line x1={270} y1={250} x2={270} y2={262} stroke="var(--lane)" />
       {box(40, 262, 'srv01', ['10.0.20.10', '2001:db8:20::10', 'sshd :22, nginx :80 :443'], 150)}
       {box(208, 262, 'dev01', ['10.0.30.25', 'IPv6 SLAAC', '2001:db8:30::/64'], 128)}
-      <text x={8} y={356} style={{ fill: 'var(--muted)', fontSize: 9.5 }}>All LAN ports are on sw01 (VLAN-aware Linux bridge): access ports for</text>
-      <text x={8} y={368} style={{ fill: 'var(--muted)', fontSize: 9.5 }}>VLAN 10/20/30, trunk swp7 to rtr01 eth3. Console: sw01.</text>
+      <path d="M201 250 V358 H208" fill="none" stroke="var(--lane)" />
+      {box(208, 336, 'dev02', ['DHCP via relay', 'laptop (jordan)'], 124)}
+      <text x={8} y={408} style={{ fill: 'var(--muted)', fontSize: 9.5 }}>All LAN ports are on sw01 (VLAN-aware Linux bridge): access ports for</text>
+      <text x={8} y={420} style={{ fill: 'var(--muted)', fontSize: 9.5 }}>VLAN 10/20/30, trunk swp7 to rtr01 eth3. Console: sw01.</text>
     </svg>
   );
 }

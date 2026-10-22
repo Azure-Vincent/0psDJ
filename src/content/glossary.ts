@@ -1,6 +1,10 @@
 import type { GlossaryEntry } from './types';
 
 const ENTRIES: GlossaryEntry[] = [
+  { term: 'DHCP relay agent', definition: 'A router function (isc-dhcp-relay/dhcrelay on Linux, ip helper-address on Cisco) that receives DHCP broadcasts on a client network and forwards them as unicast to a DHCP server elsewhere, setting giaddr to its own address on the client network. Replies come back through it.', related: ['giaddr', 'DHCP lease timers'] },
+  { term: 'giaddr', definition: 'Gateway IP address field of a DHCP message: set by a relay agent to its address on the client\'s network. The server uses it to choose the subnet (pool) and sends its reply there.', related: ['DHCP relay agent'] },
+  { term: 'DHCP lease timers', definition: 'T1 (50 % of the lease): the client renews by unicast with its server. T2 (87.5 %): it rebinds by broadcast with any server. At expiry it must stop using the address. With a dead server, clients drop off one by one as their leases expire.', related: ['DHCP relay agent'] },
+  { term: 'Packet socket (LPF)', definition: 'A raw socket that receives whole frames from an interface before netfilter. ISC dhcpd, dhclient and dhcrelay use them, which is why host firewall input rules do not block DHCP to these daemons.', related: ['DHCP relay agent'] },
   { term: 'ARP', definition: 'Address Resolution Protocol (RFC 826). Maps an IPv4 address to a MAC address on the local segment by broadcasting "who has X?". Never crosses a router. Inspect with `ip neigh`.', related: ['MAC address', 'Default gateway'] },
   { term: 'authorized_keys', definition: 'Per-user file on an SSH server listing public keys that may log in as that user. Subject to StrictModes permission checks.', related: ['StrictModes', 'Public-key authentication'] },
   { term: 'Bastion host', definition: 'A hardened jump server that is the only allowed entry point for administrative SSH/RDP into a network segment (`ssh -J bastion target`).' },

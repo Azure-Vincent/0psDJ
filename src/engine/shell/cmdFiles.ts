@@ -493,13 +493,35 @@ const usermod: CommandDef = {
 };
 
 /** Split a sed script on unescaped ';' (outside s/// arguments is good enough for the supported subset). */
+/** Length of a leading sed address ("/re/", "N", "$", optionally ",ADDR2") in `s`, or 0. */
+function sedAddressLength(s: string): number {
+  const one = (i: number): number => {
+    if (s[i] === '/') {
+      let j = i + 1;
+      while (j < s.length && s[j] !== '/') j += s[j] === '\\' ? 2 : 1;
+      return j < s.length ? j + 1 : i;
+    }
+    let j = i;
+    while (j < s.length && /[0-9$]/.test(s[j])) j++;
+    return j;
+  };
+  let i = one(0);
+  if (i > 0 && s[i] === ',') {
+    const j = one(i + 1);
+    if (j > i + 1) i = j;
+  }
+  return i;
+}
+
 function sedCommands(script: string): string[] {
   const out: string[] = [];
-  let cur = '';
   let i = 0;
   while (i < script.length) {
-    const c = script[i];
-    if (c === 's' && cur.trim() === '') {
+    while (i < script.length && /[\s;]/.test(script[i])) i++;
+    if (i >= script.length) break;
+    const start = i;
+    i += sedAddressLength(script.slice(i));
+    if (script[i] === 's') {
       // s<d>pat<d>rep<d>flags
       const d = script[i + 1];
       let j = i + 2;
@@ -509,16 +531,12 @@ function sedCommands(script: string): string[] {
         else { if (script[j] === d) parts++; j++; }
       }
       while (j < script.length && /[gI0-9]/.test(script[j])) j++;
-      out.push(script.slice(i, j));
       i = j;
-      cur = '';
-      continue;
+    } else {
+      while (i < script.length && script[i] !== ';') i++;
     }
-    if (c === ';') { if (cur.trim()) out.push(cur.trim()); cur = ''; i++; continue; }
-    cur += c;
-    i++;
+    out.push(script.slice(start, i).trim());
   }
-  if (cur.trim()) out.push(cur.trim());
   return out;
 }
 
@@ -539,39 +557,75 @@ function sedRegex(src: string, flags: string): RegExp {
   return new RegExp(out, flags);
 }
 
+type SedAddr = { re: RegExp } | { line: number } | { last: true };
+
+interface SedCmd { a1?: SedAddr; a2?: SedAddr; op: string; arg: string; inRange: boolean }
+
+function parseSedAddr(src: string): SedAddr {
+  if (src.startsWith('/')) return { re: sedRegex(src.slice(1, -1), '') };
+  if (src === '$') return { last: true };
+  return { line: Number(src) };
+}
+
+function addrMatches(a: SedAddr, line: string, n: number, last: boolean): boolean {
+  if ('re' in a) return a.re.test(line);
+  if ('last' in a) return last;
+  return n === a.line;
+}
+
 function applySed(text: string, script: string): string | { error: string } {
-  const cmds = sedCommands(script);
+  const cmds: SedCmd[] = [];
+  for (const raw of sedCommands(script)) {
+    const len = sedAddressLength(raw);
+    const addr = raw.slice(0, len);
+    const rest = raw.slice(len).trim();
+    const comma = addr.startsWith('/') ? addr.indexOf(',', addr.indexOf('/', 1)) : addr.indexOf(',');
+    const [s1, s2] = comma > 0 ? [addr.slice(0, comma), addr.slice(comma + 1)] : [addr, ''];
+    if (!rest || !'ds'.includes(rest[0])) return { error: `sed: -e expression #1, char ${raw.length}: unknown command: \`${rest[0] ?? ''}'` };
+    cmds.push({ a1: s1 ? parseSedAddr(s1) : undefined, a2: s2 ? parseSedAddr(s2) : undefined, op: rest[0], arg: rest, inRange: false });
+  }
   const lines = text.replace(/\n$/, '').split('\n');
   const result: string[] = [];
-  for (let line of lines) {
+  lines.forEach((orig, idx) => {
+    let line = orig;
+    const n = idx + 1;
+    const last = idx === lines.length - 1;
     let deleted = false;
-    for (const cmd of cmds) {
-      const del = /^\/(.*)\/d$/.exec(cmd);
-      if (del) {
-        if (sedRegex(del[1], '').test(line)) { deleted = true; break; }
-        continue;
+    for (const c of cmds) {
+      // Address selection, including ranges: a range starts on a1 and ends on the first a2 match after it.
+      let selected = true;
+      if (c.a1 && !c.a2) selected = addrMatches(c.a1, line, n, last);
+      else if (c.a1 && c.a2) {
+        if (c.inRange) {
+          selected = true;
+          if (addrMatches(c.a2, line, n, last) || ('line' in c.a2 && n >= c.a2.line)) c.inRange = false;
+        } else if (addrMatches(c.a1, line, n, last)) {
+          selected = true;
+          c.inRange = !('line' in c.a2 && c.a2.line <= n);
+        } else selected = false;
       }
-      if (cmd[0] === 's') {
-        const d = cmd[1];
-        const parts: string[] = [];
-        let cur = '';
-        let i = 2;
-        for (; i < cmd.length && parts.length < 2; i++) {
-          if (cmd[i] === '\\' && cmd[i + 1] === d) { cur += d; i++; continue; }
-          if (cmd[i] === d) { parts.push(cur); cur = ''; continue; }
-          cur += cmd[i];
-        }
-        const flags = cmd.slice(i);
-        if (parts.length < 2) return { error: `sed: -e expression #1, char ${cmd.length}: unterminated \`s' command` };
-        const re = sedRegex(parts[0], flags.includes('g') ? 'g' : '');
-        const rep = parts[1].replace(/\\n/g, '\n').replace(/\\t/g, '\t').replace(/\\(\d)/g, '$$$1').replace(/&/g, '$$&');
-        line = line.replace(re, rep);
-        continue;
+      if (!selected) continue;
+      if (c.op === 'd') { deleted = true; break; }
+      const cmd = c.arg;
+      const d = cmd[1];
+      const parts: string[] = [];
+      let cur = '';
+      let i = 2;
+      for (; i < cmd.length && parts.length < 2; i++) {
+        if (cmd[i] === '\\' && cmd[i + 1] === d) { cur += d; i++; continue; }
+        if (cmd[i] === d) { parts.push(cur); cur = ''; continue; }
+        cur += cmd[i];
       }
-      return { error: `sed: -e expression #1, char 1: unknown command: \`${cmd[0]}'` };
+      const flags = cmd.slice(i);
+      if (parts.length < 2) return void (deleted = true, result.push('\u0000ERR' + cmd.length));
+      const re = sedRegex(parts[0], flags.includes('g') ? 'g' : '');
+      const rep = parts[1].replace(/\\n/g, '\n').replace(/\\t/g, '\t').replace(/\\(\d)/g, '$$$1').replace(/&/g, '$$&');
+      line = line.replace(re, rep);
     }
     if (!deleted) result.push(line);
-  }
+  });
+  const bad = result.find((l) => l.startsWith('\u0000ERR'));
+  if (bad) return { error: `sed: -e expression #1, char ${bad.slice(4)}: unterminated \`s' command` };
   return result.join('\n') + '\n';
 }
 

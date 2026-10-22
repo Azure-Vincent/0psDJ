@@ -56,12 +56,14 @@ function linkLines(h: Host, i: Interface, idx: number, detail: boolean): string[
   return out;
 }
 
-function addrLines(i: Interface, fam: 0 | 4 | 6): string[] {
+function addrLines(i: Interface, fam: 0 | 4 | 6, now: number): string[] {
   const lo = i.name === LOOPBACK;
   const out: string[] = [];
   if (fam !== 6 && i.address && (i.up || lo)) {
-    out.push(`    inet ${i.address}/${i.prefix}${lo ? '' : ` brd ${broadcastOf(i.address, i.prefix!)}`} scope ${lo ? 'host' : 'global'} ${i.name}`);
-    out.push('       valid_lft forever preferred_lft forever');
+    // dhclient-script installs DHCP addresses with the lease time as lifetime ("dynamic").
+    const left = i.dhcp ? Math.max(0, Math.floor((i.dhcp.expires - now) / 1000)) : null;
+    out.push(`    inet ${i.address}/${i.prefix}${lo ? '' : ` brd ${broadcastOf(i.address, i.prefix!)}`} scope ${lo ? 'host' : 'global'}${left !== null ? ' dynamic' : ''} ${i.name}`);
+    out.push(left !== null ? `       valid_lft ${left}sec preferred_lft ${left}sec` : '       valid_lft forever preferred_lft forever');
   }
   if (fam !== 4 && (i.up || lo)) {
     for (const a of i.addrs6 ?? []) {
@@ -163,7 +165,7 @@ export const ip: CommandDef = {
       }
       const out: string[] = [];
       for (const { i, idx } of list) {
-        const a = addrLines(i, fam);
+        const a = addrLines(i, fam, ctx.world.clock);
         if (fam && a.length === 0) continue;
         out.push(...linkLines(host, i, idx, detail), ...a);
       }

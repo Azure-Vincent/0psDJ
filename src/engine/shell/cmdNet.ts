@@ -3,6 +3,7 @@
 
 import { dnsQuery, lookupHostsFile, resolve } from '../sim/dns';
 import { isoTime } from '../sim/journal';
+import { maintainLeases } from '../sim/dhcp';
 import { echoIcmp, hostAddresses, icmpMeaning, isFragNeeded, nextId, pathMtu, sourceAddress, transmit } from '../sim/network';
 import { allListeners } from '../sim/services';
 import { ERRNO_TEXT, tcpConnect } from '../sim/tcp';
@@ -469,6 +470,20 @@ const date: CommandDef = {
   run: (_a, ctx) => ok(new Date(Math.floor(ctx.world.clock)).toUTCString().replace('GMT', 'UTC')),
 };
 
+const sleep: CommandDef = {
+  name: 'sleep',
+  summary: 'let simulated time pass (timers such as DHCP renewals run meanwhile)',
+  usage: 'sleep SECONDS[s|m|h]  (at most 2h in the simulator)',
+  run(args, ctx) {
+    const m = /^(\d+(?:\.\d+)?)([smh]?)$/.exec(args[0] ?? '');
+    if (!m) return err(args[0] ? `sleep: invalid time interval '${args[0]}'\nTry 'sleep --help' for more information.` : "sleep: missing operand\nTry 'sleep --help' for more information.", 1);
+    const ms = Number(m[1]) * ({ s: 1000, m: 60_000, h: 3_600_000 }[m[2] || 's'] as number);
+    ctx.world.clock += Math.min(ms, 7_200_000);
+    maintainLeases(ctx.world, true);
+    return ok('');
+  },
+};
+
 // ---------------------------------------------------------------------------
 // DNS tools
 // ---------------------------------------------------------------------------
@@ -698,5 +713,5 @@ const ethtool: CommandDef = {
   },
 };
 
-export const NET_COMMANDS: CommandDef[] = [ip, bridge, ifreload, rdisc6, ss, ping, ping6, traceroute, traceroute6, tracepath, ethtool, nc, tcpdump, conntrack, sysctl, hostname, uname, date, dig, nslookup, hostCmd, getent];
+export const NET_COMMANDS: CommandDef[] = [ip, bridge, ifreload, rdisc6, ss, ping, ping6, traceroute, traceroute6, tracepath, ethtool, nc, tcpdump, conntrack, sysctl, hostname, uname, date, sleep, dig, nslookup, hostCmd, getent];
 export { isoTime, lookupHostsFile };

@@ -50,6 +50,10 @@ const SYMPTOM: Record<string, RegExp> = {
   'tls-wrong-cert': /no alternative certificate subject name matches target host name 'www\.corp\.lab'/,
   'tls-missing-intermediate': /unable to get local issuer certificate/,
   'tls-untrusted-root': /unable to get local issuer certificate/,
+  'dhcp-relay-server': /Could not resolve host|Network is unreachable/,
+  'dhcp-relay-iu': /Could not resolve host|Network is unreachable/,
+  'dhcp-relay-subnet': /Could not resolve host|Network is unreachable/,
+  'dhcp-lease-expiry': /Could not resolve host|Network is unreachable/,
   'mtu-uplink-mismatch': /curl: \(28\) Operation timed out after 30000 milliseconds with 0 out of 4718592 bytes received/,
 };
 

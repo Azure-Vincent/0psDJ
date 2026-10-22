@@ -155,8 +155,29 @@ export const TRANSPORT_RUNS: VisualRun[] = [
 export const DHCP_RUNS: VisualRun[] = [
   {
     id: 'dora', label: 'DORA: Discover, Offer, Request, Ack', host: 'ws02', user: 'root', command: 'dhclient -v eth0',
-    description: 'ws02 first releases its lease, then asks again. DISCOVER and REQUEST are broadcasts from 0.0.0.0 (every host on the LAN receives them, only ns1 runs a DHCP server); OFFER and ACK are unicast to ws02\'s MAC. Open the packets to see yiaddr and the options (router, DNS, lease time).',
-    setup: (w) => script(w, 'ws02', ['dhclient -r eth0']),
+    description: 'ws02 releases its lease and forgets it (as a brand-new client would have no lease file), then asks again. DISCOVER and REQUEST are broadcasts from 0.0.0.0 (every host on the LAN receives them, only ns1 runs a DHCP server); OFFER and ACK are unicast to ws02\'s MAC. Open the packets to see yiaddr and the options (router, DNS, lease time, renewal T1 and rebinding T2).',
+    setup: (w) => script(w, 'ws02', ['dhclient -r eth0', 'rm /var/lib/dhcp/dhclient.eth0.leases']),
+  },
+  {
+    id: 'relay', label: 'Through a relay: dev02 on VLAN 30', host: 'dev02', user: 'root', command: 'dhclient -v eth0',
+    description: 'dev02 has no DHCP server on its VLAN. Its DISCOVER broadcast reaches rtr01\'s eth3.30, where isc-dhcp-relay sets giaddr = 10.0.30.1 and unicasts it to ns1 (10.0.10.1:67 → 10.0.10.53:67). ns1 picks the 10.0.30.0/24 pool because it contains giaddr and answers to the relay, which delivers the OFFER to dev02\'s MAC. REQUEST and ACK repeat the path.',
+    setup: (w) => script(w, 'dev02', ['dhclient -r eth0', 'rm /var/lib/dhcp/dhclient.eth0.leases']),
+  },
+  {
+    id: 'init-reboot', label: 'INIT-REBOOT: asking for the remembered address', host: 'ws02', user: 'root', command: 'dhclient -v eth0',
+    description: 'ws02 remembers its lease in /var/lib/dhcp/dhclient.eth0.leases, so it skips DISCOVER and broadcasts a REQUEST for 10.0.10.100 directly. ns1 knows this MAC and this address and answers ACK. This is what you see most of the time when you run dhclient or reboot a client.',
+  },
+  {
+    id: 'nak', label: 'Moved to another network: DHCPNAK', host: 'dev02', user: 'root', command: 'dhclient -v eth0',
+    description: 'dev02 last had 10.0.10.104 in the office and was plugged in on VLAN 30. It asks for its old address; the relay forwards the request with giaddr 10.0.30.1, and ns1 (authoritative) answers NAK: 10.0.10.104 does not belong to 10.0.30.0/24. dev02 forgets the old lease and starts over with DISCOVER, receiving 10.0.30.100.',
+    setup: (w) => {
+      script(w, 'dev02', ['dhclient -r eth0']);
+      edit(w, 'dev02', '/var/lib/dhcp/dhclient.eth0.leases', (s) => s.replace(/fixed-address [\d.]+;/, 'fixed-address 10.0.10.104;'));
+    },
+  },
+  {
+    id: 'renew', label: 'Lease renewal at T1 (sleep 300)', host: 'ws02', user: 'root', command: 'sleep 300',
+    description: 'Simulated time passes. Half-way through their 600-second leases, ws02 and dev02 renew: each sends a DHCPREQUEST by unicast from its own address to the server identifier 10.0.10.53, and ns1 answers ACK by unicast. dev02\'s renewal is routed through rtr01 like any other traffic: the relay is only needed while a client has no address.',
   },
   {
     id: 'wrong-router', label: 'Lease with a wrong router option', host: 'ws02', user: 'dana', command: 'ping -c 1 10.0.20.10',
@@ -169,12 +190,12 @@ export const DHCP_RUNS: VisualRun[] = [
   },
   {
     id: 'no-server', label: 'No DHCP server answering', host: 'ws02', user: 'root', command: 'dhclient -v eth0',
-    description: 'isc-dhcp-server is stopped on ns1. The DISCOVER broadcasts reach every host on the LAN but nobody answers; dhclient backs off (3, 8, 18, 20 s…) and gives up. ws02 is left without an address.',
+    description: 'isc-dhcp-server is stopped on ns1. ws02 first asks for its remembered address (INIT-REBOOT), then broadcasts DISCOVERs; they reach every host on the LAN but nobody answers. dhclient backs off (3, 8, 18, 20 s…), gives up and sleeps (it retries every 5 minutes). ws02 is left without an address.',
     setup: (w) => { script(w, 'ws02', ['dhclient -r eth0']); script(w, 'ns1', ['systemctl stop isc-dhcp-server']); },
   },
   {
     id: 'exhausted', label: 'Pool exhausted: "no free leases"', host: 'ws02', user: 'root', command: 'dhclient -v eth0',
-    description: 'The range is shrunk to 10.0.10.100-10.0.10.100 and that address is leased to another MAC. ns1 receives the DISCOVER but has nothing to offer; it logs "no free leases" (journalctl -u isc-dhcp-server) and stays silent on the wire.',
+    description: 'The range is shrunk to 10.0.10.100-10.0.10.100 and that address is now leased to another MAC. ws02 asks for its old address and ns1 answers NAK (no longer available). ws02 starts over with DISCOVER, but ns1 has nothing to offer: it logs "no free leases" (journalctl -u isc-dhcp-server) and stays silent on the wire.',
     setup: (w) => {
       script(w, 'ws02', ['dhclient -r eth0']);
       edit(w, 'ns1', '/etc/dhcp/dhcpd.conf', (s) => s.replace('range 10.0.10.100 10.0.10.150;', 'range 10.0.10.100 10.0.10.100;'));

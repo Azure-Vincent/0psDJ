@@ -296,6 +296,47 @@ export const DHCP_ASSESSMENT: Assessment = {
       concepts: ['net.dhcp'],
       explanation: 'Rogue DHCP is a classic outage and attack vector; snooping is the network-side control.',
     },
+    {
+      id: 'dhcp-q-giaddr', kind: 'single', level: 'intermediate',
+      prompt: 'ns1 (10.0.10.53) receives a relayed DISCOVER with giaddr 10.0.30.1. How does dhcpd decide which pool to allocate from?',
+      options: [
+        { text: 'It uses the subnet declaration that contains giaddr (10.0.30.0/24)', correct: true },
+        { text: 'It uses the subnet of the interface the packet arrived on (10.0.10.0/24)', misconception: 'That rule applies only to requests from directly connected clients; for relayed requests giaddr decides.' },
+        { text: 'It uses the client\'s source address', misconception: 'The client has no address yet (0.0.0.0), and the relay is the packet\'s source anyway.' },
+        { text: 'It asks the relay which pool to use', misconception: 'The relay only forwards; the subnet declarations live on the server.' },
+      ],
+      concepts: ['net.dhcp'],
+      explanation: 'Without a subnet containing giaddr, dhcpd logs "unknown network segment" and does not answer. The OFFER is sent back to giaddr.',
+    },
+    {
+      id: 'dhcp-q-t2', kind: 'text', level: 'intermediate',
+      prompt: 'A client gets a lease of 28800 seconds (8 hours). After how many seconds does it start rebinding (T2) if its server does not answer the renewals?',
+      accept: ['25200'], placeholder: 'seconds', concepts: ['net.dhcp'],
+      explanation: 'T2 defaults to 87.5 % of the lease: 0.875 × 28800 = 25200 s (7 h). T1, the first unicast renewal, is at 50 % = 14400 s.',
+    },
+    {
+      id: 'dhcp-q-renew', kind: 'single', level: 'intermediate',
+      prompt: 'dev02 (VLAN 30) got its lease through the relay on rtr01. How does it renew at T1?',
+      options: [
+        { text: 'Unicast DHCPREQUEST from its own address straight to the server identifier (10.0.10.53), routed like any other packet', correct: true },
+        { text: 'Broadcast on VLAN 30, forwarded by the relay', misconception: 'Broadcasting is for INIT-REBOOT and for rebinding at T2; at T1 the client has an address and talks to its server directly.' },
+        { text: 'It does not renew; it waits until the lease expires', misconception: 'Clients renew at T1 so the lease never expires while the server is reachable.' },
+      ],
+      concepts: ['net.dhcp', 'net.routing'],
+      explanation: 'That is why a working relay is not enough for renewals: the client also needs a routed path (and firewall permission) to the server.',
+    },
+    {
+      id: 'dhcp-q-iu', kind: 'single', level: 'advanced',
+      prompt: 'ns1 logs "DHCPOFFER on 10.0.30.100 … via 10.0.30.1", but dev02 never receives an offer. tcpdump on rtr01 eth0 shows the OFFER arriving for 10.0.30.1. The relay runs with OPTIONS="-id eth3.30". What is wrong?',
+      options: [
+        { text: 'dhcrelay has no upstream interface (-iu eth0), so the reply reaches only its fallback UDP socket, where rtr01\'s input chain drops it', correct: true },
+        { text: 'SERVERS points at the wrong server', misconception: 'The server received the request and answered, so the relay found it.' },
+        { text: 'ns1 has no subnet for 10.0.30.0/24', misconception: 'Then it would log "unknown network segment" instead of offering an address.' },
+        { text: 'dev02\'s firewall drops the OFFER', misconception: 'The OFFER never leaves rtr01 on the client side; and dhclient reads DHCP with a packet socket anyway.' },
+      ],
+      concepts: ['net.dhcp', 'fw.stateful'],
+      explanation: 'With -iu eth0 dhcrelay reads replies with a packet socket on eth0, before netfilter. Restore it (or allow the replies in the input chain).',
+    },
   ],
 };
 

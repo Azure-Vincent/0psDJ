@@ -80,7 +80,8 @@ describe('VLANs on sw01', () => {
     const lab = new Lab();
     lab.world.hosts.dev01.capture = [];
     lab.run('ws01', 'alice', 'ping -c 1 10.0.10.53');
-    expect(lab.world.hosts.dev01.capture.some((f) => f.arp)).toBe(false);
+    // (dev01 may see ARP of its own VLAN, e.g. for dev02's DHCP renewals, but never the office's)
+    expect(lab.world.hosts.dev01.capture.some((f) => f.arp && (f.arp.targetIp === '10.0.10.53' || f.arp.senderIp === '10.0.10.25'))).toBe(false);
     expect(lab.run('dev01', 'erin', 'ping -4 -c 1 10.0.20.10').output).toMatch(/ttl=63/);
     const trunk = lab.run('rtr01', 'root', 'tcpdump -e -n -i eth3 icmp').output;
     expect(trunk).toMatch(/ethertype 802\.1Q \(0x8100\), vlan 30, p 0, ethertype IPv4 \(0x0800\), IP 10\.0\.30\.25 > 10\.0\.20\.10: ICMP echo request/);
