@@ -57,6 +57,26 @@ export interface Interface {
   staticSegment?: string | null;
   /** Maximum IP packet size on this link (default 1500; loopback 65536). */
   mtu?: number;
+  /** dhclient's binding for this interface (RFC 2131 timers, absolute clock values in ms). */
+  dhcp?: DhcpBinding;
+  /** Virtual interface created at runtime with `ip link add … type dummy` (gone after a reboot). */
+  kind?: 'dummy';
+  /** dhclient found no server and sleeps; it tries again at this time (ms). */
+  dhcpRetryAt?: number;
+}
+
+export interface DhcpBinding {
+  server: string;
+  leaseTime: number;
+  obtained: number;
+  /** T1: unicast renewal to the server that granted the lease. */
+  renewAt: number;
+  /** T2: broadcast rebinding to any server. */
+  rebindAt: number;
+  expires: number;
+  /** Next retransmission while RENEWING or REBINDING (ms). */
+  nextTry?: number;
+  state: 'bound' | 'renewing' | 'rebinding';
 }
 
 /** A cable between two interfaces (e.g. a host NIC and a switch port). */

@@ -421,4 +421,15 @@ export const FILES_LINUX: FileRef[] = [
     example: '$ ls /usr/local/share/ca-certificates/\ncorp-lab-root-ca.crt\n$ grep -c BEGIN /etc/ssl/certs/ca-certificates.crt\n4',
     relatedCommands: ['update-ca-certificates', 'openssl', 'curl'],
   },
+  {
+    id: 'file:isc-dhcp-relay', path: '/etc/default/isc-dhcp-relay', platform: 'Debian 12 / Ubuntu (isc-dhcp-relay 4.4)', kind: 'startup',
+    services: ['DHCP', 'Routing'],
+    purpose: 'Configuration of the DHCP relay agent dhcrelay: which servers to forward client requests to, and on which interfaces.',
+    contents: '`SERVERS="10.0.10.53"` (one or more server addresses), `INTERFACES="…"` (legacy list: each interface is both client- and server-side), `OPTIONS="-id eth3.30 -iu eth0"` (downstream client interfaces and upstream server-facing interfaces, recommended with 4.4).',
+    accessed: 'By /etc/init.d/isc-dhcp-relay (isc-dhcp-relay.service) at start; changes need `systemctl restart isc-dhcp-relay`.',
+    permissions: 'root:root 644.',
+    problems: 'Wrong SERVERS: requests are sent to an address that never answers (the server logs nothing). No upstream interface (-iu): the server\'s replies to giaddr arrive on the router but go to dhcrelay\'s fallback UDP socket, where the host firewall applies, so clients never get an offer. The server\'s LAN listed as a client interface: the relay forwards that LAN\'s broadcasts too (duplicate requests). An interface name that does not exist: "Error getting hardware address for … No such device" and the relay does not start.',
+    example: '# rtr01\nSERVERS="10.0.10.53"\nINTERFACES=""\nOPTIONS="-id eth3.30 -iu eth0"',
+    relatedCommands: ['systemctl', 'journalctl', 'tcpdump', 'file:dhcpd.conf'],
+  },
 ];

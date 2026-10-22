@@ -63,7 +63,8 @@ export function routeTable6(host: Host): Route[] {
 /** Connected routes derived from interface addresses plus configured routes. */
 export function routeTable(host: Host): Route[] {
   const connected: Route[] = host.ifaces
-    .filter((i) => i.up && i.address && i.prefix !== null && i.name !== LOOPBACK)
+    // A /32 address gets no prefix route: it covers no other host.
+    .filter((i) => i.up && i.address && i.prefix !== null && i.prefix < 32 && i.name !== LOOPBACK)
     .map((i) => {
       const c = parseCidr(`${i.address}/${i.prefix}`)!;
       return { dest: `${formatNet(c.network)}/${c.prefix}`, dev: i.name, proto: 'kernel' as const, src: i.address! };
@@ -677,6 +678,11 @@ export function makeRst(world: World, p: Packet): Packet {
 export interface TransmitOptions {
   /** Skip the originating host's output chain (used for kernel-generated RSTs). */
   bypassOutputFilter?: boolean;
+  /**
+   * A packet (LPF) socket on these interfaces of this host receives the packet before netfilter
+   * (dhcpd, dhclient and dhcrelay read DHCP this way), so the input chain cannot drop it.
+   */
+  rawSocket?: { host: string; ifaces: string[] };
 }
 
 /**
@@ -712,6 +718,11 @@ function transmitInner(world: World, fromHostId: string, original: Packet, opts:
       if (isLocalAddress(host, p.dst)) {
         const fw = evaluate(host.nft, 'input', toContext(p, host, ingress.name));
         fw.logs.forEach((pre) => firewallLog(world, host, pre, p, ingress!.name, undefined));
+        const raw = opts.rawSocket?.host === host.id && opts.rawSocket.ifaces.includes(ingress.name);
+        if (raw && fw.verdict !== 'accept') {
+          hops.push({ host: host.id, ingress: ingress.name, ttl: p.ttl, note: `${nat.notes.map((n) => n + '; ').join('')}input hook: ${describeDecision('input', fw)}, but a packet socket (LPF) on ${ingress.name} already received a copy before netfilter: delivered to the application` });
+          return { status: 'delivered', host: host.id, hops, final: clonePacket(p) };
+        }
         if (fw.verdict === 'accept') {
           ctConfirm(host, p, world.clock);
           if (isFragNeeded(p) && p.icmp!.quoted) {

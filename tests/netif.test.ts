@@ -1,0 +1,114 @@
+import { describe, expect, it } from 'vitest';
+import { findScenario } from '../src/engine/scenarios';
+import { Lab } from './helpers';
+
+describe('network interfaces', () => {
+  it('shows admin state, carrier and kernel attributes', () => {
+    const lab = new Lab();
+    expect(lab.run('srv01', 'root', 'ip link show eth0').output).toMatch(/2: eth0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 .*state UP[\s\S]*altname enp1s0/);
+    expect(lab.run('srv01', 'root', 'cat /sys/class/net/eth0/operstate /sys/class/net/eth0/carrier /sys/class/net/eth0/type').output).toBe('up\n1\n1');
+    expect(lab.run('srv01', 'root', 'ls /sys/class/net').output).toBe('eth0  lo');
+    lab.run('srv01', 'root', 'ip link set eth0 down');
+    expect(lab.run('srv01', 'root', 'ip -br link').output).toMatch(/eth0 +DOWN +52:54:00:c3:00:0a <BROADCAST,MULTICAST>/);
+    expect(lab.run('srv01', 'root', 'cat /sys/class/net/eth0/carrier').output).toBe('cat: /sys/class/net/eth0/carrier: Invalid argument');
+    expect(lab.run('srv01', 'root', 'cat /sys/class/net/eth0/operstate').output).toBe('down');
+  });
+
+  it('creates and deletes dummy interfaces; other types explain they are not simulated', () => {
+    const lab = new Lab();
+    lab.run('srv01', 'root', 'ip link add dummy0 type dummy');
+    lab.run('srv01', 'root', 'ip addr add 192.0.2.1/32 dev dummy0');
+    lab.run('srv01', 'root', 'ip link set dummy0 up');
+    const out = lab.run('srv01', 'root', 'ip addr show dummy0').output;
+    expect(out).toMatch(/dummy0: <BROADCAST,NOARP,UP,LOWER_UP> .*state UNKNOWN/);
+    expect(out).toMatch(/inet 192\.0\.2\.1\/32 scope global dummy0/);
+    lab.run('srv01', 'root', 'ip link del dummy0');
+    expect(lab.run('srv01', 'root', 'ip link show dummy0').output).toBe('Device "dummy0" does not exist.');
+    expect(lab.run('srv01', 'root', 'ip link add br9 type bridge').output).toMatch(/not simulated/);
+  });
+
+  it('lists the bridge device and its members on sw01', () => {
+    const lab = new Lab();
+    expect(lab.run('sw01', 'root', 'ip -br link').output).toMatch(/\nbr0 +UP/);
+    expect(lab.run('sw01', 'root', 'ip -d link show br0').output).toMatch(/stp_state 1 .*vlan_filtering 1/);
+    expect(lab.run('sw01', 'root', 'ip -d link show swp6').output).toMatch(/master br0[\s\S]*bridge_slave state forwarding/);
+  });
+
+  it('renamed NIC: ifupdown fails with "Cannot find device", and the host is unreachable', () => {
+    const lab = new Lab();
+    findScenario('netif-renamed-nic')!.setup(lab.world);
+    expect(lab.run('srv01', 'root', 'ip -br link').output).toMatch(/ens18 +DOWN/);
+    expect(lab.run('srv01', 'root', 'journalctl -u networking -b').output).toMatch(/ifup: Cannot find device "eth0"[\s\S]*Failed to start networking\.service/);
+    expect(lab.run('ws01', 'alice', 'curl -I http://srv01.corp.lab/').output).toMatch(/No route to host/);
+    lab.run('srv01', 'root', "sed -i 's/eth0/ens18/g' /etc/network/interfaces");
+    lab.run('srv01', 'root', 'systemctl restart networking');
+    expect(lab.run('srv01', 'root', 'ip -br addr').output).toMatch(/ens18 +UP +10\.0\.20\.10\/24/);
+    expect(lab.run('ws01', 'alice', 'curl -I http://srv01.corp.lab/').output).toMatch(/^HTTP\/1\.1 200 OK/);
+  });
+
+  it('a port missing from bridge-ports has carrier but is switched nowhere', () => {
+    const lab = new Lab();
+    findScenario('netif-bridge-port')!.setup(lab.world);
+    expect(lab.run('sw01', 'root', 'bridge link').output).not.toMatch(/swp6/);
+    expect(lab.run('sw01', 'root', 'ip -d link show swp6').output).not.toMatch(/master br0/);
+    expect(lab.run('srv01', 'root', 'ip -br link').output).toMatch(/eth0 +UP/);
+    lab.run('srv01', 'root', 'ping -c 1 10.0.20.1');
+    expect(lab.run('srv01', 'root', 'ip neigh').output).toMatch(/10\.0\.20\.1 dev eth0 FAILED/);
+  });
+});
+
+describe('bridge ports at runtime', () => {
+  it('ip link set PORT master/nomaster changes membership until ifreload or reboot', () => {
+    const lab = new Lab();
+    expect(lab.run('sw01', 'root', 'ip link set swp6 master br9').output).toBe('Device "br9" does not exist.');
+    expect(lab.run('sw01', 'root', 'ip link set swp6 master swp5').output).toBe('RTNETLINK answers: Operation not supported');
+    lab.run('sw01', 'root', 'ip link set swp6 nomaster');
+    expect(lab.run('sw01', 'root', 'bridge link').output).not.toMatch(/swp6/);
+    expect(lab.run('ws01', 'alice', 'curl -I -m 5 http://srv01.corp.lab/').output).toMatch(/No route to host/);
+    lab.run('sw01', 'root', 'ip link set swp6 master br0');
+    expect(lab.run('sw01', 'root', 'bridge vlan show').output).toMatch(/swp5 +20 PVID Egress Untagged\nswp6 +1 PVID Egress Untagged\nswp7/);
+    lab.run('sw01', 'root', 'bridge vlan add dev swp6 vid 20 pvid untagged');
+    lab.run('sw01', 'root', 'bridge vlan del dev swp6 vid 1');
+    expect(lab.run('ws01', 'alice', 'curl -I http://srv01.corp.lab/').output).toMatch(/^HTTP\/1\.1 200 OK/);
+    expect(lab.run('srv01', 'root', 'bridge link').output).toBe('');
+  });
+});
+
+describe('interface review fixes', () => {
+  it('dummy devices: "dev NAME" syntax, unique MACs, survive a networking restart, gone after reboot', () => {
+    const lab = new Lab();
+    lab.run('srv01', 'root', 'ip link add dev dummy0 type dummy');
+    lab.run('srv01', 'root', 'ip link add dummy1 type dummy');
+    lab.run('srv01', 'root', 'ip link del dummy0');
+    lab.run('srv01', 'root', 'ip link add name dummy2 type dummy');
+    const links = lab.run('srv01', 'root', 'ip -br link').output;
+    expect(links).not.toMatch(/^dev /m);
+    const macs = [...links.matchAll(/^dummy\d +\S+ +(\S+)/gm)].map((m) => m[1]);
+    expect(macs).toHaveLength(2);
+    expect(new Set(macs).size).toBe(2);
+    for (const m of macs) expect(parseInt(m.slice(0, 2), 16) & 3).toBe(2); // locally administered unicast
+    lab.run('srv01', 'root', 'ip link set dummy1 up');
+    expect(lab.run('srv01', 'root', 'cat /sys/class/net/dummy1/operstate /sys/class/net/dummy1/carrier').output).toBe('unknown\n1');
+    expect(lab.run('srv01', 'root', 'cat /sys/class/net/dummy1/speed').output).toBe('cat: /sys/class/net/dummy1/speed: Invalid argument');
+    lab.run('srv01', 'root', 'systemctl restart networking');
+    expect(lab.run('srv01', 'root', 'ip -br link').output).toMatch(/dummy1/);
+    lab.run('srv01', 'root', 'reboot');
+    expect(lab.run('srv01', 'root', 'ip -br link').output).not.toMatch(/dummy/);
+  });
+
+  it('a /32 address adds no prefix route', () => {
+    const lab = new Lab();
+    lab.run('srv01', 'root', 'ip link add dummy0 type dummy');
+    lab.run('srv01', 'root', 'ip addr add 192.0.2.1/32 dev dummy0');
+    lab.run('srv01', 'root', 'ip link set dummy0 up');
+    expect(lab.run('srv01', 'root', 'ip route').output).not.toMatch(/192\.0\.2\.1/);
+  });
+
+  it('br0 on sw01 appears consistently in ip link, ip addr and /sys/class/net', () => {
+    const lab = new Lab();
+    expect(lab.run('sw01', 'root', 'ip addr show br0').output).toMatch(/br0: <BROADCAST,MULTICAST,UP,LOWER_UP>/);
+    expect(lab.run('sw01', 'root', 'cat /sys/class/net/br0/operstate').output).toBe('up');
+    expect(lab.run('sw01', 'root', 'ls /sys/class/net/br0').output).toMatch(/operstate/);
+    expect(lab.run('srv01', 'root', 'bridge vlan add vid 10').output).toMatch(/^Usage: bridge vlan/);
+  });
+});

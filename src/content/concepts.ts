@@ -40,5 +40,6 @@ export const CONCEPTS: Record<ConceptId, { title: string; description: string; r
   'pfsense.nat': { title: 'pfSense NAT', description: 'Outbound NAT modes, port forwards with associated rules, and NAT reflection.', review: 'lesson/pfsense/internals', prerequisites: ['net.nat'] },
   'tls.pki': { title: 'TLS certificates and trust', description: 'Certificate chains, trust stores, validity periods, subjectAltName matching and certificate/key pairs, and the error each failure produces.', review: 'lesson/tls/internals', prerequisites: ['tcp.handshake'] },
   'net.mtu': { title: 'MTU and path MTU discovery', description: 'Frame and packet sizes, the DF bit, ICMP "fragmentation needed", TCP MSS and why large transfers fail when small ones work.', review: 'lesson/mtu/internals', prerequisites: ['net.icmp', 'tcp.handshake'] },
+  'net.interfaces': { title: 'Network interfaces and virtual switches', description: 'Interface names, link and admin state, carrier, VLAN and virtual interfaces, Linux bridges and hypervisor virtual switches, and how a host attaches to them.', review: 'lesson/netif/internals', prerequisites: ['net.arp', 'net.vlan'] },
   'logs.journal': { title: 'Reading the journal', description: 'journalctl filters and finding the line that explains a failure.', review: 'lesson/ssh/troubleshoot', prerequisites: [] },
 };

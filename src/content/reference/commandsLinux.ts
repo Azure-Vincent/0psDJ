@@ -114,6 +114,33 @@ export const LINUX_COMMAND_REFS: CommandRef[] = [
     symptoms: ['No IP address', 'Slow or intermittent connectivity', 'No Internet access'],
   },
   {
+    id: 'bridge', name: 'bridge', platform: 'Linux', category: 'Interfaces', simulator: 'bridge',
+    purpose: 'Shows and changes Linux bridge (software switch) state: member ports and their STP state, per-port VLANs, and the forwarding database (learned MAC addresses). Part of iproute2.',
+    syntax: 'bridge link [show] | bridge vlan [show] | bridge fdb show [br BRIDGE | dev PORT] | bridge vlan add dev PORT vid N [pvid] [untagged]',
+    args: [
+      { arg: 'link', meaning: 'Member ports of every bridge: flags, MTU, master, STP state (forwarding, blocking, learning, disabled), priority, cost' },
+      { arg: 'vlan show', meaning: 'Allowed VLANs per port; "PVID" marks the VLAN for untagged ingress, "Egress Untagged" the VLAN sent without tag' },
+      { arg: 'fdb show br br0', meaning: 'Learned MAC → port (and VLAN) entries; "permanent" entries are the bridge\'s own addresses' },
+      { arg: 'vlan add/del dev swp6 vid 20 pvid untagged', meaning: 'Make swp6 an access port in VLAN 20 at runtime (persist in /etc/network/interfaces: bridge-access 20)' },
+    ],
+    example: {
+      command: 'bridge link\nbridge vlan show',
+      output: '6: swp5: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 master br0 state forwarding priority 32 cost 100\n7: swp6: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 master br0 state forwarding priority 32 cost 100\nport              vlan-id\nswp5              20 PVID Egress Untagged\nswp6              20 PVID Egress Untagged\nswp7              1 PVID Egress Untagged\n                  30',
+    },
+    interpretation: 'A port missing from `bridge link` is not a member: it can have carrier (LOWER_UP) and still be switched nowhere. `state blocking`/`disabled` = STP or admin state keeps it from forwarding. In `vlan show`, an access port has one VLAN with PVID and Egress Untagged; a trunk lists several tagged VLANs. In `fdb show`, a server\'s MAC on the expected port and VLAN proves frames from it reached the bridge.',
+    limitations: 'Linux bridges only (not Open vSwitch: use ovs-vsctl/ovs-appctl fdb/show). Runtime view: compare with the persistent configuration (ifupdown2 bridge-ports/bridge-vids, netplan bridges, systemd-networkd [Bridge]).',
+    errors: [
+      { message: 'Cannot find device "swp10"', meaning: 'The port name does not exist (ip -br link).' },
+      { message: 'RTNETLINK answers: Operation not supported', meaning: 'VLAN commands on a bridge without vlan_filtering, or on an interface that is not a bridge port.' },
+    ],
+    permissions: 'Showing works as a user; changes need root (CAP_NET_ADMIN).',
+    risks: 'Runtime changes are lost at reboot or `ifreload -a`; deleting a VLAN or port from the bridge isolates whatever is connected to it.',
+    compat: 'iproute2 on every modern distribution (Debian 12: 6.1). Older systems used `brctl show` / `brctl showmacs br0` from bridge-utils.',
+    services: ['Networking', 'VLAN'],
+    protocols: ['ARP'],
+    symptoms: ['No route to host', 'Connection timed out'],
+  },
+  {
     id: 'nmcli', name: 'nmcli', platform: 'Linux', category: 'Network configuration',
     purpose: 'Command-line client for NetworkManager: shows device state and manages connection profiles (addresses, gateway, DNS, VLANs, bonds), which NetworkManager then applies.',
     syntax: 'nmcli device status | nmcli connection show [ID] | nmcli connection modify ID SETTING VALUE | nmcli connection up|down ID | nmcli device reapply IFACE',

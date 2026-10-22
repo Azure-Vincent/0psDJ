@@ -296,6 +296,47 @@ export const DHCP_ASSESSMENT: Assessment = {
       concepts: ['net.dhcp'],
       explanation: 'Rogue DHCP is a classic outage and attack vector; snooping is the network-side control.',
     },
+    {
+      id: 'dhcp-q-giaddr', kind: 'single', level: 'intermediate',
+      prompt: 'ns1 (10.0.10.53) receives a relayed DISCOVER with giaddr 10.0.30.1. How does dhcpd decide which pool to allocate from?',
+      options: [
+        { text: 'It uses the subnet declaration that contains giaddr (10.0.30.0/24)', correct: true },
+        { text: 'It uses the subnet of the interface the packet arrived on (10.0.10.0/24)', misconception: 'That rule applies only to requests from directly connected clients; for relayed requests giaddr decides.' },
+        { text: 'It uses the client\'s source address', misconception: 'The client has no address yet (0.0.0.0), and the relay is the packet\'s source anyway.' },
+        { text: 'It asks the relay which pool to use', misconception: 'The relay only forwards; the subnet declarations live on the server.' },
+      ],
+      concepts: ['net.dhcp'],
+      explanation: 'Without a subnet containing giaddr, dhcpd logs "unknown network segment" and does not answer. The OFFER is sent back to giaddr.',
+    },
+    {
+      id: 'dhcp-q-t2', kind: 'text', level: 'intermediate',
+      prompt: 'A client gets a lease of 28800 seconds (8 hours). After how many seconds does it start rebinding (T2) if its server does not answer the renewals?',
+      accept: ['25200'], placeholder: 'seconds', concepts: ['net.dhcp'],
+      explanation: 'T2 defaults to 87.5 % of the lease: 0.875 × 28800 = 25200 s (7 h). T1, the first unicast renewal, is at 50 % = 14400 s.',
+    },
+    {
+      id: 'dhcp-q-renew', kind: 'single', level: 'intermediate',
+      prompt: 'dev02 (VLAN 30) got its lease through the relay on rtr01. How does it renew at T1?',
+      options: [
+        { text: 'Unicast DHCPREQUEST from its own address straight to the server identifier (10.0.10.53), routed like any other packet', correct: true },
+        { text: 'Broadcast on VLAN 30, forwarded by the relay', misconception: 'Broadcasting is for INIT-REBOOT and for rebinding at T2; at T1 the client has an address and talks to its server directly.' },
+        { text: 'It does not renew; it waits until the lease expires', misconception: 'Clients renew at T1 so the lease never expires while the server is reachable.' },
+      ],
+      concepts: ['net.dhcp', 'net.routing'],
+      explanation: 'That is why a working relay is not enough for renewals: the client also needs a routed path (and firewall permission) to the server.',
+    },
+    {
+      id: 'dhcp-q-iu', kind: 'single', level: 'advanced',
+      prompt: 'ns1 logs "DHCPOFFER on 10.0.30.100 … via 10.0.30.1", but dev02 never receives an offer. tcpdump on rtr01 eth0 shows the OFFER arriving for 10.0.30.1. The relay runs with OPTIONS="-id eth3.30". What is wrong?',
+      options: [
+        { text: 'dhcrelay has no upstream interface (-iu eth0), so the reply reaches only its fallback UDP socket, where rtr01\'s input chain drops it', correct: true },
+        { text: 'SERVERS points at the wrong server', misconception: 'The server received the request and answered, so the relay found it.' },
+        { text: 'ns1 has no subnet for 10.0.30.0/24', misconception: 'Then it would log "unknown network segment" instead of offering an address.' },
+        { text: 'dev02\'s firewall drops the OFFER', misconception: 'The OFFER never leaves rtr01 on the client side; and dhclient reads DHCP with a packet socket anyway.' },
+      ],
+      concepts: ['net.dhcp', 'fw.stateful'],
+      explanation: 'With -iu eth0 dhcrelay reads replies with a packet socket on eth0, before netfilter. Restore it (or allow the replies in the input chain).',
+    },
   ],
 };
 
@@ -803,6 +844,104 @@ export const MTU_ASSESSMENT: Assessment = {
       ],
       concepts: ['net.mtu'],
       explanation: 'Jumbo frames must be enabled on every device in the layer-2 path. Silence (not an error) for large pings is the signature of frames dropped below layer 3.',
+    },
+  ],
+};
+
+export const NETIF_ASSESSMENT: Assessment = {
+  id: 'netif',
+  title: 'Network interfaces and virtual switches knowledge check',
+  questions: [
+    {
+      id: 'netif-q-flags', kind: 'single', level: 'beginner',
+      prompt: '`ip link` shows `2: eth0: <NO-CARRIER,BROADCAST,MULTICAST,UP> mtu 1500 … state DOWN`. What does that mean?',
+      options: [
+        { text: 'The interface is administratively up, but there is no link (cable, switch port, or disconnected virtual NIC)', correct: true },
+        { text: 'Someone ran "ip link set eth0 down"', misconception: 'Then the UP flag would be missing. UP is the admin state; NO-CARRIER is the link.' },
+        { text: 'The interface has no IP address', misconception: 'Addresses are not shown in ip link at all; carrier is a layer-1 matter.' },
+        { text: 'The driver is missing', misconception: 'Without a driver there would be no eth0 at all.' },
+      ],
+      concepts: ['net.interfaces'],
+      explanation: 'UP = admin state; LOWER_UP/NO-CARRIER = carrier; "state" = the resulting operstate. Check ethtool (Link detected), the cable/switch port, or the VM\'s NIC connection.',
+    },
+    {
+      id: 'netif-q-name', kind: 'single', level: 'beginner',
+      prompt: 'After moving a Debian VM to Proxmox, `ip -br link` lists `lo` and `ens18`, and `journalctl -u networking -b` says `Cannot find device "eth0"`. What is the fix?',
+      options: [
+        { text: 'Change eth0 to ens18 in /etc/network/interfaces (and other files that name the interface), then restart networking', correct: true },
+        { text: 'Reinstall the network driver', misconception: 'The driver works: ens18 exists. Only the name changed.' },
+        { text: 'Run "ip link set ens18 up"', misconception: 'That brings the link up without an address, and is lost at reboot; the configuration still names eth0.' },
+        { text: 'Switch the server to DHCP', misconception: 'The configuration would still name a missing interface, and the server must keep its static address.' },
+      ],
+      concepts: ['net.interfaces'],
+      explanation: 'Predictable names depend on the virtual hardware (virtio in PCI slot 18 → ens18). Update every reference, or pin a name by MAC with a systemd .link file.',
+    },
+    {
+      id: 'netif-q-prefix', kind: 'text', level: 'intermediate',
+      prompt: 'Which naming prefix does systemd-udevd use for an Ethernet NIC named after its PCI bus and slot location, as in enp1s0? (two letters plus one letter, e.g. "xxy")',
+      accept: ['enp'], placeholder: 'en?', concepts: ['net.interfaces'],
+      explanation: 'en = Ethernet; p<bus>s<slot> = PCI location (enp1s0). Others: eno1 (onboard index), ens18 (hot-plug slot), enx<MAC>.',
+    },
+    {
+      id: 'netif-q-bridge', kind: 'single', level: 'intermediate',
+      prompt: 'srv01 and rtr01 both show LOWER_UP and correct addresses, but ARP between them fails. On sw01, `bridge link` lists every port except swp6 (srv01\'s port). Why?',
+      options: [
+        { text: 'swp6 is not a member of br0: it has carrier, but the bridge never forwards its frames', correct: true },
+        { text: 'swp6 is administratively down', misconception: 'srv01 has carrier (LOWER_UP), so the port is up; it is just not attached to the bridge.' },
+        { text: 'The firewall on srv01 blocks ARP', misconception: 'nftables inet tables do not filter ARP, and here ARP fails in both directions.' },
+        { text: 'STP is blocking swp6', misconception: 'A port blocked by STP is still a member and appears in bridge link (state blocking).' },
+      ],
+      concepts: ['net.interfaces', 'net.vlan'],
+      explanation: 'bridge link lists only member ports. Add swp6 back to bridge-ports and run ifreload -a; then bridge vlan show and bridge fdb show confirm VLAN 20 and srv01\'s MAC.',
+    },
+    {
+      id: 'netif-q-types', kind: 'multi', level: 'intermediate',
+      prompt: 'Which of these interfaces are virtual (created in software, not backed by a NIC)? (Select all that apply.)',
+      options: [
+        { text: 'dummy0', correct: true },
+        { text: 'br0', correct: true },
+        { text: 'veth3f2a1b9 (Docker)', correct: true },
+        { text: 'eth3.30', correct: true },
+        { text: 'ens18 in a Proxmox VM', misconception: 'For the guest it is a (virtio) NIC with a driver, even though the hypervisor emulates it.' },
+      ],
+      concepts: ['net.interfaces'],
+      explanation: 'Dummy, bridge, veth and VLAN interfaces are created with ip link add (or the network configuration). The guest\'s virtio NIC is a device with a driver like any physical NIC.',
+    },
+    {
+      id: 'netif-q-hyperv', kind: 'single', level: 'intermediate',
+      prompt: 'A Hyper-V VM can reach the host and other VMs, but nothing on the physical network. Which switch type is it most likely connected to?',
+      options: [
+        { text: 'An Internal virtual switch', correct: true },
+        { text: 'An External virtual switch', misconception: 'External switches are bound to a physical NIC and reach the physical network.' },
+        { text: 'A Private virtual switch', misconception: 'A Private switch connects VMs only; the host could not be reached either.' },
+      ],
+      concepts: ['net.interfaces'],
+      explanation: 'External = VMs + host + physical network; Internal = VMs + host; Private = VMs only.',
+    },
+    {
+      id: 'netif-q-bond', kind: 'single', level: 'advanced',
+      prompt: 'A server bond uses `bond-mode 802.3ad`. `/proc/net/bonding/bond0` shows both slaves "MII Status: up" but "Partner Mac Address: 00:00:00:00:00:00". What is missing?',
+      options: [
+        { text: 'A matching LACP port-channel (LAG) on the switch ports', correct: true },
+        { text: 'Cables: the links are down', misconception: 'MII status up means the links have carrier.' },
+        { text: 'bond-miimon', misconception: 'MII monitoring is working: it reports the links as up.' },
+        { text: 'An IP address on the slaves', misconception: 'Bond members carry no addresses; the bond does.' },
+      ],
+      concepts: ['net.interfaces'],
+      explanation: '802.3ad needs LACP on both ends. Without a partner, the bond does not aggregate; use active-backup if the switch cannot do LACP.',
+    },
+    {
+      id: 'netif-q-order', kind: 'order', level: 'intermediate',
+      prompt: 'Order the checks for "server unreachable, console works" from the bottom up.',
+      items: [
+        'Does the configured interface exist? (ip -br link)',
+        'Is it admin up with its address? (ip -br addr, systemctl status networking)',
+        'Does it have carrier? (LOWER_UP, ethtool)',
+        'Does ARP to the gateway work? (ping gateway, ip neigh)',
+        'Is the switch port a bridge member in the right VLAN? (bridge link, bridge vlan show)',
+      ],
+      concepts: ['net.interfaces', 'net.arp'],
+      explanation: 'Each step depends on the previous one: no interface → no address → no link → no ARP. ARP failure with link on both ends points at the switch.',
     },
   ],
 };

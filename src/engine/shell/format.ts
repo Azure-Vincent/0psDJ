@@ -62,7 +62,7 @@ function describeIp4Style(p: Packet, isn: { a: number; b: number } | undefined, 
   if (p.udp) {
     if (p.app?.protocol === 'DHCP') {
       const mac = p.app.fields.find((f) => f.name === 'Client MAC (chaddr)')?.value ?? '';
-      return `${IP} ${p.src}.${p.udp.sport} > ${p.dst}.${p.udp.dport}: BOOTP/DHCP, ${p.udp.sport === 68 ? `Request from ${mac}` : 'Reply'}, length ${p.udp.len}`;
+      return `${IP} ${p.src}.${p.udp.sport} > ${p.dst}.${p.udp.dport}: BOOTP/DHCP, ${p.app.fields[0]?.value.startsWith('Boot Request') ? `Request from ${mac}` : 'Reply'}, length ${p.udp.len}`;
     }
     if (p.app?.protocol === 'DNS') {
       const info = p.app.info;

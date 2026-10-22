@@ -49,7 +49,8 @@ describe('DHCP in the lab', () => {
     expect(lab.run('ws02', 'dana', 'ip route').output).toMatch(/default via 10\.0\.10\.1 dev eth0/);
     expect(lab.run('ws02', 'dana', 'cat /etc/resolv.conf').output).toMatch(/nameserver 10\.0\.10\.53/);
     const leases = parseLeases(lab.run('ns1', 'root', 'cat /var/lib/dhcp/dhcpd.leases').output);
-    expect(leases).toEqual([expect.objectContaining({ ip: '10.0.10.100', mac: '52:54:00:d4:00:42', hostname: 'ws02', state: 'active' })]);
+    expect(leases.filter((l) => l.ip.startsWith('10.0.10.'))).toEqual([expect.objectContaining({ ip: '10.0.10.100', mac: '52:54:00:d4:00:42', hostname: 'ws02', state: 'active' })]);
+    expect(leases.find((l) => l.mac === '52:54:00:e7:00:2a')).toEqual(expect.objectContaining({ ip: '10.0.30.100', hostname: 'dev02', state: 'active' }));
     expect(lab.run('ws02', 'dana', 'curl -I http://srv01.corp.lab/').output).toMatch(/200 OK/);
   });
 
@@ -67,11 +68,11 @@ describe('DHCP in the lab', () => {
     expect(lab.run('ws02', 'dana', 'ping -c 1 10.0.10.53').output).toMatch(/Network is unreachable/);
   });
 
-  it('a server firewall without udp/67 silently blocks DHCP', () => {
+  it('ISC dhcpd reads DHCP with packet sockets, so an input rule dropping udp/67 does not stop it', () => {
     const lab = new Lab();
     lab.run('ws02', 'root', 'dhclient -r eth0');
     expect(lab.run('ns1', 'root', 'nft insert rule inet filter input udp dport 67 drop').code).toBe(0);
-    expect(lab.run('ws02', 'root', 'dhclient -v eth0').output).toMatch(/No DHCPOFFERS received\./);
+    expect(lab.run('ws02', 'root', 'dhclient -v eth0').output).toMatch(/DHCPACK of 10\.0\.10\.100/);
   });
 
   it('dhcpd -t reports configuration errors; a bad INTERFACESv4 keeps the server from serving', () => {

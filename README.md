@@ -21,13 +21,14 @@ the causes apart, and how to confirm it is healthy again.
 
 ## What's inside
 
-- **17 lessons** (networking, TLS, remote access, identity, firewalls, containers,
-  Linux and Windows administration, safe recovery). Each lesson covers how it
-  works, interactive diagrams, deployment guides for Ubuntu/Debian, RHEL,
-  Windows, pfSense and Docker, configuration, an **Operate & recover** guide
+- **18 lessons** (networking, interfaces and virtual switches, TLS, remote
+  access, identity, firewalls, containers, Linux and Windows administration,
+  safe recovery). Each lesson covers how it works, interactive diagrams,
+  deployment guides for Ubuntu/Debian, RHEL, Windows, pfSense and Docker,
+  configuration, an **Operate & recover** guide
   (files, logs, service management, diagnostic workflow, common failures) and a
   graded assessment.
-- **45 troubleshooting tickets**: a realistic fault is injected into the lab.
+- **51 troubleshooting tickets**: a realistic fault is injected into the lab.
   You investigate with real commands in terminals, record a diagnosis, repair
   it, and the app checks the fix now, after rebooting every machine, and
   against security rules, so "just open the firewall" does not count.

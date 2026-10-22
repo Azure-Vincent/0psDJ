@@ -4,14 +4,17 @@ import { DHCP_NAT_SCENARIOS } from './dhcpNatScenarios';
 import { SSH_SCENARIOS } from './sshScenarios';
 import { VLAN_IPV6_SCENARIOS } from './vlanIpv6Scenarios';
 import { CASE_SCENARIOS } from './caseScenarios';
+import { DHCP_RELAY_SCENARIOS } from './dhcpRelayScenarios';
+import { NETIF_SCENARIOS } from './netifScenarios';
 import { MTU_SCENARIOS, TLS_SCENARIOS } from './tlsMtuScenarios';
 import type { Scenario } from './types';
 
 /** Every troubleshooting scenario, grouped by the lesson that introduces it. */
 export const SCENARIO_SETS: { id: string; title: string; scenarios: Scenario[] }[] = [
   { id: 'network', title: 'Networking fundamentals', scenarios: NETWORK_SCENARIOS },
-  { id: 'dhcp-nat', title: 'DHCP and NAT', scenarios: DHCP_NAT_SCENARIOS },
+  { id: 'dhcp-nat', title: 'DHCP and NAT', scenarios: [...DHCP_NAT_SCENARIOS, ...DHCP_RELAY_SCENARIOS] },
   { id: 'vlan-ipv6', title: 'VLANs and IPv6', scenarios: VLAN_IPV6_SCENARIOS },
+  { id: 'netif', title: 'Interfaces and virtual switches', scenarios: NETIF_SCENARIOS },
   { id: 'mtu', title: 'MTU and path MTU discovery', scenarios: MTU_SCENARIOS },
   { id: 'ssh', title: 'SSH', scenarios: SSH_SCENARIOS },
   { id: 'tls', title: 'TLS and certificates', scenarios: TLS_SCENARIOS },

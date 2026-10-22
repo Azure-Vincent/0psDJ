@@ -3,6 +3,7 @@
 
 import { dnsQuery, lookupHostsFile, resolve } from '../sim/dns';
 import { isoTime } from '../sim/journal';
+import { maintainLeases } from '../sim/dhcp';
 import { echoIcmp, hostAddresses, icmpMeaning, isFragNeeded, nextId, pathMtu, sourceAddress, transmit } from '../sim/network';
 import { allListeners } from '../sim/services';
 import { ERRNO_TEXT, tcpConnect } from '../sim/tcp';
@@ -469,6 +470,25 @@ const date: CommandDef = {
   run: (_a, ctx) => ok(new Date(Math.floor(ctx.world.clock)).toUTCString().replace('GMT', 'UTC')),
 };
 
+const sleep: CommandDef = {
+  name: 'sleep',
+  summary: 'let simulated time pass (timers such as DHCP renewals run meanwhile)',
+  usage: 'sleep NUMBER[s|m|h|d]...  (the sum; at most 2h in the simulator)',
+  run(args, ctx) {
+    if (!args.length) return err("sleep: missing operand\nTry 'sleep --help' for more information.", 1);
+    // GNU sleep: floating-point numbers with an optional unit; several arguments are added up.
+    let ms = 0;
+    for (const a of args) {
+      const m = /^(\d*\.?\d+(?:e[+-]?\d+)?|\d+\.)([smhd]?)$/i.exec(a);
+      if (!m) return err(`sleep: invalid time interval '${a}'\nTry 'sleep --help' for more information.`, 1);
+      ms += Number(m[1]) * ({ s: 1000, m: 60_000, h: 3_600_000, d: 86_400_000 }[m[2] || 's'] as number);
+    }
+    ctx.world.clock += Math.round(Math.min(ms, 7_200_000));
+    maintainLeases(ctx.world, true);
+    return ok('');
+  },
+};
+
 // ---------------------------------------------------------------------------
 // DNS tools
 // ---------------------------------------------------------------------------
@@ -664,7 +684,7 @@ const ethtool: CommandDef = {
     if (flags.has('-i')) {
       if (i.name === 'lo') return err('Cannot get driver information: Operation not supported', 71);
       if (i.vlan) return ok('driver: 802.1Q VLAN Support\nversion: 1.8\nfirmware-version: N/A\nexpansion-rom-version: \nbus-info: \nsupports-statistics: no\nsupports-test: no\nsupports-eeprom-access: no\nsupports-register-dump: no\nsupports-priv-flags: no');
-      return ok('driver: e1000\nversion: 6.1.0-28-amd64\nfirmware-version: \nexpansion-rom-version: \nbus-info: 0000:00:03.0\nsupports-statistics: yes\nsupports-test: yes\nsupports-eeprom-access: yes\nsupports-register-dump: yes\nsupports-priv-flags: no');
+      return ok('driver: e1000\nversion: 6.1.0-28-amd64\nfirmware-version: \nexpansion-rom-version: \nbus-info: 0000:01:00.0\nsupports-statistics: yes\nsupports-test: yes\nsupports-eeprom-access: yes\nsupports-register-dump: yes\nsupports-priv-flags: no');
     }
     const link = hasCarrier(ctx.world, ctx.host, i);
     if (i.name === 'lo' || i.vlan) return ok(`Settings for ${i.name}:\n\tLink detected: ${link ? 'yes' : 'no'}`);
@@ -698,5 +718,5 @@ const ethtool: CommandDef = {
   },
 };
 
-export const NET_COMMANDS: CommandDef[] = [ip, bridge, ifreload, rdisc6, ss, ping, ping6, traceroute, traceroute6, tracepath, ethtool, nc, tcpdump, conntrack, sysctl, hostname, uname, date, dig, nslookup, hostCmd, getent];
+export const NET_COMMANDS: CommandDef[] = [ip, bridge, ifreload, rdisc6, ss, ping, ping6, traceroute, traceroute6, tracepath, ethtool, nc, tcpdump, conntrack, sysctl, hostname, uname, date, sleep, dig, nslookup, hostCmd, getent];
 export { isoTime, lookupHostsFile };

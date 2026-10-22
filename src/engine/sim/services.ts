@@ -8,7 +8,7 @@ import { parseInterfaces, vlanOf } from '../config/netconf';
 import { parseZone, ZoneError, type Zone } from '../config/zone';
 import { DhcpConfigError, parseDhcpdConf } from '../config/dhcpd';
 import { dhcpAcquire, type DhcpdLoaded } from './dhcp';
-import { inCidr, parseCidr } from '../net/ip';
+import { inCidr, parseCidr, parseIp } from '../net/ip';
 import { readFile } from '../fs';
 import { parseNginxServers } from '../config/nginx';
 import { type Cert, parseCerts, parseKey } from './pki';
@@ -490,6 +490,79 @@ const dhcpd: ServiceDef = {
 };
 
 // ---------------------------------------------------------------------------
+// ISC DHCP relay agent (isc-dhcp-relay, dhcrelay)
+// ---------------------------------------------------------------------------
+
+export interface DhcrelayLoaded {
+  servers: string[];
+  /** Interfaces where client broadcasts are accepted (-id, or the legacy -i/INTERFACES list). */
+  downstream: string[];
+  /** Interfaces where server replies are read with a packet socket (-iu, or -i/INTERFACES). */
+  upstream: string[];
+}
+
+function defaultsVar(text: string, name: string): string[] {
+  const m = new RegExp(`^${name}="([^"]*)"`, 'm').exec(text);
+  return m ? m[1].split(/\s+/).filter(Boolean) : [];
+}
+
+const dhcrelay: ServiceDef = {
+  name: 'dhcrelay',
+  unit: 'isc-dhcp-relay.service',
+  aliases: ['isc-dhcp-relay', 'isc-dhcp-relay.service', 'dhcrelay'],
+  description: 'LSB: DHCP relay',
+  configFiles: ['/etc/default/isc-dhcp-relay'],
+  start(world, host, rt) {
+    const pid = allocPid(host);
+    const l = (m: string, prio: 'info' | 'err' = 'info') => log(world, host, 'dhcrelay', m, { pid, unit: 'isc-dhcp-relay.service', priority: prio });
+    const text = readFile(host, '/etc/default/isc-dhcp-relay') ?? '';
+    const servers = defaultsVar(text, 'SERVERS');
+    const interfaces = defaultsVar(text, 'INTERFACES');
+    // OPTIONS may carry -id IFACE (downstream only) and -iu IFACE (upstream only), as recommended
+    // for ISC dhcrelay 4.4 so that the relay does not also relay broadcasts on the server side.
+    const opts = defaultsVar(text, 'OPTIONS');
+    const down = [...interfaces];
+    const up = [...interfaces];
+    for (let i = 0; i < opts.length; i++) {
+      if (opts[i] === '-id' && opts[i + 1]) down.push(opts[++i]);
+      else if (opts[i] === '-iu' && opts[i + 1]) up.push(opts[++i]);
+      else if (opts[i] === '-i' && opts[i + 1]) { down.push(opts[i + 1]); up.push(opts[++i]); }
+    }
+    l('Internet Systems Consortium DHCP Relay Agent 4.4.3-P1');
+    l('Copyright 2004-2022 Internet Systems Consortium.');
+    l('All rights reserved.');
+    l('For info, please visit https://www.isc.org/software/dhcp/');
+    if (servers.length === 0) {
+      l('No servers specified.', 'err');
+      l('Usage: dhcrelay [-4] [-d] [-q] [-a] [-D] [-A <length>] [-c <hops>] [-p <port>] [-pf <pid-file>] [--no-pid] [-m append|replace|forward|discard] [-i interface0 [ ... -i interfaceN] server0 [ ... serverN]', 'err');
+      return false;
+    }
+    for (const s of servers) {
+      if (parseIp(s) === null) {
+        l(`${s}: host unknown`, 'err');
+        return false;
+      }
+    }
+    for (const name of [...new Set([...down, ...up])]) {
+      const iface = host.ifaces.find((i) => i.name === name);
+      if (!iface) {
+        l(`Error getting hardware address for "${name}": No such device`, 'err');
+        return false;
+      }
+      l(`Listening on LPF/${name}/${iface.mac}`);
+      l(`Sending on   LPF/${name}/${iface.mac}`);
+    }
+    l('Sending on   Socket/fallback');
+    rt.pid = pid;
+    rt.loaded = { servers, downstream: down, upstream: up } satisfies DhcrelayLoaded;
+    return true;
+  },
+  listeners(_host, rt) {
+    return [{ proto: 'udp', addr: '0.0.0.0', port: 67, process: 'dhcrelay', pid: rt.pid!, service: 'dhcrelay' }];
+  },
+};
+
+// ---------------------------------------------------------------------------
 // radvd (IPv6 router advertisement daemon)
 // ---------------------------------------------------------------------------
 
@@ -560,14 +633,18 @@ export function applyNetworkConfig(world: World, host: Host): string[] {
   const { ifaces, errors } = parseInterfaces(readFile(host, '/etc/network/interfaces') ?? '');
   host.routes = [];
   host.routes6 = [];
+  // Dummy devices made with ip link add are not ifupdown's: a networking restart leaves them alone.
   host.ifaces = host.ifaces.filter((i) => !i.vlan);
   for (const i of host.ifaces) {
     if (i.name === LOOPBACK) { i.addrs6 = [{ address: '::1', prefix: 128, scope: 'host', origin: 'kernel' }]; continue; }
+    if (i.kind) continue;
     i.address = null;
     i.prefix = null;
     i.up = false;
     i.addrs6 = [];
     delete i.mtu;
+    delete i.dhcp;
+    delete i.dhcpRetryAt;
   }
   const autoCfg = ifaces.filter((c) => c.auto && c.name !== LOOPBACK);
   // VLAN sub-interfaces (Debian "vlan" package: eth3.30 → raw device eth3, VLAN id 30)
@@ -580,9 +657,17 @@ export function applyNetworkConfig(world: World, host: Host): string[] {
   }
   if (host.kind === 'switch') host.bridge = bridgeFromConfig(ifaces, errors);
   const slaac: string[] = [];
+  const missing = new Set<string>();
   for (const cfg of autoCfg) {
     const iface = host.ifaces.find((i) => i.name === cfg.name);
-    if (!iface) continue;
+    if (!iface) {
+      // ifupdown cannot configure a NIC that does not exist (renamed after a hardware or VM change).
+      if (host.kind !== 'switch' && !cfg.options['bridge-ports'] && !missing.has(cfg.name)) {
+        missing.add(cfg.name);
+        errors.push(`Cannot find device "${cfg.name}"`, `ifup: failed to bring up ${cfg.name}`);
+      }
+      continue;
+    }
     iface.up = true;
     if (cfg.options.mtu !== undefined) {
       const mtu = Number(cfg.options.mtu);
@@ -638,7 +723,7 @@ const networking: ServiceDef = {
   listeners: () => [],
 };
 
-export const SERVICE_DEFS: ServiceDef[] = [networking, nftables, named, dhcpd, radvd, sshd, nginx];
+export const SERVICE_DEFS: ServiceDef[] = [networking, nftables, named, dhcpd, dhcrelay, radvd, sshd, nginx];
 
 export function findService(host: Host, name: string): ServiceDef | undefined {
   const n = name.replace(/\.service$/, '');
@@ -749,6 +834,7 @@ export function bootHost(world: World, host: Host): void {
     rt.loaded = null;
     rt.result = 'success';
   }
+  host.ifaces = host.ifaces.filter((i) => !i.kind); // runtime-only devices are gone after a reboot
   for (const i of host.ifaces) if (i.name === LOOPBACK) { i.up = true; i.address = '127.0.0.1'; i.prefix = 8; }
   world.clock += 1000;
   host.bootTime = world.clock;

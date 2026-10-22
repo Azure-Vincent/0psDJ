@@ -14,15 +14,23 @@ export const bridge: CommandDef = {
   usage: 'bridge vlan show | bridge vlan add|del dev PORT vid VID [pvid] [untagged] | bridge link show | bridge fdb show',
   run(args, ctx) {
     const h = ctx.host;
-    if (!h.bridge) return err(h.kind === 'switch' ? 'bridge: no bridge configured (check /etc/network/interfaces, then ifreload -a)' : 'This host has no bridge (it is not a switch).', 1);
     const [obj, sub = 'show', ...rest] = args;
+    // Without a bridge, iproute2 lists nothing; changes fail on the named device.
+    if (!h.bridge) {
+      if (['add', 'del', 'delete', 'replace'].includes(sub)) {
+        const dev = rest.includes('dev') ? rest[rest.indexOf('dev') + 1] : undefined;
+        if (!dev) return err('Usage: bridge vlan { add | del } vid VLAN_ID dev DEV [ pvid ] [ untagged ]', 255);
+        return err(h.ifaces.some((i) => i.name === dev) ? 'RTNETLINK answers: Operation not supported' : `Cannot find device "${dev}"`, 2);
+      }
+      return ok('');
+    }
     if (obj === 'vlan' || obj === 'v') {
       if (sub === 'show' || sub === 'list') return ok(formatBridgeVlans(h));
       if (sub === 'add' || sub === 'del' || sub === 'delete') {
         if (ctx.user.uid !== 0) return err('RTNETLINK answers: Operation not permitted', 2);
-        const dev = rest[rest.indexOf('dev') + 1];
+        const dev = rest.includes('dev') ? rest[rest.indexOf('dev') + 1] : undefined;
         const vid = Number(rest[rest.indexOf('vid') + 1]);
-        if (rest.indexOf('dev') < 0 || rest.indexOf('vid') < 0) return err('Usage: bridge vlan { add | del } vid VLAN_ID dev DEV [ pvid ] [ untagged ]', 255);
+        if (!dev || rest.indexOf('vid') < 0) return err('Usage: bridge vlan { add | del } vid VLAN_ID dev DEV [ pvid ] [ untagged ]', 255);
         const port = h.bridge.ports[dev];
         if (!port) return err(dev && h.ifaces.some((i) => i.name === dev) ? `RTNETLINK answers: Operation not supported (${dev} is not a bridge port)` : `Cannot find device "${dev}"`, 1);
         if (!Number.isInteger(vid) || vid < 1 || vid > 4094) return err(`Invalid VLAN id "${rest[rest.indexOf('vid') + 1]}"`, 255);

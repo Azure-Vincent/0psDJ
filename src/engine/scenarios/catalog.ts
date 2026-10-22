@@ -251,5 +251,30 @@ export const CAUSES: Record<string, Cause> = Object.fromEntries(
       signature: 'Like an MTU problem: small packets work, large ones stall. A router on the path has a smaller MTU and sends ICMP "fragmentation needed", but a firewall drops it, so the sender never lowers its segment size.',
       check: 'ping -M do -s SIZE: an error reply (Frag needed) means PMTUD works; silence means the ICMP is lost. Check firewalls for rules dropping ICMP type 3 / ICMPv6 type 2.',
     },
+    {
+      id: 'dhcp-relay-wrong-server', title: 'DHCP relay forwards to the wrong (or no) server', category: 'Configuration', concept: 'net.dhcp',
+      signature: 'Only clients on the relayed network (another VLAN than the DHCP server) get no address. The DHCP server logs nothing for them; on the router the relay sends the requests to an address where no DHCP server answers (ARP for it fails, or ICMP port unreachable comes back), or the relay service is not running.',
+      check: 'systemctl status isc-dhcp-relay and /etc/default/isc-dhcp-relay (SERVERS) on the router; tcpdump -n -i <server side> port 67 or arp on the router; journalctl -u isc-dhcp-server on the server.',
+    },
+    {
+      id: 'dhcp-relay-upstream', title: 'Relay does not receive the server\'s replies', category: 'Configuration', concept: 'net.dhcp',
+      signature: 'The DHCP server logs DISCOVER and OFFER "via <relay address>", so requests arrive and are answered, yet clients never see an offer. The replies (server → giaddr, UDP 67) reach the router but are dropped: the relay does not listen on the server-side interface (-iu missing) and the router\'s firewall drops them on the fallback socket.',
+      check: 'tcpdump on the router\'s server-side interface (replies arrive?) and client-side interface (nothing leaves?); OPTIONS/INTERFACES in /etc/default/isc-dhcp-relay; nft list ruleset (input policy) on the router.',
+    },
+    {
+      id: 'dhcp-no-subnet', title: 'DHCP server has no subnet declaration for the relayed network', category: 'Configuration', concept: 'net.dhcp',
+      signature: 'Relayed clients get no address. The server receives their requests and logs "DHCPDISCOVER from <mac> via <giaddr>: unknown network segment": it cannot find a subnet that contains the relay\'s address (giaddr), so it does not answer.',
+      check: 'journalctl -u isc-dhcp-server on the server; the subnet declarations in dhcpd.conf compared with the relay agent\'s address on the client network.',
+    },
+    {
+      id: 'nic-renamed', title: 'Network configuration refers to an interface name that no longer exists', category: 'Configuration', concept: 'net.interfaces',
+      signature: 'After new hardware, a VM migration or a template change the host has no address at all. "ip -br link" shows a NIC with a different name (ens18, enp1s0) in state DOWN; networking.service failed with "Cannot find device \\"eth0\\"". Nothing in the network changed.',
+      check: 'ip -br link and ip -br addr on the host console; journalctl -u networking -b; compare the iface names in /etc/network/interfaces (or netplan/NetworkManager) with the NICs that exist.',
+    },
+    {
+      id: 'bridge-port-missing', title: 'Switch port not attached to the bridge', category: 'Network path', concept: 'net.interfaces',
+      signature: 'One host is isolated although its own configuration and its cable (link UP, carrier) are fine. Its frames reach the switch port but the port is not a member of the (virtual) switch: "bridge link show" lacks it and "ip -d link show <port>" shows no "master". ARP for the host fails from the gateway.',
+      check: 'bridge link show / bridge vlan show on the switch; ip -d link show <port>; bridge-ports in the switch configuration.',
+    },
   ] as Cause[]).map((c) => [c.id, c]),
 );

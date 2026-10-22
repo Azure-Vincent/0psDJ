@@ -8,9 +8,10 @@ export const LAB_LANES: Lane[] = [
 ];
 
 export const DHCP_LANES: Lane[] = [
-  { id: 'ws02', label: 'ws02', sub: 'DHCP client (eth0)' },
+  { id: 'ws02', label: 'ws02', sub: 'DHCP client (office)' },
   { id: 'ns1', label: 'ns1', sub: 'dhcpd 10.0.10.53' },
-  { id: 'rtr01', label: 'rtr01', sub: 'gateway 10.0.10.1' },
+  { id: 'rtr01', label: 'rtr01', sub: 'gateway, dhcrelay' },
+  { id: 'dev02', label: 'dev02', sub: 'DHCP client (VLAN 30)' },
   { id: 'srv01', label: 'srv01', sub: 'server 10.0.20.10' },
 ];
 
@@ -53,6 +54,6 @@ export function segmentOf(host: string, iface?: string): string {
   if (host === 'rtr01') return iface === 'eth1' ? 'srv20' : iface === 'eth2' ? 'wan' : iface?.startsWith('eth3') ? 'dev30 (VLAN 30)' : 'lan10';
   if (host === 'srv01') return 'srv20';
   if (host === 'ext01') return 'wan';
-  if (host === 'dev01') return 'dev30 (VLAN 30)';
+  if (host === 'dev01' || host === 'dev02') return 'dev30 (VLAN 30)';
   return 'lan10';
 }

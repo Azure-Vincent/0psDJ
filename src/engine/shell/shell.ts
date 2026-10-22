@@ -4,6 +4,7 @@
 // collected answers. Because the engine is deterministic, the replay produces
 // exactly the same intermediate state.
 
+import { maintainLeases } from '../sim/dhcp';
 import { normalizePath } from '../fs';
 import { endSession } from '../sim/ssh';
 import type { World } from '../types';
@@ -65,6 +66,8 @@ export class Shell {
   /** Execute a line. `answers` are replies to prompts raised by earlier attempts of the same line. */
   execute(line: string, answers: string[] = []): ExecResult {
     const world = structuredClone(this.getWorld());
+    // DHCP clients renew, rebind or lose their leases as simulated time passes.
+    maintainLeases(world);
     const frames: SessionFrame[] = structuredClone(this.frames);
     const queue = [...answers];
     const executed: string[] = [];

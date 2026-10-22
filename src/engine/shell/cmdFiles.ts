@@ -3,7 +3,7 @@
 
 import { basename, canAccess, canTraverse, dirname, listDir, mkdir, modeString, normalizePath, writeFile } from '../fs';
 import { formatSyslogTime, isoTime } from '../sim/journal';
-import type { FileNode, Host } from '../types';
+import type { FileNode, Host, Interface } from '../types';
 import { type CmdCtx, type CommandDef, err, ok, parseFlags } from './types';
 
 export function resolvePath(ctx: CmdCtx, p: string): string {
@@ -36,6 +36,28 @@ export function virtualFile(host: Host, path: string): string | undefined {
   }
   if (path === '/proc/sys/net/ipv4/ip_forward') return host.ipForward ? '1\n' : '0\n';
   if (path === '/dev/null') return '';
+  const sys = /^\/sys\/class\/net\/([^/]+)\/([a-z_]+)$/.exec(path);
+  if (sys) {
+    const br = host.bridge && sys[1] === host.bridge.name ? host.bridge : undefined;
+    const i = br
+      ? { name: br.name, mac: host.ifaces.find((x) => br.ports[x.name])?.mac ?? '00:00:00:00:00:00', up: true, segment: null, vlan: undefined, kind: undefined, mtu: undefined }
+      : host.ifaces.find((x) => x.name === sys[1]);
+    if (!i) return undefined;
+    const lo = i.name === 'lo';
+    const carrier = lo || (i.up && (!!br || i.kind === 'dummy' || i.segment !== null || !!host.bridge?.ports[i.name]));
+    const files: Record<string, string> = {
+      // RFC 2863 operstate: lo and dummy devices have no carrier concept and report "unknown".
+      operstate: lo || (i.kind === 'dummy' && i.up) ? 'unknown' : !i.up ? 'down' : carrier ? 'up' : i.vlan ? 'lowerlayerdown' : 'down',
+      carrier: carrier ? '1' : '0',
+      address: i.mac,
+      mtu: String(i.mtu ?? (lo ? 65536 : 1500)),
+      speed: lo ? '-1' : carrier ? '1000' : '-1',
+      duplex: lo ? 'unknown' : carrier ? 'full' : 'unknown',
+      type: lo ? '772' : '1',
+      ifindex: String(br ? host.ifaces.length + 1 : host.ifaces.indexOf(i as Interface) + 1),
+    };
+    return files[sys[2]] !== undefined ? files[sys[2]] + '\n' : undefined;
+  }
   return undefined;
 }
 
@@ -49,6 +71,13 @@ const VIRTUAL_META: Record<string, Partial<FileNode>> = {
 
 export function getFile(ctx: CmdCtx, path: string): { node: FileNode | null; content?: string; error?: string } {
   const v = virtualFile(ctx.host, path);
+  // The kernel refuses carrier/speed/duplex of an interface that is administratively down.
+  const down = /^\/sys\/class\/net\/([^/]+)\/(carrier|speed|duplex)$/.exec(path);
+  // lo and dummy devices have no link settings, so speed and duplex are refused as well.
+  const noLink = (i: { name: string; kind?: string }) => (i.name === 'lo' || i.kind === 'dummy') && down?.[2] !== 'carrier';
+  if (v !== undefined && down && ctx.host.ifaces.some((i) => i.name === down[1] && ((i.name !== 'lo' && !i.up) || noLink(i)))) {
+    return { node: { type: 'file', mode: 0o444, owner: 'root', group: 'root', content: '', mtime: ctx.host.bootTime }, error: 'Invalid argument' };
+  }
   if (v !== undefined) {
     const node: FileNode = { type: 'file', mode: 0o644, owner: 'root', group: 'root', content: v, mtime: ctx.host.bootTime, ...VIRTUAL_META[path] };
     if (!canAccess(node, ctx.user, 'r')) return { node, error: 'Permission denied' };
@@ -103,6 +132,12 @@ const ls: CommandDef = {
     let code = 0;
     for (const t of targets) {
       const path = resolvePath(ctx, t);
+      // sysfs: one directory per network interface, a few attribute files each.
+      const sysIf = /^\/sys\/class\/net(?:\/([^/]+))?$/.exec(path);
+      if (sysIf && (!sysIf[1] || ctx.host.ifaces.some((i) => i.name === sysIf[1]) || ctx.host.bridge?.name === sysIf[1])) {
+        out.push((sysIf[1] ? ['address', 'carrier', 'duplex', 'ifindex', 'mtu', 'operstate', 'speed', 'type'] : ctx.host.ifaces.map((i) => i.name).concat(ctx.host.bridge ? [ctx.host.bridge.name] : []).sort()).join('  '));
+        continue;
+      }
       const n = ctx.host.fs[path] ?? (virtualFile(ctx.host, path) !== undefined ? { type: 'file' as const, mode: 0o644, owner: 'root', group: 'root', content: virtualFile(ctx.host, path)!, mtime: ctx.host.bootTime } : undefined);
       if (!n) {
         out.push(`ls: cannot access '${t}': No such file or directory`);
@@ -492,38 +527,18 @@ const usermod: CommandDef = {
   },
 };
 
-/** Split a sed script on unescaped ';' (outside s/// arguments is good enough for the supported subset). */
-function sedCommands(script: string): string[] {
-  const out: string[] = [];
-  let cur = '';
-  let i = 0;
-  while (i < script.length) {
-    const c = script[i];
-    if (c === 's' && cur.trim() === '') {
-      // s<d>pat<d>rep<d>flags
-      const d = script[i + 1];
-      let j = i + 2;
-      let parts = 0;
-      while (j < script.length && parts < 2) {
-        if (script[j] === '\\') j += 2;
-        else { if (script[j] === d) parts++; j++; }
-      }
-      while (j < script.length && /[gI0-9]/.test(script[j])) j++;
-      out.push(script.slice(i, j));
-      i = j;
-      cur = '';
-      continue;
-    }
-    if (c === ';') { if (cur.trim()) out.push(cur.trim()); cur = ''; i++; continue; }
-    cur += c;
-    i++;
-  }
-  if (cur.trim()) out.push(cur.trim());
-  return out;
+// ---------------------------------------------------------------- sed
+// A GNU sed subset: addresses (N, $, /re/[I], ranges A1,A2), commands d, p and s///[gIpN],
+// commands separated by ';' or newlines, -n, -i, -e. Errors use GNU's wording.
+
+class SedError extends Error {}
+
+function sedFail(pos: number, msg: string): never {
+  throw new SedError(`sed: -e expression #1, char ${pos}: ${msg}`);
 }
 
-function sedRegex(src: string, flags: string): RegExp {
-  // GNU basic regex subset -> JS: \( \) \{ \} \| \+ \? are operators, bare ones are literals.
+/** GNU basic regular expression -> JavaScript RegExp. */
+function sedRegex(src: string, flags: string, pos: number): RegExp {
   let out = '';
   for (let i = 0; i < src.length; i++) {
     const c = src[i];
@@ -534,75 +549,225 @@ function sedRegex(src: string, flags: string): RegExp {
       else if (n === 'n') out += '\n';
       else out += '\\' + n;
     } else if ('(){}|+?'.includes(c)) out += '\\' + c;
+    // A '*' at the start of an expression or group is a literal in a BRE.
+    else if (c === '*' && (out === '' || out === '^' || out.endsWith('(') || out.endsWith('|'))) out += '\\*';
     else out += c;
   }
-  return new RegExp(out, flags);
+  try {
+    return new RegExp(out, flags);
+  } catch (e) {
+    const m = String((e as Error).message);
+    sedFail(pos, /character class/i.test(m) ? 'unterminated address regex' : /\)|group/i.test(m) ? 'Unmatched ( or \\(' : 'Invalid preceding regular expression');
+  }
 }
 
-function applySed(text: string, script: string): string | { error: string } {
-  const cmds = sedCommands(script);
+type SedAddr = { re: RegExp } | { line: number } | { last: true } | { plus: number };
+
+interface SedSubst { re: RegExp; rep: string; nth: number; global: boolean; print: boolean }
+
+interface SedCmd { a1?: SedAddr; a2?: SedAddr; negate: boolean; op: 'd' | 'p' | 's'; subst?: SedSubst; state: 'idle' | 'active' | 'closed'; endLine?: number }
+
+/** Read a delimited field starting after the delimiter at `i`; returns the raw text and the index after the closing delimiter. */
+function sedField(script: string, i: number, d: string): { text: string; next: number } | null {
+  let text = '';
+  for (let j = i; j < script.length; j++) {
+    if (script[j] === '\\' && j + 1 < script.length) {
+      // An escaped delimiter stands for the delimiter itself (except '/', which stays escaped for the regex).
+      text += script[j + 1] === d && d !== '/' ? d : script[j] + script[j + 1];
+      j++;
+    } else if (script[j] === d) return { text, next: j + 1 };
+    else if (script[j] === '\n') return null;
+    else text += script[j];
+  }
+  return null;
+}
+
+function parseSed(script: string): SedCmd[] {
+  const cmds: SedCmd[] = [];
+  let i = 0;
+  const addr = (): SedAddr | undefined => {
+    if (script[i] === '/') {
+      const f = sedField(script, i + 1, '/');
+      if (!f) sedFail(script.length, 'unterminated address regex');
+      i = f.next;
+      let flags = '';
+      if (script[i] === 'I') { flags = 'i'; i++; }
+      return { re: sedRegex(f.text, flags, i) };
+    }
+    if (script[i] === '$') { i++; return { last: true }; }
+    const m = /^\d+/.exec(script.slice(i));
+    if (m) { i += m[0].length; return { line: Number(m[0]) }; }
+    return undefined;
+  };
+  while (i < script.length) {
+    while (i < script.length && /[\s;]/.test(script[i])) i++;
+    if (i >= script.length) break;
+    const a1 = addr();
+    let a2: SedAddr | undefined;
+    if (a1 && script[i] === ',') {
+      i++;
+      const plus = /^\+(\d+)/.exec(script.slice(i));
+      if (plus) { i += plus[0].length; a2 = { plus: Number(plus[1]) }; } else a2 = addr();
+      if (!a2) sedFail(i + 1, 'unexpected `,\'');
+    }
+    while (i < script.length && /[ \t]/.test(script[i])) i++;
+    let negate = false;
+    if (script[i] === '!') {
+      negate = true;
+      i++;
+      while (i < script.length && /[ \t]/.test(script[i])) i++;
+    }
+    const op = script[i];
+    if (op === undefined || op === ';' || op === '\n') sedFail(i, 'missing command');
+    i++;
+    const cmd: SedCmd = { a1, a2, negate, op: op as SedCmd['op'], state: 'idle' };
+    if (op === 's') {
+      const d = script[i];
+      if (d === undefined || d === '\n' || d === '\\') sedFail(script.length, "unterminated `s' command");
+      const pat = sedField(script, i + 1, d);
+      const rep = pat && sedField(script, pat.next, d);
+      if (!pat || !rep) sedFail(script.length, "unterminated `s' command");
+      i = rep.next;
+      let flags = '';
+      while (i < script.length && /[gIip0-9]/.test(script[i])) flags += script[i++];
+      if (i < script.length && !/[\s;}#]/.test(script[i])) sedFail(i + 1, "unknown option to `s'");
+      const nth = Number(/\d+/.exec(flags)?.[0] ?? 1);
+      cmd.subst = { re: sedRegex(pat.text, (/[Ii]/.test(flags) ? 'i' : '') + 'g', i), rep: rep.text, nth, global: flags.includes('g'), print: flags.includes('p') };
+    } else if ('aicyqQnNhHgGxbtT=lrwz{'.includes(op)) {
+      sedFail(i, `command \`${op}' is not supported by this simulator (supported: s, d, p, addresses, ranges and !)`);
+    } else if (op !== 'd' && op !== 'p') sedFail(i, `unknown command: \`${op}'`);
+    while (i < script.length && /[ \t]/.test(script[i])) i++;
+    if (i < script.length && !/[;\n}#]/.test(script[i])) sedFail(i + 1, 'extra characters after command');
+    cmds.push(cmd);
+  }
+  return cmds;
+}
+
+function addrMatches(a: SedAddr, line: string, n: number, last: boolean): boolean {
+  if ('re' in a) return a.re.test(line);
+  if ('last' in a) return last;
+  if ('plus' in a) return false;
+  return n === a.line;
+}
+
+/** GNU range semantics, including line-number addresses that were skipped by an earlier 'd'. */
+function sedSelected(c: SedCmd, line: string, n: number, last: boolean): boolean {
+  return sedInRange(c, line, n, last) !== c.negate;
+}
+
+function sedInRange(c: SedCmd, line: string, n: number, last: boolean): boolean {
+  if (!c.a1) return true;
+  if (!c.a2) return addrMatches(c.a1, line, n, last);
+  if (c.state === 'active') {
+    if ('plus' in c.a2) {
+      if (n >= c.endLine!) c.state = 'line' in c.a1 ? 'closed' : 'idle';
+      return true;
+    }
+    if ('line' in c.a2) {
+      if (n >= c.a2.line) c.state = 'line' in c.a1 ? 'closed' : 'idle';
+      return n <= c.a2.line;
+    }
+    if (addrMatches(c.a2, line, n, last)) c.state = 'line' in c.a1 ? 'closed' : 'idle';
+    return true;
+  }
+  if (c.state === 'closed') return false;
+  // A numeric start address also opens the range once it has been passed.
+  const start = 'line' in c.a1 ? n >= c.a1.line : addrMatches(c.a1, line, n, last);
+  if (!start) return false;
+  c.endLine = 'plus' in c.a2 ? n + c.a2.plus : undefined;
+  if (('line' in c.a2 && c.a2.line <= n) || ('plus' in c.a2 && c.a2.plus === 0)) c.state = 'line' in c.a1 ? 'closed' : 'idle';
+  else c.state = 'active';
+  return true;
+}
+
+function sedReplace(s: SedSubst, line: string): { line: string; changed: boolean } {
+  let count = 0;
+  let changed = false;
+  s.re.lastIndex = 0;
+  const out = line.replace(s.re, (m: string, ...rest: unknown[]) => {
+    count++;
+    if (count < s.nth || (!s.global && count > s.nth)) return m;
+    changed = true;
+    const groups = rest.slice(0, -2) as (string | undefined)[];
+    let r = '';
+    for (let i = 0; i < s.rep.length; i++) {
+      const ch = s.rep[i];
+      if (ch === '\\' && i + 1 < s.rep.length) {
+        const n = s.rep[++i];
+        r += /\d/.test(n) ? (n === '0' ? m : groups[Number(n) - 1] ?? '') : n === 'n' ? '\n' : n === 't' ? '\t' : n;
+      } else r += ch === '&' ? m : ch;
+    }
+    return r;
+  });
+  return { line: out, changed };
+}
+
+function applySed(text: string, script: string, quiet = false): string | { error: string } {
+  let cmds: SedCmd[];
+  try {
+    cmds = parseSed(script);
+  } catch (e) {
+    if (e instanceof SedError) return { error: e.message };
+    throw e;
+  }
+  if (text === '') return '';
   const lines = text.replace(/\n$/, '').split('\n');
   const result: string[] = [];
-  for (let line of lines) {
+  lines.forEach((orig, idx) => {
+    let line = orig;
+    const n = idx + 1;
+    const last = idx === lines.length - 1;
     let deleted = false;
-    for (const cmd of cmds) {
-      const del = /^\/(.*)\/d$/.exec(cmd);
-      if (del) {
-        if (sedRegex(del[1], '').test(line)) { deleted = true; break; }
-        continue;
-      }
-      if (cmd[0] === 's') {
-        const d = cmd[1];
-        const parts: string[] = [];
-        let cur = '';
-        let i = 2;
-        for (; i < cmd.length && parts.length < 2; i++) {
-          if (cmd[i] === '\\' && cmd[i + 1] === d) { cur += d; i++; continue; }
-          if (cmd[i] === d) { parts.push(cur); cur = ''; continue; }
-          cur += cmd[i];
-        }
-        const flags = cmd.slice(i);
-        if (parts.length < 2) return { error: `sed: -e expression #1, char ${cmd.length}: unterminated \`s' command` };
-        const re = sedRegex(parts[0], flags.includes('g') ? 'g' : '');
-        const rep = parts[1].replace(/\\n/g, '\n').replace(/\\t/g, '\t').replace(/\\(\d)/g, '$$$1').replace(/&/g, '$$&');
-        line = line.replace(re, rep);
-        continue;
-      }
-      return { error: `sed: -e expression #1, char 1: unknown command: \`${cmd[0]}'` };
+    for (const c of cmds) {
+      if (!sedSelected(c, line, n, last)) continue;
+      if (c.op === 'd') { deleted = true; break; }
+      if (c.op === 'p') { result.push(line); continue; }
+      const r = sedReplace(c.subst!, line);
+      line = r.line;
+      if (r.changed && c.subst!.print) result.push(line);
     }
-    if (!deleted) result.push(line);
-  }
-  return result.join('\n') + '\n';
+    if (!deleted && !quiet) result.push(line);
+  });
+  return result.length ? result.join('\n') + '\n' : '';
 }
 
 const sed: CommandDef = {
   name: 'sed',
-  summary: 'stream editor (s/// substitution and /re/d deletion; -i edits in place)',
-  usage: "sed [-i] 's/OLD/NEW/[g]' FILE | sed [-i] '/PATTERN/d' FILE",
+  summary: 'stream editor (addresses and ranges, s///, d, p; -n; -i edits in place)',
+  usage: "sed [-n] [-i] 's/OLD/NEW/[g]' FILE... | sed [-i] '/PATTERN/d' FILE | sed -n '/A/,/B/p' FILE",
   run(args, ctx) {
     const { flags, rest } = parseFlags(args, ['-e']);
     const scripts: string[] = [];
     if (flags.has('-e')) scripts.push(String(flags.get('-e')));
     else if (rest.length) scripts.push(rest.shift()!);
     if (!scripts.length) return err('Usage: sed [OPTION]... {script-only-if-no-other-script} [input-file]...', 1);
+    const quiet = flags.has('-n');
     const files = rest;
     if (files.length === 0) {
-      const r = applySed(ctx.stdin ?? '', scripts[0]);
+      const r = applySed(ctx.stdin ?? '', scripts[0], quiet);
       return typeof r === 'string' ? ok(r.replace(/\n$/, '')) : err(r.error, 1);
     }
-    const outputs: string[] = [];
+    const contents: { path: string; text: string }[] = [];
     for (const f of files) {
       const path = resolvePath(ctx, f);
       const file = getFile(ctx, path);
       if (file.error) return err(`sed: can't read ${f}: ${file.error}`, 2);
-      const r = applySed(file.content!, scripts[0]);
-      if (typeof r !== 'string') return err(r.error, 1);
-      if (flags.has('-i')) {
-        const e = writeChecked(ctx, path, r);
-        if (e) return err(`sed: couldn't open temporary file ${dirname(path)}/sedXYZ: ${e}`, 4);
-      } else outputs.push(r.replace(/\n$/, ''));
+      contents.push({ path, text: file.content! });
     }
-    return ok(outputs.join('\n'));
+    if (flags.has('-i')) {
+      // -i edits each file separately (line numbers and $ restart per file).
+      for (const c of contents) {
+        const r = applySed(c.text, scripts[0], quiet);
+        if (typeof r !== 'string') return err(r.error, 1);
+        const e = writeChecked(ctx, c.path, r);
+        if (e) return err(`sed: couldn't open temporary file ${dirname(c.path)}/sedXYZ: ${e}`, 4);
+      }
+      return ok('');
+    }
+    // Without -i, all files form one input stream.
+    const stream = contents.map((c) => (c.text === '' || c.text.endsWith('\n') ? c.text : c.text + '\n')).join('');
+    const r = applySed(stream, scripts[0], quiet);
+    return typeof r === 'string' ? ok(r.replace(/\n$/, '')) : err(r.error, 1);
   },
 };
 
