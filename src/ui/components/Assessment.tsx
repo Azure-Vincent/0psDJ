@@ -8,7 +8,8 @@ import { Markdown } from './Markdown';
 function QuestionView({ q, index }: { q: Question; index: number }) {
   const { progress, update } = useProgress();
   const initial = useMemo(() => {
-    if (q.kind === 'order') return stableShuffle(q.items, q.id);
+    // Order questions track positions in q.items, not the text: items may repeat ("ACK (client)").
+    if (q.kind === 'order') return stableShuffle(q.items.map((_, i) => i), q.id);
     if (q.kind === 'multi') return [] as number[];
     if (q.kind === 'single') return -1;
     return '';
@@ -18,7 +19,7 @@ function QuestionView({ q, index }: { q: Question; index: number }) {
   const prior = progress.questions[q.id];
 
   const submit = () => {
-    const r = gradeQuestion(q, answer);
+    const r = gradeQuestion(q, q.kind === 'order' ? (answer as number[]).map((i) => q.items[i]) : answer);
     setResult(r);
     const misconception = q.kind === 'single' && !r.correct ? `${q.id}#${answer}` : undefined;
     update((p) => {
@@ -61,12 +62,12 @@ function QuestionView({ q, index }: { q: Question; index: number }) {
       })}
       {q.kind === 'order' && (
         <ol style={{ paddingLeft: 22 }}>
-          {(answer as string[]).map((item, i, arr) => (
+          {(answer as number[]).map((item, i, arr) => (
             <li key={item} style={{ margin: '3px 0' }}>
               <span className="row" style={{ flexWrap: 'nowrap' }}>
                 <button aria-label="move up" disabled={i === 0} onClick={() => { const a = arr.slice(); [a[i - 1], a[i]] = [a[i], a[i - 1]]; setAnswer(a); setResult(null); }}>↑</button>
                 <button aria-label="move down" disabled={i === arr.length - 1} onClick={() => { const a = arr.slice(); [a[i + 1], a[i]] = [a[i], a[i + 1]]; setAnswer(a); setResult(null); }}>↓</button>
-                <span>{item}</span>
+                <span>{q.items[item]}</span>
               </span>
             </li>
           ))}
