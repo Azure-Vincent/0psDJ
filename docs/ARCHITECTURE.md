@@ -231,7 +231,7 @@ OpenSSH 9.2 negotiation and authentication flow and its log lines, StrictModes
 path checks, glibc resolver order and search list, BIND zone parsing and SERVFAIL
 on load errors, systemd enable/active semantics.
 
-Simplified: one IPv4 address per interface; no spanning tree, DHCPv6, DAD, MLD or privacy addresses; one TCP segment per SSH message, no congestion control or
+Simplified: one IPv4 address per interface; no spanning tree, DHCPv6 relays or prefix delegation, DAD, MLD or privacy addresses; one TCP segment per SSH message, no congestion control or
 window dynamics; cryptographic values are synthetic (fingerprints are genuine
 SHA-256 of synthetic key blobs); `tcpdump` shows a buffer of recent traffic
 instead of live capture (terminals are not concurrent); a subset of each tool's

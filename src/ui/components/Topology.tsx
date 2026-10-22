@@ -15,17 +15,17 @@ export function Topology() {
       <line x1={10} y1={22} x2={330} y2={22} stroke="var(--accent)" strokeWidth={3} />
       {box(4, 34, 'ws01', ['10.0.10.25', 'static (alice)'], 98)}
       {box(118, 34, 'ws02', ['DHCP client', 'laptop (dana)'], 98)}
-      {box(222, 34, 'ns1', ['10.0.10.53', 'BIND + dhcpd'], 114)}
+      {box(222, 34, 'ns1', ['10.0.10.53', '2001:db8:10::53', 'BIND + dhcpd'], 114)}
       <line x1={53} y1={22} x2={53} y2={34} stroke="var(--accent)" />
       <line x1={167} y1={22} x2={167} y2={34} stroke="var(--accent)" />
       <line x1={279} y1={22} x2={279} y2={34} stroke="var(--accent)" />
       <line x1={110} y1={22} x2={110} y2={110} stroke="var(--accent)" />
-      {box(40, 110, 'rtr01', ['eth0 10.0.10.1', 'eth1 10.0.20.1', 'eth2 203.0.113.2', 'eth3.30 10.0.30.1', 'NAT, nft, radvd, dhcrelay'], 150)}
+      {box(40, 110, 'rtr01', ['eth0 10.0.10.1', 'eth1 10.0.20.1', 'eth2 203.0.113.2', 'eth3.30 10.0.30.1', 'NAT, nft, radvd,', 'dhcpd -6, dhcrelay'], 150)}
       <text x={236} y={112} fontSize={11} style={{ fill: 'var(--muted)' }}>Internet</text>
       <text x={236} y={124} className="mono" style={{ fill: 'var(--muted)', fontSize: 9.5 }}>203.0.113.0/24</text>
       <line x1={190} y1={150} x2={240} y2={150} stroke="var(--warn)" strokeWidth={2} />
       {box(240, 132, 'ext01', ['203.0.113.80', 'nginx :80, :443'], 96)}
-      <line x1={115} y1={212} x2={115} y2={250} stroke="var(--ok)" />
+      <line x1={115} y1={216} x2={115} y2={250} stroke="var(--ok)" />
       <path d="M190 192 H322 V250" fill="none" stroke="var(--lane)" strokeDasharray="5 3" />
       <text x={196} y={206} style={{ fill: 'var(--muted)', fontSize: 9.5 }}>trunk, tagged 30</text>
       <text x={8} y={244} fontSize={11} style={{ fill: 'var(--muted)' }}>VLAN 20 servers</text>
@@ -37,7 +37,7 @@ export function Topology() {
       {box(40, 262, 'srv01', ['10.0.20.10', '2001:db8:20::10', 'sshd :22, nginx :80 :443'], 150)}
       {box(208, 262, 'dev01', ['10.0.30.25', 'IPv6 SLAAC', '2001:db8:30::/64'], 128)}
       <path d="M201 250 V358 H208" fill="none" stroke="var(--lane)" />
-      {box(208, 336, 'dev02', ['DHCP via relay', 'laptop (jordan)'], 124)}
+      {box(208, 336, 'dev02', ['DHCP via relay', 'DHCPv6 from rtr01'], 124)}
       <text x={8} y={408} style={{ fill: 'var(--muted)', fontSize: 9.5 }}>All LAN ports are on sw01 (VLAN-aware Linux bridge): access ports for</text>
       <text x={8} y={420} style={{ fill: 'var(--muted)', fontSize: 9.5 }}>VLAN 10/20/30, trunk swp7 to rtr01 eth3. Console: sw01.</text>
     </svg>

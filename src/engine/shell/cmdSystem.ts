@@ -15,6 +15,7 @@ import { dropIns, unitDirectives, unitPath, unitWantedBy } from '../sim/units';
 import { knownHostName, knownHostsEntries, runSsh } from '../sim/ssh';
 import { resolve } from '../sim/dns';
 import { dhcpAcquire, dhcpRelease } from '../sim/dhcp';
+import { dhcp6Acquire, dhcp6Release } from '../sim/dhcp6';
 import { tcpConnect, ERRNO_TEXT } from '../sim/tcp';
 import { base64Decode } from '../util/sha256';
 import { resolvePath } from './cmdFiles';
@@ -727,14 +728,30 @@ const nginxCmd: CommandDef = {
 
 const dhclient: CommandDef = {
   name: 'dhclient',
-  summary: 'DHCP client: obtain (or with -r release) a lease',
-  usage: 'dhclient [-v] [-r] [IFACE]',
+  summary: 'DHCP client: obtain (or with -r release) a lease; -6 for DHCPv6 (-S: stateless, options only)',
+  usage: 'dhclient [-4|-6] [-v] [-r] [-S] [IFACE]',
   run(args, ctx) {
     if (ctx.user.uid !== 0) return err('dhclient: Permission denied (you must be root)', 1);
     const { flags, rest } = parseFlags(args);
     const name = rest[0] ?? ctx.host.ifaces.find((i) => i.name !== 'lo')?.name;
     const iface = ctx.host.ifaces.find((i) => i.name === name);
     if (!iface || iface.name === 'lo') return err(`Cannot find device "${name}"`, 1);
+    if (flags.has('-6')) {
+      if (flags.has('-r')) {
+        const msg = dhcp6Release(ctx.world, ctx.host, iface);
+        return ok(flags.has('-v') ? (msg ?? 'dhclient: no DHCPv6 lease on ' + iface.name) : '');
+      }
+      const before = ctx.host.journal.length;
+      const bound = dhcp6Acquire(ctx.world, ctx.host, iface, { stateless: flags.has('-S') });
+      const lines = ctx.host.journal.slice(before).filter((e) => e.ident === 'dhclient').map((e) => e.message);
+      const shown = flags.has('-v') ? lines : [];
+      if (!bound && !flags.has('-S')) {
+        // dhclient -6 keeps soliciting until a server answers; the simulator returns to the prompt.
+        shown.push('[Infrastructure Lab: no DHCPv6 lease yet. dhclient -6 keeps soliciting in the background (every 2 minutes in the simulator); check "journalctl -t dhclient", the firewalls and the server.]');
+      }
+      return { out: shown.join('\n'), code: bound ? 0 : 2 };
+    }
+    if (flags.has('-S')) return err('dhclient: -S (information-request) is only meaningful with -6', 1);
     if (flags.has('-r')) {
       const msg = dhcpRelease(ctx.world, ctx.host, iface);
       return ok(flags.has('-v') ? (msg ?? 'dhclient: no active lease on ' + iface.name) : '');
@@ -750,12 +767,13 @@ const dhclient: CommandDef = {
 
 const dhcpdCmd: CommandDef = {
   name: 'dhcpd',
-  summary: 'ISC DHCP server: -t tests /etc/dhcp/dhcpd.conf',
-  usage: 'dhcpd -t [-cf FILE]',
+  summary: 'ISC DHCP server: -t tests /etc/dhcp/dhcpd.conf (-6: /etc/dhcp/dhcpd6.conf)',
+  usage: 'dhcpd -t [-4|-6] [-cf FILE]',
   run(args, ctx) {
     if (!ctx.host.services.dhcpd) return err('-bash: dhcpd: command not found', 127);
     if (!args.includes('-t')) return err('dhcpd: run the server with systemctl (isc-dhcp-server); this simulator supports dhcpd -t', 1);
-    const e = dhcpdTest(ctx.host);
+    const cf = args.indexOf('-cf') >= 0 ? args[args.indexOf('-cf') + 1] : undefined;
+    const e = dhcpdTest(ctx.host, args.includes('-6') ? 6 : 4, cf ? resolvePath(ctx, cf) : undefined);
     const head = 'Internet Systems Consortium DHCP Server 4.4.3-P1\nCopyright 2004-2022 Internet Systems Consortium.\nAll rights reserved.';
     return e.length ? err(`${head}\n${e.join('\n')}`, 1) : ok(head);
   },

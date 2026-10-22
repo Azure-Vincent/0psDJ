@@ -117,8 +117,9 @@ function lookupRoute6(host: Host, dst: string, oif?: string): RouteDecision | nu
 function source6(iface: Interface, dst: string): string {
   const addrs = iface.addrs6 ?? [];
   if (isLinkLocal6(dst)) return addrs.find((a) => a.scope === 'link')?.address ?? '::';
+  // Without a global address Linux falls back to the link-local one (routers will not forward it).
   return addrs.find((a) => a.scope === 'global' && inPrefix(dst, networkOf6(a.address, a.prefix)))?.address
-    ?? addrs.find((a) => a.scope === 'global')?.address ?? '::';
+    ?? addrs.find((a) => a.scope === 'global')?.address ?? addrs.find((a) => a.scope === 'link')?.address ?? '::';
 }
 
 /** Source address the kernel would pick for a packet to `dst`. */
@@ -455,6 +456,7 @@ const ICMP6_DESC: Record<string, { type: number; code: number; description: stri
   'admin-prohibited': { type: 1, code: 1, description: 'Destination unreachable (Communication with destination administratively prohibited)' },
   'ttl-exceeded': { type: 3, code: 0, description: 'Time exceeded (Hop limit exceeded in transit)' },
   'frag-needed': { type: 2, code: 0, description: 'Packet too big' },
+  'beyond-scope': { type: 1, code: 2, description: 'Destination unreachable (Beyond scope of source address)' },
 };
 
 const ICMP_EXPLAIN: Record<string, (h: string, p: Packet) => string> = {
@@ -464,6 +466,7 @@ const ICMP_EXPLAIN: Record<string, (h: string, p: Packet) => string> = {
     : `${h} tried to deliver the packet on the final network but nobody answered its ARP request for ${p.dst} (about 3 s of retries). The sender receives "No route to host" (EHOSTUNREACH), although routing itself works.`,
   'port-unreachable': (h, p) => `${h} received a ${p.proto.toUpperCase()} datagram for a port with no listening socket (or a firewall rejected it with port-unreachable). For UDP this is how "connection refused" is signalled; resolvers move to the next server immediately.`,
   'admin-prohibited': (h) => `A firewall rule on ${h} rejected the packet with "communication administratively prohibited" (type 3 code 13). Clients report "No route to host", which misleadingly suggests a routing problem.`,
+  'beyond-scope': (h, p) => `The packet's source ${p.src} is a link-local address, valid only on the sender's own link, so ${h} must not forward it (RFC 4291) and reports "beyond scope of source address". The sender has no global IPv6 address: check SLAAC, DHCPv6 or the static configuration.`,
   'ttl-exceeded': (h, p) => `The ${p.dst.includes(':') ? 'hop limit' : 'TTL'} reached zero at ${h}, which discards the packet and reports "time exceeded". traceroute uses this deliberately to discover each router on the path.`,
   'frag-needed': (h, p) => p.dst.includes(':')
     ? `The packet (${packetSize(p)} bytes) is larger than the MTU of ${h}'s next link. IPv6 routers never fragment, so ${h} drops it and sends ICMPv6 "Packet Too Big" with the link MTU. The sender lowers its path MTU and resends smaller packets. If a firewall drops this message, large transfers hang: a path MTU black hole.`
@@ -524,17 +527,19 @@ function mtuCheck(p: Packet, egress: Interface, peer: Interface): { fits: false;
 }
 
 /** Send an ICMP error from `host` about `offending`. Errors are never sent about ICMP errors. */
-export function sendIcmpError(world: World, host: Host, offending: Packet, kind: keyof typeof ICMP_DESC, mtu?: number): IcmpErrorReturn | undefined {
+export function sendIcmpError(world: World, host: Host, offending: Packet, kind: keyof typeof ICMP_DESC, mtu?: number, ingress?: string): IcmpErrorReturn | undefined {
   if (offending.icmp?.quoted || isNdp(offending)) return undefined;
   const v6 = offending.src.includes(':');
-  const route = lookupRoute(host, offending.src);
+  // A link-local sender can only be reached back on the interface the packet came in on.
+  const oif = v6 && isLinkLocal6(offending.src) ? ingress : undefined;
+  const route = lookupRoute(host, offending.src, oif);
   const src = isLocalAddress(host, offending.dst) ? offending.dst : route?.src ?? hostAddresses(host, v6 ? 6 : 4)[0];
   const d = (v6 ? ICMP6_DESC : ICMP_DESC)[kind];
   const pkt: Packet = {
     id: nextId(world), src, dst: offending.src, ttl: 64, proto: 'icmp',
     icmp: { type: d.type, code: d.code, description: d.description, quoted: quote(offending), ...(mtu ? { mtu } : {}) },
   };
-  const res = transmit(world, host.id, pkt);
+  const res = transmit(world, host.id, pkt, { oif });
   activeRecorder()?.describe(pkt.id, `${v6 ? 'ICMPv6' : 'ICMP'} ${d.description}`, ICMP_EXPLAIN[kind](host.hostname, offending));
   return { packet: pkt, from: host.id, delivered: res.status === 'delivered' };
 }
@@ -683,6 +688,8 @@ export interface TransmitOptions {
    * (dhcpd, dhclient and dhcrelay read DHCP this way), so the input chain cannot drop it.
    */
   rawSocket?: { host: string; ifaces: string[] };
+  /** Outgoing interface for the first hop (the scope of a link-local destination, as in fe80::1%eth0). */
+  oif?: string;
 }
 
 /**
@@ -748,6 +755,12 @@ function transmitInner(world: World, fromHostId: string, original: Packet, opts:
         hops.push({ host: host.id, ingress: ingress.name, ttl: p.ttl, note: 'not addressed to this host and IP forwarding is disabled (net.ipv4.ip_forward=0): not routed' });
         const error = sendIcmpError(world, host, p, 'host-unreachable');
         return { status: 'dropped', host: host.id, hops, reason: 'ip_forward=0', error };
+      }
+      if (p.dst.includes(':') && isLinkLocal6(p.src)) {
+        // ip6_forward(): a link-local source must not leave its link.
+        hops.push({ host: host.id, ingress: ingress.name, ttl: p.ttl, note: `source ${p.src} is link-local: not forwarded (ICMPv6 beyond scope of source address)` });
+        const error = sendIcmpError(world, host, p, 'beyond-scope', undefined, ingress.name);
+        return { status: 'dropped', host: host.id, hops, reason: 'link-local source', error };
       }
       if (p.ttl <= 1) {
         hops.push({ host: host.id, ingress: ingress.name, ttl: p.ttl, note: p.dst.includes(':') ? 'hop limit expired in transit' : 'TTL expired in transit' });
@@ -821,7 +834,7 @@ function transmitInner(world: World, fromHostId: string, original: Packet, opts:
       ingress = lo;
       continue;
     }
-    const rd = lookupRoute(host, p.dst);
+    const rd = lookupRoute(host, p.dst, hops.length === 0 ? opts.oif : undefined);
     if (!rd) {
       hops.push({ host: host.id, ttl: p.ttl, note: `no route to ${p.dst} in the routing table` });
       return { status: 'local-error', host: host.id, hops, errno: 'ENETUNREACH', reason: 'no matching route' };

@@ -276,5 +276,20 @@ export const CAUSES: Record<string, Cause> = Object.fromEntries(
       signature: 'One host is isolated although its own configuration and its cable (link UP, carrier) are fine. Its frames reach the switch port but the port is not a member of the (virtual) switch: "bridge link show" lacks it and "ip -d link show <port>" shows no "master". ARP for the host fails from the gateway.',
       check: 'bridge link show / bridge vlan show on the switch; ip -d link show <port>; bridge-ports in the switch configuration.',
     },
+    {
+      id: 'dhcp6-client-firewall', title: 'Client firewall drops DHCPv6 replies (UDP 546)', category: 'Firewall', concept: 'net.ipv6',
+      signature: 'The client has a link-local address only. The DHCPv6 server logs Solicit and Advertise for it again and again, tcpdump on the client shows the Advertise arriving on port 546, but dhclient -6 never logs "RCV: Advertise". The client\'s input chain has a default-drop policy and no "udp dport 546" rule; "ct state established,related" does not help because the request went to a multicast group.',
+      check: 'journalctl -u isc-dhcp-server on the server (Advertise sent?); tcpdump -n -i eth0 port 546 on the client (arriving?); nft list ruleset on the client.',
+    },
+    {
+      id: 'dhcp6-server-firewall', title: 'DHCPv6 server firewall drops requests (UDP 547)', category: 'Firewall', concept: 'net.ipv6',
+      signature: 'DHCPv6 clients get no address and the server logs nothing at all for them, although tcpdump on the server\'s interface shows the Solicit messages to ff02::1:2 port 547. dhcpd -6 uses an ordinary UDP socket, so (unlike DHCPv4, which reads with packet sockets) the server\'s input chain must accept UDP 547.',
+      check: 'tcpdump -n -i <if> port 547 on the server; journalctl -u isc-dhcp-server (no Solicit lines); nft list ruleset (input chain) on the server.',
+    },
+    {
+      id: 'dhcp6-wrong-interface', title: 'dhcpd -6 configured for the wrong interface', category: 'Configuration', concept: 'net.ipv6',
+      signature: 'isc-dhcp-server fails to start (or starts only IPv4): "No subnet6 declaration for eth3 (fe80::...)", "Not configured to listen on any interfaces!". INTERFACESv6 names an interface (often the parent of a VLAN sub-interface) that has no global address inside any subnet6 declaration.',
+      check: 'systemctl status isc-dhcp-server; INTERFACESv6 in /etc/default/isc-dhcp-server; ip -6 addr on the named interface compared with the subnet6 declarations in dhcpd6.conf.',
+    },
   ] as Cause[]).map((c) => [c.id, c]),
 );

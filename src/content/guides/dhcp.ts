@@ -9,7 +9,7 @@ export const DHCP_GUIDE: ServiceGuide = {
   architecture: [
     { q: 'What does it accomplish?', a: 'Automatic, centrally managed IPv4 configuration: pools of addresses, reservations (fixed address per MAC), and options (router, DNS servers, domain, NTP, PXE boot server).' },
     { q: 'How does it work internally?', a: 'The server keeps a **lease database** (`/var/lib/dhcp/dhcpd.leases`, an append-only journal of lease states). For a request it picks an address in this order: a reservation for the client\'s MAC, the client\'s previous lease, the address the client asks for if free, then the next free address in the pool. Clients renew at T1 (50% of the lease) directly with the server, rebind at T2 (87.5%) with any server, and lose the address at expiry.' },
-    { q: 'Which protocols does it use?', a: 'DHCP (RFC 2131) with options (RFC 2132), carried in BOOTP messages over UDP. The four-step exchange is **DORA**: Discover, Offer, Request, Ack (or NAK). DHCPv6 is separate (and IPv6 often uses SLAAC instead; see the IPv6 guide).' },
+    { q: 'Which protocols does it use?', a: 'DHCP (RFC 2131) with options (RFC 2132), carried in BOOTP messages over UDP. The four-step exchange is **DORA**: Discover, Offer, Request, Ack (or NAK). DHCPv6 is a separate protocol with its own daemons and rules (DUIDs, ff02::1:2, no default route, filtered by nftables); see the IPv6 lesson. In the lab dhcpd -6 on rtr01 serves VLAN 30.' },
     { q: 'Which ports and transport?', a: 'UDP: server 67, client 68. Discover and Request are **broadcasts** (255.255.255.255), because the client has no address yet, so they do not cross routers: other subnets need a **DHCP relay** (ip helper-address) on the router, which forwards them as unicast to the server.' },
     { q: 'Which processes and OS components implement it?', a: 'Server: `dhcpd` (ISC, package isc-dhcp-server, an LSB init script wrapped by systemd: unit `isc-dhcp-server.service` generated in /run/systemd/generator.late), `kea-dhcp4` (Kea), Windows **DHCP Server** service (dhcpmgmt.msc), pfSense DHCP server (ISC or Kea backend in 2.7). Client: `dhclient` (ifupdown, the lab), NetworkManager\'s internal client, systemd-networkd, Windows **DHCP Client** service (Dhcp).' },
     { q: 'Which other services does it depend on?', a: 'The server needs an interface **with an address in each subnet it serves directly**, a `subnet` declaration for every relayed network, a valid configuration and a writable lease file. Clients need layer 2 to the server (same VLAN) or a relay agent on their router that points at the server and receives its replies; renewals additionally need a routed path from the client to the server. Every option it hands out points at another dependency: the router must exist at the `routers` address and DNS at `domain-name-servers`.' },
@@ -21,7 +21,7 @@ export const DHCP_GUIDE: ServiceGuide = {
   ports: [
     { port: '67', proto: 'UDP', purpose: 'Server (and relay agents)' },
     { port: '68', proto: 'UDP', purpose: 'Client' },
-    { port: '547/546', proto: 'UDP', purpose: 'DHCPv6 server/client (not in the lab)' },
+    { port: '547/546', proto: 'UDP', purpose: 'DHCPv6 server/client (dhcpd -6 on rtr01; see the IPv6 lesson)' },
   ],
   processes: [
     { name: 'dhcpd (isc-dhcp-server)', platform: 'Debian/Ubuntu (the lab), RHEL ≤ 8 (dhcp-server)', role: 'Server; config /etc/dhcp/dhcpd.conf; leases /var/lib/dhcp/dhcpd.leases' },

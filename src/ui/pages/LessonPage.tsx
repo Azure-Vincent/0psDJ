@@ -285,7 +285,7 @@ function widgetsFor(id: string): LessonWidgets {
     return {
       visualize: <RunVisualizer runs={IPV6_RUNS} lanes={IPV6_LANES} />,
       configTool: { title: 'IPv6 address explorer', node: <Ipv6Explorer /> },
-      sandbox: [dev01, rtr01, srv01],
+      sandbox: [dev01, { hostId: 'dev02', user: 'jordan', label: 'dev02 (jordan)', banner: 'Sandbox: dev02 on VLAN 30, IPv6 from DHCPv6 (dhcpd -6 on rtr01), no SLAAC. sudo password: dev02-jordan. Try: sudo dhclient -6 -v eth0, ip -6 addr, sudo journalctl -t dhclient.' }, rtr01, srv01],
     };
   }
   if (id === 'tls') {

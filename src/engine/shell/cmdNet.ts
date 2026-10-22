@@ -137,7 +137,7 @@ function makePing(name: string, forced?: 6): CommandDef {
           const e = d.error.packet;
           errors++;
           if (isFragNeeded(e)) out.push(v6 ? `From ${e.src} icmp_seq=${seq} Packet too big: mtu=${e.icmp!.mtu}` : `From ${e.src} icmp_seq=${seq} Frag needed and DF set (mtu = ${e.icmp!.mtu})`);
-          else out.push(`From ${e.src} icmp_seq=${seq} ${errText[icmpMeaning(e)] ?? errText.host}`);
+          else out.push(`From ${e.src} icmp_seq=${seq} ${e.src.includes(':') && e.icmp?.type === 1 && e.icmp.code === 2 ? 'Destination unreachable: Beyond scope' : errText[icmpMeaning(e)] ?? errText.host}`);
         }
         ctx.world.clock = Math.max(ctx.world.clock, start + 1000);
       }

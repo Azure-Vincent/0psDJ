@@ -8,7 +8,8 @@ import type { World } from '../types';
 import { firewallStillRestrictive, script } from './engine';
 import type { Constraint, Goal, Scenario } from './types';
 
-const DEV2_WEB: Goal = { kind: 'http', description: 'On dev02 (VLAN 30, DHCP via the relay), "curl -I http://srv01.corp.lab/" returns HTTP 200.', fromHost: 'dev02', fromUser: 'jordan', url: 'http://srv01.corp.lab/' };
+// IPv4 explicitly: dev02 is dual-stack (DHCPv6 on rtr01), and IPv6 would hide a broken IPv4 DHCP path.
+const DEV2_WEB: Goal = { kind: 'http', description: 'On dev02 (VLAN 30, DHCP via the relay), "curl -4 -I http://srv01.corp.lab/" returns HTTP 200 over IPv4.', fromHost: 'dev02', fromUser: 'jordan', url: 'http://srv01.corp.lab/', curlFlags: '-4' };
 const DANA_WEB: Goal = { kind: 'http', description: 'On ws02 (office, DHCP), "curl -I http://srv01.corp.lab/" returns HTTP 200.', fromHost: 'ws02', fromUser: 'dana', url: 'http://srv01.corp.lab/' };
 
 const RELAY_TERMINALS = [
@@ -22,6 +23,7 @@ const RELAY_BRIEFING = [
   'ns1 (10.0.10.53, VLAN 10) is the only DHCP server. Clients on VLAN 30 (10.0.30.0/24) reach it through the DHCP relay agent on rtr01: isc-dhcp-relay listens on eth3.30 (10.0.30.1) and forwards to ns1 (NET-58).',
   'Relay configuration: /etc/default/isc-dhcp-relay (SERVERS, INTERFACES, OPTIONS with -id downstream / -iu upstream interfaces). Server configuration: /etc/dhcp/dhcpd.conf on ns1, one subnet declaration per network it serves.',
   'Clients must keep using DHCP (no static addresses). Fixes must survive a reboot of every machine and must not open rtr01\'s firewall.',
+  'dev02 is dual-stack: its IPv6 address comes from DHCPv6 on rtr01, a separate service, so IPv6 can keep working while IPv4 DHCP is broken. Test IPv4 explicitly (curl -4, ping -4).',
 ];
 
 const RELAY_CANDIDATES = ['dhcp-relay-wrong-server', 'dhcp-relay-upstream', 'dhcp-no-subnet', 'dhcp-server-down', 'dhcp-pool-exhausted', 'vlan-access-wrong', 'firewall-drop', 'dns-client-config'];

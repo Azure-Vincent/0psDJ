@@ -6,7 +6,7 @@
 // link-local address.
 
 import { evaluate } from '../config/nft';
-import { canonicalIp6, multicastMac, parseCidr6, slaacAddress } from '../net/ip6';
+import { canonicalIp6, inCidr6, multicastMac, parseCidr6, slaacAddress } from '../net/ip6';
 import type { Host, Interface, Packet, World } from '../types';
 import { log } from './journal';
 import { capture, clonePacket, describeDecision, nextId } from './network';
@@ -18,6 +18,10 @@ export interface RadvdIface {
   prefixes: { prefix: string; onLink: boolean; autonomous: boolean }[];
   rdnss: string[];
   routerLifetime: number;
+  /** AdvManagedFlag (M): addresses are available from DHCPv6. */
+  managed: boolean;
+  /** AdvOtherConfigFlag (O): other configuration (DNS) is available from DHCPv6. */
+  other: boolean;
 }
 
 export class RadvdConfigError extends Error {}
@@ -47,12 +51,14 @@ export function parseRadvdConf(text: string): RadvdIface[] {
     if (kw.t !== 'interface') err(kw.line, `unexpected "${kw.t}"`);
     const name = next().t;
     expect('{');
-    const ifc: RadvdIface = { name, sendAdvert: false, prefixes: [], rdnss: [], routerLifetime: 1800 };
+    const ifc: RadvdIface = { name, sendAdvert: false, prefixes: [], rdnss: [], routerLifetime: 1800, managed: false, other: false };
     for (;;) {
       const t = next();
       if (t.t === '}') { expect(';'); break; }
       if (t.t === 'AdvSendAdvert') { ifc.sendAdvert = onOff(next()); expect(';'); continue; }
       if (t.t === 'AdvDefaultLifetime') { ifc.routerLifetime = Number(next().t); expect(';'); continue; }
+      if (t.t === 'AdvManagedFlag') { ifc.managed = onOff(next()); expect(';'); continue; }
+      if (t.t === 'AdvOtherConfigFlag') { ifc.other = onOff(next()); expect(';'); continue; }
       if (t.t === 'prefix') {
         const pt = next();
         const c = parseCidr6(pt.t);
@@ -107,7 +113,12 @@ function applyRa(world: World, host: Host, iface: Interface, ra: Packet): string
   const nd = ra.icmp!.nd!;
   const changes: string[] = [];
   for (const p of nd.prefixes ?? []) {
-    if (!p.autonomous || !p.prefix.endsWith('/64')) continue;
+    // An address from another source (DHCPv6 /128) needs the on-link prefix route from the RA.
+    host.routes6 = (host.routes6 ?? []).filter((r) => !(r.dest === p.prefix && r.dev === iface.name && r.proto === 'ra'));
+    const own = (iface.addrs6 ?? []).some((a) => a.scope === 'global' && a.prefix <= 64 && inCidr6(a.address, parseCidr6(p.prefix)!));
+    if (p.onLink !== false && !own && (iface.autoconf6 === false || !p.autonomous)) host.routes6.push({ dest: p.prefix, dev: iface.name, proto: 'ra' });
+    // net.ipv6.conf.IF.autoconf=0 (ifupdown "autoconf 0"): no SLAAC address, but the route and default router still apply.
+    if (!p.autonomous || !p.prefix.endsWith('/64') || iface.autoconf6 === false) continue;
     const addr = slaacAddress(p.prefix, iface.mac);
     iface.addrs6 = iface.addrs6 ?? [];
     const existing = iface.addrs6.find((a) => a.address === addr);
@@ -131,7 +142,7 @@ export function sendRa(world: World, router: Host, iface: Interface, cfg: RadvdI
     id: nextId(world), src, dst: 'ff02::1', ttl: 255, proto: 'icmp',
     icmp: {
       type: 134, code: 0, description: 'Router Advertisement',
-      nd: { lladdr: iface.mac, routerLifetime: cfg.routerLifetime, prefixes: cfg.prefixes.map((p) => ({ prefix: p.prefix, autonomous: p.autonomous, valid: 86400 })), rdnss: cfg.rdnss, flags: 'hop limit 64, managed off, other off' },
+      nd: { lladdr: iface.mac, routerLifetime: cfg.routerLifetime, prefixes: cfg.prefixes.map((p) => ({ prefix: p.prefix, autonomous: p.autonomous, onLink: p.onLink, valid: 86400 })), rdnss: cfg.rdnss, managed: cfg.managed, other: cfg.other, flags: `hop limit 64, managed ${cfg.managed ? 'on' : 'off'}, other ${cfg.other ? 'on' : 'off'}` },
     },
   };
   const rec = activeRecorder();
@@ -155,7 +166,7 @@ export function sendRa(world: World, router: Host, iface: Interface, cfg: RadvdI
   }
   if (rec && ev) {
     rec.endPacket(ev, solicitedBy?.host.id ?? configured[0]?.host.id ?? router.id, [], [{ host: router.id, egress: iface.name, srcMac: iface.mac, dstMac: multicastMac('ff02::1'), ttl: 255, note: `multicast to all nodes (ff02::1) on ${iface.segment}; ${notes.join('; ') || 'no other host on the link'}` }], configured.length > 0, configured.length ? `processed by ${configured.map((c) => c.host.id).join(', ')}` : 'no host configured itself');
-    rec.describe(ra.id, `ICMPv6 Router Advertisement: prefix ${cfg.prefixes.map((p) => p.prefix).join(', ') || '(none)'}`, `${router.hostname} (radvd) announces itself as a default router (lifetime ${cfg.routerLifetime} s) from its link-local address ${src}, and advertises ${cfg.prefixes.length ? cfg.prefixes.map((p) => `${p.prefix} (${p.autonomous ? 'autonomous: hosts may build addresses from it' : 'not autonomous'})`).join(', ') : 'no prefix'}${cfg.rdnss.length ? `, plus DNS server(s) ${cfg.rdnss.join(', ')} (RDNSS, used only by clients with an RDNSS-aware resolver such as rdnssd, NetworkManager or systemd-networkd)` : ''}. Each host appends its 64-bit interface identifier (EUI-64 from its MAC) to the /64 prefix. The default route points at the router's link-local address, not a global one.`);
+    rec.describe(ra.id, `ICMPv6 Router Advertisement: prefix ${cfg.prefixes.map((p) => p.prefix).join(', ') || '(none)'}`, `${router.hostname} (radvd) announces itself as a default router (lifetime ${cfg.routerLifetime} s) from its link-local address ${src}, and advertises ${cfg.prefixes.length ? cfg.prefixes.map((p) => `${p.prefix} (${p.autonomous ? 'autonomous: hosts may build addresses from it' : 'not autonomous'})`).join(', ') : 'no prefix'}${cfg.rdnss.length ? `, plus DNS server(s) ${cfg.rdnss.join(', ')} (RDNSS, used only by clients with an RDNSS-aware resolver such as rdnssd, NetworkManager or systemd-networkd)` : ''}${cfg.managed || cfg.other ? `. Flags: M (managed) ${cfg.managed ? 'on: addresses are available from DHCPv6' : 'off'}, O (other) ${cfg.other ? 'on: DNS and other options are available from DHCPv6' : 'off'}` : ''}. Each host appends its 64-bit interface identifier (EUI-64 from its MAC) to the /64 prefix. The default route points at the router's link-local address, not a global one.`);
   }
   world.clock += 0.3;
   return configured;

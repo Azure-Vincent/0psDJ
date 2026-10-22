@@ -10,6 +10,7 @@ import type { World } from '../types';
 import { freshLab } from './dependencies';
 import { formatLease } from '../config/dhcpd';
 import { RTR01_NFT } from './sshLab';
+import { DEV02_HARDENED_NFT } from '../scenarios/dhcpv6Scenarios';
 import { fullchain, WWW_CERT, WWW_CERT_2025 } from './pkiLab';
 import { certPem, CORP_ISSUING, keyPem } from '../sim/pki';
 
@@ -280,6 +281,20 @@ export const IPV6_RUNS: VisualRun[] = [
     id: 'no-forwarding', label: 'Router with IPv6 forwarding disabled', host: 'dev01', user: 'erin', command: 'curl -6 -I -m 3 http://srv01.corp.lab/',
     description: 'net.ipv6.conf.all.forwarding=0 on rtr01. The SYN reaches rtr01, which is not its destination and may not route it: IPv6 discards it silently (no ICMPv6 error, unlike IPv4\'s host-unreachable). curl retries and times out.',
     setup: (w) => script(w, 'rtr01', ['sysctl -w net.ipv6.conf.all.forwarding=0']),
+  },
+  {
+    id: 'dhcpv6', label: 'Stateful DHCPv6: Solicit, Advertise, Request, Reply', host: 'dev02', user: 'root', command: 'dhclient -6 -v eth0',
+    description: 'dev02 has released its DHCPv6 lease. dhclient -6 sends a Solicit from its link-local address to ff02::1:2 (UDP 546 → 547). dhcpd -6 on rtr01 picks an address from range6 for dev02\'s DUID and IAID and advertises it by unicast to dev02\'s link-local address; dev02 requests it (naming the server DUID) and the Reply commits the lease. dhclient-script adds the address as a /128; the default route and the on-link /64 still come from radvd\'s router advertisements.',
+    setup: (w) => script(w, 'dev02', ['dhclient -6 -r eth0']),
+  },
+  {
+    id: 'dhcpv6-stateless', label: 'Stateless DHCPv6: Information-request', host: 'dev02', user: 'root', command: 'dhclient -6 -S -v eth0',
+    description: 'The O flag case: the client only asks for options. One Information-request to ff02::1:2 and a Reply with the DNS server (option 23) and the domain search list (option 24); no IA_NA, no address. dhclient-script writes them to /etc/resolv.conf.',
+  },
+  {
+    id: 'dhcpv6-client-fw', label: 'Client firewall drops the Advertise (UDP 546)', host: 'dev02', user: 'root', command: 'dhclient -6 -v eth0',
+    description: 'dev02 runs a hardened ruleset (policy drop, established/related, ICMP, SSH). Its Solicit leaves and rtr01 answers, but the Advertise comes from rtr01\'s link-local address to UDP 546 while the Solicit went to a multicast group: conntrack sees a new flow and the input chain drops it. dhclient keeps soliciting. DHCPv4 is not affected because ISC dhclient reads DHCPv4 with a packet socket that bypasses nftables.',
+    setup: (w) => { writeFile(w.hosts.dev02, '/etc/nftables.conf', DEV02_HARDENED_NFT, w.clock); script(w, 'dev02', ['dhclient -6 -r eth0', 'systemctl restart nftables']); },
   },
 ];
 

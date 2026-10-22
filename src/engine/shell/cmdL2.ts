@@ -101,8 +101,8 @@ export const rdisc6: CommandDef = {
       const lt = rt.cfg.routerLifetime;
       out.push(
         `Hop limit                 :           64 (      0x40)`,
-        'Stateful address conf.    :           No',
-        'Stateful other conf.      :           No',
+        `Stateful address conf.    : ${(rt.cfg.managed ? 'Yes' : 'No').padStart(12)}`,
+        `Stateful other conf.      : ${(rt.cfg.other ? 'Yes' : 'No').padStart(12)}`,
         'Mobile home agent         :           No',
         'Router preference         :       medium',
         'Neighbor discovery proxy  :           No',

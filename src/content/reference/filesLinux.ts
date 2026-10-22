@@ -432,4 +432,15 @@ export const FILES_LINUX: FileRef[] = [
     example: '# rtr01\nSERVERS="10.0.10.53"\nINTERFACES=""\nOPTIONS="-id eth3.30 -iu eth0"',
     relatedCommands: ['systemctl', 'journalctl', 'tcpdump', 'file:dhcpd.conf'],
   },
+  {
+    id: 'file:dhcpd6.conf', path: '/etc/dhcp/dhcpd6.conf', platform: 'Debian 12 / Ubuntu (isc-dhcp-server 4.4, dhcpd -6)', kind: 'config',
+    services: ['DHCP', 'IPv6'],
+    purpose: 'Configuration of the ISC DHCPv6 server: the links it serves (subnet6), address pools (range6), DNS options and reservations.',
+    contents: '`default-lease-time` (valid lifetime), `max-lease-time`, optional `preferred-lifetime`; `option dhcp6.name-servers 2001:db8:10::53;` and `option dhcp6.domain-search "corp.lab";`; `subnet6 2001:db8:30::/64 { range6 2001:db8:30::1000 2001:db8:30::1fff; }`; `host NAME { host-identifier option dhcp6.client-id <DUID>; fixed-address6 <addr>; }` (or `hardware ethernet` when the client DUID contains its MAC).',
+    accessed: 'When isc-dhcp-server starts dhcpd -6, i.e. when INTERFACESv6 is set in /etc/default/isc-dhcp-server. `dhcpd -t -6 -cf /etc/dhcp/dhcpd6.conf` checks the syntax.',
+    permissions: 'root:root 644.',
+    problems: 'DHCPv4 option or statement names (domain-name-servers, routers, subnet, range, fixed-address) are errors. There is no default-route option: hosts need router advertisements as well. dhcpd -6 serves an interface only if one of its global addresses lies in a subnet6: "No subnet6 declaration for eth3 (fe80::…)" when INTERFACESv6 names an interface (such as a VLAN parent) without one. dhcpd -6 uses a normal UDP socket on port 547, so the host firewall must accept it.',
+    example: 'default-lease-time 600;\nmax-lease-time 7200;\noption dhcp6.name-servers 2001:db8:10::53;\noption dhcp6.domain-search "corp.lab";\nsubnet6 2001:db8:30::/64 {\n    range6 2001:db8:30::1000 2001:db8:30::1fff;\n}',
+    relatedCommands: ['systemctl', 'journalctl', 'tcpdump', 'file:radvd.conf', 'file:dhcpd.conf'],
+  },
 ];

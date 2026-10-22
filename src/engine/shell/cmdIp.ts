@@ -7,6 +7,7 @@ import { canonicalIp6, linkLocalFromMac, parseCidr6, parseIp6 } from '../net/ip6
 import { hasCarrier, recomputeL2 } from '../sim/l2';
 import { ifaceMtu, LOOPBACK, lookupRoute, routeTable, routeTable6 } from '../sim/network';
 import type { Host, Interface, Route, World } from '../types';
+import { dhcp6Lifetimes } from '../sim/dhcp6';
 import { seededInt } from '../util/sha256';
 import { type CmdCtx, type CommandDef, err, ok } from './types';
 
@@ -83,9 +84,11 @@ function addrLines(i: Interface, fam: 0 | 4 | 6, now: number): string[] {
   }
   if (fam !== 4 && (i.up || lo)) {
     for (const a of i.addrs6 ?? []) {
-      const extra = a.origin === 'ra' ? ' dynamic mngtmpaddr' : '';
+      const extra = a.origin === 'ra' ? ' dynamic mngtmpaddr' : a.origin === 'dhcp6' ? ' dynamic' : '';
       out.push(`    inet6 ${a.address}/${a.prefix} scope ${a.scope}${extra} `);
-      out.push(a.origin === 'ra' ? `       valid_lft ${a.validLft ?? 86400}sec preferred_lft 14400sec` : '       valid_lft forever preferred_lft forever');
+      // dhclient-script installs DHCPv6 addresses with the lease's valid and preferred lifetimes.
+      const lt = a.origin === 'dhcp6' ? dhcp6Lifetimes(i, now) : null;
+      out.push(a.origin === 'ra' ? `       valid_lft ${a.validLft ?? 86400}sec preferred_lft 14400sec` : lt ? `       valid_lft ${lt.valid}sec preferred_lft ${lt.preferred}sec` : '       valid_lft forever preferred_lft forever');
     }
   }
   return out;

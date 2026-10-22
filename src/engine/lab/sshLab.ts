@@ -178,6 +178,8 @@ table inet filter {
 		meta l4proto icmp accept
 		meta l4proto ipv6-icmp accept
 		iifname "eth0" tcp dport 22 accept
+		# DHCPv6 server (dhcpd -6) for VLAN 30: ordinary UDP socket, so this rule is needed
+		iifname "eth3.30" udp dport 547 accept
 	}
 	chain forward {
 		type filter hook forward priority filter; policy accept;
@@ -315,11 +317,32 @@ interface eth3.30 {
     AdvSendAdvert on;
     MinRtrAdvInterval 30;
     MaxRtrAdvInterval 100;
+    # NET-77: DHCPv6 on this VLAN (dhcpd -6 on this router). M = addresses, O = DNS.
+    # SLAAC stays on for the IPv6 pilot hosts (AdvAutonomous below).
+    AdvManagedFlag on;
+    AdvOtherConfigFlag on;
     prefix 2001:db8:30::/64 {
         AdvOnLink on;
         AdvAutonomous on;
     };
 };
+`;
+
+export const DHCPD6_CONF = `# dhcpd6.conf - DHCPv6 for the development VLAN 30 (NET-77), ISC DHCP 4.4
+# Started by isc-dhcp-server because INTERFACESv6 is set in /etc/default/isc-dhcp-server.
+default-lease-time 600;
+max-lease-time 7200;
+# DNS for DHCPv6 clients: ns1 over IPv6. Note the dhcp6.* option names:
+# DHCPv4 options (domain-name-servers, routers) do not exist in DHCPv6.
+option dhcp6.name-servers 2001:db8:10::53;
+option dhcp6.domain-search "corp.lab";
+
+# The subnet6 must contain an address of the interface dhcpd -6 listens on
+# (eth3.30 has 2001:db8:30::1). There is no "routers" option: the default
+# route comes from radvd's router advertisements.
+subnet6 2001:db8:30::/64 {
+    range6 2001:db8:30::1000 2001:db8:30::1fff;
+}
 `;
 
 export const RTR01_INTERFACES = `# This file describes the network interfaces available on your system
@@ -335,6 +358,9 @@ iface lo inet loopback
 auto eth0
 iface eth0 inet static
     address 10.0.10.1/24
+# IPv6 on the office VLAN only for the servers (no router advertisements here)
+iface eth0 inet6 static
+    address 2001:db8:10::1/64
 
 # eth1: server network (sw01 swp5, VLAN 20 untagged)
 auto eth1
@@ -447,9 +473,12 @@ export function buildSshLab(): World {
       { name: 'eth2', mac: '52:54:00:a1:00:03', segment: 'wan' },
       { name: 'eth3', mac: '52:54:00:a1:00:04', segment: null },
     ],
-    services: ['nftables', 'radvd', 'dhcrelay'],
+    services: ['nftables', 'radvd', 'dhcrelay', 'dhcpd'],
   });
   writeFile(rtr, '/etc/network/interfaces', RTR01_INTERFACES, t);
+  writeFile(rtr, '/etc/default/isc-dhcp-server', '# Defaults for isc-dhcp-server (sourced by /etc/init.d/isc-dhcp-server)\n\n# Path to dhcpd\'s config file (default: /etc/dhcp/dhcpd.conf).\n#DHCPDv4_CONF=/etc/dhcp/dhcpd.conf\n#DHCPDv6_CONF=/etc/dhcp/dhcpd6.conf\n\n# On what interfaces should the DHCP server (dhcpd) serve DHCP requests?\n# IPv4 for VLAN 30 is served by ns1 through the relay (isc-dhcp-relay); this\n# router only runs the DHCPv6 server for VLAN 30 (NET-77).\nINTERFACESv4=""\nINTERFACESv6="eth3.30"\n', t);
+  writeFile(rtr, '/etc/dhcp/dhcpd6.conf', DHCPD6_CONF, t);
+  writeFile(rtr, '/var/lib/dhcp/dhcpd6.leases', '# The format of this file is documented in the dhcpd.leases(5) manual page.\n# This lease file was written by isc-dhcp-4.4.3-P1\n\n', t);
   writeFile(rtr, '/etc/default/isc-dhcp-relay', DHCRELAY_DEFAULTS, t);
   writeFile(rtr, '/etc/sysctl.d/99-router.conf', '# Enable IPv4 forwarding between eth0 (LAN) and eth1 (servers)\nnet.ipv4.ip_forward=1\n# IPv6 routing for the pilot (NET-40)\nnet.ipv6.conf.all.forwarding=1\n', t);
   writeFile(rtr, '/etc/radvd.conf', RADVD_CONF, t);
@@ -465,7 +494,7 @@ export function buildSshLab(): World {
   writeFile(ns1, '/etc/dhcp/dhcpd.conf', DHCPD_CONF, t);
   writeFile(ns1, '/etc/default/isc-dhcp-server', '# Defaults for isc-dhcp-server (sourced by /etc/init.d/isc-dhcp-server)\n\n# On what interfaces should the DHCP server (dhcpd) serve DHCP requests?\nINTERFACESv4="eth0"\nINTERFACESv6=""\n', t);
   writeFile(ns1, '/var/lib/dhcp/dhcpd.leases', '# The format of this file is documented in the dhcpd.leases(5) manual page.\n# This lease file was written by isc-dhcp-4.4.3-P1\n\n', t);
-  writeFile(ns1, '/etc/network/interfaces', staticInterfaces([{ name: 'eth0', address: '10.0.10.53/24', gateway: '10.0.10.1' }]), t);
+  writeFile(ns1, '/etc/network/interfaces', staticInterfaces([{ name: 'eth0', address: '10.0.10.53/24', gateway: '10.0.10.1' }]) + '# IPv6 for DNS clients on the IPv6 networks (handed out by DHCPv6 on VLAN 30)\niface eth0 inet6 static\n    address 2001:db8:10::53/64\n    gateway 2001:db8:10::1\n', t);
   writeFile(ns1, '/etc/resolv.conf', 'search corp.lab\nnameserver 127.0.0.1\n', t);
   mkdir(ns1, '/etc/bind', t, { group: 'bind', mode: 0o2755 });
   writeFile(ns1, '/etc/bind/named.conf.local', NAMED_CONF_LOCAL, t, { group: 'bind' });
@@ -550,7 +579,7 @@ export function buildSshLab(): World {
     ifaces: [{ name: 'eth0', mac: '52:54:00:e7:00:2a', segment: null }],
     services: ['nftables'],
   });
-  writeFile(dev2, '/etc/network/interfaces', '# The primary network interface\nauto lo\niface lo inet loopback\n\nauto eth0\niface eth0 inet dhcp\n', t);
+  writeFile(dev2, '/etc/network/interfaces', '# The primary network interface\nauto lo\niface lo inet loopback\n\nauto eth0\niface eth0 inet dhcp\n# IPv6: address and DNS from DHCPv6 (NET-77); the default route comes from the RA.\n# autoconf 0: no SLAAC address, so the host only uses its managed address.\niface eth0 inet6 dhcp\n    autoconf 0\n', t);
   writeFile(dev2, '/etc/resolv.conf', '', t);
   addUser(dev2, { name: 'jordan', uid: 1000, gid: 1000, primaryGroup: 'jordan', groups: ['sudo'], home: '/home/jordan', shell: '/bin/bash', gecos: 'Jordan Tester', password: 'dev02-jordan' }, t);
   trustCorpRoot(dev2, t);

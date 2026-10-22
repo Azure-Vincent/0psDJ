@@ -32,7 +32,8 @@ export const VLAN_LANES: Lane[] = [
 
 export const IPV6_LANES: Lane[] = [
   { id: 'dev01', label: 'dev01', sub: 'SLAAC 2001:db8:30::/64' },
-  { id: 'rtr01', label: 'rtr01', sub: 'radvd · ::1 on both sides' },
+  { id: 'dev02', label: 'dev02', sub: 'DHCPv6 client' },
+  { id: 'rtr01', label: 'rtr01', sub: 'radvd, dhcpd -6 · ::1 on both sides' },
   { id: 'srv01', label: 'srv01', sub: '2001:db8:20::10' },
   { id: 'ns1', label: 'ns1', sub: 'DNS (A + AAAA)' },
 ];

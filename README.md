@@ -174,7 +174,7 @@ components (OpenSSH 9.2, BIND 9.18, ISC DHCP 4.4, radvd, ifupdown2, nftables,
 systemd 252, nginx 1.22, OpenSSL 3.0, curl 7.88). Where the simulation
 simplifies, the app says so next to the feature. Examples: cryptographic values
 are synthetic (certificates are readable PEM data without real signatures),
-spanning tree and DHCPv6 are not simulated, and `tcpdump` shows recent traffic
+spanning tree and DHCPv6 relays are not simulated, and `tcpdump` shows recent traffic
 rather than a live capture.
 
 Output for Windows, Active Directory, Docker, pfSense and Cisco IOS is

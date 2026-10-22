@@ -22,7 +22,7 @@ export const CURRICULUM: CurriculumModule[] = [
       { title: 'Ports and sockets', level: 'beginner', status: 'available', link: 'lesson/transport/what' },
       { title: 'DNS resolution', level: 'beginner', status: 'available', link: 'lesson/transport/internals' },
       { title: 'Stateful and stateless firewalls', level: 'intermediate', status: 'available', link: 'lesson/nftables/internals' },
-      { title: 'IPv6 and neighbor discovery', level: 'intermediate', status: 'available', link: 'lesson/ipv6' },
+      { title: 'IPv6, SLAAC, DHCPv6 and neighbor discovery', level: 'intermediate', status: 'available', link: 'lesson/ipv6', note: 'Addressing, router advertisements and SLAAC, stateful and stateless DHCPv6, Neighbor Discovery and ICMPv6 in firewalls, dual stack; 6 tickets.' },
       { title: 'DHCP address assignment, relay agents and lease renewal', level: 'beginner', status: 'available', link: 'lesson/dhcp', note: 'DORA, INIT-REBOOT and NAK, T1/T2 renewal and expiry, isc-dhcp-relay with giaddr, 7 tickets.' },
       { title: 'NAT and PAT', level: 'intermediate', status: 'available', link: 'lesson/nat' },
       { title: 'VLANs and segmentation', level: 'intermediate', status: 'available', link: 'lesson/vlan' },
