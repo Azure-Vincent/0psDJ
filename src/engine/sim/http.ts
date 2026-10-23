@@ -7,6 +7,7 @@
 import { canAccess, canTraverse } from '../fs';
 import type { Host, UserAccount } from '../types';
 import type { NginxLoaded, NginxLoadedServer } from './services';
+import { keyIdFor, makeCert } from './pki';
 import type { TcpConn } from './tcp';
 
 export const NGINX_VERSION = 'nginx/1.22.1';
@@ -82,6 +83,26 @@ function httpDate(ms: number): string {
 export function iisLoaded(host: Host): NginxLoaded | null {
   if (host.win?.services.W3SVC?.status !== 'Running') return null;
   return { binds: [{ addr: '0.0.0.0', port: 80 }], servers: [{ listens: [{ addr: '0.0.0.0', port: 80, ssl: false, def: true }], names: [], root: 'C:\\inetpub\\wwwroot', index: ['Default.htm', 'Default.asp', 'index.htm', 'index.html', 'iisstart.htm', 'default.aspx'] }] };
+}
+
+const PF_WEB_KEY = keyIdFor('pfsense-webgui:fw01');
+/** pfSense's webConfigurator certificate: self-signed, created at installation. */
+export const PF_WEB_CERT = makeCert({
+  subject: [['C', 'US'], ['ST', 'State'], ['L', 'Locality'], ['O', 'pfSense webConfigurator Self-Signed Certificate'], ['CN', 'pfSense-6718a2c01e2f4']],
+  issuer: [['C', 'US'], ['ST', 'State'], ['L', 'Locality'], ['O', 'pfSense webConfigurator Self-Signed Certificate'], ['CN', 'pfSense-6718a2c01e2f4']],
+  notBefore: Date.parse('2026-09-01T00:00:00Z'), notAfter: Date.parse('2027-10-04T00:00:00Z'), san: ['DNS:pfSense-6718a2c01e2f4'], ca: false, keyId: PF_WEB_KEY, signer: PF_WEB_KEY,
+});
+
+/** pfSense's webConfigurator (nginx): HTTPS with the login page, HTTP redirected to HTTPS. */
+export function pfWebLoaded(host: Host): NginxLoaded | null {
+  if (host.kind !== 'pfsense') return null;
+  return {
+    binds: [{ addr: '0.0.0.0', port: 443 }, { addr: '0.0.0.0', port: 80 }],
+    servers: [
+      { listens: [{ addr: '0.0.0.0', port: 443, ssl: true, def: true }], names: [], root: '/usr/local/www', index: ['index.html'], tls: { chain: [PF_WEB_CERT], keyId: PF_WEB_KEY, certPath: '/var/etc/cert.crt' } },
+      { listens: [{ addr: '0.0.0.0', port: 80, ssl: false, def: true }], names: [], root: '/usr/local/www', index: ['index.html'], ret: { code: 301, target: 'https://$host$request_uri' } },
+    ],
+  };
 }
 
 /** IIS 10 answering a request: files under C:\\inetpub\\wwwroot (case-insensitive), IIS error pages. */

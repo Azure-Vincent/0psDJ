@@ -22,6 +22,7 @@ import { bridgeFromConfig, recomputeL2 } from './l2';
 import { parseRadvdConf, RadvdConfigError, routerSolicit, sendRa, type RadvdLoaded } from './slaac';
 import { parsePublicKey, type ParsedPublicKey } from './keys';
 import { bootWindows, winListeners } from '../win/model';
+import { bootPfsense, pfListeners } from '../pf/model';
 import { parseKadmAcl, parseKdcConf, parsePrincipalDb, ProfileError, type KdcConf } from '../config/krb5';
 
 export interface Listener {
@@ -1014,7 +1015,7 @@ export function allListeners(host: Host): Listener[] {
     const rt = host.services[def.name];
     if (rt && rt.state === 'active') out.push(...def.listeners(host, rt));
   }
-  out.push(...winListeners(host));
+  out.push(...winListeners(host), ...pfListeners(host));
   return out;
 }
 
@@ -1033,6 +1034,19 @@ export function findListener(host: Host, proto: 'tcp' | 'udp', addr: string, por
 export function bootHost(world: World, host: Host): void {
   if (host.kind === 'windows' && host.win) {
     bootWindows(world, host);
+    return;
+  }
+  if (host.kind === 'pfsense') {
+    bootPfsense(world, host, (on) => {
+      const def = serviceDef('ssh')!;
+      const rt = host.services.ssh;
+      if (!rt) return;
+      rt.state = 'inactive';
+      rt.pid = null;
+      rt.loaded = null;
+      rt.enabled = on;
+      if (on) startService(world, host, def);
+    });
     return;
   }
   host.conntrack = [];

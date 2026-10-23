@@ -7,6 +7,7 @@
 // are modelled faithfully.
 
 import type { Ruleset } from './config/nft';
+import type { PfRuntime } from './pf/model';
 import type { WinState } from './win/model';
 
 export interface FileNode {
@@ -193,9 +194,11 @@ export interface Host {
   hostname: string;
   domain: string;
   osName: string;
-  kind: 'linux' | 'router' | 'switch' | 'windows';
+  kind: 'linux' | 'router' | 'switch' | 'windows' | 'pfsense';
   /** Windows hosts: configuration (registry) and runtime state (services, event logs). */
   win?: WinState;
+  /** pfSense runtime: the loaded pf ruleset (configuration is /conf/config.xml). */
+  pf?: PfRuntime;
   role: string;
   users: Record<string, UserAccount>;
   fs: Record<string, FileNode>;

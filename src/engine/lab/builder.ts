@@ -37,7 +37,7 @@ export interface HostSpec {
   hostname: string;
   domain: string;
   role: string;
-  kind?: 'linux' | 'router' | 'switch';
+  kind?: 'linux' | 'router' | 'switch' | 'pfsense';
   osName?: string;
   /** segment: fixed broadcast domain; null for NICs cabled to the switch (derived from its VLAN config). */
   ifaces: { name: string; mac: string; segment: string | null }[];

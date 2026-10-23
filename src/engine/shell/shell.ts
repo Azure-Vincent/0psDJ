@@ -17,6 +17,7 @@ import { HTTP_COMMANDS } from './cmdHttp';
 import { SYSTEM_COMMANDS } from './cmdSystem';
 import { KRB_COMMANDS } from './cmdKrb';
 import { RDP_COMMANDS } from './cmdRdp';
+import { LINUX_ONLY, PF_COMMANDS, PF_VERSION } from './cmdPf';
 import { expandParams, parseCommandLine, type Segment } from './tokenize';
 import { type CmdCtx, type CmdResult, type CommandDef, type EditorRequest, NeedInput, type SessionFrame } from './types';
 
@@ -68,6 +69,7 @@ export class Shell {
     const f = this.frame;
     const host = w.hosts[f.hostId];
     if (isWindows(host)) return `PS ${f.ps?.cwd ?? host.users[f.user]?.home ?? 'C:\\'}> `;
+    if (host.kind === 'pfsense') return `[${PF_VERSION}][${f.user}@${host.hostname}.${host.domain}]${f.cwd}: `;
     const u = host.users[f.user];
     const cwd = u && (f.cwd === u.home || f.cwd.startsWith(u.home + '/')) ? '~' + f.cwd.slice(u.home.length) : f.cwd;
     return `${f.user}@${host.hostname}:${cwd}${f.user === 'root' ? '#' : '$'} `;
@@ -245,7 +247,10 @@ export class Shell {
           return r;
         }
         default: {
-          const def = COMMANDS[name];
+          // pfSense: FreeBSD tools and pfSense scripts first; Linux tools do not exist (tcsh wording).
+          const pf = host.kind === 'pfsense';
+          if (pf && (LINUX_ONLY.has(name) || (!PF_COMMANDS[name] && !COMMANDS[name]))) return { out: `${name}: Command not found.`, code: 1 };
+          const def = (pf ? PF_COMMANDS[name] : undefined) ?? COMMANDS[name];
           if (!def) return { out: `-bash: ${name}: command not found`, code: 127 };
           const r = def.run(args, makeCtx(frame, stdin));
           if (r.enterSession) {

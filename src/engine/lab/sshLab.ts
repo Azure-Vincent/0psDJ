@@ -7,7 +7,7 @@
 // Everything works in the baseline: alice@ws01 can `ssh srv01.corp.lab` with
 // her ed25519 key. Scenarios break it in specific, realistic ways.
 
-import { mkdir, writeFile } from '../fs';
+import { mkdir, readFile, writeFile } from '../fs';
 import { bootHost } from '../sim/services';
 import { endSession, runSsh } from '../sim/ssh';
 import { makeKeyPair, type KeyType } from '../sim/keys';
@@ -16,6 +16,7 @@ import { addUser, createHost, newWorld, staticInterfaces } from './builder';
 import { EXT01_NGINX_CONF, installExt01Web, installSrv01Pki, SRV01_NGINX_CONF, trustCorpRoot } from './pkiLab';
 import { installKerberos, KRB_ZONE_RECORDS } from './krbLab';
 import { installDc01, installWin01 } from './winLab';
+import { installDmz01, installFw01 } from './pfLab';
 
 export const DEBIAN_SSHD_CONFIG = `
 # This is the sshd server system-wide configuration file.  See
@@ -368,6 +369,8 @@ iface eth0 inet6 static
 auto eth1
 iface eth1 inet static
     address 10.0.20.1/24
+    # DMZ behind the perimeter firewall fw01 (CHG-1580)
+    up ip route add 172.16.50.0/24 via 10.0.20.254
 iface eth1 inet6 static
     address 2001:db8:20::1/64
 
@@ -406,6 +409,9 @@ srv01   IN A    10.0.20.10
 srv01   IN AAAA 2001:db8:20::10
 win01   IN A    10.0.20.30
 dc01    IN A    10.0.20.5
+fw01    IN A    10.0.20.254
+dmz01   IN A    172.16.50.10
+portal  IN A    172.16.50.10
 www     IN CNAME srv01
 ` + KRB_ZONE_RECORDS;
 
@@ -591,10 +597,14 @@ export function buildSshLab(): World {
   installKerberos(world);
   const win = installWin01(world);
   const dc = installDc01(world, true);
+  const fw = installFw01(world);
+  const dmz = installDmz01(world);
+  // On the Internet the portal is reached through fw01's public address.
+  writeFile(ext, '/etc/hosts', `${readFile(ext, '/etc/hosts') ?? ''}203.0.113.10\tportal.corp.lab\n`, world.clock);
 
   // Boot everything. Order matters: the switch first (it creates the VLANs),
   // ns1 must serve DHCP before ws02 boots, rtr01 must advertise before dev01.
-  for (const h of [sw, rtr, ns1, srv, ws, ws2, ext, dev, dev2, dc, win]) bootHost(world, h);
+  for (const h of [sw, rtr, ns1, srv, ws, ws2, ext, dev, dev2, fw, dmz, dc, win]) bootHost(world, h);
 
   // History: alice connected yesterday-style earlier today, accepting the host key.
   world.clock += 60_000;
