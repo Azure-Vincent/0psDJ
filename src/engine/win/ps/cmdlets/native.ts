@@ -12,6 +12,7 @@ import { findReg, regKey, regValueChanged } from './files';
 import { GROUPS, setDisabled, userDisabled } from './system';
 import { readFile, writeFile } from '../../../fs';
 import { RDP_TCP_KEY } from '../../model';
+import { domainDn, locateDc, secureChannel } from '../../ad';
 
 const ok = (out: string, code = 0) => ({ out, code });
 
@@ -53,7 +54,7 @@ native({
     const dot = (label: string, v: string) => `   ${Array.from({ length: 34 }, (_, i) => (i < label.length ? label[i] : i % 2 === 0 ? '.' : ' ')).join('')}: ${v}`;
     const out = ['', 'Windows IP Configuration', ''];
     if (all) {
-      out.push(dot('Host Name ', host.hostname.toUpperCase()), dot('Primary Dns Suffix ', ''), dot('Node Type ', 'Hybrid'), dot('IP Routing Enabled. ', 'No'), dot('WINS Proxy Enabled. ', 'No'));
+      out.push(dot('Host Name ', host.hostname.toUpperCase()), dot('Primary Dns Suffix ', host.win!.domain?.domain ?? ''), dot('Node Type ', 'Hybrid'), dot('IP Routing Enabled. ', 'No'), dot('WINS Proxy Enabled. ', 'No'));
       const search = winResolver(host).search;
       if (search.length) out.push(dot('DNS Suffix Search List. ', search[0]), ...search.slice(1).map((s) => `${' '.repeat(39)}${s}`));
       out.push('');
@@ -307,7 +308,8 @@ native({ name: 'hostname', synopsis: 'Prints the name of the current host.', run
 native({
   name: 'whoami', synopsis: 'Displays the current user (/groups, /user).',
   run(args, ctx) {
-    const who = `${ctx.host.hostname.toLowerCase()}\\${ctx.user.name.toLowerCase()}`;
+    // On a domain controller the console account is the domain's Administrator.
+    const who = `${(ctx.host.win!.ad ? ctx.host.win!.ad.netbios : ctx.host.hostname).toLowerCase()}\\${ctx.user.name.toLowerCase()}`;
     if (has(args, '/groups')) {
       const out = ['', 'GROUP INFORMATION', '-----------------', '', 'Group Name                             Type             SID          Attributes', '====================================== ================ ============ ==================================================', 'Everyone                               Well-known group S-1-1-0      Mandatory group, Enabled by default, Enabled group'];
       for (const g of ctx.user.groups) out.push(`${`BUILTIN\\${g}`.padEnd(39)}Alias            S-1-5-32-5xx Mandatory group, Enabled by default, Enabled group`);
@@ -326,8 +328,8 @@ native({
     const row = (k: string, v: string) => `${(k + ':').padEnd(27)}${v}`;
     const a = w.adapters[0];
     return ok(['', row('Host Name', h.hostname.toUpperCase()), row('OS Name', `Microsoft ${w.productName}`), row('OS Version', `10.0.${w.build} N/A Build ${w.build}`), row('OS Manufacturer', 'Microsoft Corporation'),
-      row('OS Configuration', 'Standalone Server'), row('System Boot Time', new Date(h.bootTime).toISOString().replace('T', ', ').slice(0, 20)), row('System Manufacturer', 'Microsoft Corporation'), row('System Model', 'Virtual Machine'),
-      row('Total Physical Memory', '4,095 MB'), row('Domain', w.workgroup), row('Logon Server', `\\\\${h.hostname.toUpperCase()}`), row('Hotfix(s)', '2 Hotfix(s) Installed.'), '                           [01]: KB5041948', '                           [02]: KB5042881',
+      row('OS Configuration', w.ad ? 'Primary Domain Controller' : w.domain ? 'Member Server' : 'Standalone Server'), row('System Boot Time', new Date(h.bootTime).toISOString().replace('T', ', ').slice(0, 20)), row('System Manufacturer', 'Microsoft Corporation'), row('System Model', 'Virtual Machine'),
+      row('Total Physical Memory', '4,095 MB'), row('Domain', w.domain?.domain ?? w.workgroup), row('Logon Server', `\\\\${h.hostname.toUpperCase()}`), row('Hotfix(s)', '2 Hotfix(s) Installed.'), '                           [01]: KB5041948', '                           [02]: KB5042881',
       row('Network Card(s)', '1 NIC(s) Installed.'), `                           [01]: ${a?.description ?? ''}`, `                                 Connection Name: ${a?.alias ?? ''}`, '                                 DHCP Enabled:    No', '                                 IP address(es)', `                                 [01]: ${a?.address ?? ''}`].join('\n'));
   },
 });
@@ -733,8 +735,66 @@ native({
 });
 
 native({
-  name: 'gpupdate', synopsis: 'Refreshes Group Policy (/force). win01 is not domain-joined: only local policy applies.',
-  run() {
+  name: 'gpupdate', synopsis: 'Refreshes Group Policy (/force) from a domain controller (local policy only on a workgroup server).',
+  run(_args, ctx) {
+    const m = ctx.host.win!.domain;
+    if (m && !locateDc(ctx.world, ctx.host, m.domain).ok) {
+      return ok('Updating policy...\n\nComputer policy could not be updated successfully. The following errors were encountered:\n\nThe processing of Group Policy failed. Windows could not resolve the computer name. This could be caused by one of more of the following: \na) Name Resolution failure on the current domain controller. \nb) Active Directory Replication Latency (an account created on another domain controller has not replicated to the current domain controller).\nUser Policy could not be updated successfully. The following errors were encountered:\n\nThe processing of Group Policy failed. Windows could not resolve the user name.\n\nTo diagnose the failure, review the event log or run GPRESULT /H GPReport.html from the command line to access information about Group Policy results.', 1);
+    }
     return ok('Updating policy...\n\nComputer Policy update has completed successfully.\nUser Policy update has completed successfully.\n');
+  },
+});
+
+native({
+  name: 'gpresult', synopsis: 'Displays the Resultant Set of Policy (/r).',
+  run(args, ctx) {
+    if (!args.some((a) => /^[/-]r$/i.test(a))) return ok('ERROR: Invalid syntax.\nType "GPRESULT /?" for usage.', 1);
+    const h = ctx.host;
+    const w = h.win!;
+    const m = w.domain;
+    const loc = m ? locateDc(ctx.world, h, m.domain) : null;
+    const name = h.hostname.toUpperCase();
+    const dn = m ? `CN=${name},${w.ad ? 'OU=Domain Controllers' : 'CN=Computers'},${domainDn(m.domain)}` : name;
+    return ok(['', 'Microsoft (R) Windows (R) Operating System Group Policy Result tool v2.0', '\u00a9 Microsoft Corporation. All rights reserved.', '', `Created on ${new Date(ctx.world.clock).toLocaleDateString('en-US', { timeZone: 'UTC' })} at ${new Date(ctx.world.clock).toLocaleTimeString('en-US', { timeZone: 'UTC' })}`, '', '',
+      `RSOP data for ${name}\\${ctx.user.name} on ${name} : Logging Mode`, '-'.repeat(58), '', `OS Configuration:            ${w.ad ? 'Primary Domain Controller' : m ? 'Member Server' : 'Standalone Server'}`, `OS Version:                  10.0.${w.build}`,
+      `Site Name:                   ${m ? 'Default-First-Site-Name' : 'N/A'}`, 'Roaming Profile:             N/A', `Local Profile:               ${ctx.user.home}`, 'Connected over a slow link?: No', '', '',
+      'COMPUTER SETTINGS', '------------------', `    ${dn}`, `    Last time Group Policy was applied: ${new Date(h.bootTime).toLocaleString('en-US', { timeZone: 'UTC' })}`,
+      `    Group Policy was applied from:      ${loc?.ok ? loc.name : 'N/A'}`, '    Group Policy slow link threshold:   500 kbps', `    Domain Name:                        ${m?.netbios ?? name}`, `    Domain Type:                        ${m ? 'Windows 2008 or later' : '<Local Computer>'}`, '',
+      '    Applied Group Policy Objects', '    -----------------------------', ...(m ? ['        Default Domain Policy', ...(w.ad ? ['        Default Domain Controllers Policy'] : [])] : ['        Local Group Policy']), '',
+      '    The computer is a part of the following security groups', '    ---------------------------------------------------', '        BUILTIN\\Administrators', '        Everyone', '        Authenticated Users', ...(m ? ['        Domain Computers'] : []), ''].join('\n'));
+  },
+});
+
+// ---------------------------------------------------------------------------
+// nltest
+// ---------------------------------------------------------------------------
+
+native({
+  name: 'nltest', synopsis: 'Domain controller and secure channel diagnostics: /sc_query:DOMAIN, /sc_verify:DOMAIN, /dsgetdc:DOMAIN.',
+  run(args, ctx) {
+    const a = args[0] ?? '';
+    const m = /^\/(sc_query|sc_verify|dsgetdc|sc_reset):(.+)$/i.exec(a);
+    if (!m) return ok('Usage: nltest [/OPTIONS]\n\n    /SERVER:<ServerName> - Specify <ServerName>\n\n    /SC_QUERY:<DomainName> - Query secure channel for <Domain> on <ServerName>\n    /SC_RESET:<DomainName>[\\<DcName>] - Reset secure channel for <Domain> on <ServerName> to <DcName>\n    /SC_VERIFY:<DomainName> - Verify secure channel for <Domain> on <ServerName>\n    /DSGETDC:<DomainName> - Call DsGetDcName', a ? 87 : 0);
+    const op = m[1].toLowerCase();
+    const dom = m[2].toLowerCase();
+    const host = ctx.host;
+    const mem = host.win!.domain;
+    const known = mem && (dom === mem.domain || dom === mem.netbios.toLowerCase());
+    if (op === 'dsgetdc') {
+      const loc = locateDc(ctx.world, host, mem && dom === mem.netbios.toLowerCase() ? mem.domain : dom);
+      if (!loc.ok) return ok('Getting DC name failed: Status = 1355 0x54b ERROR_NO_SUCH_DOMAIN', 1355);
+      return ok([`           DC: \\\\${loc.name}`, `      Address: \\\\${loc.ip}`, `     Dom Guid: 7c2b5e0e-4f0a-4f3c-9d7a-${loc.dc.id.padEnd(12, '0').slice(0, 12)}`, `     Dom Name: ${loc.dc.win!.ad!.domain}`, `  Forest Name: ${loc.dc.win!.ad!.domain}`,
+        ' Dc Site Name: Default-First-Site-Name', 'Our Site Name: Default-First-Site-Name', '        Flags: PDC GC DS LDAP KDC TIMESERV WRITABLE DNS_DC DNS_DOMAIN DNS_FOREST CLOSE_SITE FULL_SECRET WS DS_8 DS_9 DS_10 KEYLIST', 'The command completed successfully'].join('\n'));
+    }
+    if (!known) return ok(`Flags: 0\nTrusted DC Name\nTrusted DC Connection Status Status = 1355 0x54b ERROR_NO_SUCH_DOMAIN\nThe command completed successfully`);
+    if (op === 'sc_reset' && !admin(ctx)) return ok('I_NetLogonControl failed: Status = 5 0x5 ERROR_ACCESS_DENIED', 5);
+    const ch = secureChannel(ctx.world, host);
+    const dcName = ch.dc?.ok ? `\\\\${ch.dc.name}` : '';
+    const status = ch.state === 'ok' ? '0 0x0 NERR_Success' : ch.state === 'no-dc' ? '1311 0x51f ERROR_NO_LOGON_SERVERS' : '5 0x5 ERROR_ACCESS_DENIED';
+    const flags = ch.state === 'ok' ? '30 HAS_IP  HAS_TIMESERV' : '0';
+    const lines = [`Flags: ${flags}`, `Trusted DC Name ${ch.state === 'no-dc' ? '' : dcName}`.trimEnd(), `Trusted DC Connection Status Status = ${ch.state === 'denied' && op === 'sc_query' ? '0 0x0 NERR_Success' : status}`];
+    if (op === 'sc_verify') lines.push(`Trust Verification Status = ${status}`);
+    lines.push('The command completed successfully');
+    return ok(lines.join('\n'), op === 'sc_verify' && ch.state !== 'ok' ? 1 : 0);
   },
 });

@@ -4,11 +4,16 @@
 
 import { mkdir, writeFile } from '../fs';
 import type { Host, UserAccount, World } from '../types';
+import { AD_DOMAIN, AD_NETBIOS, promoteForest } from '../win/ad';
 import { FW_PROFILES, RDP_TCP_KEY, TS_KEY, type StartType, type WinFwRule, type WinService, type WinState } from '../win/model';
 
 export const WIN01_IP = '10.0.20.30';
 export const WIN01_ADMIN_PASSWORD = 'W1n-Adm1n-2026';
 export const WIN01_ALICE_PASSWORD = 'Corp-Lab-2026';
+export const DC01_IP = '10.0.20.5';
+export const DC01_ADMIN_PASSWORD = 'Dc-Adm1n-2026';
+/** alice's domain account (CORP\\alice), separate from her local account on win01. */
+export const AD_ALICE_PASSWORD = 'Office-Corp-2026';
 
 type Svc = [name: string, display: string, start: StartType, process: string, deps?: string[], prot?: boolean];
 
@@ -95,17 +100,28 @@ function winUser(name: string, uid: number, password: string, groups: string[], 
   return { name, uid, gid: 513, primaryGroup: 'Users', groups, home: `C:\\Users\\${name}`, shell: 'powershell.exe', gecos, password };
 }
 
-export function createWindowsHost(world: World, id: string, hostname: string, mac: string, segment: string, address: string, gateway: string, dns: string[]): Host {
+export interface WinHostOptions {
+  /** Web Server (IIS) role and the local account alice (win01). */
+  iis?: boolean;
+  adminPassword?: string;
+  role?: string;
+  readme?: string;
+}
+
+export function createWindowsHost(world: World, id: string, hostname: string, mac: string, segment: string, address: string, gateway: string, dns: string[], opts: WinHostOptions = { iis: true }): Host {
   const t = world.clock;
   const services: Record<string, WinService> = {};
-  for (const [name, displayName, startType, process, deps, prot] of SERVICES) services[name] = { name, displayName, startType, status: 'Stopped', process, pid: null, dependsOn: deps ?? [], protected: prot };
+  for (const [name, displayName, startType, process, deps, prot] of SERVICES) {
+    if (!opts.iis && (name === 'W3SVC' || name === 'WAS')) continue;
+    services[name] = { name, displayName, startType, status: 'Stopped', process, pid: null, dependsOn: deps ?? [], protected: prot };
+  }
   const win: WinState = {
     productName: 'Windows Server 2022 Standard',
     build: '20348',
     workgroup: 'WORKGROUP',
     firewall: {
       profiles: Object.fromEntries(FW_PROFILES.map((p) => [p, { enabled: true, defaultInbound: 'Block', defaultOutbound: 'Allow', logBlocked: false }])) as WinState['firewall']['profiles'],
-      rules: defaultFirewallRules(),
+      rules: defaultFirewallRules().filter((r) => opts.iis || !r.name.startsWith('IIS-')),
     },
     services,
     adapters: [{ alias: 'Ethernet0', ifIndex: 4, description: 'Microsoft Hyper-V Network Adapter', dhcp: false, address, prefix: 24, gateway, dns, dnsSuffix: 'corp.lab', category: 'Private' }],
@@ -116,10 +132,11 @@ export function createWindowsHost(world: World, id: string, hostname: string, ma
     },
     events: [],
     nextRecord: 1,
+    features: ['FileAndStorage-Services', 'Storage-Services', 'NET-Framework-45-Core', 'PowerShell', 'Windows-Defender', ...(opts.iis ? ['Web-Server', 'Web-WebServer'] : [])],
   };
   const host: Host = {
     id, hostname: hostname.toUpperCase(), domain: 'corp.lab', osName: 'Microsoft Windows Server 2022 Standard', kind: 'windows',
-    role: 'Windows Server 2022 (IIS, Remote Desktop, SMB, WinRM)',
+    role: opts.role ?? 'Windows Server 2022 (IIS, Remote Desktop, SMB, WinRM)',
     users: {}, fs: {},
     ifaces: [
       { name: 'lo', mac: '00:00:00:00:00:00', segment: null, address: '127.0.0.1', prefix: 8, up: true, addrs6: [{ address: '::1', prefix: 128, scope: 'host', origin: 'kernel' }] },
@@ -128,19 +145,35 @@ export function createWindowsHost(world: World, id: string, hostname: string, ma
     routes: [], routes6: [], neighbors: [], nft: { tables: [], nextHandle: 1 }, conntrack: [], nat: [], ipForward: false, ip6Forward: false,
     services: {}, journal: [], capture: [], nextPid: 600, bootTime: t, win,
   };
-  host.users.Administrator = winUser('Administrator', 500, WIN01_ADMIN_PASSWORD, ['Administrators'], 'Built-in account for administering the computer/domain');
+  host.users.Administrator = winUser('Administrator', 500, opts.adminPassword ?? WIN01_ADMIN_PASSWORD, ['Administrators'], 'Built-in account for administering the computer/domain');
   host.users.Guest = { ...winUser('Guest', 501, '', ['Guests'], 'Built-in account for guest access to the computer/domain'), password: null };
-  host.users.alice = winUser('alice', 1001, WIN01_ALICE_PASSWORD, ['Remote Desktop Users', 'Users'], 'Alice Admin');
-  const dirs = ['C:\\', 'C:\\Windows', 'C:\\Windows\\System32', 'C:\\Windows\\System32\\drivers', 'C:\\Windows\\System32\\drivers\\etc', 'C:\\Windows\\System32\\LogFiles', 'C:\\Windows\\System32\\LogFiles\\Firewall', 'C:\\Program Files', 'C:\\Program Files (x86)', 'C:\\ProgramData', 'C:\\Users', 'C:\\Users\\Public', 'C:\\inetpub', 'C:\\inetpub\\wwwroot', 'C:\\inetpub\\logs', 'C:\\Temp', 'C:\\Backup'];
+  if (opts.iis) host.users.alice = winUser('alice', 1001, WIN01_ALICE_PASSWORD, ['Remote Desktop Users', 'Users'], 'Alice Admin');
+  const dirs = ['C:\\', 'C:\\Windows', 'C:\\Windows\\System32', 'C:\\Windows\\System32\\drivers', 'C:\\Windows\\System32\\drivers\\etc', 'C:\\Windows\\System32\\LogFiles', 'C:\\Windows\\System32\\LogFiles\\Firewall', 'C:\\Program Files', 'C:\\Program Files (x86)', 'C:\\ProgramData', 'C:\\Users', 'C:\\Users\\Public', 'C:\\Temp', 'C:\\Backup', ...(opts.iis ? ['C:\\inetpub', 'C:\\inetpub\\wwwroot', 'C:\\inetpub\\logs'] : [])];
   for (const d of dirs) mkdir(host, d, t, { owner: 'SYSTEM', group: 'SYSTEM' });
-  for (const u of ['Administrator', 'alice']) for (const d of ['', '\\Desktop', '\\Documents', '\\Downloads']) mkdir(host, `C:\\Users\\${u}${d}`, t, { owner: u, group: u });
+  for (const u of Object.keys(host.users).filter((x) => x !== 'Guest')) for (const d of ['', '\\Desktop', '\\Documents', '\\Downloads']) mkdir(host, `C:\\Users\\${u}${d}`, t, { owner: u, group: u });
   writeFile(host, 'C:\\Windows\\System32\\drivers\\etc\\hosts', WIN_HOSTS, t, { owner: 'SYSTEM', group: 'SYSTEM' });
-  writeFile(host, 'C:\\inetpub\\wwwroot\\iisstart.htm', IIS_START, t, { owner: 'SYSTEM', group: 'SYSTEM' });
-  writeFile(host, 'C:\\Users\\Administrator\\Desktop\\README.txt', 'win01 - Windows Server 2022\r\nRoles: Web Server (IIS), Remote Desktop, File Server (SMB), WinRM\r\nChanges: open a change ticket first (CHG-xxxx).\r\n', t, { owner: 'Administrator', group: 'Administrator' });
+  if (opts.iis) writeFile(host, 'C:\\inetpub\\wwwroot\\iisstart.htm', IIS_START, t, { owner: 'SYSTEM', group: 'SYSTEM' });
+  writeFile(host, 'C:\\Users\\Administrator\\Desktop\\README.txt', opts.readme ?? 'win01 - Windows Server 2022\r\nRoles: Web Server (IIS), Remote Desktop, File Server (SMB), WinRM\r\nChanges: open a change ticket first (CHG-xxxx).\r\n', t, { owner: 'Administrator', group: 'Administrator' });
   world.hosts[id] = host;
   return host;
 }
 
 export function installWin01(world: World): Host {
   return createWindowsHost(world, 'win01', 'win01', '52:54:00:c3:00:1e', 'srv20', WIN01_IP, '10.0.20.1', ['10.0.10.53']);
+}
+
+/** dc01: a Windows Server 2022 that becomes (or, with promote, already is) the DC of ad.corp.lab. */
+export function installDc01(world: World, promote: boolean): Host {
+  const host = createWindowsHost(world, 'dc01', 'dc01', '52:54:00:c3:00:05', 'srv20', DC01_IP, '10.0.20.1', ['10.0.10.53'], {
+    iis: false, adminPassword: DC01_ADMIN_PASSWORD, role: promote ? 'Windows Server 2022 domain controller (AD DS, DNS) for ad.corp.lab' : 'Windows Server 2022 (to become the domain controller)',
+    readme: promote ? 'dc01 - domain controller for ad.corp.lab (NetBIOS CORP)\r\nRoles: AD DS, DNS Server (forwarder: ns1 10.0.10.53)\r\n' : 'dc01 - Windows Server 2022, freshly installed.\r\nPlanned: first domain controller of ad.corp.lab (NetBIOS CORP), with DNS.\r\n',
+  });
+  if (promote) {
+    promoteForest(world, host, AD_DOMAIN, AD_NETBIOS);
+    const ad = host.win!.ad!;
+    ad.users.alice = { sam: 'alice', name: 'Alice Martin', enabled: true, password: AD_ALICE_PASSWORD, lockedOut: false, badCount: 0, description: 'Office, systems team', rid: ad.nextRid++ };
+    ad.users.bob = { sam: 'bob', name: 'Bob Keller', enabled: true, password: 'Finance-Corp-2026', lockedOut: false, badCount: 0, description: 'Office, finance', rid: ad.nextRid++ };
+    ad.groups['rdp-users'] = { name: 'RDP-Users', scope: 'Global', category: 'Security', description: 'May log on to member servers with Remote Desktop', members: ['alice'], rid: ad.nextRid++ };
+  }
+  return host;
 }

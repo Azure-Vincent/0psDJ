@@ -61,7 +61,7 @@ export function checkGoal(world: World, goal: Goal): GoalResult {
     let cur = w;
     const home = cur.hosts[goal.fromHost].users[goal.localUser].home;
     const sh = new Shell(() => cur, (n) => (cur = n), { hostId: goal.fromHost, user: goal.localUser, cwd: home });
-    const line = `xfreerdp /v:${goal.target} /u:${goal.user} /p:${goal.password} /cert:ignore`;
+    const line = `xfreerdp /v:${goal.target} /u:'${goal.user}' /p:'${goal.password}' /cert:ignore`;
     const r = sh.execute(line);
     // Timestamps vary between runs; show the messages only.
     const lines = [`$ ${line.replace(goal.password, '********')}`, ...(r.output ? r.output.split('\n').map((l) => l.replace(/^\[[\d:]+\] \[\d+:\d+\] /, '')) : ['(no output)'])];
@@ -97,7 +97,8 @@ export function rebootAll(world: World): World {
   const w = structuredClone(world);
   w.sessions = [];
   // Infrastructure first (switch, router, DNS/DHCP), then servers and clients; hosts added by a lab boot last.
-  const order = ['sw01', 'rtr01', 'ns1', 'srv01', 'ws01', 'ws02', 'ext01', 'dev01', 'dev02'];
+  // Domain controllers before members (members look for a DC while they boot).
+  const order = ['sw01', 'rtr01', 'ns1', 'dc01', 'srv01', 'ws01', 'ws02', 'ext01', 'dev01', 'dev02'];
   for (const id of [...order, ...Object.keys(w.hosts).filter((h) => !order.includes(h))]) if (w.hosts[id]) bootHost(w, w.hosts[id]);
   w.clock += 30_000;
   return w;

@@ -7,6 +7,7 @@ import { registerView } from '../format';
 import { cmdlet, type Call } from '../runtime';
 import { date, flatten, getProp, hashGet, hasWildcard, isHash, isObj, obj, toNum, toStr, wildcard, type PSObject, type PSValue } from '../values';
 import { isAdmin } from './files';
+import { locateDc } from '../../ad';
 
 const MGMT = 'Microsoft.PowerShell.Management';
 const ACCOUNTS = 'Microsoft.PowerShell.LocalAccounts';
@@ -465,8 +466,25 @@ localCmdlet('Get-LocalGroupMember', 'Gets members from a local group.', [{ name:
   if (!g) return [];
   const host = c.ctx.host;
   const members = Object.values(host.users).filter((u) => u.groups.includes(g) && !(g === 'Users' && u.name === 'Guest'));
-  return members.map((u) => obj('Microsoft.PowerShell.Commands.LocalPrincipal', { ObjectClass: 'User', Name: `${host.hostname.toUpperCase()}\\${u.name}`, PrincipalSource: 'Local', SID: `S-1-5-21-3623811015-3361044348-30300820-${u.uid}` }));
+  const local = members.map((u) => obj('Microsoft.PowerShell.Commands.LocalPrincipal', { ObjectClass: 'User', Name: `${host.hostname.toUpperCase()}\\${u.name}`, PrincipalSource: 'Local', SID: `S-1-5-21-3623811015-3361044348-30300820-${u.uid}` }));
+  const dom = (host.win!.localDomainMembers?.[g] ?? []).map((m) => obj('Microsoft.PowerShell.Commands.LocalPrincipal', { ObjectClass: /\\(domain |rdp-|.*-users$|.*admins$)/i.test(m) ? 'Group' : 'User', Name: m, PrincipalSource: 'ActiveDirectory', SID: '' }));
+  return [...local, ...dom];
 });
+
+/** A domain principal ("CORP\\RDP-Users") looked up in the directory over the network; null when not found, undefined when the domain is unreachable. */
+function domainPrincipal(c: Call, m: string): string | null | undefined {
+  const w = c.ctx.host.win!;
+  const mem = w.domain;
+  const [d, n] = m.includes('\\') ? m.split('\\') : m.includes('@') ? [m.split('@')[1], m.split('@')[0]] : ['', m];
+  if (!mem || !d || !(d.toLowerCase() === mem.netbios.toLowerCase() || d.toLowerCase() === mem.domain)) return null;
+  const loc = locateDc(c.ctx.world, c.ctx.host, mem.domain);
+  if (!loc.ok) return undefined;
+  const ad = loc.dc.win!.ad!;
+  const u = ad.users[n.toLowerCase()];
+  const grp = ad.groups[n.toLowerCase()];
+  if (!u && !grp) return null;
+  return `${mem.netbios}\\${u?.sam ?? grp!.name}`;
+}
 
 for (const [verb, add] of [['Add', true], ['Remove', false]] as const) {
   localCmdlet(`${verb}-LocalGroupMember`, `${add ? 'Adds members to' : 'Removes members from'} a local group.`, [{ name: 'Group', aliases: ['Name'], type: 'string', position: 0 }, { name: 'Member', type: 'strings', position: 1 }], (c) => {
@@ -474,6 +492,21 @@ for (const [verb, add] of [['Add', true], ['Remove', false]] as const) {
     const g = findGroup(c, c.str('Group') ?? '');
     if (!g) return;
     for (const m of c.strs('Member') ?? []) {
+      const host = c.ctx.host;
+      const isLocalName = !/[\\@]/.test(m) || m.split('\\')[0].toLowerCase() === host.hostname.toLowerCase() || m.startsWith('.\\');
+      if (!isLocalName) {
+        const p = domainPrincipal(c, m);
+        if (p === undefined) { c.error('The trust relationship between this workstation and the primary domain failed.', { category: 'NotSpecified', target: '', exception: 'SystemException', id: 'An unspecified error occurred.' }); continue; }
+        if (p === null) { c.error(`Principal ${m} was not found.`, { category: 'ObjectNotFound', target: m, exception: 'PrincipalNotFoundException', id: 'PrincipalNotFound' }); continue; }
+        const list = ((host.win!.localDomainMembers ??= {})[g] ??= []);
+        const has = list.some((x) => x.toLowerCase() === p.toLowerCase());
+        if (add && has) { c.error(`${p} is already a member of group ${g}.`, { category: 'ResourceExists', target: g, exception: 'MemberExistsException', id: 'MemberExists' }); continue; }
+        if (!add && !has) { c.error(`Member ${p} was not found in group ${g}.`, { category: 'ObjectNotFound', target: p, exception: 'MemberNotFoundException', id: 'MemberNotFound' }); continue; }
+        if (c.whatIf(`${verb}-LocalGroupMember`, `${p} to group ${g}`)) continue;
+        host.win!.localDomainMembers![g] = add ? [...list, p] : list.filter((x) => x.toLowerCase() !== p.toLowerCase());
+        winEvent(c.ctx.world, host, 'Security', add ? 4732 : 4733, 'Microsoft-Windows-Security-Auditing', `A member was ${add ? 'added to' : 'removed from'} a security-enabled local group.\n\nMember:\n\tAccount Name:\t\t${p}\n\nGroup:\n\tGroup Name:\t\t${g}`);
+        continue;
+      }
       const k = Object.keys(c.ctx.host.users).find((x) => x.toLowerCase() === m.replace(/^.*\\/, '').toLowerCase());
       if (!k) { c.error(`Principal ${m} was not found.`, { category: 'ObjectNotFound', target: m, exception: 'PrincipalNotFoundException', id: 'PrincipalNotFound' }); continue; }
       const u = c.ctx.host.users[k];
@@ -499,7 +532,7 @@ cmdlet({
     const w = h.win!;
     const all: Record<string, PSValue> = {
       WindowsBuildLabEx: `${w.build}.1.amd64fre.fe_release.210507-1500`, WindowsCurrentVersion: '6.3', WindowsEditionId: 'ServerStandard', WindowsInstallationType: 'Server', WindowsProductName: w.productName, WindowsVersion: '2009',
-      CsName: h.hostname.toUpperCase(), CsDomain: w.workgroup, CsPartOfDomain: false, CsWorkgroup: w.workgroup, CsManufacturer: 'Microsoft Corporation', CsModel: 'Virtual Machine', CsNumberOfLogicalProcessors: 2, CsTotalPhysicalMemory: 4294430720,
+      CsName: h.hostname.toUpperCase(), CsDomain: w.domain?.domain ?? w.workgroup, CsDomainRole: w.ad ? 'PrimaryDomainController' : w.domain ? 'MemberServer' : 'StandaloneServer', CsPartOfDomain: !!w.domain, CsWorkgroup: w.workgroup, CsManufacturer: 'Microsoft Corporation', CsModel: 'Virtual Machine', CsNumberOfLogicalProcessors: 2, CsTotalPhysicalMemory: 4294430720,
       OsName: `Microsoft ${w.productName}`, OsVersion: `10.0.${w.build}`, OsBuildNumber: w.build, OsLastBootUpTime: date(h.bootTime), OsUptime: `${Math.floor((c.ctx.world.clock - h.bootTime) / 86400000)}.${new Date(c.ctx.world.clock - h.bootTime).toISOString().slice(11, 19)}`, TimeZone: '(UTC) Coordinated Universal Time', LogonServer: `\\\\${h.hostname.toUpperCase()}`, PowerPlatformRole: 'Desktop',
     };
     const props = c.strs('Property');
@@ -510,12 +543,12 @@ cmdlet({
 
 cmdlet({
   name: 'Get-CimInstance', module: 'CimCmdlets', synopsis: 'Gets the CIM instances of a class from a CIM server.',
-  params: [{ name: 'ClassName', aliases: ['Class'], type: 'string', position: 0 }, { name: 'Filter', type: 'string' }],
+  params: [{ name: 'ClassName', aliases: ['Class'], type: 'string', position: 0, mandatory: true }, { name: 'Filter', type: 'string' }],
   run(c) {
     const cls = (c.str('ClassName') ?? '').toLowerCase();
     const h = c.ctx.host;
     if (cls === 'win32_operatingsystem') return [obj('Microsoft.Management.Infrastructure.CimInstance#root/cimv2/Win32_OperatingSystem', { SystemDirectory: 'C:\\Windows\\system32', Organization: '', BuildNumber: h.win!.build, RegisteredUser: 'Windows User', SerialNumber: '00454-60000-00001-AA712', Version: `10.0.${h.win!.build}`, Caption: `Microsoft ${h.win!.productName}`, CSName: h.hostname.toUpperCase(), LastBootUpTime: date(h.bootTime) })];
-    if (cls === 'win32_computersystem') return [obj('Microsoft.Management.Infrastructure.CimInstance#root/cimv2/Win32_ComputerSystem', { Name: h.hostname.toUpperCase(), PrimaryOwnerName: 'Windows User', Domain: h.win!.workgroup, TotalPhysicalMemory: 4294430720, Model: 'Virtual Machine', Manufacturer: 'Microsoft Corporation' })];
+    if (cls === 'win32_computersystem') return [obj('Microsoft.Management.Infrastructure.CimInstance#root/cimv2/Win32_ComputerSystem', { Name: h.hostname.toUpperCase(), PrimaryOwnerName: 'Windows User', Domain: h.win!.domain?.domain ?? h.win!.workgroup, PartOfDomain: !!h.win!.domain, TotalPhysicalMemory: 4294430720, Model: 'Virtual Machine', Manufacturer: 'Microsoft Corporation' })];
     if (cls === 'win32_service') return Object.values(h.win!.services).map((s) => obj('Microsoft.Management.Infrastructure.CimInstance#root/cimv2/Win32_Service', { ProcessId: s.pid ?? 0, Name: s.name, StartMode: s.startType === 'Automatic' || s.startType === 'AutomaticDelayedStart' ? 'Auto' : s.startType === 'Manual' ? 'Manual' : 'Disabled', State: s.status, Status: 'OK', ExitCode: 0, PathName: s.process === 'svchost' ? `C:\\Windows\\system32\\svchost.exe -k netsvcs -p` : `C:\\Windows\\system32\\${s.process}.exe`, StartName: 'LocalSystem' }));
     c.error(`Invalid class `, { category: 'MetadataError', target: `root\\cimv2:${c.str('ClassName')}`, exception: 'CimException', id: 'HRESULT 0x80041010' });
     return [];

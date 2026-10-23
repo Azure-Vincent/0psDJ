@@ -70,6 +70,11 @@ const SYMPTOM: Record<string, RegExp> = {
   'win-rdp-port': /ERRCONNECT_CONNECT_FAILED/,
   'win-rdp-rights': /ERRINFO_SERVER_INSUFFICIENT_PRIVILEGES/,
   'win-account-disabled': /ERRCONNECT_ACCOUNT_DISABLED/,
+  'dom-member-dns': /ERRCONNECT_AUTHENTICATION_FAILED/,
+  'dom-dc-firewall': /ERRCONNECT_AUTHENTICATION_FAILED/,
+  'dom-trust-broken': /ERRCONNECT_AUTHENTICATION_FAILED/,
+  'dom-account-locked': /ERRCONNECT_ACCOUNT_LOCKED_OUT/,
+  'dom-group-membership': /ERRINFO_SERVER_INSUFFICIENT_PRIVILEGES/,
   'mtu-uplink-mismatch': /curl: \(28\) Operation timed out after 30000 milliseconds with 0 out of 4718592 bytes received/,
 };
 

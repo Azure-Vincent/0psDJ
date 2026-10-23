@@ -11,6 +11,8 @@ import { parseRuleExpr, type Rule, type Ruleset } from '../config/nft';
 import { networkOf } from '../net/ip';
 import { linkLocalFromMac } from '../net/ip6';
 import type { Host, World } from '../types';
+import type { ZoneRecord } from '../config/zone';
+import { domainBoot } from './ad';
 import { recomputeL2 } from '../sim/l2';
 
 export type FwProfile = 'Domain' | 'Private' | 'Public';
@@ -94,6 +96,75 @@ export interface WinState {
   nextRecord: number;
   /** Port RDP listens on, read when TermService starts. */
   rdpPort?: number;
+  /** Installed roles and features (Get-WindowsFeature names). */
+  features?: string[];
+  /** Active Directory database: present on a domain controller. */
+  ad?: AdState;
+  /** DNS Server role (zones and forwarders). */
+  dnsServer?: DnsServerState;
+  /** Domain membership in effect (set at boot from pendingDomain). */
+  domain?: DomainMembership;
+  /** Join (or, with null, leave) that takes effect at the next restart. */
+  pendingDomain?: DomainMembership | null;
+  /** Domain principals in local groups ("CORP\\Domain Admins" in Administrators). */
+  localDomainMembers?: Record<string, string[]>;
+  /** Runtime: a domain controller was reachable at boot, so the Domain firewall profile applies. */
+  domainNetwork?: boolean;
+}
+
+export interface AdUser {
+  sam: string;
+  name: string;
+  enabled: boolean;
+  password: string;
+  lockedOut: boolean;
+  badCount: number;
+  description: string;
+  rid: number;
+  lastLogon?: number;
+}
+
+export interface AdGroup {
+  name: string;
+  scope: 'Global' | 'DomainLocal' | 'Universal';
+  category: 'Security' | 'Distribution';
+  description: string;
+  /** sAMAccountNames of users, computers (NAME$) or groups. */
+  members: string[];
+  rid: number;
+}
+
+export interface AdComputer {
+  name: string;
+  dnsHostName: string;
+  /** Machine account password; must match the member's copy (the secure channel). */
+  password: string;
+  enabled: boolean;
+  os: string;
+  dc?: boolean;
+  rid: number;
+}
+
+export interface AdState {
+  domain: string;
+  netbios: string;
+  domainSid: string;
+  users: Record<string, AdUser>;
+  groups: Record<string, AdGroup>;
+  computers: Record<string, AdComputer>;
+  lockoutThreshold: number;
+  nextRid: number;
+}
+
+export interface DnsServerState {
+  zones: { origin: string; records: ZoneRecord[]; serial: number; dsIntegrated: boolean }[];
+  forwarders: string[];
+}
+
+export interface DomainMembership {
+  domain: string;
+  netbios: string;
+  machinePassword: string;
 }
 
 export const TS_KEY = 'HKLM:\\System\\CurrentControlSet\\Control\\Terminal Server';
@@ -107,6 +178,10 @@ const SERVICE_PORTS: Record<string, { proto: 'tcp' | 'udp'; port: number | 'rdp'
   W3SVC: [{ proto: 'tcp', port: 80 }],
   W32Time: [{ proto: 'udp', port: 123 }],
   RpcSs: [{ proto: 'tcp', port: 135 }],
+  DNS: [{ proto: 'udp', port: 53 }, { proto: 'tcp', port: 53 }],
+  NTDS: [{ proto: 'tcp', port: 389 }, { proto: 'udp', port: 389 }, { proto: 'tcp', port: 636 }, { proto: 'tcp', port: 3268 }],
+  Kdc: [{ proto: 'udp', port: 88 }, { proto: 'tcp', port: 88 }, { proto: 'tcp', port: 464 }, { proto: 'udp', port: 464 }],
+  ADWS: [{ proto: 'tcp', port: 9389 }],
 };
 
 export function isWindows(host: Host | undefined): boolean {
@@ -149,6 +224,8 @@ export const WF_TABLE = 'WindowsDefenderFirewall';
 
 /** The firewall profile in force (the category of the first connected adapter). */
 export function activeProfile(host: Host): FwProfile {
+  // Network Location Awareness: a domain member that can reach a DC uses the Domain profile.
+  if (host.win!.domainNetwork) return 'Domain';
   return host.win!.adapters[0]?.category ?? 'Public';
 }
 
@@ -166,7 +243,8 @@ function ruleMatchText(host: Host, r: WinFwRule): string | null {
     if (!addrs.length) return null;
     parts.push(`ip saddr { ${addrs.join(', ')} }`);
   }
-  const ports = r.localPort === 'Any' ? null : r.localPort.join(', ');
+  // Keywords: RPC = the dynamic RPC range, RPCEPMap = the endpoint mapper (135).
+  const ports = r.localPort === 'Any' ? null : r.localPort.map((p) => (/^rpc$/i.test(p) ? '49152-65535' : /^rpcepmap$/i.test(p) ? '135' : p)).filter((p) => /^\d+(-\d+)?$/.test(p)).join(', ') || null;
   if (r.protocol === 'TCP' || r.protocol === 'UDP') {
     const p = r.protocol.toLowerCase();
     parts.push(ports ? `${p} dport { ${ports} }` : `meta l4proto ${p}`);
@@ -296,6 +374,7 @@ export function bootWindows(world: World, host: Host): void {
   world.clock += 1000;
   host.bootTime = world.clock;
   host.nextPid = 600;
+  w.domainNetwork = false;
   for (const s of Object.values(w.services)) {
     s.status = 'Stopped';
     s.pid = null;
@@ -309,12 +388,18 @@ export function bootWindows(world: World, host: Host): void {
   // With it come its helpers: Remote Desktop Configuration and the UserMode Port Redirector.
   if (rdpEnabled(host)) for (const n of ['TermService', 'SessionEnv', 'UmRdpService']) if (w.services[n]?.startType === 'Manual') startWinService(world, host, n);
   if (w.services.MpsSvc?.status !== 'Running') applyFirewall(host);
+  // Domain membership: a pending join or unjoin takes effect now; then locate a DC
+  // (network profile, DNS registration, Netlogon events).
+  domainBoot(world, host);
 }
 
 /** Resolver configuration of a Windows host (DNS servers and suffix of its adapters). */
 export function winResolver(host: Host): { nameservers: string[]; search: string[] } {
-  const ads = host.win!.adapters;
-  return { nameservers: ads.flatMap((a) => a.dns), search: [...new Set(ads.map((a) => a.dnsSuffix).filter(Boolean))] };
+  const w = host.win!;
+  const ads = w.adapters;
+  // The primary DNS suffix (the domain, once joined) comes first in the search list.
+  const primary = w.domain ? [w.domain.domain] : [];
+  return { nameservers: ads.flatMap((a) => a.dns), search: [...new Set([...primary, ...ads.map((a) => a.dnsSuffix).filter(Boolean)])] };
 }
 
 export const WIN_HOSTS_PATH = 'C:\\Windows\\System32\\drivers\\etc\\hosts';

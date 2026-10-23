@@ -222,6 +222,16 @@ receive string arguments and return text, as on Windows. `Shell.execute()`
 switches to PowerShell when the frame's host is Windows and keeps the session
 (variables, location, history) in the frame.
 
+Active Directory (`src/engine/win/ad.ts`) lives in the DC's `host.win.ad`;
+members hold only their membership and machine password. Every domain
+operation goes over the simulated network from the member: an SRV query for
+`_ldap._tcp.dc._msdcs.<domain>` to the member's own DNS servers, then an LDAP
+connection to the DC, then the comparison of the machine password (the secure
+channel). Domain logons over RDP are NTLM pass-through along that path, so a
+wrong DNS server, a DC firewall, a reverted snapshot or a locked account each
+fail at their own stage with their own events. The DC's DNS Server answers
+from its zones and recurses through its forwarders.
+
 ### 5.3 Fault injection
 Scenarios inject faults with the same shell commands an administrator would
 type (`systemctl restart ssh`, `chmod 777 …`, `rndc reload`, `reboot`), so the
@@ -285,7 +295,7 @@ OpenSSH 9.2 negotiation and authentication flow and its log lines, StrictModes
 path checks, glibc resolver order and search list, BIND zone parsing and SERVFAIL
 on load errors, systemd enable/active semantics.
 
-Simplified (Windows): win01 is standalone (no Active Directory, Group Policy objects, NTLM/Kerberos against a DC or LDAP); RDP is modelled as its stages (TCP, TLS, NLA with the local password, the logon right) without graphics; PowerShell implements the cmdlets and parameters the lessons and tickets use, without functions, modules, remoting or try/catch; registry and event logs cover the keys and events the lab uses.
+Simplified (Windows): one domain controller and one domain (no replication, trusts, sites or FSMO transfers); domain logons are NTLM pass-through (Kerberos for Windows logons, Group Policy objects and LDAP queries beyond the DC locator ping are not modelled); RDP is modelled as its stages (TCP, TLS, NLA with the local password, the logon right) without graphics; PowerShell implements the cmdlets and parameters the lessons and tickets use, without functions, modules, remoting or try/catch; registry and event logs cover the keys and events the lab uses.
 
 Simplified: Kerberos cryptography is synthetic (no cross-realm trust, renewal, delegation or PAC); NTP packets are not modelled (systemd-timesyncd sets the clock when it starts); one IPv4 address per interface; no spanning tree, DHCPv6 relays or prefix delegation, DAD, MLD or privacy addresses; one TCP segment per SSH message, no congestion control or
 window dynamics; cryptographic values are synthetic (fingerprints are genuine
@@ -314,7 +324,8 @@ options is implemented and unsupported options say so.
 | 4 | **Infrastructure Builder** (`src/engine/builder`, `src/ui/pages/Builder.tsx`): drag-and-drop design of hosts, servers, routers (VLAN sub-interfaces, static routes, forward policy, masquerade) and VLAN-aware switches; validation (addresses, gateways, cabling, VLANs on trunks, firewall vs. services); generation of a `World` from real config files; terminals, reboot-all and a packet tracer listing firewall/NAT decisions; three templates; JSON import/export. VLAN broadcast domains are now per switch | ✅ |
 | 5a | **Kerberos and DNS SRV**: SRV/TXT records (zone parser, dig/host -t); MIT KDC and kadmind on ns1 (kdc.conf, kadm5.acl, principal database), KDC location through SRV records, AS exchange with encrypted-timestamp pre-authentication, TGS exchange, lifetimes, 300 s clock skew; kinit, klist, kvno, kdestroy, kadmin(.local) with ktadd/cpw/addprinc; per-host clocks (date, timedatectl, systemd-timesyncd); sshd GSSAPIAuthentication (gssapi-with-mic, keytab kvno, .k5login); lesson "Kerberos and DNS service records", 6 visual runs, 4 tickets; `nft add/delete table/chain`; `$?`/`$VAR` expansion in the shell | ✅ |
 | 5b | **Windows Server and PowerShell**: win01 (Windows Server 2022) on the server VLAN; Windows model with services (start types, dependencies, Service Control Manager events), Windows Defender Firewall (profiles, rules, network category) compiled into the packet filter, registry values, event logs (System, Security, Firewall, TerminalServices), local users and groups, IIS, adapters and DNS client; Windows PowerShell 5.1 interpreter (pipeline of objects, formatting views, 5.1 error records, about 100 cmdlets: services, processes, events, accounts, files, registry, NetTCPIP, DnsClient, NetSecurity, Test-NetConnection, Invoke-WebRequest) and console programs (ipconfig, ping, tracert, netstat, nslookup, netsh advfirewall, sc.exe, net, reg, qwinsta, findstr); RDP stages (TCP, TLS, NLA, logon right) with `xfreerdp` on the Linux hosts and logon events; the Windows/RDP lesson becomes simulated with a sandbox; 7 RDP tickets | ✅ |
-| 5 | Windows/AD track (remaining): domain controller (AD DS, DNS, Kerberos/NTLM for domain accounts), domain join, LDAP, Group Policy; Lab 2 | ⏳ |
+| 5c | **Active Directory and Lab 2**: dc01 as the domain controller of ad.corp.lab (CORP): AD database (users, groups with nesting, computers, lockout policy), AD-integrated DNS with the DC locator SRV records, forwarders and dynamic registration of members, restartable AD DS; Install-WindowsFeature and Install-ADDSForest; DC location from members (SRV query to their own DNS servers, LDAP ping), domain join with computer accounts, the secure channel (Test-ComputerSecureChannel -Repair, nltest /sc_query, /sc_verify, /dsgetdc), the Domain firewall profile through Network Location Awareness, NTLM pass-through RDP logons with lockout and logon rights through nested domain groups; ActiveDirectory and DnsServer cmdlets, gpresult, gpupdate; mandatory-parameter prompts; the AD lesson becomes simulated; 5 domain tickets; **Lab 2: Windows Domain** (7 verified steps) | ✅ |
+| 5 | Windows/AD track (remaining): Group Policy objects, Kerberos for Windows logons, a second DC and replication | ⏳ |
 | 6 | pfSense model (WAN/LAN/DMZ, NAT, state table, logs); Lab 3 | ⏳ |
 | 7 | Containers: image layers, namespaces, bridge networking, port publishing; Docker Compose; Lab 4 | ⏳ |
 | 8 | Enterprise services (web/reverse proxy, SMB/NFS, NTP, logging) and Labs 5–6 (multi-system outages, recovery) | ⏳ |

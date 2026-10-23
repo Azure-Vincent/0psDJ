@@ -333,12 +333,13 @@ cmdlet({
   },
 });
 
-const MODULE_VERSION: Record<string, string> = { [MGMT]: '3.1.0.0', [UTIL]: '3.1.0.0', [CORE]: '3.0.0.0', 'Microsoft.PowerShell.Security': '3.0.0.0', NetSecurity: '2.0.0.0', NetTCPIP: '1.0.0.0', DnsClient: '1.0.0.0', NetAdapter: '2.0.0.0', 'Microsoft.PowerShell.LocalAccounts': '1.0.0.0', NetConnection: '1.0.0.0', ServerManager: '2.0.0.0' };
+const MODULE_VERSION: Record<string, string> = { [MGMT]: '3.1.0.0', [UTIL]: '3.1.0.0', [CORE]: '3.0.0.0', 'Microsoft.PowerShell.Security': '3.0.0.0', NetSecurity: '2.0.0.0', NetTCPIP: '1.0.0.0', DnsClient: '1.0.0.0', NetAdapter: '2.0.0.0', 'Microsoft.PowerShell.LocalAccounts': '1.0.0.0', NetConnection: '1.0.0.0', ServerManager: '2.0.0.0', ActiveDirectory: '1.0.1.0', DnsServer: '2.0.0.0', ADDSDeployment: '1.0.0.0' };
 
-function commandInfos(): PSObject[] {
+function commandInfos(ctx: Call['ctx']): PSObject[] {
   const out: PSObject[] = [];
   for (const d of Object.values(CMDLETS)) {
-    const cdxml = ['NetSecurity', 'NetTCPIP', 'DnsClient', 'NetAdapter', 'NetConnection'].includes(d.module ?? '');
+    if (d.available && !d.available(ctx)) continue;
+    const cdxml = ['NetSecurity', 'NetTCPIP', 'DnsClient', 'NetAdapter', 'NetConnection', 'DnsServer'].includes(d.module ?? '');
     out.push(obj('System.Management.Automation.CommandInfo', { CommandType: cdxml ? 'Function' : 'Cmdlet', Name: d.name, Version: MODULE_VERSION[d.module ?? ''] ?? '1.0.0.0', Source: d.module ?? '' }));
   }
   for (const [a, t] of Object.entries(ALIASES)) out.push(obj('System.Management.Automation.CommandInfo', { CommandType: 'Alias', Name: `${a} -> ${t}`, Version: '', Source: '', __alias: a }));
@@ -350,7 +351,7 @@ cmdlet({
   name: 'Get-Command', module: CORE, synopsis: 'Gets all commands.',
   params: [{ name: 'Name', type: 'strings', position: 0 }, { name: 'Module', type: 'strings' }, { name: 'Verb', type: 'strings' }, { name: 'Noun', type: 'strings' }, { name: 'CommandType', type: 'strings' }],
   run(c) {
-    let all = commandInfos();
+    let all = commandInfos(c.ctx);
     if (!c.has('Name')) all = all.filter((x) => x.CommandType !== 'Alias' && x.CommandType !== 'Application');
     if (c.has('Name')) {
       const res: PSObject[] = [];

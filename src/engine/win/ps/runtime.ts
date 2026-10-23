@@ -29,6 +29,8 @@ export interface ParamDef {
   aliases?: string[];
   type?: 'switch' | 'string' | 'strings' | 'int' | 'block' | 'any' | 'bool';
   position?: number;
+  /** PowerShell asks for a missing mandatory parameter ("Supply values for the following parameters:"). */
+  mandatory?: boolean;
 }
 
 export interface ErrorInfo {
@@ -52,6 +54,8 @@ export interface Call {
   warn(text: string): void;
   host(text: string): void;
   whatIf(operation: string, target: string): boolean;
+  /** -Confirm:$false was given (skip confirmation prompts). */
+  noConfirm: boolean;
 }
 
 export interface CmdletDef {
@@ -64,6 +68,8 @@ export interface CmdletDef {
   module?: string;
   /** Extra syntax text for Get-Help. */
   syntax?: string;
+  /** The module is installed on this host (e.g. ActiveDirectory only with RSAT-AD-PowerShell). */
+  available?(ctx: PsCtx): boolean;
   run(c: Call): PSValue[] | void;
 }
 
@@ -593,7 +599,7 @@ function runPipeline(ctx: PsCtx, pl: Pipeline, item: PSValue | undefined, collec
       return;
     }
     const r = resolveCommand(el.name);
-    if (!r) {
+    if (!r || (r.kind === 'cmdlet' && r.def.available && !r.def.available(ctx))) {
       throw new Terminating([
         `${el.name} : The term '${el.name}' is not recognized as the name of a cmdlet, function, script file, or operable program. Check the spelling of the name, or if a path was included, verify that the path is correct and try again.`,
         ...underline(ctx, el.start, el.start + el.name.length),
@@ -613,6 +619,14 @@ function runPipeline(ctx: PsCtx, pl: Pipeline, item: PSValue | undefined, collec
     }
     const def = r.def;
     const { p, common } = bindParams(ctx, el, def, item);
+    // Mandatory parameters that were not given (and are not fed by the pipeline) are asked for.
+    const missing = data.length ? [] : def.params.filter((d) => d.mandatory && !(d.name in p));
+    missing.forEach((d, i) => {
+      const head = i === 0 ? `cmdlet ${def.name} at command pipeline position ${idx + 1}\nSupply values for the following parameters:\n` : '';
+      const v = ctx.ask(`${head}${d.name}: `, false);
+      if (v === '') bindError(ctx, el, def, `Cannot bind argument to parameter '${d.name}' because it is an empty string.`, 'ParameterArgumentValidationErrorEmptyStringNotAllowed', 'InvalidData');
+      p[d.name] = d.type === 'strings' ? v.split(',').map((x) => x.trim()) : d.type === 'int' ? Number(v) : v;
+    });
     const ea = toStr(common.erroraction ?? ctx.session.vars.ErrorActionPreference ?? 'Continue').toLowerCase();
     const call: Call = {
       ctx, name: def.name, p, input: data,
@@ -627,6 +641,7 @@ function runPipeline(ctx: PsCtx, pl: Pipeline, item: PSValue | undefined, collec
       },
       warn: (t) => { if (toStr(common.warningaction).toLowerCase() !== 'silentlycontinue') ctx.out.push(text(`WARNING: ${t}`)); },
       host: (t) => ctx.out.push(text(t)),
+      noConfirm: common.confirm === false,
       whatIf: (operation, target) => {
         if (!toBool(common.whatif)) return false;
         ctx.out.push(text(`What if: Performing the operation "${operation}" on target "${target}".`));

@@ -1,4 +1,5 @@
-// Active Directory, DNS and Kerberos: reference lesson (not simulated).
+// Active Directory, DNS and Kerberos. The sandbox, the domain tickets and Lab 2
+// use the simulated domain ad.corp.lab (dc01, member win01).
 // Example output is representative of Windows Server 2022 domain controllers
 // (dc01 10.0.20.5, dc02 10.0.20.6, domain corp.lab, NetBIOS CORP), Windows 11
 // 23H2 clients, Ubuntu 24.04 and RHEL 9 members (sssd 2.9, MIT Kerberos 1.20/1.21).
@@ -183,7 +184,7 @@ export const AD_KERBEROS_LESSON: Lesson = {
   moduleId: 'C',
   title: 'Active Directory, DNS and Kerberos',
   level: 'intermediate',
-  mode: 'reference',
+  mode: 'simulated',
   summary: 'How domain controllers, AD-integrated DNS, Kerberos, time, secure channels, replication and Group Policy depend on each other, and how to find which link broke without restarting domain controllers at random.',
   concepts: ['ad.dns', 'ad.kerberos', 'ad.gpo', 'win.services', 'dns.resolution', 'dns.zone', 'tcp.handshake', 'ops.recovery'],
 
@@ -206,7 +207,7 @@ export const AD_KERBEROS_LESSON: Lesson = {
 ### Where you meet it
 Almost every organisation with Windows clients: logons, file servers, Exchange/SQL/IIS with integrated authentication, RDP to servers, VPN and Wi-Fi (RADIUS/NPS) authentication, and Linux servers joined with SSSD.
 
-> Example output in this lesson is representative of **Windows Server 2022** DCs (\`dc01\` 10.0.20.5 holds the FSMO roles, \`dc02\` 10.0.20.6), **Windows 11 23H2** clients, and Ubuntu 24.04 / RHEL 9 members, in the lab plan's domain \`corp.lab\` (NetBIOS name \`CORP\`). Nothing here runs in the simulator: practise on your own VMs. Windows Server 2019 behaves the same for everything shown.
+> Example output in this lesson is representative of **Windows Server 2022** DCs (\`dc01\` 10.0.20.5 holds the FSMO roles, \`dc02\` 10.0.20.6), **Windows 11 23H2** clients, and Ubuntu 24.04 / RHEL 9 members, in the lab plan's domain \`corp.lab\` (NetBIOS name \`CORP\`). Windows Server 2019 behaves the same for everything shown.\n>\n> **In the simulator** the domain is **ad.corp.lab** (NetBIOS \`CORP\`) with one DC, **dc01** (10.0.20.5, AD DS and DNS forwarding to ns1), and the member server **win01**. The sandbox below, the domain tickets and **Lab 2** use it: DC location through SRV records, domain join and the secure channel, NTLM pass-through logons over RDP, lockout, and the ActiveDirectory, DnsServer and Netlogon tools (\`Get-ADUser\`, \`Get-DnsServerResourceRecord\`, \`nltest\`, \`Test-ComputerSecureChannel\`). Kerberos for Windows logons, Group Policy objects, replication between DCs and sssd members are not simulated.
 `,
 
   internals: `
@@ -410,7 +411,7 @@ Adding a hosts entry for the DC, raising the clock skew tolerance, accessing a s
     { message: 'DNS Server 4013: The DNS server is waiting for Active Directory Domain Services (AD DS) to signal that the initial synchronization of the directory has been completed.', layer: 'DC boot', meaning: 'The DC is waiting for a replication partner, usually because its DNS points only at itself or all DCs restarted.', firstCheck: 'DC DNS client order; are other DCs up?' },
   ],
 
-  scenarioIds: [],
+  scenarioIds: ['dom-member-dns', 'dom-dc-firewall', 'dom-trust-broken', 'dom-account-locked', 'dom-group-membership'],
   assessmentId: 'ad-kerberos',
   references: [
     { title: 'Microsoft Learn: Active Directory Domain Services overview', url: 'https://learn.microsoft.com/windows-server/identity/ad-ds/get-started/virtual-dc/active-directory-domain-services-overview' },

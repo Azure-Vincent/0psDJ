@@ -144,10 +144,25 @@ export function dnsQuery(world: World, host: Host, server: string, qname: string
     world.clock += timeoutS * 1000;
     return { server, qname, outcome: 'timeout', rttMs: timeoutS * 1000 };
   }
-  const loaded = srv.services.named?.loaded as NamedLoaded | undefined;
-  let ans: DnsAnswer = answerQuery(loaded?.zones ?? [], qname, qtype);
-  const failed = loaded?.failedZones.some((z) => qname.toLowerCase().replace(/\.$/, '').endsWith(z));
-  if (failed) ans = { rcode: 'SERVFAIL', answers: [], authoritative: false };
+  let ans: DnsAnswer;
+  const wds = isWindows(srv) ? srv.win!.dnsServer : undefined;
+  if (wds) {
+    // Windows DNS Server: its zones (AD-integrated), otherwise recursion through the forwarders.
+    ans = answerQuery(wds.zones, qname, qtype);
+    if (ans.rcode === 'REFUSED') {
+      ans = { rcode: 'SERVFAIL', answers: [], authoritative: false };
+      for (const f of wds.forwarders) {
+        const ex = dnsQuery(world, srv, f, qname, 2, qtype);
+        if (ex.outcome === 'answer' || ex.outcome === 'nodata') { ans = { rcode: 'NOERROR', answers: ex.answer!.answers as ZoneRecord[], authoritative: false }; break; }
+        if (ex.outcome === 'nxdomain') { ans = { rcode: 'NXDOMAIN', answers: [], authoritative: false }; break; }
+      }
+    }
+  } else {
+    const loaded = srv.services.named?.loaded as NamedLoaded | undefined;
+    ans = answerQuery(loaded?.zones ?? [], qname, qtype);
+    const failed = loaded?.failedZones.some((z) => qname.toLowerCase().replace(/\.$/, '').endsWith(z));
+    if (failed) ans = { rcode: 'SERVFAIL', answers: [], authoritative: false };
+  }
   const rbytes = encodeDns(id, qname, { rcode: RCODE[ans.rcode], aa: ans.authoritative, ra: false, answers: ans.answers }, qtype);
   const r: Packet = {
     id: nextId(world), src: fq.dst, dst: fq.src, ttl: 64, proto: 'udp',

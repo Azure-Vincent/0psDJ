@@ -280,7 +280,7 @@ cmdlet({ name: 'Add-Content', module: MGMT, synopsis: 'Adds content to the speci
 
 cmdlet({
   name: 'Out-File', module: 'Microsoft.PowerShell.Utility', synopsis: 'Sends output to a file.',
-  params: [{ name: 'FilePath', aliases: ['Path'], type: 'string', position: 0 }, { name: 'Append', type: 'switch' }, { name: 'Encoding', type: 'string', position: 1 }, { name: 'InputObject', type: 'any' }, { name: 'Force', type: 'switch' }, { name: 'Width', type: 'int' }],
+  params: [{ name: 'FilePath', aliases: ['Path'], type: 'string', position: 0, mandatory: true }, { name: 'Append', type: 'switch' }, { name: 'Encoding', type: 'string', position: 1 }, { name: 'InputObject', type: 'any' }, { name: 'Force', type: 'switch' }, { name: 'Width', type: 'int' }],
   run(c) {
     const items = c.has('InputObject') ? flatten(c.p.InputObject) : c.input;
     // Out-File writes what the console would show.
@@ -389,7 +389,7 @@ cmdlet({ name: 'Move-Item', module: MGMT, synopsis: 'Moves an item from one loca
 
 cmdlet({
   name: 'Rename-Item', module: MGMT, synopsis: 'Renames an item in a PowerShell provider namespace.',
-  params: [{ name: 'Path', type: 'string', position: 0 }, { name: 'NewName', type: 'string', position: 1 }, { name: 'Force', type: 'switch' }],
+  params: [{ name: 'Path', type: 'string', position: 0, mandatory: true }, { name: 'NewName', type: 'string', position: 1, mandatory: true }, { name: 'Force', type: 'switch' }],
   run(c) {
     const k = findKey(c.ctx.host, absPath(c.ctx, c.str('Path') ?? ''));
     if (!k) { notFound(c, absPath(c.ctx, c.str('Path') ?? '')); return; }

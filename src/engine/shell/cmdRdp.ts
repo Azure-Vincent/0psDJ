@@ -14,12 +14,14 @@ const ERR_CODES: Record<string, string> = {
   ERRCONNECT_CONNECT_TRANSPORT_FAILED: '0x0002000D',
   ERRCONNECT_LOGON_FAILURE: '0x00020014',
   ERRCONNECT_ACCOUNT_DISABLED: '0x00020012',
+  ERRCONNECT_AUTHENTICATION_FAILED: '0x00020009',
+  ERRCONNECT_ACCOUNT_LOCKED_OUT: '0x00020018',
 };
 
 // xfreerdp exit codes (client/X11/xfreerdp.h).
 const EXIT: Record<string, number> = {
   ERRCONNECT_DNS_NAME_NOT_FOUND: 131, ERRCONNECT_CONNECT_FAILED: 131, ERRCONNECT_CONNECT_TRANSPORT_FAILED: 131,
-  ERRCONNECT_LOGON_FAILURE: 132, ERRCONNECT_ACCOUNT_DISABLED: 132, ERRINFO_SERVER_INSUFFICIENT_PRIVILEGES: 9,
+  ERRCONNECT_LOGON_FAILURE: 132, ERRCONNECT_ACCOUNT_DISABLED: 132, ERRCONNECT_AUTHENTICATION_FAILED: 132, ERRCONNECT_ACCOUNT_LOCKED_OUT: 135, ERRINFO_SERVER_INSUFFICIENT_PRIVILEGES: 9,
 };
 
 const USAGE = 'FreeRDP - A Free Remote Desktop Protocol Implementation\nSee www.freerdp.com for more information\n\nUsage: xfreerdp [file] [options] [/v:<server>[:port]]\n\nSyntax:\n    /flag (enables flag)\n    /option:<value> (specifies option with value)\n    +toggle -toggle (enables or disables toggle, where \'/\' is a synonym of \'+\')\n\n    /v:<server>[:port]    Server hostname\n    /u:[[<domain>\\]<user>|<user>[@<domain>]] Username\n    /p:<password>         Password\n    /d:<domain>           Domain\n    /cert:ignore          Ignore the certificate\n    +auth-only            Authenticate only';

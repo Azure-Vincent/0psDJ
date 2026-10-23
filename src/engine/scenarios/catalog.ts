@@ -361,5 +361,30 @@ export const CAUSES: Record<string, Cause> = Object.fromEntries(
       signature: 'NLA fails with ERRCONNECT_LOGON_FAILURE ("The logon attempt failed"); the server logs 4625 with Status 0xC000006D (Sub Status 0xC000006A for a bad password, 0xC0000064 for an unknown user). The network path and the service are fine.',
       check: 'Get-WinEvent -FilterHashtable @{LogName="Security"; Id=4625} -MaxEvents 5 | Format-List Message; Get-LocalUser; try +auth-only from the client.',
     },
+    {
+      id: 'dom-member-dns', title: 'Domain member uses a DNS server without the AD zone', category: 'Name resolution', concept: 'ad.dns',
+      signature: 'Domain logons on the member fail ("The Local Security Authority cannot be contacted", 4625 status 0xC000005E) while local accounts work. nltest /sc_query reports ERROR_NO_LOGON_SERVERS, NETLOGON 5719 at boot, gpupdate fails. The member\'s DNS servers are not AD DNS servers, so Resolve-DnsName -Type SRV _ldap._tcp.dc._msdcs.<domain> says the name does not exist.',
+      check: 'Get-DnsClientServerAddress; Resolve-DnsName -Type SRV _ldap._tcp.dc._msdcs.ad.corp.lab; nltest /dsgetdc:ad.corp.lab; Get-WinEvent -LogName System (NETLOGON 5719).',
+    },
+    {
+      id: 'dom-dc-firewall', title: 'DC firewall blocks the directory (LDAP)', category: 'Firewall', concept: 'ad.kerberos',
+      signature: 'The member finds the DC in DNS (the SRV records resolve) but cannot contact it: nltest /dsgetdc fails, Test-NetConnection <dc> -Port 389 times out while port 53 works. Domain logons fail with no logon servers (0xC000005E). On the DC the Active Directory Domain Services firewall rules are disabled.',
+      check: 'Resolve-DnsName -Type SRV _ldap._tcp.dc._msdcs.<domain>; Test-NetConnection <dc> -Port 389 / 88 / 53; on the DC Get-NetFirewallRule -DisplayGroup "Active Directory Domain Services".',
+    },
+    {
+      id: 'dom-trust-broken', title: 'Broken secure channel (machine account password mismatch)', category: 'Authentication', concept: 'ad.kerberos',
+      signature: 'Every domain user fails on one member ("The trust relationship between this workstation and the primary domain failed", 4625 status 0xC000018D) while the DC is reachable and the same accounts work elsewhere. Test-ComputerSecureChannel returns False, nltest /sc_verify reports ERROR_ACCESS_DENIED with the DC named, NETLOGON 3210 in the System log. Typical after a snapshot revert or a reset of the computer account.',
+      check: 'Test-ComputerSecureChannel; nltest /sc_verify:<domain>; Get-WinEvent -LogName System (NETLOGON 3210); on the DC Get-ADComputer <name> and Security 4724 for <NAME>$.',
+    },
+    {
+      id: 'dom-account-locked', title: 'Domain account locked out', category: 'Authentication', concept: 'ad.kerberos',
+      signature: 'Logons with the correct password are refused with "account locked out" (FreeRDP ERRCONNECT_ACCOUNT_LOCKED_OUT, status 0xC0000234). Get-ADUser <user> -Properties LockedOut shows True; the DC logged 4740 naming the computer that relayed the bad passwords. Often a device with saved old credentials.',
+      check: 'Search-ADAccount -LockedOut; Get-ADUser <user> -Properties LockedOut, BadLogonCount; Get-WinEvent -FilterHashtable @{LogName="Security"; Id=4740} on the DC; 4625 events (source address) on the relaying server.',
+    },
+    {
+      id: 'dom-group-membership', title: 'User missing from the AD group that grants the logon right', category: 'Authorization', concept: 'win.rdp',
+      signature: 'Authentication succeeds, then the logon is refused (ERRINFO_SERVER_INSUFFICIENT_PRIVILEGES, 4625 Logon Type 10 status 0xC000015B). The server\'s local Remote Desktop Users group contains a domain group, and the user is no longer a member of that group in AD (Security 4729 on the DC).',
+      check: 'Get-LocalGroupMember "Remote Desktop Users" on the server; Get-ADGroupMember <group> and Get-ADPrincipalGroupMembership <user> on the DC.',
+    },
   ] as Cause[]).map((c) => [c.id, c]),
 );

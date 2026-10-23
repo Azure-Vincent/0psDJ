@@ -202,3 +202,94 @@ describe('xfreerdp (Remote Desktop from Linux)', () => {
     expect(lab.run('ws01', 'alice', 'xfreerdp /v:srv01 /u:alice /p:x').code).toBe(131);
   });
 });
+
+describe('Active Directory domain (dc01, ad.corp.lab)', () => {
+  const CRED = '(New-Object System.Management.Automation.PSCredential("CORP\\Administrator", (ConvertTo-SecureString "Dc-Adm1n-2026" -AsPlainText -Force)))';
+  function joined() {
+    const c = console01();
+    c.run('Set-DnsClientServerAddress -InterfaceAlias Ethernet0 -ServerAddresses 10.0.20.5');
+    expect(c.run(`Add-Computer -DomainName ad.corp.lab -Credential ${CRED} -Restart`).code).toBe(0);
+    c.run('Add-LocalGroupMember -Group "Remote Desktop Users" -Member "CORP\\RDP-Users"');
+    return c;
+  }
+  const rdp = (lab: Lab, pw = 'Office-Corp-2026') => lab.run('ws01', 'alice', `xfreerdp /v:win01.corp.lab /u:'CORP\\alice' /p:'${pw}' /cert:ignore`);
+
+  it('the DC serves the AD zone and forwards other names to ns1', () => {
+    const lab = new Lab();
+    const dc = lab.shell('dc01', 'Administrator');
+    expect(dc.execute('whoami').output).toBe('corp\\administrator');
+    expect(dc.execute('Resolve-DnsName -Type SRV _ldap._tcp.dc._msdcs.ad.corp.lab').output).toContain('dc01.ad.corp.lab');
+    expect(dc.execute('Resolve-DnsName srv01.corp.lab -Type A').output).toContain('10.0.20.10');
+    expect(dc.execute('(Get-ADUser alice).UserPrincipalName').output).toBe('alice@ad.corp.lab');
+    expect(dc.execute('Get-ADUser nobody').output).toContain("Cannot find an object with identity: 'nobody' under: 'DC=ad,DC=corp,DC=lab'.");
+  });
+
+  it('AD cmdlets are not available on a server without the module', () => {
+    const { run } = console01();
+    expect(run('Get-ADUser alice').output).toMatch(/^Get-ADUser : The term 'Get-ADUser' is not recognized/);
+  });
+
+  it('a member needs the domain\'s DNS to join', () => {
+    const { run } = console01();
+    const r = run(`Add-Computer -DomainName ad.corp.lab -Credential ${CRED}`);
+    expect(r.output).toContain("Computer 'WIN01' failed to join domain 'ad.corp.lab' from its current workgroup 'WORKGROUP' with following error message: The specified domain either does not exist or could not be contacted.");
+  });
+
+  it('joins, registers in DNS, uses the Domain profile and logs domain users on', () => {
+    const { lab, run } = joined();
+    expect(run('Test-ComputerSecureChannel').output).toBe('True');
+    expect(run('(Get-NetConnectionProfile).NetworkCategory').output).toBe('DomainAuthenticated');
+    expect(run('nltest /sc_query:ad.corp.lab').output).toContain('Trusted DC Connection Status Status = 0 0x0 NERR_Success');
+    expect(lab.run('dc01', 'Administrator', 'Get-DnsServerResourceRecord -ZoneName ad.corp.lab -Name win01').output).toContain('10.0.20.30');
+    expect(rdp(lab).output).toContain('logged CORP\\alice on');
+    expect(rdp(lab, 'wrong').output).toContain('ERRCONNECT_LOGON_FAILURE');
+  });
+
+  it('a reset computer account breaks the secure channel until it is repaired', () => {
+    const { lab, run } = joined();
+    lab.run('dc01', 'Administrator', "Set-ADAccountPassword -Identity WIN01$ -Reset -NewPassword (ConvertTo-SecureString 'Other-Pass-123' -AsPlainText -Force)");
+    expect(run('Test-ComputerSecureChannel').output).toBe('False');
+    expect(rdp(lab).output).toContain('ERRCONNECT_AUTHENTICATION_FAILED');
+    expect(run('nltest /sc_verify:ad.corp.lab').output).toContain('ERROR_ACCESS_DENIED');
+    expect(run('Test-ComputerSecureChannel -Repair').output).toContain('Access is denied.');
+    expect(run(`Test-ComputerSecureChannel -Repair -Credential ${CRED}`).output).toBe('True');
+    expect(rdp(lab).code).toBe(0);
+  });
+
+  it('five bad passwords lock the account; Unlock-ADAccount releases it', () => {
+    const { lab } = joined();
+    for (let i = 0; i < 5; i++) rdp(lab, 'wrong');
+    expect(rdp(lab).output).toContain('ERRCONNECT_ACCOUNT_LOCKED_OUT');
+    expect(lab.run('dc01', 'Administrator', '(Search-ADAccount -LockedOut).SamAccountName').output).toBe('alice');
+    lab.run('dc01', 'Administrator', 'Unlock-ADAccount alice');
+    expect(rdp(lab).code).toBe(0);
+  });
+
+  it('a member that cannot reach a DC at boot falls back to its stored profile and logs NETLOGON 5719', () => {
+    const { lab, run } = joined();
+    run('Set-DnsClientServerAddress -InterfaceAlias Ethernet0 -ServerAddresses 10.0.10.53');
+    run('Restart-Computer -Force');
+    expect(run('(Get-NetConnectionProfile).NetworkCategory').output).toBe('Private');
+    expect(run('Get-WinEvent -FilterHashtable @{LogName="System"; Id=5719} -MaxEvents 1 | Format-List Message').output).toContain('There are currently no logon servers available');
+    expect(rdp(lab).output).toContain('ERRCONNECT_AUTHENTICATION_FAILED');
+  });
+});
+
+describe('regressions from the crash sweep', () => {
+  it('asks for missing mandatory parameters like PowerShell', () => {
+    const { run } = console01();
+    const q = run('Rename-Item');
+    expect(q.needInput?.text).toBe('cmdlet Rename-Item at command pipeline position 1\nSupply values for the following parameters:\nPath: ');
+    expect(run('Rename-Item', ['']).output).toContain("Cannot bind argument to parameter 'Path' because it is an empty string.");
+    run('Set-Content C:\\Temp\\a.txt hi');
+    expect(run('Rename-Item', ['C:\\Temp\\a.txt', 'b.txt']).code).toBe(0);
+    expect(run('Test-Path C:\\Temp\\b.txt').output).toBe('True');
+  });
+
+  it('enabling every firewall rule (RPC port keywords included) keeps the firewall working', () => {
+    const { lab, run } = console01();
+    expect(run('Enable-NetFirewallRule').code).toBe(0);
+    expect(lab.run('ws01', 'alice', 'ping -c 1 win01').code).toBe(0);
+    expect(run('Get-NetFirewallRule -Name RemoteEventLogSvc-In-TCP | Get-NetFirewallPortFilter | Select-Object -ExpandProperty LocalPort').output).toBe('RPC');
+  });
+});

@@ -385,11 +385,13 @@ netCmdlet('Get-NetNeighbor', TCPIP, 'Gets neighbor cache entries.', [{ name: 'IP
 // Network location (firewall profile)
 // ---------------------------------------------------------------------------
 
-function profileObj(a: WinAdapter): PSObject {
-  return obj('MSFT_NetConnectionProfile', { Name: a.dnsSuffix || 'Network', InterfaceAlias: a.alias, InterfaceIndex: a.ifIndex, NetworkCategory: a.category === 'Domain' ? 'DomainAuthenticated' : a.category, IPv4Connectivity: a.gateway ? 'Internet' : 'LocalNetwork', IPv6Connectivity: 'NoTraffic' });
+function profileObj(host: Host, a: WinAdapter): PSObject {
+  // A domain member that reached a DC at boot is on its domain network (Network Location Awareness).
+  const dom = host.win!.domainNetwork ? host.win!.domain?.domain : undefined;
+  return obj('MSFT_NetConnectionProfile', { Name: dom ?? (a.dnsSuffix || 'Network'), InterfaceAlias: a.alias, InterfaceIndex: a.ifIndex, NetworkCategory: dom ? 'DomainAuthenticated' : a.category === 'Domain' ? 'DomainAuthenticated' : a.category, IPv4Connectivity: a.gateway ? 'Internet' : 'LocalNetwork', IPv6Connectivity: 'NoTraffic' });
 }
 
-netCmdlet('Get-NetConnectionProfile', 'NetConnection', 'Gets a connection profile.', [...IF_PARAMS, { name: 'NetworkCategory', type: 'string' }], (c) => pickAdapters(c, 'MSFT_NetConnectionProfile').map(profileObj));
+netCmdlet('Get-NetConnectionProfile', 'NetConnection', 'Gets a connection profile.', [...IF_PARAMS, { name: 'NetworkCategory', type: 'string' }], (c) => pickAdapters(c, 'MSFT_NetConnectionProfile').map((a) => profileObj(c.ctx.host, a)));
 
 netCmdlet('Set-NetConnectionProfile', 'NetConnection', 'Changes the network category of a connection profile.', [...IF_PARAMS, { name: 'NetworkCategory', type: 'string' }, { name: 'Name', type: 'string' }, { name: 'InputObject', type: 'any' }], (c) => {
   if (accessDenied(c, 'MSFT_NetConnectionProfile')) return;
