@@ -14,6 +14,7 @@ import { makeKeyPair, type KeyType } from '../sim/keys';
 import type { Host, World } from '../types';
 import { addUser, createHost, newWorld, staticInterfaces } from './builder';
 import { EXT01_NGINX_CONF, installExt01Web, installSrv01Pki, SRV01_NGINX_CONF, trustCorpRoot } from './pkiLab';
+import { installKerberos, KRB_ZONE_RECORDS } from './krbLab';
 
 export const DEBIAN_SSHD_CONFIG = `
 # This is the sshd server system-wide configuration file.  See
@@ -403,7 +404,7 @@ ws01    IN A    10.0.10.25
 srv01   IN A    10.0.20.10
 srv01   IN AAAA 2001:db8:20::10
 www     IN CNAME srv01
-`;
+` + KRB_ZONE_RECORDS;
 
 export const NAMED_CONF_LOCAL = `//
 // Do any local configuration here
@@ -473,7 +474,7 @@ export function buildSshLab(): World {
       { name: 'eth2', mac: '52:54:00:a1:00:03', segment: 'wan' },
       { name: 'eth3', mac: '52:54:00:a1:00:04', segment: null },
     ],
-    services: ['nftables', 'radvd', 'dhcrelay', 'dhcpd'],
+    services: ['systemd-timesyncd', 'nftables', 'radvd', 'dhcrelay', 'dhcpd'],
   });
   writeFile(rtr, '/etc/network/interfaces', RTR01_INTERFACES, t);
   writeFile(rtr, '/etc/default/isc-dhcp-server', '# Defaults for isc-dhcp-server (sourced by /etc/init.d/isc-dhcp-server)\n\n# Path to dhcpd\'s config file (default: /etc/dhcp/dhcpd.conf).\n#DHCPDv4_CONF=/etc/dhcp/dhcpd.conf\n#DHCPDv6_CONF=/etc/dhcp/dhcpd6.conf\n\n# On what interfaces should the DHCP server (dhcpd) serve DHCP requests?\n# IPv4 for VLAN 30 is served by ns1 through the relay (isc-dhcp-relay); this\n# router only runs the DHCPv6 server for VLAN 30 (NET-77).\nINTERFACESv4=""\nINTERFACESv6="eth3.30"\n', t);
@@ -489,7 +490,7 @@ export function buildSshLab(): World {
   const ns1 = createHost(world, {
     id: 'ns1', hostname: 'ns1', domain: 'corp.lab', role: 'DNS server (BIND 9, authoritative for corp.lab)',
     ifaces: [{ name: 'eth0', mac: '52:54:00:b2:00:35', segment: null }],
-    services: ['nftables', 'named', 'dhcpd'],
+    services: ['systemd-timesyncd', 'nftables', 'named', 'dhcpd', 'krb5-kdc', 'krb5-admin-server'],
   });
   writeFile(ns1, '/etc/dhcp/dhcpd.conf', DHCPD_CONF, t);
   writeFile(ns1, '/etc/default/isc-dhcp-server', '# Defaults for isc-dhcp-server (sourced by /etc/init.d/isc-dhcp-server)\n\n# On what interfaces should the DHCP server (dhcpd) serve DHCP requests?\nINTERFACESv4="eth0"\nINTERFACESv6=""\n', t);
@@ -504,7 +505,7 @@ export function buildSshLab(): World {
   const srv = createHost(world, {
     id: 'srv01', hostname: 'srv01', domain: 'corp.lab', role: 'Linux application server (sshd, nginx)',
     ifaces: [{ name: 'eth0', mac: '52:54:00:c3:00:0a', segment: null }],
-    services: ['nftables', 'ssh', 'nginx'],
+    services: ['systemd-timesyncd', 'nftables', 'ssh', 'nginx'],
   });
   writeFile(srv, '/etc/network/interfaces', staticInterfaces([{ name: 'eth0', address: '10.0.20.10/24', gateway: '10.0.20.1' }]) + 'iface eth0 inet6 static\n    address 2001:db8:20::10/64\n    gateway 2001:db8:20::1\n', t);
   writeFile(srv, '/etc/resolv.conf', 'search corp.lab\nnameserver 10.0.10.53\n', t);
@@ -528,7 +529,7 @@ export function buildSshLab(): World {
   const ws = createHost(world, {
     id: 'ws01', hostname: 'ws01', domain: 'corp.lab', role: 'Administrator workstation (ssh client)',
     ifaces: [{ name: 'eth0', mac: '52:54:00:d4:00:19', segment: null }],
-    services: ['nftables'],
+    services: ['systemd-timesyncd', 'nftables'],
   });
   writeFile(ws, '/etc/network/interfaces', staticInterfaces([{ name: 'eth0', address: '10.0.10.25/24', gateway: '10.0.10.1' }]), t);
   writeFile(ws, '/etc/resolv.conf', '# Generated for corp.lab\nsearch corp.lab\nnameserver 10.0.10.53\noptions timeout:2 attempts:2\n', t);
@@ -542,7 +543,7 @@ export function buildSshLab(): World {
   const ws2 = createHost(world, {
     id: 'ws02', hostname: 'ws02', domain: 'corp.lab', role: 'Laptop (DHCP client)',
     ifaces: [{ name: 'eth0', mac: '52:54:00:d4:00:42', segment: null }],
-    services: ['nftables'],
+    services: ['systemd-timesyncd', 'nftables'],
   });
   writeFile(ws2, '/etc/network/interfaces', '# The primary network interface\nauto lo\niface lo inet loopback\n\nauto eth0\niface eth0 inet dhcp\n', t);
   writeFile(ws2, '/etc/resolv.conf', '', t);
@@ -564,7 +565,7 @@ export function buildSshLab(): World {
   const dev = createHost(world, {
     id: 'dev01', hostname: 'dev01', domain: 'corp.lab', role: 'Developer workstation (VLAN 30, IPv4 + IPv6 SLAAC)',
     ifaces: [{ name: 'eth0', mac: '52:54:00:e7:00:1e', segment: null }],
-    services: ['nftables'],
+    services: ['systemd-timesyncd', 'nftables'],
   });
   writeFile(dev, '/etc/network/interfaces', staticInterfaces([{ name: 'eth0', address: '10.0.30.25/24', gateway: '10.0.30.1' }]) + '# IPv6: stateless autoconfiguration from the router advertisements\niface eth0 inet6 auto\n', t);
   writeFile(dev, '/etc/resolv.conf', 'search corp.lab\nnameserver 10.0.10.53\n', t);
@@ -577,12 +578,14 @@ export function buildSshLab(): World {
   const dev2 = createHost(world, {
     id: 'dev02', hostname: 'dev02', domain: 'corp.lab', role: 'Hot-desk laptop (VLAN 30, DHCP via the relay on rtr01)',
     ifaces: [{ name: 'eth0', mac: '52:54:00:e7:00:2a', segment: null }],
-    services: ['nftables'],
+    services: ['systemd-timesyncd', 'nftables'],
   });
   writeFile(dev2, '/etc/network/interfaces', '# The primary network interface\nauto lo\niface lo inet loopback\n\nauto eth0\niface eth0 inet dhcp\n# IPv6: address and DNS from DHCPv6 (NET-77); the default route comes from the RA.\n# autoconf 0: no SLAAC address, so the host only uses its managed address.\niface eth0 inet6 dhcp\n    autoconf 0\n', t);
   writeFile(dev2, '/etc/resolv.conf', '', t);
   addUser(dev2, { name: 'jordan', uid: 1000, gid: 1000, primaryGroup: 'jordan', groups: ['sudo'], home: '/home/jordan', shell: '/bin/bash', gecos: 'Jordan Tester', password: 'dev02-jordan' }, t);
   trustCorpRoot(dev2, t);
+
+  installKerberos(world);
 
   // Boot everything. Order matters: the switch first (it creates the VLANs),
   // ns1 must serve DHCP before ws02 boots, rtr01 must advertise before dev01.

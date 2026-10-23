@@ -13,6 +13,8 @@ function proto(f: CapturedFrame): string {
   if (p.app?.protocol === 'DHCP') return 'DHCP';
   if (p.app?.protocol === 'DHCPv6') return 'DHCPv6';
   if (p.app?.protocol === 'TLS') return 'TLSv1.3';
+  if (p.app?.protocol === 'KRB5') return 'KRB5';
+  if (p.app?.protocol === 'KADMIN') return 'KADMIN';
   if (p.app?.protocol === 'DATA') return p.tcp?.sport === 80 || p.tcp?.dport === 80 ? 'HTTP' : 'DATA';
   if (p.icmp && p.src.includes(':')) return 'ICMPv6';
   return p.proto.toUpperCase();

@@ -59,7 +59,7 @@ const FLAG_KEYS = new Set([
   'kbdinteractiveauthentication', 'challengeresponseauthentication', 'usepam', 'x11forwarding',
   'printmotd', 'printlastlog', 'tcpkeepalive', 'usedns', 'hostbasedauthentication',
   'ignorerhosts', 'ignoreuserknownhosts', 'kerberosauthentication', 'gssapiauthentication',
-  'gssapicleanupcredentials', 'permittty', 'allowagentforwarding', 'x11uselocalhost',
+  'gssapicleanupcredentials', 'gssapistrictacceptorcheck', 'permittty', 'allowagentforwarding', 'x11uselocalhost',
   'kerberosorlocalpasswd', 'kerberosticketcleanup', 'compression', 'permituserenvironment',
   'disableforwarding', 'exposeauthinfo',
 ]);
@@ -126,6 +126,8 @@ export interface SshdEffective {
   passwordAuthentication: boolean;
   permitEmptyPasswords: boolean;
   kbdInteractiveAuthentication: boolean;
+  gssapiAuthentication: boolean;
+  gssapiStrictAcceptorCheck: boolean;
   usePAM: boolean;
   allowUsers: string[];
   denyUsers: string[];
@@ -159,6 +161,8 @@ export const COMPILED_DEFAULTS: SshdEffective = {
   passwordAuthentication: true,
   permitEmptyPasswords: false,
   kbdInteractiveAuthentication: true,
+  gssapiAuthentication: false,
+  gssapiStrictAcceptorCheck: true,
   usePAM: false,
   allowUsers: [],
   denyUsers: [],
@@ -353,6 +357,8 @@ function applyDirectives(eff: SshdEffective, directives: Directive[], seen: Set<
         seen.add('challengeresponseauthentication');
         break;
       case 'usepam': eff.usePAM = yes(d); break;
+      case 'gssapiauthentication': eff.gssapiAuthentication = yes(d); break;
+      case 'gssapistrictacceptorcheck': eff.gssapiStrictAcceptorCheck = yes(d); break;
       case 'kexalgorithms': eff.kexAlgorithms = applyAlgList(DEFAULT_KEX, d.args[0], SUPPORTED_KEX); break;
       case 'ciphers': eff.ciphers = applyAlgList(DEFAULT_CIPHERS, d.args[0], SUPPORTED_CIPHERS); break;
       case 'macs': eff.macs = applyAlgList(DEFAULT_MACS, d.args[0], SUPPORTED_MACS); break;
@@ -443,6 +449,8 @@ export function renderSshdT(eff: SshdEffective): string {
   lines.push(`passwordauthentication ${yn(eff.passwordAuthentication)}`);
   lines.push(`permitemptypasswords ${yn(eff.permitEmptyPasswords)}`);
   lines.push(`kbdinteractiveauthentication ${yn(eff.kbdInteractiveAuthentication)}`);
+  lines.push(`gssapiauthentication ${yn(eff.gssapiAuthentication)}`);
+  lines.push(`gssapistrictacceptorcheck ${yn(eff.gssapiStrictAcceptorCheck)}`);
   lines.push(`usepam ${yn(eff.usePAM)}`);
   lines.push(`x11forwarding ${yn(eff.x11Forwarding)}`);
   lines.push(`printmotd ${yn(eff.printMotd)}`);

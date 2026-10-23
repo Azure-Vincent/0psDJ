@@ -17,7 +17,7 @@ const LEFT = 30;
 const PHASE_COLORS: Record<string, string> = {
   DNS: 'var(--c-violet)', ARP: 'var(--c-yellow)', DHCP: 'var(--c-orange)', NDP: 'var(--c-yellow)', TCP: 'var(--c-blue)',
   'SSH transport': 'var(--c-blue)', 'SSH key exchange': 'var(--c-teal)', 'SSH authentication': 'var(--c-green)', 'SSH session': 'var(--c-green)',
-  ICMP: 'var(--c-red)', Teardown: 'var(--c-gray)',
+  ICMP: 'var(--c-red)', Teardown: 'var(--c-gray)', Kerberos: 'var(--c-orange)',
 };
 
 function short(s: string, n = 46): string {

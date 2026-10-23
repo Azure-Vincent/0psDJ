@@ -27,7 +27,8 @@ export type ResolveResult =
   | { ok: true; ip: string; /** All addresses in getaddrinfo() order (RFC 6724: IPv6 first when usable). */ addrs: string[]; source: 'literal' | 'hosts' | 'dns'; fqdn: string; exchanges: DnsExchange[]; cname?: string[] }
   | { ok: false; error: 'NXDOMAIN' | 'EAI_AGAIN' | 'EAI_NODATA'; exchanges: DnsExchange[]; message: string };
 
-export type QType = 'A' | 'AAAA';
+export type QType = 'A' | 'AAAA' | 'SRV' | 'TXT' | 'MX' | 'NS' | 'SOA' | 'CNAME' | 'PTR';
+export const QTYPES: QType[] = ['A', 'AAAA', 'SRV', 'TXT', 'MX', 'NS', 'SOA', 'CNAME', 'PTR'];
 
 // --- DNS wire format (RFC 1035) for PCAP export -----------------------------
 
@@ -42,7 +43,7 @@ function encodeName(name: string): number[] {
   return out;
 }
 
-const QTYPE: Record<string, number> = { A: 1, NS: 2, CNAME: 5, SOA: 6, PTR: 12, MX: 15, TXT: 16, AAAA: 28 };
+const QTYPE: Record<string, number> = { A: 1, NS: 2, CNAME: 5, SOA: 6, PTR: 12, MX: 15, TXT: 16, AAAA: 28, SRV: 33 };
 
 export function encodeDns(id: number, qname: string, response?: { rcode: number; aa: boolean; ra: boolean; answers: ZoneRecord[] }, qtype: QType = 'A'): Uint8Array {
   const b: number[] = [];
@@ -64,11 +65,28 @@ export function encodeDns(id: number, qname: string, response?: { rcode: number;
     u16(QTYPE[rr.type]);
     u16(1);
     u32(rr.ttl);
-    const rdata = rr.type === 'A' ? rr.data.split('.').map(Number) : rr.type === 'AAAA' ? ip6Bytes(rr.data) : encodeName(rr.data);
+    const rdata = rdataBytes(rr);
     u16(rdata.length);
     b.push(...rdata);
   }
   return new Uint8Array(b);
+}
+
+function rdataBytes(rr: ZoneRecord): number[] {
+  const u16 = (n: number) => [(n >> 8) & 255, n & 255];
+  const f = rr.data.split(' ');
+  switch (rr.type) {
+    case 'A': return rr.data.split('.').map(Number);
+    case 'AAAA': return ip6Bytes(rr.data);
+    case 'SRV': return [...u16(Number(f[0])), ...u16(Number(f[1])), ...u16(Number(f[2])), ...encodeName(f[3])];
+    case 'MX': return [...u16(Number(f[0])), ...encodeName(f[1])];
+    case 'TXT': {
+      const b = Array.from(utf8(rr.data.replace(/^"|"$/g, ''))).slice(0, 255);
+      return [b.length, ...b];
+    }
+    case 'SOA': return [...encodeName(f[0]), ...encodeName(f[1]), ...f.slice(2, 7).flatMap((n) => { const v = Number(n) >>> 0; return [(v >>> 24) & 255, (v >>> 16) & 255, (v >>> 8) & 255, v & 255]; })];
+    default: return encodeName(rr.data);
+  }
 }
 
 const RCODE: Record<string, number> = { NOERROR: 0, SERVFAIL: 2, NXDOMAIN: 3, REFUSED: 5 };

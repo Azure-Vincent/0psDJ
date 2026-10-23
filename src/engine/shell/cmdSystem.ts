@@ -508,6 +508,7 @@ const ssh: CommandDef = {
         family: p.opts.addressfamily === 'inet6' ? 6 : p.opts.addressfamily === 'inet' ? 4 : 0,
         pubkeyAuthentication: yesno(p.opts.pubkeyauthentication),
         passwordAuthentication: yesno(p.opts.passwordauthentication),
+        gssapiAuthentication: yesno(p.opts.gssapiauthentication),
         answers,
         remoteCommand: p.command,
       });

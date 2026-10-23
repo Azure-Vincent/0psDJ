@@ -215,6 +215,8 @@ export interface Host {
   capture: CapturedFrame[];
   nextPid: number;
   bootTime: number;
+  /** System clock error in ms (host time = world.clock + clockOffset). Kept across reboots, like the RTC. */
+  clockOffset?: number;
   /** Path MTU learned from ICMP "fragmentation needed"/"packet too big" (destination -> MTU). Runtime only. */
   pmtu?: Record<string, number>;
 }
@@ -295,7 +297,7 @@ export interface IcmpHeader {
 }
 
 export interface AppLayer {
-  protocol: 'DNS' | 'SSH' | 'DATA' | 'DHCP' | 'DHCPv6' | 'TLS';
+  protocol: 'DNS' | 'SSH' | 'DATA' | 'DHCP' | 'DHCPv6' | 'TLS' | 'KRB5' | 'KADMIN';
   /** Short Wireshark-style "Info" text. */
   info: string;
   /** Decoded protocol fields visible to an observer. */

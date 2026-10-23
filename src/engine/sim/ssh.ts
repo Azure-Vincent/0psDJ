@@ -22,6 +22,8 @@ import {
 } from './sshWire';
 import { ERRNO_TEXT, tcpConnect } from './tcp';
 import { activeRecorder } from './trace';
+import { clientConf, getServiceTicket, hostTime, KrbError, readCache, writeCache } from './kerberos';
+import { parseKeytab } from '../config/krb5';
 
 export const CLIENT_VERSION = 'SSH-2.0-OpenSSH_9.2p1 Debian-2+deb12u3';
 export const SERVER_VERSION = 'SSH-2.0-OpenSSH_9.2p1 Debian-2+deb12u3';
@@ -58,6 +60,8 @@ export interface SshClientOptions {
   family?: 0 | 4 | 6;
   pubkeyAuthentication?: boolean;
   passwordAuthentication?: boolean;
+  /** GSSAPIAuthentication (Debian's ssh_config default: yes). */
+  gssapiAuthentication?: boolean;
   /** Answers to interactive prompts, consumed in order. */
   answers?: string[];
   remoteCommand?: string;
@@ -574,6 +578,8 @@ function runSshInner(world: World, o: SshClientOptions, out: string[]): SshResul
 
   const methods: string[] = [];
   if (ctxEff.pubkeyAuthentication) methods.push('publickey');
+  // Debian's sshd (GSSAPI key-exchange patch) offers both GSSAPI methods when GSSAPIAuthentication is on.
+  if (ctxEff.gssapiAuthentication) methods.push('gssapi-keyex', 'gssapi-with-mic');
   if (ctxEff.passwordAuthentication) methods.push('password');
   if (ctxEff.kbdInteractiveAuthentication && ctxEff.usePAM) methods.push('keyboard-interactive');
   const methodList = methods.join(',');
@@ -603,10 +609,77 @@ function runSshInner(world: World, o: SshClientOptions, out: string[]): SshResul
 
   let authed: string | null = null;
   let authKey: ParsedPublicKey | null = null;
+  let gssPrincipal = '';
+
+  // gssapi-with-mic (Kerberos): OpenSSH tries it first (PreferredAuthentications), and
+  // Debian's /etc/ssh/ssh_config sets GSSAPIAuthentication yes for the client.
+  if (methods.includes('gssapi-with-mic') && o.gssapiAuthentication !== false) {
+    dbg('Next authentication method: gssapi-with-mic');
+    const gssFail = (minor: string, serverSide?: string) => {
+      dbg('Unspecified GSS failure.  Minor code may provide more information');
+      dbg(minor);
+      if (serverSide) {
+        slog('DEBUG1', `Unspecified GSS failure.  Minor code may provide more information\n${serverSide}`, 'info', ctxEff);
+        note('sshd cannot accept the Kerberos ticket', `${serverSide}. sshd logs the GSSAPI error only with LogLevel DEBUG1; at INFO the login silently falls through to the next method. Compare the key version on both sides: "klist -k /etc/krb5.keytab" on the server and "kvno host/NAME" on the client.`, server.id);
+      } else {
+        note('No Kerberos ticket for the server', `${minor}. The client skips gssapi-with-mic and tries the next method.`);
+      }
+    };
+    const cache = readCache(client, cuser.uid);
+    if (!cache) gssFail(`No Kerberos credentials available (default cache: FILE:/tmp/krb5cc_${cuser.uid})`);
+    else {
+      // The service principal is host/<canonical name>: forward-canonicalised through DNS (CNAMEs), no reverse lookup (rdns = false).
+      const canon = (r.ok && r.source === 'dns' ? (r.cname?.at(-1) ?? r.fqdn) : o.target).replace(/\.$/, '').toLowerCase();
+      let sp = '';
+      try {
+        const conf = clientConf(client);
+        const dom = Object.entries(conf.domainRealm).find(([d]) => (d.startsWith('.') ? canon.endsWith(d) : canon === d))?.[1];
+        sp = `host/${canon}@${dom ?? conf.defaultRealm ?? ''}`;
+        const { ticket, cached } = getServiceTicket(world, client, cache, sp);
+        if (!cached) {
+          cache.tickets.push(ticket);
+          writeCache(world, client, cuser.uid, cuser.name, cuser.primaryGroup, cache);
+        }
+        enc('c2s', 1200, `SSH_MSG_USERAUTH_REQUEST method="gssapi-with-mic" (Kerberos AP-REQ for ${sp}, kvno ${ticket.kvno})`, [], 'GSSAPI authentication (Kerberos ticket)',
+          `The client sends its service ticket for ${sp} (an AP-REQ wrapped in a GSSAPI token) plus an authenticator with its current time. No password and no key file are involved: the ticket came from the KDC with the TGT obtained by kinit.`);
+        const kt = parseKeytab(server.fs['/etc/krb5.keytab']?.content);
+        const entries = (kt ?? []).filter((e) => e.principal === sp);
+        const k5login = pw ? server.fs[`${pw.home}/.k5login`]?.content : undefined;
+        const local = cache.principal.split('@')[0];
+        const serverConf = (() => { try { return clientConf(server); } catch { return null; } })();
+        const userOk = k5login !== undefined ? k5login.split('\n').map((l) => l.trim()).includes(cache.principal) : local === user && cache.principal.endsWith(`@${serverConf?.defaultRealm ?? ''}`);
+        let serverErr: string | undefined;
+        if (!kt) serverErr = 'Key table file \'/etc/krb5.keytab\' not found';
+        else if (!entries.length) serverErr = `No key table entry found matching ${sp.split('@')[0]}@`;
+        else if (!entries.some((e) => e.kvno === ticket.kvno)) serverErr = `Key version number for principal in key table is incorrect (ticket kvno ${ticket.kvno}, keytab has ${[...new Set(entries.map((e) => e.kvno))].join(', ')})`;
+        else if (!entries.some((e) => e.kvno === ticket.kvno && e.key === ticket.serviceKey)) serverErr = 'Decrypt integrity check failed';
+        else if (Math.abs(hostTime(world, client) - hostTime(world, server)) > 300_000) serverErr = 'Clock skew too great';
+        if (serverErr) {
+          failures++;
+          gssFail('Unspecified GSS failure.  Minor code may provide more information', serverErr);
+          enc('s2c', 30 + methodList.length, `SSH_MSG_USERAUTH_FAILURE methods="${methodList}"`, [], 'USERAUTH_FAILURE', 'The server could not decrypt or accept the ticket.');
+        } else if (!valid || !userOk) {
+          failures++;
+          note('Kerberos principal not allowed for this account', !valid ? 'The account is invalid or not allowed.' : `The ticket is valid, but ${cache.principal} may not log in as "${user}": without a ~/.k5login file only the principal ${user}@${serverConf?.defaultRealm ?? 'DEFAULT.REALM'} maps to the local user ${user}; a ~/.k5login lists the principals allowed instead.`, server.id);
+          slog('DEBUG1', `krb5_kuserok: ${cache.principal} is not authorized to log in as ${user}`, 'info', ctxEff);
+          enc('s2c', 30 + methodList.length, `SSH_MSG_USERAUTH_FAILURE methods="${methodList}"`, [], 'USERAUTH_FAILURE', 'The principal is not allowed to log in as this user.');
+        } else {
+          note('sshd accepts the Kerberos ticket', `sshd decrypts the ticket with the key for ${sp} (kvno ${ticket.kvno}) from /etc/krb5.keytab, checks the authenticator's timestamp against its own clock, and maps ${cache.principal} to the local user ${user}. The MIC (message integrity code) binds the authentication to this SSH session.`, server.id);
+          authed = 'gssapi-with-mic';
+          gssPrincipal = cache.principal;
+          dbg(`Authenticated to ${o.target} ([${ip}]:${port}) using "gssapi-with-mic".`);
+        }
+        if (failures >= maxTries) return tooMany();
+      } catch (e) {
+        if (!(e instanceof KrbError)) throw e;
+        gssFail(`${e.message}${sp ? ` (${sp})` : ''}`);
+      }
+    }
+  }
 
   // publickey
   const clientWantsPubkey = o.pubkeyAuthentication !== false;
-  if (methods.includes('publickey') && clientWantsPubkey) {
+  if (!authed && methods.includes('publickey') && clientWantsPubkey) {
     dbg('Next authentication method: publickey');
     for (const id of idsWithKeys) {
       const node = client.fs[id];
@@ -701,6 +774,7 @@ function runSshInner(world: World, o: SshClientOptions, out: string[]): SshResul
   }
 
   if (authed === 'publickey') slog('INFO', `Accepted publickey for ${user} from ${cip} port ${cport} ssh2: ${KEY_LABEL[authKey!.type]} ${authKey!.fingerprint}`);
+  else if (authed === 'gssapi-with-mic') slog('INFO', `Accepted gssapi-with-mic for ${user} from ${cip} port ${cport} ssh2: ${gssPrincipal}`);
   else slog('INFO', `Accepted password for ${user} from ${cip} port ${cport} ssh2`);
   enc('s2c', 12, 'SSH_MSG_USERAUTH_SUCCESS', [], 'USERAUTH_SUCCESS', 'Authentication is complete. sshd now switches to a process running with the user\'s privileges for the session.');
   if (authed === 'password') dbg(`Authenticated to ${o.target} ([${ip}]:${port}) using "password".`);

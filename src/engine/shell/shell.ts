@@ -12,11 +12,12 @@ import { FILE_COMMANDS, getFile, resolvePath, writeChecked } from './cmdFiles';
 import { NET_COMMANDS } from './cmdNet';
 import { HTTP_COMMANDS } from './cmdHttp';
 import { SYSTEM_COMMANDS } from './cmdSystem';
+import { KRB_COMMANDS } from './cmdKrb';
 import { expandParams, parseCommandLine, type Segment } from './tokenize';
 import { type CmdCtx, type CmdResult, type CommandDef, type EditorRequest, NeedInput, type SessionFrame } from './types';
 
 export const COMMANDS: Record<string, CommandDef> = Object.fromEntries(
-  [...FILE_COMMANDS, ...NET_COMMANDS, ...HTTP_COMMANDS, ...SYSTEM_COMMANDS].map((c) => [c.name, c]),
+  [...FILE_COMMANDS, ...NET_COMMANDS, ...HTTP_COMMANDS, ...SYSTEM_COMMANDS, ...KRB_COMMANDS].map((c) => [c.name, c]),
 );
 
 export interface ExecResult {

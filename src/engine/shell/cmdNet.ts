@@ -1,7 +1,7 @@
 // Network diagnostics: ip, ss, ping, traceroute, nc, tcpdump, conntrack,
 // sysctl, hostname, uname, date, dig, nslookup, host, getent.
 
-import { dnsQuery, lookupHostsFile, resolve } from '../sim/dns';
+import { dnsQuery, lookupHostsFile, QTYPES, resolve, type QType } from '../sim/dns';
 import { isoTime } from '../sim/journal';
 import { maintainLeases } from '../sim/dhcp';
 import { echoIcmp, hostAddresses, icmpMeaning, isFragNeeded, nextId, pathMtu, sourceAddress, transmit } from '../sim/network';
@@ -14,9 +14,11 @@ import { normalizePath, readFile } from '../fs';
 import { formatFrame } from './format';
 import { ip } from './cmdIp';
 import { hasCarrier } from '../sim/l2';
+import { hostTime } from '../sim/kerberos';
+import { gnuDate } from './cmdKrb';
 import { bridge, ifreload, rdisc6 } from './cmdL2';
 import { virtualFile } from './cmdFiles';
-import { type CmdCtx, type CommandDef, err, ok, parseFlags } from './types';
+import { type CmdCtx, type CmdResult, type CommandDef, err, ok, parseFlags } from './types';
 
 const ss: CommandDef = {
   name: 'ss',
@@ -463,12 +465,6 @@ const uname: CommandDef = {
   run: (args, ctx) => ok(args.includes('-a') ? `Linux ${ctx.host.hostname} 6.1.0-26-amd64 #1 SMP PREEMPT_DYNAMIC Debian 6.1.112-1 (2024-09-30) x86_64 GNU/Linux` : 'Linux'),
 };
 
-const date: CommandDef = {
-  name: 'date',
-  summary: 'print the simulated date and time',
-  usage: 'date',
-  run: (_a, ctx) => ok(new Date(Math.floor(ctx.world.clock)).toUTCString().replace('GMT', 'UTC')),
-};
 
 const sleep: CommandDef = {
   name: 'sleep',
@@ -496,13 +492,16 @@ const sleep: CommandDef = {
 const dig: CommandDef = {
   name: 'dig',
   summary: 'DNS lookup utility (queries a server directly; ignores /etc/hosts and search domains)',
-  usage: 'dig [@SERVER] NAME [A|AAAA] [+short]',
+  usage: 'dig [@SERVER] NAME [A|AAAA|SRV|TXT|MX|NS|SOA|CNAME] [+short]',
   run(args, ctx) {
     const server = args.find((a) => a.startsWith('@'))?.slice(1);
     const short = args.includes('+short');
     const search = args.includes('+search');
-    const qtype: 'A' | 'AAAA' = args.some((a) => a.toUpperCase() === 'AAAA') ? 'AAAA' : 'A';
-    const names = args.filter((a) => !a.startsWith('@') && !a.startsWith('+') && !['A', 'AAAA', 'IN'].includes(a.toUpperCase()));
+    const tIdx = args.indexOf('-t');
+    const typeArg = tIdx >= 0 ? args[tIdx + 1] : args.find((a) => QTYPES.includes(a.toUpperCase() as QType));
+    if (typeArg && !QTYPES.includes(typeArg.toUpperCase() as QType)) return err(`;; Warning, ignoring invalid type ${typeArg}`, 1);
+    const qtype: QType = (typeArg?.toUpperCase() as QType | undefined) ?? 'A';
+    const names = args.filter((a, i) => !a.startsWith('@') && !a.startsWith('+') && a !== '-t' && args[i - 1] !== '-t' && !['IN', ...QTYPES].includes(a.toUpperCase() as QType));
     const name = names[0] ?? '.';
     const rc = parseResolvConf(readFile(ctx.host, '/etc/resolv.conf'));
     const ns = server ?? rc.nameservers[0] ?? '127.0.0.1';
@@ -524,7 +523,7 @@ const dig: CommandDef = {
       return err(out.join('\n'), 9);
     }
     const a = ex.answer!;
-    if (short) return ok(a.answers.map((r) => r.data.replace(/\.$/, r.type === 'CNAME' ? '.' : '')).join('\n'));
+    if (short) return ok(a.answers.map((r) => (r.type === 'A' || r.type === 'AAAA' ? r.data : r.data)).join('\n'));
     const id = (ctx.world.counter * 31) & 0xffff;
     const flagsTxt = `qr ${a.authoritative ? 'aa ' : ''}rd`;
     out.push(';; Got answer:', `;; ->>HEADER<<- opcode: QUERY, status: ${a.rcode}, id: ${id}`, `;; flags: ${flagsTxt}; QUERY: 1, ANSWER: ${a.answers.length}, AUTHORITY: ${a.rcode === 'NXDOMAIN' ? 1 : 0}, ADDITIONAL: 0`);
@@ -536,7 +535,7 @@ const dig: CommandDef = {
     if (a.rcode === 'NXDOMAIN' && 'soa' in a && a.soa) {
       out.push('', ';; AUTHORITY SECTION:', `${a.soa.name}\t\t${a.soa.ttl}\tIN\tSOA\t${a.soa.data}`);
     }
-    out.push('', `;; Query time: ${Math.round(ex.rttMs)} msec`, `;; SERVER: ${ns}#53(${ns}) (UDP)`, `;; WHEN: ${new Date(Math.floor(ctx.world.clock)).toUTCString().replace('GMT', 'UTC')}`, `;; MSG SIZE  rcvd: ${40 + a.answers.length * 16}`, '');
+    out.push('', `;; Query time: ${Math.round(ex.rttMs)} msec`, `;; SERVER: ${ns}#53(${ns}) (UDP)`, `;; WHEN: ${gnuDate(hostTime(ctx.world, ctx.host))}`, `;; MSG SIZE  rcvd: ${40 + a.answers.length * 16}`, '');
     return ok(out.join('\n'));
   },
 };
@@ -573,11 +572,53 @@ const nslookup: CommandDef = {
   },
 };
 
+/** host -t TYPE: one record type, with the bind9-host wording for each. */
+function hostTyped(qtype: QType, name: string, server: string | undefined, ctx: CmdCtx): CmdResult {
+  const rc = parseResolvConf(readFile(ctx.host, '/etc/resolv.conf'));
+  const ns = server ?? rc.nameservers[0] ?? '127.0.0.1';
+  const candidates = name.endsWith('.') ? [name] : name.includes('.') ? [name + '.', ...rc.search.map((s) => `${name}.${s}.`)] : [...rc.search.map((s) => `${name}.${s}.`), name + '.'];
+  let last = 'NXDOMAIN';
+  for (const q of candidates) {
+    const ex = dnsQuery(ctx.world, ctx.host, ns, q, 5, qtype);
+    if (ex.outcome === 'timeout' || ex.outcome === 'port-unreachable' || ex.outcome === 'unreachable') return err(';; connection timed out; no servers could be reached', 1);
+    if (ex.outcome === 'answer' || ex.outcome === 'nodata') {
+      const shown = q.replace(/\.$/, '');
+      if (ex.outcome === 'nodata') return ok(`${shown} has no ${qtype} record`);
+      return ok(ex.answer!.answers.map((r) => {
+        const owner = r.name.replace(/\.$/, '');
+        switch (r.type) {
+          case 'A': return `${owner} has address ${r.data}`;
+          case 'AAAA': return `${owner} has IPv6 address ${r.data}`;
+          case 'CNAME': return `${owner} is an alias for ${r.data}`;
+          case 'SRV': return `${owner} has SRV record ${r.data}`;
+          case 'TXT': return `${owner} descriptive text ${r.data}`;
+          case 'MX': return `${owner} mail is handled by ${r.data}`;
+          case 'NS': return `${owner} name server ${r.data}`;
+          case 'SOA': return `${owner} has SOA record ${r.data}`;
+          default: return `${owner} ${r.type} ${r.data}`;
+        }
+      }).join('\n'));
+    }
+    last = ex.outcome === 'refused' ? 'REFUSED' : ex.outcome === 'servfail' ? 'SERVFAIL' : 'NXDOMAIN';
+    if (last === 'SERVFAIL') break;
+  }
+  return err(`Host ${name} not found: ${last === 'NXDOMAIN' ? '3(NXDOMAIN)' : last === 'REFUSED' ? '5(REFUSED)' : '2(SERVFAIL)'}`, 1);
+}
+
 const hostCmd: CommandDef = {
   name: 'host',
   summary: 'simple DNS lookup',
-  usage: 'host NAME [SERVER]',
-  run(args, ctx) {
+  usage: 'host [-t TYPE] NAME [SERVER]',
+  run(argv, ctx) {
+    const t = argv.indexOf('-t');
+    if (t >= 0) {
+      const type = (argv[t + 1] ?? '').toUpperCase() as QType;
+      if (!QTYPES.includes(type)) return err(`host: invalid type: ${argv[t + 1] ?? ''}`, 1);
+      const rest = argv.filter((_, i) => i !== t && i !== t + 1);
+      if (!rest[0]) return err('Usage: host [-t type] hostname [server]', 1);
+      return hostTyped(type, rest[0], rest[1], ctx);
+    }
+    const args = argv;
     const r = nslookup.run(args, ctx);
     const name = args[0];
     const m = /Address: (\d+\.\d+\.\d+\.\d+)/.exec(r.out);
@@ -718,5 +759,5 @@ const ethtool: CommandDef = {
   },
 };
 
-export const NET_COMMANDS: CommandDef[] = [ip, bridge, ifreload, rdisc6, ss, ping, ping6, traceroute, traceroute6, tracepath, ethtool, nc, tcpdump, conntrack, sysctl, hostname, uname, date, sleep, dig, nslookup, hostCmd, getent];
+export const NET_COMMANDS: CommandDef[] = [ip, bridge, ifreload, rdisc6, ss, ping, ping6, traceroute, traceroute6, tracepath, ethtool, nc, tcpdump, conntrack, sysctl, hostname, uname, sleep, dig, nslookup, hostCmd, getent];
 export { isoTime, lookupHostsFile };

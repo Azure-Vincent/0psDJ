@@ -20,6 +20,7 @@ export type Phase =
   | 'NDP'
   | 'TLS'
   | 'HTTP'
+  | 'Kerberos'
   | 'Teardown';
 
 export interface EndpointState {

@@ -21,6 +21,7 @@ import { linkLocalFromMac } from '../net/ip6';
 import { bridgeFromConfig, recomputeL2 } from './l2';
 import { parseRadvdConf, RadvdConfigError, routerSolicit, sendRa, type RadvdLoaded } from './slaac';
 import { parsePublicKey, type ParsedPublicKey } from './keys';
+import { parseKadmAcl, parseKdcConf, parsePrincipalDb, ProfileError, type KdcConf } from '../config/krb5';
 
 export interface Listener {
   proto: 'tcp' | 'udp';
@@ -703,6 +704,119 @@ const radvd: ServiceDef = {
 };
 
 // ---------------------------------------------------------------------------
+// MIT Kerberos KDC (krb5kdc) and admin server (kadmind)
+// ---------------------------------------------------------------------------
+
+const KDC_CONF = '/etc/krb5kdc/kdc.conf';
+
+function loadKdcConf(world: World, host: Host, ident: string, unit: string, pid: number): KdcConf | null {
+  try {
+    const conf = parseKdcConf(readFile(host, KDC_CONF));
+    for (const [realm, r] of Object.entries(conf.realms)) {
+      if (parsePrincipalDb(readFile(host, r.databaseName)) === null) {
+        log(world, host, ident, `Cannot open DB2 database '${r.databaseName}': No such file or directory - while initializing database for realm ${realm}`, { pid, unit, priority: 'err' });
+        return null;
+      }
+    }
+    if (!Object.keys(conf.realms).length) {
+      log(world, host, ident, 'No realms specified in kdc.conf - while initializing realms', { pid, unit, priority: 'err' });
+      return null;
+    }
+    return conf;
+  } catch (e) {
+    if (!(e instanceof ProfileError)) throw e;
+    log(world, host, ident, `Improper format of Kerberos configuration file (${e.message}) - while initializing`, { pid, unit, priority: 'err' });
+    return null;
+  }
+}
+
+const krb5kdc: ServiceDef = {
+  name: 'krb5-kdc',
+  unit: 'krb5-kdc.service',
+  aliases: ['krb5-kdc', 'krb5-kdc.service', 'krb5kdc'],
+  description: 'Kerberos 5 Key Distribution Center',
+  configFiles: [KDC_CONF],
+  start(world, host, rt) {
+    const pid = allocPid(host);
+    const conf = loadKdcConf(world, host, 'krb5kdc', 'krb5-kdc.service', pid);
+    if (!conf) return false;
+    rt.pid = pid;
+    rt.loaded = { conf };
+    log(world, host, 'krb5kdc', 'setting up network...', { pid, unit: 'krb5-kdc.service' });
+    const r = Object.values(conf.realms)[0];
+    log(world, host, 'krb5kdc', `set up ${r.kdcPorts.length * 2 + r.kdcTcpPorts.length * 2} sockets`, { pid, unit: 'krb5-kdc.service' });
+    log(world, host, 'krb5kdc', `commencing operation`, { pid, unit: 'krb5-kdc.service' });
+    return true;
+  },
+  listeners(_host, rt) {
+    const conf = (rt.loaded as { conf: KdcConf }).conf;
+    const udp = [...new Set(Object.values(conf.realms).flatMap((r) => r.kdcPorts))];
+    const tcp = [...new Set(Object.values(conf.realms).flatMap((r) => r.kdcTcpPorts))];
+    return [
+      ...udp.flatMap((port) => ['0.0.0.0', '::'].map((addr) => ({ proto: 'udp' as const, addr, port, process: 'krb5kdc', pid: rt.pid!, service: 'krb5-kdc' }))),
+      ...tcp.flatMap((port) => ['0.0.0.0', '::'].map((addr) => ({ proto: 'tcp' as const, addr, port, process: 'krb5kdc', pid: rt.pid!, service: 'krb5-kdc' }))),
+    ];
+  },
+};
+
+const kadmind: ServiceDef = {
+  name: 'krb5-admin-server',
+  unit: 'krb5-admin-server.service',
+  aliases: ['krb5-admin-server', 'krb5-admin-server.service', 'kadmind', 'kadmin'],
+  description: 'Kerberos 5 Admin Server',
+  configFiles: [KDC_CONF, '/etc/krb5kdc/kadm5.acl'],
+  start(world, host, rt) {
+    const pid = allocPid(host);
+    const conf = loadKdcConf(world, host, 'kadmind', 'krb5-admin-server.service', pid);
+    if (!conf) return false;
+    const aclFile = Object.values(conf.realms)[0].aclFile;
+    const text = readFile(host, aclFile);
+    if (text === undefined) {
+      log(world, host, 'kadmind', `Cannot open ACL file ${aclFile}: No such file or directory - while initializing ACL file, aborting`, { pid, unit: 'krb5-admin-server.service', priority: 'err' });
+      return false;
+    }
+    rt.pid = pid;
+    rt.loaded = { conf, acl: parseKadmAcl(text), aclFile };
+    log(world, host, 'kadmind', 'Seeding random number generator', { pid, unit: 'krb5-admin-server.service' });
+    log(world, host, 'kadmind', 'starting', { pid, unit: 'krb5-admin-server.service' });
+    return true;
+  },
+  listeners(_host, rt) {
+    const pid = rt.pid!;
+    return [
+      { proto: 'tcp', addr: '0.0.0.0', port: 749, process: 'kadmind', pid, service: 'krb5-admin-server' },
+      { proto: 'tcp', addr: '0.0.0.0', port: 464, process: 'kadmind', pid, service: 'krb5-admin-server' },
+      { proto: 'udp', addr: '0.0.0.0', port: 464, process: 'kadmind', pid, service: 'krb5-admin-server' },
+    ];
+  },
+};
+
+// ---------------------------------------------------------------------------
+// systemd-timesyncd: NTP client. Simplified: NTP packets are not modelled; when
+// the service starts it sets the clock from the time server named in timesyncd.conf.
+// ---------------------------------------------------------------------------
+
+const timesyncd: ServiceDef = {
+  name: 'systemd-timesyncd',
+  unit: 'systemd-timesyncd.service',
+  aliases: ['systemd-timesyncd', 'systemd-timesyncd.service', 'timesyncd'],
+  description: 'Network Time Synchronization',
+  configFiles: ['/etc/systemd/timesyncd.conf'],
+  start(world, host, rt) {
+    const pid = allocPid(host);
+    rt.pid = pid;
+    rt.loaded = {};
+    const server = /^NTP=(\S+)/m.exec(readFile(host, '/etc/systemd/timesyncd.conf') ?? '')?.[1] ?? '0.debian.pool.ntp.org';
+    const off = host.clockOffset ?? 0;
+    host.clockOffset = 0;
+    log(world, host, 'systemd-timesyncd', `Contacted time server ${server}:123.`, { pid, unit: 'systemd-timesyncd.service' });
+    log(world, host, 'systemd-timesyncd', `Initial clock synchronization to ${new Date(world.clock).toUTCString().slice(0, 3)} ${new Date(world.clock).toISOString().replace('T', ' ').replace('Z', '')} UTC${Math.abs(off) >= 1000 ? ` (clock was ${Math.round(Math.abs(off) / 1000)} s ${off > 0 ? 'ahead' : 'behind'})` : ''}.`, { pid, unit: 'systemd-timesyncd.service' });
+    return true;
+  },
+  listeners: () => [],
+};
+
+// ---------------------------------------------------------------------------
 // networking (ifupdown)
 // ---------------------------------------------------------------------------
 
@@ -816,7 +930,7 @@ const networking: ServiceDef = {
   listeners: () => [],
 };
 
-export const SERVICE_DEFS: ServiceDef[] = [networking, nftables, named, dhcpd, dhcrelay, radvd, sshd, nginx];
+export const SERVICE_DEFS: ServiceDef[] = [networking, timesyncd, nftables, named, krb5kdc, kadmind, dhcpd, dhcrelay, radvd, sshd, nginx];
 
 export function findService(host: Host, name: string): ServiceDef | undefined {
   const n = name.replace(/\.service$/, '');

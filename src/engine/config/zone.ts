@@ -1,12 +1,14 @@
 // Minimal BIND master-file parser (RFC 1035 §5): $ORIGIN, $TTL, SOA, NS, A, AAAA,
-// CNAME, PTR, MX. Supports "@", relative and absolute names, and multi-line SOA records.
+// CNAME, PTR, MX, TXT, SRV. Supports "@", relative and absolute names, and multi-line SOA records.
 
 import { canonicalIp6 } from '../net/ip6';
+
+export type RRType = 'SOA' | 'NS' | 'A' | 'AAAA' | 'CNAME' | 'PTR' | 'MX' | 'TXT' | 'SRV';
 
 export interface ZoneRecord {
   name: string; // absolute, lower-case, with trailing dot
   ttl: number;
-  type: 'SOA' | 'NS' | 'A' | 'AAAA' | 'CNAME' | 'PTR' | 'MX' | 'TXT';
+  type: RRType;
   data: string;
 }
 
@@ -94,8 +96,17 @@ export function parseZone(text: string, origin: string, file: string): Zone {
         records.push({ name, ttl: rttl, type: 'MX', data: `${rdata[0]} ${absolute(rdata[1], curOrigin)}` });
         break;
       case 'TXT':
+        if (!rdata.length) throw new ZoneError(`${file}:${line}: unexpected end of input`);
         records.push({ name, ttl: rttl, type: 'TXT', data: rdata.join(' ') });
         break;
+      case 'SRV': {
+        // RFC 2782: priority weight port target
+        const [prio, weight, port, target] = rdata;
+        if (!target) throw new ZoneError(`${file}:${line}: unexpected end of input`);
+        if (![prio, weight, port].every((x) => /^\d+$/.test(x) && Number(x) <= 65535)) throw new ZoneError(`${file}:${line}: bad SRV record: '${rdata.join(' ')}'`);
+        records.push({ name, ttl: rttl, type: 'SRV', data: `${prio} ${weight} ${port} ${absolute(target, curOrigin)}` });
+        break;
+      }
       default:
         throw new ZoneError(`${file}:${line}: unknown RR type '${type}'`);
     }
@@ -109,8 +120,8 @@ export type DnsAnswer =
   | { rcode: 'NXDOMAIN'; answers: []; authoritative: boolean; soa?: ZoneRecord }
   | { rcode: 'REFUSED' | 'SERVFAIL'; answers: []; authoritative: false };
 
-/** Answer an A/AAAA query from a set of authoritative zones (follows in-zone CNAMEs). */
-export function answerQuery(zones: Zone[], qname: string, qtype: 'A' | 'AAAA' | 'PTR' = 'A'): DnsAnswer {
+/** Answer a query from a set of authoritative zones (follows in-zone CNAMEs). */
+export function answerQuery(zones: Zone[], qname: string, qtype: RRType = 'A'): DnsAnswer {
   const name = qname.toLowerCase().endsWith('.') ? qname.toLowerCase() : qname.toLowerCase() + '.';
   const zone = zones
     .filter((z) => name === z.origin || name.endsWith('.' + z.origin))
