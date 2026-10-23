@@ -5,7 +5,7 @@
 import { basename, dirname, listDir } from '../fs';
 import { hostPort } from '../net/addr';
 import { resolve } from '../sim/dns';
-import { handleRequest, headerBytes, isTlsPort, selectServer, sendBulk, type HttpResponse } from '../sim/http';
+import { handleRequest, headerBytes, iisLoaded, isTlsPort, selectServer, sendBulk, type HttpResponse } from '../sim/http';
 import {
   asn1Time, CA_BUNDLE, type Cert, cn, type Csr, csrPem, dnCurl, dnOpenssl, fingerprint, keyIdFor, keyPem, makeCert, matchesHost, modulus,
   parseCerts, parseCsr, parseKey, parseSubj, type PrivKey, publicKeyPem, trustStore, VERIFY_TEXT, verifyChain, certPem,
@@ -170,11 +170,11 @@ const curl: CommandDef = {
       vlog.push(`* Connected to ${bare} (${conn.serverIp}) port ${port} (#0)`);
       const server = conn.server;
       const listener = allListeners(server).find((l) => l.port === conn.sv.localPort && l.proto === 'tcp');
-      const loaded = server.services.nginx?.state === 'active' ? (server.services.nginx.loaded as NginxLoaded) : null;
+      const loaded = server.services.nginx?.state === 'active' ? (server.services.nginx.loaded as NginxLoaded) : iisLoaded(server);
       const sockTls = !!loaded?.servers?.some((s) => isTlsPort(s, conn.sv.localPort));
       const reqInfo = `${head ? 'HEAD' : 'GET'} ${path} HTTP/1.1`;
 
-      if (listener?.process !== 'nginx') {
+      if (listener?.process !== 'nginx' && listener?.service !== 'W3SVC') {
         conn.send('c2s', 78, { protocol: 'DATA', info: `${reqInfo} Host: ${hostname}`, fields: [] });
         conn.close('server');
         if (listener?.process === 'sshd' && scheme === 'http') return fail(1, 'Received HTTP/0.9 when not allowed', vlog);

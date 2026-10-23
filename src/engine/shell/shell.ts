@@ -8,6 +8,9 @@ import { maintainLeases } from '../sim/dhcp';
 import { normalizePath } from '../fs';
 import { endSession } from '../sim/ssh';
 import type { World } from '../types';
+import { bootHost } from '../sim/services';
+import { isWindows } from '../win/model';
+import { newSession, renderOutput, runLine, type PsCtx } from '../win/ps';
 import { FILE_COMMANDS, getFile, resolvePath, writeChecked } from './cmdFiles';
 import { NET_COMMANDS } from './cmdNet';
 import { HTTP_COMMANDS } from './cmdHttp';
@@ -61,6 +64,7 @@ export class Shell {
     const w = this.getWorld();
     const f = this.frame;
     const host = w.hosts[f.hostId];
+    if (isWindows(host)) return `PS ${f.ps?.cwd ?? host.users[f.user]?.home ?? 'C:\\'}> `;
     const u = host.users[f.user];
     const cwd = u && (f.cwd === u.home || f.cwd.startsWith(u.home + '/')) ? '~' + f.cwd.slice(u.home.length) : f.cwd;
     return `${f.user}@${host.hostname}:${cwd}${f.user === 'root' ? '#' : '$'} `;
@@ -68,6 +72,7 @@ export class Shell {
 
   /** Execute a line. `answers` are replies to prompts raised by earlier attempts of the same line. */
   execute(line: string, answers: string[] = []): ExecResult {
+    if (isWindows(this.getWorld().hosts[this.frame.hostId])) return this.executePs(line, answers);
     const world = structuredClone(this.getWorld());
     // DHCP clients renew, rebind or lose their leases as simulated time passes.
     maintainLeases(world);
@@ -279,6 +284,49 @@ export class Shell {
     this.log.push(entry);
     this.onCommand?.(entry);
     return { output: result.out, code: result.code, editor, clear, commands: executed };
+  }
+
+  /** A Windows host's console runs Windows PowerShell 5.1 instead of bash. */
+  private executePs(line: string, answers: string[]): ExecResult {
+    const world = structuredClone(this.getWorld());
+    maintainLeases(world);
+    const frames: SessionFrame[] = structuredClone(this.frames);
+    const frame = frames[frames.length - 1];
+    const host = world.hosts[frame.hostId];
+    const user = host.users[frame.user];
+    const session = (frame.ps ??= newSession(frame.cwd.startsWith('/') ? user.home : frame.cwd));
+    const queue = [...answers];
+    const ctx: PsCtx = {
+      world, host, user, session, line, out: [],
+      ask: (text, secret) => {
+        if (queue.length === 0) throw new NeedInput(text, secret, renderOutput(ctx));
+        return queue.shift()!;
+      },
+    };
+    world.clock += 400;
+    try {
+      if (line.trim()) runLine(ctx, line);
+    } catch (e) {
+      if (e instanceof NeedInput) return { output: '', code: -1, needInput: { text: e.text, secret: e.secret, partial: e.partial }, commands: [line] };
+      throw e;
+    }
+    let output = renderOutput(ctx);
+    if (line.trim()) session.history.push(line);
+    if (ctx.exit) output = [output, `exit: this is the ${host.hostname.toUpperCase()} console; close the terminal tab instead`].filter(Boolean).join('\n');
+    if (ctx.reboot) {
+      bootHost(world, host);
+      frame.ps = newSession(user.home);
+      output = [output, `[Infrastructure Lab: ${host.hostname.toUpperCase()} restarted; you are signed in at the console again.]`].filter(Boolean).join('\n');
+    }
+    frame.cwd = frame.ps.cwd;
+    const code = session.lastOk ? 0 : 1;
+    this.frames = frames;
+    this.status = code;
+    this.commit(world);
+    const entry: CommandLogEntry = { time: world.clock, host: frame.hostId, user: frame.user, line, code };
+    this.log.push(entry);
+    this.onCommand?.(entry);
+    return { output, code, clear: ctx.clear, commands: line.trim() ? [line] : [] };
   }
 
   /** Save the in-app editor buffer back into the simulated filesystem. */

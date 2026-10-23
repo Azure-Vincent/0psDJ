@@ -129,11 +129,10 @@ function makePing(name: string, forced?: 6): CommandDef {
           const rep: Packet = { id: nextId(ctx.world), src: d.final.dst, dst: d.final.src, ttl: 64, proto: 'icmp', icmp: { ...echoIcmp(v6, true, icmpId, seq), size }, df };
           const back = transmit(ctx.world, target.id, rep);
           if (back.status === 'delivered') {
-            const hopsBack = back.hops.filter((h) => h.egress && h.ingress).length;
             const t = ctx.world.clock - start + 0.15;
             times.push(t);
             received++;
-            out.push(`${size + 8} bytes from ${dst}: icmp_seq=${seq} ttl=${64 - hopsBack} time=${rtt(t)} ms`);
+            out.push(`${size + 8} bytes from ${dst}: icmp_seq=${seq} ttl=${back.final.ttl} time=${rtt(t)} ms`);
           }
         } else if (d.error?.delivered) {
           const e = d.error.packet;

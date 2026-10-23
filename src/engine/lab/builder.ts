@@ -131,5 +131,12 @@ export function staticInterfaces(ifaces: { name: string; address: string; gatewa
 
 /** Verify every file's parent directory exists (catches lab definitions that would break shell writes). */
 export function missingParents(host: Host): string[] {
-  return Object.keys(host.fs).filter((p) => p !== '/' && !host.fs[p.slice(0, p.lastIndexOf('/')) || '/']);
+  const parent = (p: string) => {
+    if (/^[A-Z]:\\/.test(p)) {
+      const i = p.lastIndexOf('\\');
+      return i <= 2 ? p.slice(0, 3) : p.slice(0, i);
+    }
+    return p.slice(0, p.lastIndexOf('/')) || '/';
+  };
+  return Object.keys(host.fs).filter((p) => p !== '/' && !/^[A-Z]:\\$/.test(p) && !host.fs[parent(p)]);
 }

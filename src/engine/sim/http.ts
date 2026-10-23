@@ -78,8 +78,36 @@ function httpDate(ms: number): string {
   return new Date(Math.floor(ms)).toUTCString();
 }
 
+/** The web server configuration of a Windows host running IIS (W3SVC): one site on port 80. */
+export function iisLoaded(host: Host): NginxLoaded | null {
+  if (host.win?.services.W3SVC?.status !== 'Running') return null;
+  return { binds: [{ addr: '0.0.0.0', port: 80 }], servers: [{ listens: [{ addr: '0.0.0.0', port: 80, ssl: false, def: true }], names: [], root: 'C:\\inetpub\\wwwroot', index: ['Default.htm', 'Default.asp', 'index.htm', 'index.html', 'iisstart.htm', 'default.aspx'] }] };
+}
+
+/** IIS 10 answering a request: files under C:\\inetpub\\wwwroot (case-insensitive), IIS error pages. */
+function handleIisRequest(host: Host, s: NginxLoadedServer, req: { method: string; path: string; now: number }): HttpResponse {
+  const base: [string, string][] = [['Server', 'Microsoft-IIS/10.0'], ['Date', httpDate(req.now)]];
+  const page = (status: number, body: string): HttpResponse => ({ status, reason: REASON[status], body, size: body.length, binary: false, headers: [['Content-Type', 'text/html'], ...base, ['Content-Length', String(body.length)]] });
+  const lookup = new Map(Object.keys(host.fs).map((k) => [k.toLowerCase(), k]));
+  const clean = decodeURIComponent(req.path.split('?')[0]).replace(/\/+/g, '/');
+  let key = lookup.get(`${s.root}${clean.replace(/\//g, '\\')}`.replace(/\\$/, '').toLowerCase());
+  if (key && host.fs[key].type === 'dir') key = s.index.map((i) => lookup.get(`${key}\\${i}`.toLowerCase())).find((k) => k && host.fs[k].type === 'file');
+  if (!key || host.fs[key].type !== 'file') {
+    return page(404, '<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">\n<html xmlns="http://www.w3.org/1999/xhtml">\n<head>\n<title>404 - File or directory not found.</title>\n</head>\n<body>\n<div id="header"><h1>Server Error</h1></div>\n<div id="content">\n <div class="content-container"><fieldset>\n  <h2>404 - File or directory not found.</h2>\n  <h3>The resource you are looking for might have been removed, had its name changed, or is temporarily unavailable.</h3>\n </fieldset></div>\n</div>\n</body>\n</html>\n');
+  }
+  const node = host.fs[key];
+  const ext = /\.([a-z0-9]+)$/i.exec(key)?.[1]?.toLowerCase() ?? '';
+  const type = MIME[ext] ?? 'application/octet-stream';
+  const size = node.size ?? node.content.length;
+  return {
+    status: 200, reason: 'OK', body: node.content, size, binary: !/^(text|application\/(json|javascript))/.test(type),
+    headers: [['Content-Type', type], ['Last-Modified', httpDate(node.mtime)], ['Accept-Ranges', 'bytes'], ['ETag', `"${Math.floor(node.mtime / 1000).toString(16)}:0"`], ...base, ['Content-Length', String(size)]],
+  };
+}
+
 /** nginx answering one request (GET/HEAD) for `path` on server block `s`. */
 export function handleRequest(host: Host, s: NginxLoadedServer, req: { method: string; path: string; hostHeader: string; plainOnTls: boolean; now: number }): HttpResponse {
+  if (host.kind === 'windows') return handleIisRequest(host, s, req);
   const base: [string, string][] = [['Server', NGINX_VERSION], ['Date', httpDate(req.now)]];
   const page = (status: number, body: string, more: [string, string][] = [], close = false): HttpResponse => ({
     status, reason: REASON[status], body, size: body.length, binary: false,
