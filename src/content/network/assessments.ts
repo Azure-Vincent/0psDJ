@@ -315,7 +315,7 @@ export const DHCP_ASSESSMENT: Assessment = {
       explanation: 'T2 defaults to 87.5 % of the lease: 0.875 × 28800 = 25200 s (7 h). T1, the first unicast renewal, is at 50 % = 14400 s.',
     },
     {
-      id: 'dhcp-q-renew', kind: 'single', level: 'intermediate',
+      id: 'dhcp-q-renew-relay', kind: 'single', level: 'intermediate',
       prompt: 'dev02 (VLAN 30) got its lease through the relay on rtr01. How does it renew at T1?',
       options: [
         { text: 'Unicast DHCPREQUEST from its own address straight to the server identifier (10.0.10.53), routed like any other packet', correct: true },

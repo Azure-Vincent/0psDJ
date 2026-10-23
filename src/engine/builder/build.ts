@@ -235,11 +235,11 @@ export interface TraceResult {
 
 const DECISION = /hook|masquerade|snat|dnat|nat|dropped|reject|forwarding is disabled|no route/i;
 // A chain without rules that lets everything through decides nothing worth listing.
-const NO_OP = /^(input|forward) hook: nft inet filter \w+: no rule matched, chain policy accept; (delivered to the local socket layer)?$/;
+const NO_OP = /^(input|forward) hook: nft inet filter \w+: no rule matched, chain policy accept(; delivered to the local socket layer)?$/;
 
 /** The decision part of a hop note (without the TTL and routing details). */
 function decisionText(note: string): string {
-  return note.replace(/^TTL \d+→\d+; /, '').replace(/; routed via [^;]*/, '');
+  return note.replace(/^TTL \d+→\d+; /, '').replace(/; routed via [^;]*/, '').replace(/; switched by [^;]*/, '');
 }
 
 /**
@@ -248,11 +248,23 @@ function decisionText(note: string): string {
  * are left untouched.
  */
 export function traceCommand(world: World, hostId: string, user: string, line: string): TraceResult {
-  let w = structuredClone(world);
-  for (const h of Object.values(w.hosts)) h.capture = [];
-  const sh = new Shell(() => w, (n) => (w = n), { hostId, user, cwd: w.hosts[hostId].users[user]?.home ?? '/' });
-  const rec = new Recorder();
-  const r = withRecorder(rec, () => sh.execute(line));
+  // Prompts are answered the way a learner would: accept a new host key, give
+  // the lab password. Each attempt replays the line on a fresh copy.
+  const answers: string[] = [];
+  let rec = new Recorder();
+  let r: ReturnType<Shell['execute']>;
+  for (;;) {
+    let w = structuredClone(world);
+    for (const h of Object.values(w.hosts)) h.capture = [];
+    const sh = new Shell(() => w, (n) => (w = n), { hostId, user, cwd: w.hosts[hostId].users[user]?.home ?? '/' });
+    rec = new Recorder();
+    r = withRecorder(rec, () => sh.execute(line, answers));
+    if (!r.needInput || answers.length >= 6) break;
+    const text = r.needInput.text;
+    const answer = /yes\/no/.test(text) ? 'yes' : /password|passphrase/i.test(text) ? BUILDER_PASSWORD : '';
+    answers.push(answer);
+  }
+  const output = r.needInput ? `${r.output}\n${r.needInput.text}(the tracer stops at this prompt)`.trim() : r.output;
   const decisions: TraceResult['decisions'] = [];
   const add = (host: string, note: string) => {
     const d = decisions.find((x) => x.host === host && x.note === note);
@@ -267,7 +279,7 @@ export function traceCommand(world: World, hostId: string, user: string, line: s
     }
     if (ev.delivered === false && ev.outcome && !hops.length) add(ev.to, ev.outcome);
   }
-  return { events: rec.events, output: r.output, decisions };
+  return { events: rec.events, output, decisions };
 }
 
 /** Broadcast domain an interface is in, for the sequence diagram's layer-2 notes. */

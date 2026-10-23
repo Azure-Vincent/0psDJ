@@ -297,3 +297,77 @@ export function freeIface(design: Design, n: DesignNode): string | null {
   if (n.kind === 'switch') return (n.ports ?? []).find((p) => !used.has(p.name))?.name ?? null;
   return n.ifaces.find((i) => PHYS_RE.test(i.name) && !used.has(i.name))?.name ?? null;
 }
+
+const KINDS: NodeKind[] = ['host', 'server', 'router', 'switch'];
+const str = (v: unknown): string => (typeof v === 'string' ? v : v === undefined || v === null ? '' : String(v));
+const num = (v: unknown): number | undefined => (typeof v === 'number' && Number.isFinite(v) ? v : typeof v === 'string' && v.trim() !== '' && Number.isFinite(Number(v)) ? Number(v) : undefined);
+const arr = (v: unknown): unknown[] => (Array.isArray(v) ? v : []);
+const obj = (v: unknown): Record<string, unknown> => (v && typeof v === 'object' ? (v as Record<string, unknown>) : {});
+
+/**
+ * Check and clean a design read from JSON (an imported file or browser storage):
+ * missing lists become empty, unknown fields are dropped, numbers are coerced.
+ * Throws when it is not a builder design at all.
+ */
+export function normalizeDesign(input: unknown): Design {
+  const d = obj(input);
+  if (d.version !== 1 || !Array.isArray(d.nodes) || !Array.isArray(d.links)) throw new Error('not an Infrastructure Builder design (version 1)');
+  const nodes: DesignNode[] = arr(d.nodes).map((raw, k) => {
+    const n = obj(raw);
+    const kind = KINDS.includes(n.kind as NodeKind) ? (n.kind as NodeKind) : 'host';
+    const node: DesignNode = {
+      id: str(n.id) || `n${k}`,
+      kind,
+      name: str(n.name),
+      x: num(n.x) ?? 80,
+      y: num(n.y) ?? 80,
+      ifaces: kind === 'switch' ? [] : arr(n.ifaces).map((i) => ({ name: str(obj(i).name), address: str(obj(i).address) || undefined })),
+    };
+    if (kind === 'switch') {
+      node.ports = arr(n.ports).map((p) => {
+        const o = obj(p);
+        return o.mode === 'trunk'
+          ? { name: str(o.name), mode: 'trunk' as const, vlans: arr(o.vlans).map(num).filter((v): v is number => v !== undefined) }
+          : { name: str(o.name), mode: 'access' as const, vlan: num(o.vlan) ?? 1 };
+      });
+      return node;
+    }
+    if (n.gateway !== undefined) node.gateway = str(n.gateway);
+    if (n.routes !== undefined) node.routes = arr(n.routes).map((r) => ({ dest: str(obj(r).dest), via: str(obj(r).via) }));
+    node.services = arr(n.services).filter((s): s is ServiceKind => s === 'ssh' || s === 'web');
+    const rule = (r: unknown) => {
+      const o = obj(r);
+      const proto = (['tcp', 'udp', 'icmp', 'any'] as const).find((p) => p === o.proto) ?? 'tcp';
+      return { proto, port: num(o.port), from: str(o.from) || undefined, to: str(o.to) || undefined };
+    };
+    if (n.firewall !== undefined) {
+      const f = obj(n.firewall);
+      node.firewall = { enabled: !!f.enabled, allow: arr(f.allow).map(rule).map(({ to: _to, ...r }) => ({ ...r, proto: r.proto === 'any' ? 'tcp' : r.proto })) };
+    }
+    if (kind === 'router') {
+      if (n.forward !== undefined) {
+        const f = obj(n.forward);
+        node.forward = { policy: f.policy === 'drop' ? 'drop' : 'accept', allow: arr(f.allow).map(rule) };
+      }
+      if (n.nat !== undefined && str(obj(n.nat).outIface)) node.nat = { outIface: str(obj(n.nat).outIface) };
+    }
+    return node;
+  });
+  const links: DesignLink[] = arr(d.links).map((raw, k) => {
+    const l = obj(raw);
+    const end = (e: unknown) => ({ node: str(obj(e).node), iface: str(obj(e).iface) });
+    return { id: str(l.id) || `l${k}`, a: end(l.a), b: end(l.b) };
+  });
+  return { version: 1, name: str(d.name) || 'My network', nodes, links };
+}
+
+/** Apply interface renames of one node to its cables and its NAT setting (old name → new name). */
+export function renameIfaces(design: Design, nodeId: string, renames: Record<string, string>): Design {
+  const has = (k: string) => Object.prototype.hasOwnProperty.call(renames, k);
+  const map = (e: DesignLink['a']) => (e.node === nodeId && has(e.iface) ? { ...e, iface: renames[e.iface] } : e);
+  return {
+    ...design,
+    nodes: design.nodes.map((n) => (n.id === nodeId && n.nat && has(n.nat.outIface) ? { ...n, nat: { outIface: renames[n.nat.outIface] } } : n)),
+    links: design.links.map((l) => ({ ...l, a: map(l.a), b: map(l.b) })),
+  };
+}

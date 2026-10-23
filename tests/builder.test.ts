@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { buildDesignWorld, nftablesFile, rebootDesignWorld, traceCommand } from '../src/engine/builder/build';
-import { freeIface, validateDesign, type Design } from '../src/engine/builder/design';
+import { freeIface, normalizeDesign, renameIfaces, validateDesign, type Design } from '../src/engine/builder/design';
 import { DESIGN_TEMPLATES } from '../src/engine/builder/templates';
 import { missingParents } from '../src/engine/lab/builder';
 import type { World } from '../src/engine/types';
@@ -103,4 +103,34 @@ describe('infrastructure builder', () => {
     expect(freeIface(d, d.nodes.find((n) => n.id === 'sw1')!)).toBe('swp3');
     expect(freeIface(d, d.nodes.find((n) => n.id === 'h1')!)).toBeNull();
   });
+
+  it('the tracer answers ssh prompts and records one handshake (not one per prompt)', () => {
+    const lab = build(tpl('two-networks'));
+    const t = traceCommand(lab.world, 'pc1', 'admin', 'ssh -o ConnectTimeout=3 admin@web1 hostname');
+    expect(t.output).toMatch(/Permanently added 'web1'[\s\S]*\nweb1$/);
+    expect(t.events.filter((e) => e.packet?.tcp?.flags.join() === 'SYN').length).toBe(1);
+    // The teaching titles land on the recorded handshake.
+    expect(t.events.some((e) => e.title === 'TCP SYN')).toBe(true);
+    // Accepting a new connection by rule happens once; later packets match the established rule.
+    expect(t.decisions.find((d) => /tcp dport 22 accept/.test(d.note))?.count).toBe(1);
+  });
+
+  it('normalizeDesign cleans imported JSON and rejects other files', () => {
+    expect(() => normalizeDesign({ hello: 1 })).toThrow(/not an Infrastructure Builder design/);
+    const d = normalizeDesign({ version: 1, nodes: [{ id: 'x', kind: 'switch', name: 'sw', ports: [{ name: 'swp1', mode: 'trunk', vlans: ['10', 20, null] }] }, { kind: 'alien', name: 'h' }], links: [{ a: { node: 'x' } }] });
+    expect(d.nodes[0]).toMatchObject({ x: 80, ifaces: [], ports: [{ name: 'swp1', mode: 'trunk', vlans: [10, 20] }] });
+    expect(d.nodes[1]).toMatchObject({ id: 'n1', kind: 'host', ifaces: [], services: [] });
+    expect(d.links[0]).toEqual({ id: 'l0', a: { node: 'x', iface: '' }, b: { node: '', iface: '' } });
+    // Every template survives a JSON round trip unchanged in meaning.
+    for (const t of DESIGN_TEMPLATES) expect(validateDesign(normalizeDesign(JSON.parse(JSON.stringify(t.design()))))).toEqual(validateDesign(t.design()));
+  });
+
+  it('renaming an interface keeps its cable and NAT setting', () => {
+    const d = tpl('dmz');
+    const fw = d.nodes.find((n) => n.name === 'fw')!;
+    const renamed = renameIfaces({ ...d, nodes: d.nodes.map((n) => (n.id === fw.id ? { ...n, ifaces: n.ifaces.map((i) => (i.name === 'eth0' ? { ...i, name: 'eth5' } : i)) } : n)) }, fw.id, { eth0: 'eth5' });
+    expect(renamed.nodes.find((n) => n.id === fw.id)!.nat).toEqual({ outIface: 'eth5' });
+    expect(validateDesign(renamed).filter((x) => x.level === 'error')).toEqual([]);
+  });
 });
+

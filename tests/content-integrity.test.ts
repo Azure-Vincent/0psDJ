@@ -63,6 +63,13 @@ describe('reference library', () => {
   });
 });
 
+describe('assessments', () => {
+  it('question ids are unique (answers are saved by id)', () => {
+    const ids = Object.values(ASSESSMENTS).flatMap((a) => a.questions.map((q) => q.id));
+    expect(ids.filter((id, i) => ids.indexOf(id) !== i)).toEqual([]);
+  });
+});
+
 describe.each(LESSONS.map((L) => [L.id, L] as const))('lesson %s', (_id, L) => {
   it('links resolve', () => {
     expect(ASSESSMENTS[L.assessmentId], 'assessment').toBeDefined();

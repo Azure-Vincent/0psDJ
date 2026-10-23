@@ -69,3 +69,18 @@ describe('printf, grep -e, bridge vlan show dev', () => {
     expect(l.run('sw01', 'root', 'bridge vlan show dev nope').output).toBe('Cannot find device "nope"');
   });
 });
+
+describe('shell parameter expansion', () => {
+  it('expands $?, $HOME, ${USER} outside single quotes, like bash', () => {
+    const lab = new Lab();
+    const sh = lab.shell('ws01', 'alice');
+    expect(sh.execute('false; echo $?').output).toBe('1');
+    sh.execute('ls /nonexistent');
+    expect(sh.execute('echo "last=$?"').output).toBe('last=2');
+    expect(sh.execute('echo $?').output).toBe('0');
+    expect(sh.execute(`echo '$HOME' "$HOME" \${USER}@$HOSTNAME`).output).toBe('$HOME /home/alice alice@ws01');
+    expect(sh.execute('echo a$ "b$" $UNSET x').output).toBe('a$ b$ x');
+    expect(sh.execute('cd $HOME/.ssh && pwd').output).toBe('/home/alice/.ssh');
+    expect(sh.execute("grep -c 'eth0$' /etc/network/interfaces").output).toBe('2');
+  });
+});

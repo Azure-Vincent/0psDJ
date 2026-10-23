@@ -58,6 +58,19 @@ export class Recorder {
     return JSON.parse(JSON.stringify(this.current));
   }
 
+  /** Remember the recording position, to discard an attempt that is replayed (e.g. after a prompt). */
+  mark(): { events: number; seq: number; inflight: number; phase: Phase; current: string } {
+    return { events: this.events.length, seq: this.seq, inflight: this.inflight.length, phase: this.phase, current: JSON.stringify(this.current) };
+  }
+
+  rollback(m: ReturnType<Recorder['mark']>): void {
+    this.events.length = m.events;
+    this.seq = m.seq;
+    this.inflight.length = m.inflight;
+    this.phase = m.phase;
+    this.current = JSON.parse(m.current);
+  }
+
   setState(host: string, s: Partial<EndpointState>): void {
     this.current[host] = { ...this.current[host], ...s };
     // apply to the most recent event so it reflects the state after it

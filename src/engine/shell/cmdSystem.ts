@@ -1,5 +1,6 @@
 // Service management, logs, firewall, SSH tooling and DNS server tooling.
 
+import { activeRecorder } from '../sim/trace';
 import {
   emptyRuleset, findChain, NftError, parseRuleExpr, parseRulesetFile, renderChain, renderRuleset,
 } from '../config/nft';
@@ -487,7 +488,11 @@ const ssh: CommandDef = {
     const answers: string[] = [];
     // Collect answers interactively: runSsh is deterministic, so we re-run it with the
     // answers gathered so far until it either completes or asks the next question.
+    const rec = activeRecorder();
+    const start = rec?.mark();
     for (let guard = 0; guard < 8; guard++) {
+      // Only the final attempt belongs in a packet trace.
+      if (rec && start) rec.rollback(start);
       const snapshot = structuredClone(ctx.world);
       const res = runSsh(snapshot, {
         clientHostId: ctx.host.id,

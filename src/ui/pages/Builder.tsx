@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState, type PointerEvent as RPointerEvent } from 'react';
 import { BUILDER_PASSWORD, BUILDER_USER, buildDesignWorld, hostsFile, interfacesFile, loginUser, nftablesFile, rebootDesignWorld, segmentLabel, switchInterfacesFile, traceCommand, type TraceResult } from '../../engine/builder/build';
-import { addressOf, freeIface, isSubInterface, newId, validateDesign, type AllowRule, type Design, type DesignLink, type DesignNode, type ForwardRule, type NodeKind, type SwitchPort } from '../../engine/builder/design';
+import { addressOf, freeIface, isSubInterface, newId, normalizeDesign, renameIfaces, validateDesign, type AllowRule, type Design, type DesignLink, type DesignNode, type ForwardRule, type NodeKind, type SwitchPort } from '../../engine/builder/design';
 import { DESIGN_TEMPLATES, EMPTY_DESIGN } from '../../engine/builder/templates';
 import type { World } from '../../engine/types';
 import { LabTerminals } from '../components/LabTerminals';
@@ -19,8 +19,7 @@ function load(): Design {
   try {
     const s = localStorage.getItem(STORE);
     if (s) {
-      const d = JSON.parse(s) as Design;
-      if (d?.version === 1 && Array.isArray(d.nodes) && Array.isArray(d.links)) return d;
+      return normalizeDesign(JSON.parse(s));
     }
   } catch { /* storage unavailable */ }
   return DESIGN_TEMPLATES[0].design();
@@ -191,6 +190,12 @@ function RuleRows<R extends AllowRule | ForwardRule>({ rules, onChange, forward 
   );
 }
 
+/** Comma-separated VLAN list; keeps the text as typed ("10," while typing the next one). */
+function VlanList({ value, onChange, label }: { value: number[]; onChange: (v: number[]) => void; label: string }) {
+  const [text, setText] = useState(value.join(','));
+  return <input style={{ width: 80 }} value={text} placeholder="10,20" aria-label={label} onChange={(e) => { setText(e.target.value); onChange(e.target.value.split(/[ ,]+/).filter(Boolean).map(Number)); }} />;
+}
+
 function NodeInspector({ design, node, onChange, onDelete }: { design: Design; node: DesignNode; onChange: (n: DesignNode) => void; onDelete: () => void }) {
   const set = (patch: Partial<DesignNode>) => onChange({ ...node, ...patch });
   const cabled = (iface: string) => design.links.some((l) => (l.a.node === node.id && l.a.iface === iface) || (l.b.node === node.id && l.b.iface === iface));
@@ -218,8 +223,8 @@ function NodeInspector({ design, node, onChange, onDelete }: { design: Design; n
                 </td>
                 <td>
                   {p.mode === 'access'
-                    ? <input style={{ width: 52 }} value={p.vlan ?? 1} onChange={(e) => setPort(i, { vlan: Number(e.target.value) || 1 })} aria-label={`${p.name} VLAN`} />
-                    : <input style={{ width: 80 }} value={(p.vlans ?? []).join(',')} placeholder="10,20" onChange={(e) => setPort(i, { vlans: e.target.value.split(/[ ,]+/).filter(Boolean).map(Number) })} aria-label={`${p.name} VLANs`} />}
+                    ? <input style={{ width: 52 }} value={p.vlan || ''} placeholder="1" onChange={(e) => setPort(i, { vlan: Number(e.target.value.trim() || 0) })} aria-label={`${p.name} VLAN`} />
+                    : <VlanList value={p.vlans ?? []} onChange={(vlans) => setPort(i, { vlans })} label={`${p.name} VLANs`} />}
                 </td>
                 <td className="muted">{labels[p.name] ?? ''}</td>
                 <td>{!cabled(p.name) && <button className="link" onClick={() => set({ ports: ports.filter((_, k) => k !== i) })} aria-label={`Remove ${p.name}`}>✕</button>}</td>
@@ -353,7 +358,7 @@ function Tracer({ design, getWorld }: { design: Design; getWorld: () => World })
   const presets = (t: string) => {
     const n = design.nodes.find((x) => x.name === t);
     const ip = n?.ifaces.map(addressOf).find(Boolean) ?? t;
-    return [`ping -c 1 ${ip}`, `curl -s http://${t}/`, `ssh -o ConnectTimeout=3 ${BUILDER_USER}@${t}`, `traceroute -n ${ip}`];
+    return [`ping -c 1 ${ip}`, `curl -s http://${t}/`, `ssh -o ConnectTimeout=3 ${BUILDER_USER}@${t} hostname`, `traceroute -n ${ip}`];
   };
   const [toSel, setTo] = useState('');
   const to = toSel && toSel !== from ? toSel : machines.find((n) => n.name !== from)?.name ?? '';
@@ -419,7 +424,22 @@ export function Builder() {
   const errors = diagnostics.filter((d) => d.level === 'error');
 
   const setDesign = (d: Design) => { setDesignState(d); save(d); setBuildErrors(false); };
-  const patchNode = (n: DesignNode) => setDesign({ ...design, nodes: design.nodes.map((x) => (x.id === n.id ? n : x)) });
+  const patchNode = (changed: DesignNode) => {
+    let n = changed;
+    // A renamed interface keeps its cable (interfaces are renamed in place, so match by position).
+    const old = design.nodes.find((x) => x.id === n.id);
+    const renames: Record<string, string> = {};
+    if (old && old.ifaces.length === n.ifaces.length) old.ifaces.forEach((i, k) => { if (i.name !== n.ifaces[k].name) renames[i.name] = n.ifaces[k].name; });
+    // Its VLAN sub-interfaces follow a renamed physical interface (eth0.10 → eth3.10).
+    const subOf = (name: string, parent: string) => name.startsWith(`${parent}.`) && /^\d+$/.test(name.slice(parent.length + 1));
+    for (const [from, to] of Object.entries(renames)) {
+      if (from.includes('.') || to.includes('.')) continue;
+      n = { ...n, ifaces: n.ifaces.map((i) => (subOf(i.name, from) ? { ...i, name: `${to}${i.name.slice(from.length)}` } : i)) };
+      for (const i of old!.ifaces) if (subOf(i.name, from)) renames[i.name] = `${to}${i.name.slice(from.length)}`;
+    }
+    const next = { ...design, nodes: design.nodes.map((x) => (x.id === n.id ? n : x)) };
+    setDesign(Object.keys(renames).length ? renameIfaces(next, n.id, renames) : next);
+  };
   const selNode = design.nodes.find((n) => n.id === selected);
   const selLink = design.links.find((l) => l.id === selected);
 
@@ -449,6 +469,7 @@ export function Builder() {
     if (selNode) setDesign({ ...design, nodes: design.nodes.filter((n) => n.id !== selNode.id), links: design.links.filter((l) => l.a.node !== selNode.id && l.b.node !== selNode.id) });
     else if (selLink) setDesign({ ...design, links: design.links.filter((l) => l.id !== selLink.id) });
     setSelected(null);
+    setConnectFrom(null);
   };
 
   const start = () => {
@@ -467,9 +488,7 @@ export function Builder() {
   const importFile = (f: File) => {
     f.text().then((t) => {
       try {
-        const d = JSON.parse(t) as Design;
-        if (d?.version !== 1 || !Array.isArray(d.nodes) || !Array.isArray(d.links)) throw new Error('not a builder design (version 1)');
-        setDesign(d);
+        setDesign(normalizeDesign(JSON.parse(t)));
         setSelected(null);
       } catch (e) {
         alert(`Could not import: ${(e as Error).message}`);
