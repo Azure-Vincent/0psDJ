@@ -422,6 +422,7 @@ const PERM_NAMES: Record<string, string> = { a: 'add', d: 'delete', m: 'modify',
 
 export function kadminRequest(k: KadminContext, argv: string[]): KadminResult {
   const [cmd, ...args] = argv;
+  if (!cmd) return { lines: [] };
   const out: string[] = [];
   const db = loadDb(k.kdc, k.conf, k.realm);
   if (!db) return { lines: [`kadmin${k.local ? '.local' : ''}: Cannot open DB2 database '${dbPath(k.conf, k.realm)}': No such file or directory while initializing kadmin${k.local ? '.local' : ''} interface`] };

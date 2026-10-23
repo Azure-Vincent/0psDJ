@@ -486,13 +486,18 @@ function parseSshArgs(args: string[]): { opts: Record<string, string>; user?: st
     if (!a.startsWith('-')) break;
     if (/^-v+$/.test(a)) { verbose += a.length - 1; continue; }
     const take = () => (a.length > 2 ? a.slice(2) : args[++i]);
+    if (['-p', '-l', '-i', '-o'].includes(a.slice(0, 2)) && a.length === 2 && args[i + 1] === undefined) {
+      return { opts, identity, verbose, error: `ssh: option requires an argument -- ${a[1]}` };
+    }
     switch (a.slice(0, 2)) {
       case '-p': port = Number(take()); break;
       case '-l': user = take(); break;
       case '-i': identity.push(take()); break;
       case '-o': {
-        const [k, v] = take().split('=');
-        opts[k.toLowerCase()] = v;
+        // "-o Key=value" or "-o 'Key value'", as ssh_config(5) allows.
+        const m = /^\s*([A-Za-z0-9]+)\s*(?:=\s*|\s+)?(.*)$/.exec(take());
+        if (!m || m[2] === '') return { opts, identity, verbose, error: `command-line line 0: ${m ? `no argument after keyword "${m[1].toLowerCase()}"` : 'garbage at end of line'}` };
+        opts[m[1].toLowerCase()] = m[2];
         break;
       }
       case '-4': opts.addressfamily = 'inet'; break;
