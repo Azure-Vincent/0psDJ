@@ -5,7 +5,7 @@
 // from it. ifconfig, netstat, sockstat and ping print FreeBSD's formats.
 // Linux tools do not exist here ("Command not found.").
 
-import { networkOf } from '../net/ip';
+import { broadcastOf } from '../net/ip';
 import { ifaceOf, newTracker, PF_CONFIG, type PfConfig } from '../pf/config';
 import { applyInterfaces, filterConfigure, PF_VERSION, readConfig, RULES_DEBUG, writeConfig } from '../pf/model';
 import { allListeners, serviceDef, startService, stopService } from '../sim/services';
@@ -91,6 +91,12 @@ const pfctl: CommandDef = {
       ctx.host.nft = rt.ruleset;
       return ok('pf enabled');
     }
+    // -nf FILE: parse only (pfSense's rules.debug is generated, so it parses unless the config has errors).
+    if (args.includes('-nf') || (args.includes('-n') && args.includes('-f'))) {
+      const file = args[args.findIndex((a) => a === '-nf' || a === '-f') + 1] ?? '';
+      if (!ctx.host.fs[file]) return err(`pfctl: ${file}: No such file or directory`, 1);
+      return rt.errors.length && file === RULES_DEBUG ? err(rt.errors.join('\n'), 1) : ok('');
+    }
     if (args.includes('-f')) return loadFilter(ctx);
     const fi = args.indexOf('-F');
     if (fi >= 0) {
@@ -171,6 +177,7 @@ const reloadAll: CommandDef = {
     const { cfg, error } = cfgOrError(ctx);
     if (error) return error;
     applyInterfaces(ctx.world, ctx.host, cfg!);
+    ctx.host.pf!.pending = [];
     applySsh(ctx, cfg!.sshEnabled);
     return loadFilter(ctx);
   },
@@ -276,7 +283,7 @@ const ifconfig: CommandDef = {
       if (descr) out.push(`\tdescription: ${descr}`);
       if (!lo) out.push('\toptions=4c079b<RXCSUM,TXCSUM,VLAN_MTU,VLAN_HWTAGGING,VLAN_HWCSUM,TSO4,TSO6,LRO,VLAN_HWTSO,LINKSTATE,TXCSUM_IPV6>', `\tether ${i.mac}`);
       if (i.address && i.prefix !== null) {
-        const bcast = i.prefix < 32 && !lo ? ` broadcast ${networkOf(i.address, i.prefix).split('/')[0].split('.').map((o, k) => (k === 3 ? String(Number(o) + 2 ** (32 - i.prefix!) - 1) : o)).join('.')}` : '';
+        const bcast = i.prefix < 31 && !lo ? ` broadcast ${broadcastOf(i.address, i.prefix)}` : '';
         out.push(`\tinet ${i.address} netmask ${prefixToHex(i.prefix)}${bcast}`);
       }
       if (lo) out.push('\tinet6 ::1 prefixlen 128', '\tgroups: lo');

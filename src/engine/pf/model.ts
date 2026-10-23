@@ -38,6 +38,8 @@ export interface PfRuntime {
   loadedAt: number;
   /** Errors of the last load attempt. */
   errors: string[];
+  /** Saved in the webConfigurator but not applied yet ("You must apply the changes"). */
+  pending?: ('interfaces' | 'filter')[];
 }
 
 export function isPfsense(host: Host | undefined): boolean {
@@ -315,6 +317,7 @@ export function filterConfigure(world: World, host: Host): { ok: boolean; errors
   rt.errors = [];
   rt.loadedAt = world.clock;
   rt.lastGood = host.fs[PF_CONFIG].content;
+  rt.pending = (rt.pending ?? []).filter((x) => x !== 'filter');
   host.nft = rt.enabled ? rt.ruleset : { tables: [], nextHandle: 1 };
   // Changing rules does not drop existing states (pf keeps them until they expire or are killed).
   return { ok: true, errors: [] };
@@ -387,6 +390,7 @@ export function bootPfsense(world: World, host: Host, startSsh: (on: boolean) =>
   host.nextPid = 300;
   const rt = (host.pf ??= { enabled: true, ruleset: { tables: [], nextHandle: 1 }, lines: [], lastGood: host.fs[PF_CONFIG]?.content ?? '', loadedAt: 0, errors: [] });
   rt.enabled = true;
+  rt.pending = [];
   for (const i of host.ifaces) if (i.name === 'lo0' || i.name === 'lo') { i.up = true; i.address = '127.0.0.1'; i.prefix = 8; }
   let cfg: PfConfig;
   try {

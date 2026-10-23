@@ -10,6 +10,7 @@ import { CURRICULUM } from '../src/content/curriculum';
 import { ASSESSMENTS, LESSONS, getLesson } from '../src/content/lessons';
 import { FILE_REFS, PROCEDURES, REF_ENTRIES, getRef } from '../src/content/reference';
 import { ALL_SCENARIOS } from '../src/engine/scenarios';
+import { PF_COMMANDS } from '../src/engine/shell/cmdPf';
 import { COMMANDS } from '../src/engine/shell/shell';
 import { resolveCommand } from '../src/engine/win/ps/runtime';
 
@@ -91,8 +92,8 @@ describe.each(LESSONS.map((L) => [L.id, L] as const))('lesson %s', (_id, L) => {
     for (const m of L.guide?.management ?? []) for (const t of m.tasks) if (t.sim) sim.push(t.command);
     for (const w of L.guide?.workflow ?? []) if (w.sim) sim.push(w.command);
     for (const cmd of sim) {
-      // Linux commands, or PowerShell cmdlets and Windows programs (win01's console).
-      for (const word of commandWords(cmd)) expect(COMMANDS[word] || SHELL_BUILTINS.has(word) || resolveCommand(word), `"${word}" in: ${cmd}`).toBeTruthy();
+      // Linux commands, pfSense console tools (fw01), or PowerShell cmdlets and Windows programs (win01's console).
+      for (const word of commandWords(cmd)) expect(COMMANDS[word] || PF_COMMANDS[word] || SHELL_BUILTINS.has(word) || resolveCommand(word), `"${word}" in: ${cmd}`).toBeTruthy();
     }
   });
   it('has diagrams that fit', () => {

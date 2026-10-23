@@ -52,5 +52,5 @@ export function applySolution(world: World, step: LabStep): World {
     const sh = new Shell(() => w, (n) => (w = n), { hostId: s.host, user: s.user, cwd: home });
     for (const c of s.commands) sh.execute(c, s.answers ?? []);
   }
-  return w;
+  return step.gui ? step.gui.apply(w) : w;
 }

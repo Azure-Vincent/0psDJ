@@ -142,7 +142,7 @@ export function GuidedLabPage({ id }: { id: string }) {
           <div className="card">
             <h3>Topology</h3>
             <Topology />
-            <p className="small muted">This lab adds <strong>srv02</strong> (eth0, MAC 52:54:00:c3:00:14), cabled to sw01 port <strong>swp10</strong>. Target: VLAN 20, 10.0.20.20.</p>
+            {lab.setupNote && <div className="small muted"><Markdown text={lab.setupNote} /></div>}
           </div>
         </div>
       ) : (
@@ -199,7 +199,7 @@ export function GuidedLabPage({ id }: { id: string }) {
                 {(hints[step.id] ?? 0) < step.hints.length && <button onClick={() => setHints((x) => ({ ...x, [step.id]: (x[step.id] ?? 0) + 1 }))}>Show a hint</button>}
               </div>
             )}
-            {step.solution.length > 0 && (
+            {(step.solution.length > 0 || step.gui) && (
               <div className="card">
                 <div className="spread">
                   <h3>Reference solution</h3>
@@ -213,8 +213,14 @@ export function GuidedLabPage({ id }: { id: string }) {
                         <pre className="mono small" style={{ whiteSpace: 'pre-wrap' }}>{s.commands.join('\n')}</pre>
                       </div>
                     ))}
+                    {step.gui && (
+                      <div>
+                        <div className="small muted">In the webConfigurator</div>
+                        <ol className="small">{step.gui.steps.map((g, i) => <li key={i}>{g}</li>)}</ol>
+                      </div>
+                    )}
                     <button onClick={() => doItForMe(step)}>Do it for me</button>
-                    <p className="small muted">Runs these commands on the lab machines and marks the step as assisted.</p>
+                    <p className="small muted">{step.gui ? 'Makes these changes on the lab machines' : 'Runs these commands on the lab machines'} and marks the step as assisted.</p>
                   </>
                 )}
               </div>

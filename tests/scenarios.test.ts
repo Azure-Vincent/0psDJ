@@ -75,6 +75,11 @@ const SYMPTOM: Record<string, RegExp> = {
   'dom-trust-broken': /ERRCONNECT_AUTHENTICATION_FAILED/,
   'dom-account-locked': /ERRCONNECT_ACCOUNT_LOCKED_OUT/,
   'dom-group-membership': /ERRINFO_SERVER_INSUFFICIENT_PRIVILEGES/,
+  'pf-forward-no-rule': /Couldn't connect to server/,
+  'pf-rule-order': /\(no output\)/,
+  'pf-outbound-manual': /Couldn't connect to server/,
+  'pf-alias-wrong': /No route to host/,
+  'pf-rule-source': /Couldn't connect to server/,
   'mtu-uplink-mismatch': /curl: \(28\) Operation timed out after 30000 milliseconds with 0 out of 4718592 bytes received/,
 };
 

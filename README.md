@@ -31,17 +31,18 @@ For every technology it answers the same questions:
   Windows, pfSense, Docker), configuration reference, an **Operate & recover**
   guide (files, logs, service management, diagnostic workflow, common
   failures) and a graded assessment.
-- **A guided lab**: build a freshly installed Debian server into a hardened
-  intranet web server in nine steps (switch port, static address, DNS, SSH
-  keys and hardening, firewall, web page). The simulator checks each step
-  against the running machines, and the last step reboots everything.
+- **Three guided labs**: build a freshly installed Debian server into a
+  hardened intranet web server (Lab 1), create an Active Directory domain and
+  join a member server (Lab 2), and turn a fresh pfSense into the perimeter
+  firewall with a DMZ and a published web server (Lab 3). The simulator checks
+  each step against the running machines, and the last step reboots everything.
 - **An Infrastructure Builder**: draw your own network (workstations, servers,
   routers, VLAN-aware switches), set addresses, gateways, VLANs, firewall
   rules and NAT, then build it. Every device becomes a simulated Debian
   machine configured from the files the design generates. You get terminals
   on each machine and a packet tracer that shows every hop and every firewall
   and NAT decision.
-- **58 troubleshooting tickets**, each injecting a realistic fault into the
+- **75 troubleshooting tickets**, each injecting a realistic fault into the
   lab. You investigate with real commands in terminals, record a diagnosis and
   repair the fault. The app then checks your fix immediately, again after
   rebooting every machine, and against security rules, so "just open the
@@ -62,7 +63,8 @@ Everything is stored locally, and the app works without an Internet connection.
 The lab machines are not virtual machines. They are a **simulation** built
 into the app: a small network with a switch, a router, a DNS/DHCP server
 that is also the Kerberos KDC, a Linux server, a Windows server, an Active
-Directory domain controller, workstations and an "Internet" host. Commands such as `ip`,
+Directory domain controller, a pfSense perimeter firewall with a DMZ web
+server, workstations and an "Internet" host. Commands such as `ip`,
 `ss`, `systemctl`, `journalctl`, `nft`, `ssh`, `dig`, `curl`, `openssl`,
 `kinit` and `tcpdump` behave like their Debian 12 counterparts and all act on one
 consistent model: when you change a configuration file, the services, sockets,
@@ -73,8 +75,12 @@ cmdlets such as `Get-Service`, `Get-NetFirewallRule`, `Test-NetConnection` and
 same model, and the Linux machines connect to it with `xfreerdp`. The domain
 controller dc01 runs Active Directory and DNS for ad.corp.lab: members find it
 through DNS SRV records, join the domain, and pass domain logons to it over
-their secure channel. Docker and pfSense are not simulated; they are taught
-from documentation and representative output.
+their secure channel. The firewall fw01 is a simulated pfSense 2.7.2: its
+config.xml is compiled into a pf ruleset (interface rules, aliases, port
+forwards, outbound NAT, states and the firewall log), and you manage it from
+its webConfigurator in a browser on ws01 or with `pfctl` and `easyrule` on its
+console. Docker is not simulated; it is taught from documentation and
+representative output.
 
 ## Installation
 
@@ -205,7 +211,11 @@ The Windows server follows Windows Server 2022 and Windows PowerShell 5.1
 (output formats, error records, event IDs). The domain has one DC; domain
 logons use NTLM pass-through, and Kerberos for Windows logons, Group Policy
 objects and replication are not modelled. PowerShell covers the cmdlets and
-parameters the lessons, tickets and labs use.
+parameters the lessons, tickets and labs use. The pfSense firewall covers
+interfaces, aliases, filter rules, port forwards, outbound NAT, states and the
+firewall log; its DHCP and DNS services, VLANs, VPNs, gateway monitoring,
+floating rules and packages are not simulated, and the webConfigurator shows
+only the pages these features need.
 Other output for Windows, Active Directory, Docker, pfSense and Cisco IOS is
 representative of the versions named on each page; check the exact wording
 against your own systems when it matters. The certification map is a study

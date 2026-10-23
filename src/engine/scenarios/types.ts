@@ -111,7 +111,7 @@ export interface Scenario {
   /** Local user of the ws01 terminal (defaults to alice). */
   clientUser?: string;
   /** Terminals offered in the workspace (default: ws01 + consoles on srv01, ns1, rtr01). */
-  terminals?: { hostId: string; user: string; label: string; banner?: string }[];
+  terminals?: { hostId: string; user: string; label: string; banner?: string; kind?: 'terminal' | 'pfweb'; fromHost?: string }[];
   hints: string[];
   /** Reference repair, shown after the scenario is resolved or revealed, and used by automated tests. */
   solution: { host: string; user?: string; commands: string[]; note?: string }[];

@@ -326,6 +326,7 @@ export const LAB1: GuidedLab = {
     { label: 'SSH', link: 'lesson/ssh/what' },
     { label: 'Firewalls (nftables)', link: 'lesson/nftables/what' },
   ],
+  setupNote: 'This lab adds **srv02** (eth0, MAC 52:54:00:c3:00:14), cabled to sw01 port **swp10**. Target: VLAN 20, 10.0.20.20.',
   terminals: [
     { hostId: 'srv02', user: 'root', label: 'srv02 console (root)', banner: 'Console of the new server srv02 (root, from the hypervisor). Fresh Debian 12 install; alice\'s password on srv02 is "srv02-alice".' },
     { hostId: 'sw01', user: 'root', label: 'sw01 console (root)', banner: 'Serial console of the access switch sw01 (Linux bridge br0 with VLAN filtering, ifupdown2).' },

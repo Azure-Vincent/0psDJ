@@ -31,6 +31,8 @@ export interface LabStep {
   checks: LabCheck[];
   /** Reference solution (used for "show solution" and to fast-forward to a step). */
   solution: { host: string; user: string; commands: string[]; answers?: string[] }[];
+  /** Reference solution done in a web interface (pfSense webConfigurator): the clicks, and their effect (applied after the commands). */
+  gui?: { steps: string[]; apply(world: World): World };
   /** Links into lessons and the reference library ("lesson/netif/internals", "reference?id=ip"). */
   learn: { label: string; link: string }[];
   concepts: ConceptId[];
@@ -43,6 +45,9 @@ export interface LabTerminal {
   user: string;
   label: string;
   banner: string;
+  /** 'pfweb': a browser on fromHost (logged in locally as user) opened on hostId's pfSense webConfigurator. */
+  kind?: 'terminal' | 'pfweb';
+  fromHost?: string;
 }
 
 export interface GuidedLab {
@@ -58,6 +63,8 @@ export interface GuidedLab {
   /** Lessons worth doing first. */
   prerequisites: { label: string; link: string }[];
   terminals: LabTerminal[];
+  /** Shown next to the topology before the lab starts (markdown): the machines this lab adds or changes. */
+  setupNote?: string;
   steps: LabStep[];
   build(): World;
 }

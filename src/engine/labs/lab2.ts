@@ -173,6 +173,7 @@ export const LAB2: GuidedLab = {
     { label: 'Active Directory, DNS and Kerberos', link: 'lesson/ad-kerberos/what' },
     { label: 'TCP, UDP and DNS', link: 'lesson/transport/what' },
   ],
+  setupNote: `This lab uses **dc01** (${DC01_IP}, Windows Server 2022, no roles yet) and the member server **win01** (10.0.20.30), both on the server network.`,
   terminals: [
     { hostId: 'dc01', user: 'Administrator', label: 'dc01 console (PowerShell)', banner: `Windows PowerShell\nCopyright (C) Microsoft Corporation. All rights reserved.\n\ndc01 console (hypervisor), local Administrator (password ${DC01_ADMIN_PASSWORD}; after the promotion this is CORP\\Administrator). Fresh Windows Server 2022: Get-WindowsFeature, Get-NetIPConfiguration.` },
     { hostId: 'win01', user: 'Administrator', label: 'win01 console (PowerShell)', banner: 'Windows PowerShell\nCopyright (C) Microsoft Corporation. All rights reserved.\n\nwin01 console (hypervisor), local Administrator. Member server to be: IIS, Remote Desktop.' },

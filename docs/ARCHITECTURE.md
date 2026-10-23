@@ -54,7 +54,7 @@ a command line with the collected answers on a fresh copy of the world; this is
 only correct because the engine is deterministic, and it is tested.
 
 **Honesty about simulation.** The app never claims to run Debian, Windows,
-pfSense or Docker (win01 is a simulated Windows Server, labelled as such). Deployment guides target real VMs and are labelled as such;
+pfSense or Docker (win01 is a simulated Windows Server and fw01 a simulated pfSense, labelled as such). Deployment guides target real VMs and are labelled as such;
 the sandbox and scenarios are labelled as simulations, and simplifications are
 stated where they matter (see §5.6).
 
@@ -66,7 +66,7 @@ Modules (✅ / 🟡 / ⏳ per topic are listed in-app under *Curriculum*):
 
 ```
             ┌──────────────► B Remote access (SSH ✅, RDP ⏳, WinRM ⏳, VPN ⏳ …) ─┐
-A Networking┤──────────────► D Firewalls (nftables 🟡, pfSense ⏳ …) ──────────────┼─► F Enterprise infrastructure
+A Networking┤──────────────► D Firewalls (nftables 🟡, pfSense 🟡 …) ──────────────┼─► F Enterprise infrastructure
 fundamentals├──────────────► E Virtualization & containers (⏳) ─────────────────────┤      (DNS 🟡, Linux admin 🟡, others ⏳)
             └─► C Identity & authentication (PAM 🟡, AD/Kerberos/LDAP ⏳) ◄── B ──────┘
 ```
@@ -326,7 +326,7 @@ options is implemented and unsupported options say so.
 | 5b | **Windows Server and PowerShell**: win01 (Windows Server 2022) on the server VLAN; Windows model with services (start types, dependencies, Service Control Manager events), Windows Defender Firewall (profiles, rules, network category) compiled into the packet filter, registry values, event logs (System, Security, Firewall, TerminalServices), local users and groups, IIS, adapters and DNS client; Windows PowerShell 5.1 interpreter (pipeline of objects, formatting views, 5.1 error records, about 100 cmdlets: services, processes, events, accounts, files, registry, NetTCPIP, DnsClient, NetSecurity, Test-NetConnection, Invoke-WebRequest) and console programs (ipconfig, ping, tracert, netstat, nslookup, netsh advfirewall, sc.exe, net, reg, qwinsta, findstr); RDP stages (TCP, TLS, NLA, logon right) with `xfreerdp` on the Linux hosts and logon events; the Windows/RDP lesson becomes simulated with a sandbox; 7 RDP tickets | ✅ |
 | 5c | **Active Directory and Lab 2**: dc01 as the domain controller of ad.corp.lab (CORP): AD database (users, groups with nesting, computers, lockout policy), AD-integrated DNS with the DC locator SRV records, forwarders and dynamic registration of members, restartable AD DS; Install-WindowsFeature and Install-ADDSForest; DC location from members (SRV query to their own DNS servers, LDAP ping), domain join with computer accounts, the secure channel (Test-ComputerSecureChannel -Repair, nltest /sc_query, /sc_verify, /dsgetdc), the Domain firewall profile through Network Location Awareness, NTLM pass-through RDP logons with lockout and logon rights through nested domain groups; ActiveDirectory and DnsServer cmdlets, gpresult, gpupdate; mandatory-parameter prompts; the AD lesson becomes simulated; 5 domain tickets; **Lab 2: Windows Domain** (7 verified steps) | ✅ |
 | 5 | Windows/AD track (remaining): Group Policy objects, Kerberos for Windows logons, a second DC and replication | ⏳ |
-| 6 | pfSense model (WAN/LAN/DMZ, NAT, state table, logs); Lab 3 | ⏳ |
+| 6 | **pfSense and Lab 3**: fw01 (pfSense 2.7.2, FreeBSD shell) between the Internet, the server network and a DMZ with dmz01; `/conf/config.xml` as the only state (`src/engine/pf`: XML parser/printer, typed config model), compiled like pfSense's rules.debug into the packet filter with pf semantics (ingress rules, first match, keep state, anti-lockout, block private networks on WAN, logged default deny, rdr before filtering, automatic/hybrid/manual outbound NAT), filterlog lines in /var/log/filter.log, load errors that keep the previous ruleset, restore of the last good config at boot; console tools (`pfctl -s rules/nat/states/info/tables`, `-vvsr`, `-d/-e`, `-k`, `-F states`, `-t … -T show`, `-nf`, `easyrule`, `viconfig`, `/etc/rc.filter_configure`, `/etc/rc.reload_all`, FreeBSD `ifconfig`, `netstat`, `sockstat`); the webConfigurator (`src/ui/components/PfWebConfigurator.tsx` over `pf/webgui.ts`: login, dashboard, interface assignment, aliases, rules with ordering, port forwards with associated rules, outbound NAT modes, firewall log, states, Apply Changes) reached over HTTPS from a browser on ws01, so a bad rule can lock it out; the pfSense lesson becomes simulated with a sandbox; 5 pfSense tickets; **Lab 3: Perimeter firewall** (6 verified steps, reference solutions done in the webConfigurator) | ✅ |
 | 7 | Containers: image layers, namespaces, bridge networking, port publishing; Docker Compose; Lab 4 | ⏳ |
 | 8 | Enterprise services (web/reverse proxy, SMB/NFS, NTP, logging) and Labs 5–6 (multi-system outages, recovery) | ⏳ |
 
