@@ -11,6 +11,7 @@ import { MTU_SCENARIOS, TLS_SCENARIOS } from './tlsMtuScenarios';
 import { KRB_SCENARIOS } from './krbScenarios';
 import { WIN_SCENARIOS } from './winScenarios';
 import { DOMAIN_SCENARIOS } from './domainScenarios';
+import { PF_SCENARIOS } from './pfScenarios';
 import type { Scenario } from './types';
 
 /** Every troubleshooting scenario, grouped by the lesson that introduces it. */
@@ -26,6 +27,7 @@ export const SCENARIO_SETS: { id: string; title: string; scenarios: Scenario[] }
   { id: 'windows', title: 'Windows Server and Remote Desktop', scenarios: WIN_SCENARIOS },
   { id: 'domain', title: 'Active Directory domain', scenarios: DOMAIN_SCENARIOS },
   { id: 'nftables', title: 'Firewalls (nftables)', scenarios: FIREWALL_SCENARIOS },
+  { id: 'pfsense', title: 'Perimeter firewall (pfSense)', scenarios: PF_SCENARIOS },
   { id: 'cases', title: 'End-to-end case studies', scenarios: CASE_SCENARIOS },
 ];
 

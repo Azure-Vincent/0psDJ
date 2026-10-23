@@ -98,7 +98,7 @@ export function rebootAll(world: World): World {
   w.sessions = [];
   // Infrastructure first (switch, router, DNS/DHCP), then servers and clients; hosts added by a lab boot last.
   // Domain controllers before members (members look for a DC while they boot).
-  const order = ['sw01', 'rtr01', 'ns1', 'dc01', 'srv01', 'ws01', 'ws02', 'ext01', 'dev01', 'dev02'];
+  const order = ['sw01', 'rtr01', 'fw01', 'ns1', 'dc01', 'srv01', 'ws01', 'ws02', 'ext01', 'dev01', 'dev02'];
   for (const id of [...order, ...Object.keys(w.hosts).filter((h) => !order.includes(h))]) if (w.hosts[id]) bootHost(w, w.hosts[id]);
   w.clock += 30_000;
   return w;

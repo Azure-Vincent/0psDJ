@@ -386,5 +386,30 @@ export const CAUSES: Record<string, Cause> = Object.fromEntries(
       signature: 'Authentication succeeds, then the logon is refused (ERRINFO_SERVER_INSUFFICIENT_PRIVILEGES, 4625 Logon Type 10 status 0xC000015B). The server\'s local Remote Desktop Users group contains a domain group, and the user is no longer a member of that group in AD (Security 4729 on the DC).',
       check: 'Get-LocalGroupMember "Remote Desktop Users" on the server; Get-ADGroupMember <group> and Get-ADPrincipalGroupMembership <user> on the DC.',
     },
+    {
+      id: 'pf-forward-no-rule', title: 'pfSense port forward without a filter rule for the translated destination', category: 'Firewall', concept: 'pfsense.nat',
+      signature: 'Connections to the published address time out from outside; inside they work. pfctl -sn shows the rdr, but the firewall log shows the default deny on WAN with the destination already translated to the inside server. The port forward has no associated rule (no link icon) and Firewall > Rules > WAN has no pass to the server.',
+      check: 'Status > System Logs > Firewall (or tail /var/log/filter.log); pfctl -sn; pfctl -sr | grep vtnet0; Firewall > NAT > Port Forward: filter rule association.',
+    },
+    {
+      id: 'pf-rule-order', title: 'pfSense block rule above the pass rule it should leave room for (first match wins)', category: 'Firewall', concept: 'pfsense.rules',
+      signature: 'One kind of traffic that a pass rule should allow is blocked, and the firewall log names a block rule of the same interface, not the default deny. In the rule list (or pfctl -vvsr) the block is above the pass, whose counters stay at 0.',
+      check: 'The firewall log entry\'s rule; Firewall > Rules > <interface> order; pfctl -vvsr (evaluations and packets per rule).',
+    },
+    {
+      id: 'pf-outbound-manual', title: 'pfSense manual outbound NAT has no mapping for the network', category: 'Configuration', concept: 'pfsense.nat',
+      signature: 'One internal network cannot reach the Internet while others can and DNS works. Nothing is blocked in the firewall log; pfctl -ss shows the connection leaving WAN with its private source address. Firewall > NAT > Outbound is in Manual mode and no mapping covers that network.',
+      check: 'Firewall > NAT > Outbound (mode and mappings); pfctl -sn (nat on the WAN interface: which sources?); pfctl -ss for the client.',
+    },
+    {
+      id: 'pf-alias-wrong', title: 'pfSense alias holds a wrong address', category: 'Configuration', concept: 'pfsense.rules',
+      signature: 'Rules and NAT entries look right in the lists (they name an alias) but act on the wrong host: pfctl -sn / -ss show the translation or match to an unexpected address, and pfctl -t <ALIAS> -T show lists it. Recent alias edits in the config history.',
+      check: 'pfctl -t <ALIAS> -T show; Firewall > Aliases; pfctl -sn and pfctl -ss for the connection; Diagnostics > Backup & Restore > Config History.',
+    },
+    {
+      id: 'pf-rule-source', title: 'pfSense rule matches only the interface\'s own subnet ("LAN net"), not the networks routed behind it', category: 'Firewall', concept: 'pfsense.rules',
+      signature: 'Hosts directly on the interface\'s subnet pass, hosts on networks routed to the firewall through that interface are blocked by the default deny (firewall log: blocked on that interface, source in a routed network). The pass rule\'s source is the "<interface> net" macro.',
+      check: 'Firewall log entries (source address, interface, rule); Firewall > Rules > <interface> source; pfctl -sr | grep <interface>.',
+    },
   ] as Cause[]).map((c) => [c.id, c]),
 );

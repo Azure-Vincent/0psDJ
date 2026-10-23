@@ -8,6 +8,7 @@
 // admin-prohibited) are generated where the real kernel would generate them and
 // are themselves routed back, so asymmetric failures behave realistically.
 
+import { filterLog, PF_TABLE } from '../pf/model';
 import { WF_TABLE } from '../win/model';
 import { evaluate, evaluateNat, renderRule, type EvalResult, type PacketContext, type RejectType } from '../config/nft';
 import { familyOf, inPrefix, normAddr, prefixLength } from '../net/addr';
@@ -301,6 +302,10 @@ function quote(p: Packet): NonNullable<Packet['icmp']>['quoted'] {
 }
 
 function firewallLog(world: World, host: Host, prefix: string, p: Packet, iif: string | undefined, oif: string | undefined) {
+  if (host.kind === 'pfsense' && prefix.startsWith('pf|')) {
+    filterLog(world, host, prefix, p as Parameters<typeof filterLog>[3], packetLength(p), iif, oif);
+    return;
+  }
   const flags = p.tcp ? p.tcp.flags.join(' ') : '';
   const l4 = p.tcp
     ? `PROTO=TCP SPT=${p.tcp.sport} DPT=${p.tcp.dport} WINDOW=${p.tcp.window} RES=0x00 ${flags} URGP=0`
@@ -414,6 +419,10 @@ export function describeDecision(hook: string, fw: EvalResult): string {
     const [profile, dir] = d.chain.split('-');
     if (d.policy) return `Windows Defender Firewall (${profile} profile): no ${dir.toLowerCase()} rule matched, default action ${fw.verdict === 'accept' ? 'Allow' : 'Block'}`;
     return `Windows Defender Firewall (${profile} profile): rule "${d.rule!.comment ?? d.rule!.handle}" → ${fw.verdict === 'accept' ? 'Allow' : 'Block'}`;
+  }
+  if (d.table === `inet ${PF_TABLE}`) {
+    const label = d.rule?.comment ?? 'Default deny rule IPv4';
+    return `pf: ${label === 'pass: keep state' ? 'existing state' : `rule "${label}"`} → ${fw.verdict === 'accept' ? 'pass' : 'block'}`;
   }
   if (d.policy) return `nft ${d.table} ${d.chain}: no rule matched, chain policy ${fw.verdict}`;
   return `nft ${d.table} ${d.chain}: rule handle ${d.rule!.handle} "${renderRule({ ...d.rule!, counter: null })}" → ${fw.verdict}`;

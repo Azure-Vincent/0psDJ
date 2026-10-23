@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Shell, type CommandLogEntry } from '../../engine/shell/shell';
 import type { World } from '../../engine/types';
+import { PfWebConfigurator } from './PfWebConfigurator';
 import { Terminal } from './Terminal';
 
 export interface TermSpec {
@@ -8,6 +9,9 @@ export interface TermSpec {
   user: string;
   label: string;
   banner?: string;
+  /** 'pfweb': a browser on fromHost (as user) showing hostId's pfSense webConfigurator. */
+  kind?: 'terminal' | 'pfweb';
+  fromHost?: string;
 }
 
 /**
@@ -24,6 +28,7 @@ export function LabTerminals({ specs, getWorld, setWorld, onCommand, height = 46
   const [active, setActive] = useState(0);
   const shells = useMemo(
     () => specs.map((s) => {
+      if (s.kind === 'pfweb') return null;
       const w = getWorld();
       const home = w.hosts[s.hostId].users[s.user].home;
       return new Shell(getWorld, setWorld, { hostId: s.hostId, user: s.user, cwd: w.hosts[s.hostId].fs[home] ? home : '/' }, onCommand);
@@ -43,7 +48,9 @@ export function LabTerminals({ specs, getWorld, setWorld, onCommand, height = 46
       </div>
       {specs.map((s, i) => (
         <div key={i} style={{ display: active === i ? 'flex' : 'none', flex: 1, minHeight: 0, flexDirection: 'column' }}>
-          <Terminal shell={shells[i]} banner={s.banner} autoFocus={active === i} />
+          {s.kind === 'pfweb'
+            ? <PfWebConfigurator getWorld={getWorld} setWorld={setWorld} hostId={s.hostId} fromHost={s.fromHost ?? 'ws01'} fromUser={s.user} visible={active === i} banner={s.banner} />
+            : <Terminal shell={shells[i]!} banner={s.banner} autoFocus={active === i} />}
         </div>
       ))}
     </div>

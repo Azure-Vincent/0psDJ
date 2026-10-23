@@ -5,6 +5,7 @@ import { applySolution, checkStep } from '../src/engine/labs/engine';
 import { GUIDED_LABS } from '../src/engine/labs';
 import { LAB1 } from '../src/engine/labs/lab1';
 import { LAB2 } from '../src/engine/labs/lab2';
+import { LAB3 } from '../src/engine/labs/lab3';
 import type { World } from '../src/engine/types';
 import { Lab } from './helpers';
 
@@ -32,12 +33,29 @@ describe('guided labs', () => {
     expect(final.results.filter((r) => !r.ok).map((r) => `${r.step} / ${r.id}: ${r.detail}`)).toEqual([]);
   });
 
+  it('Lab 3: each step fails before its solution and passes after it; the reboot test passes at the end', () => {
+    let world: World = LAB3.build();
+    for (const step of LAB3.steps.filter((s) => !s.afterReboot)) {
+      const before = checkStep(world, LAB3, step);
+      expect(before.passed, `${step.id} should not pass before its solution`).toBe(false);
+      world = applySolution(world, step);
+      const after = checkStep(world, LAB3, step);
+      expect(after.results.filter((r) => !r.ok).map((r) => `${r.id}: ${r.detail}`), step.id).toEqual([]);
+    }
+    const final = checkStep(world, LAB3, LAB3.steps.at(-1)!);
+    expect(final.results.filter((r) => !r.ok).map((r) => `${r.step} / ${r.id}: ${r.detail}`)).toEqual([]);
+  });
+
   it.each(GUIDED_LABS.map((l) => l.id))('%s: links, terminals and solutions are well-formed', (id) => {
     const lab = GUIDED_LABS.find((l) => l.id === id)!;
     const world = lab.build();
     for (const p of lab.prerequisites) expect(linkResolves(p.link), p.link).toBe(true);
     for (const s of lab.steps) for (const l of s.learn) expect(linkResolves(l.link), `${s.id}: ${l.link}`).toBe(true);
-    for (const t of lab.terminals) expect(world.hosts[t.hostId]?.users[t.user], `${t.hostId}/${t.user}`).toBeDefined();
+    for (const t of lab.terminals) {
+      const h = t.kind === 'pfweb' ? t.fromHost! : t.hostId;
+      expect(world.hosts[h]?.users[t.user], `${h}/${t.user}`).toBeDefined();
+      expect(world.hosts[t.hostId], t.hostId).toBeDefined();
+    }
     expect(lab.steps.at(-1)!.afterReboot).toBe(true);
   });
 

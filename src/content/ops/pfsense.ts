@@ -1,6 +1,8 @@
-// pfSense lesson (reference mode: pfSense is not simulated in the lab).
-// Output samples, menu paths and labels are representative of pfSense CE 2.7.2
-// on FreeBSD 14. Nothing here is marked sim/simulated.
+// pfSense lesson. Output samples, menu paths and labels are representative of
+// pfSense CE 2.7.2 on FreeBSD 14. The lab's fw01 is a simulated pfSense
+// (config.xml, pf, the webConfigurator pages that matter for rules and NAT):
+// the sandbox, the pfSense tickets and Lab 3 use it. Console commands marked
+// sim work on fw01.
 
 import type { Assessment, Lesson, ServiceGuide } from '../types';
 
@@ -105,11 +107,11 @@ export const PFSENSE_GUIDE: ServiceGuide = {
       tasks: [
         { task: 'Console menu', command: ' 1) Assign Interfaces        9) pfTop\n 2) Set interface(s) IP address 10) Filter Logs\n 5) Reboot system            11) Restart webConfigurator\n 8) Shell                    15) Restore recent configuration\n 4) Reset to factory defaults 16) Restart PHP-FPM', explain: 'Shown on the VGA/serial/hypervisor console and after SSH login as admin. Option 8 opens a root shell. Options 1 and 2 fix assignment/addressing when the GUI is unreachable.', risk: 'Option 4 erases the entire configuration. Option 1 can move LAN to another NIC and cut you off.' },
         { task: 'Service status / restart', command: 'pfSsh.php playback svc status unbound\npfSsh.php playback svc restart unbound\npfSsh.php playback svc restart dhcpd', explain: 'The supported way to control pfSense services from the shell: it regenerates configuration from config.xml like the GUI does. Running `service unbound restart` or killing processes bypasses that.' },
-        { task: 'Filter reload', command: '/etc/rc.filter_configure\npfctl -nf /tmp/rules.debug', explain: 'Regenerates and reloads the ruleset (like Apply Changes). `pfctl -nf` only parses the file: no output means it would load.' },
-        { task: 'Inspect rules, NAT, states', command: 'pfctl -sr\npfctl -vvsr | grep -A3 USER_RULE\npfctl -sn\npfctl -ss | grep 10.0.30.25\npfctl -si', explain: '`-sr` filter rules, `-sn` NAT/rdr rules, `-ss` states, `-si` counters and state-table size; `-vv` adds evaluation/packet counters and rule numbers.' },
-        { task: 'Kill states', command: 'pfctl -k 10.0.30.25\npfctl -k 10.0.30.25 -k 203.0.113.80', explain: 'Kills states from a host (or between two hosts) so the next packet is evaluated against the current rules.', risk: '`pfctl -F states` flushes all states: every connection drops.' },
-        { task: 'Disable / enable the packet filter (emergency only)', command: 'pfctl -d\npfctl -e', explain: 'Disables pf entirely: all filtering **and NAT** stop. Used only to regain GUI access after a lockout; re-enable (or reload the filter) as soon as the rule is fixed.', risk: 'While disabled, the firewall forwards everything unfiltered and LAN clients lose Internet (no NAT). A filter reload re-enables pf.' },
-        { task: 'Add an emergency pass rule', command: 'easyrule pass lan tcp 10.0.10.25 10.0.10.1 443\neasyrule block wan 203.0.113.9', explain: 'Adds a real rule to config.xml (top of the interface\'s rules) and reloads the filter. Syntax: `easyrule pass <interface> <proto> <src> <dst> [port]`.' },
+        { task: 'Filter reload', command: '/etc/rc.filter_configure\npfctl -nf /tmp/rules.debug', explain: 'Regenerates and reloads the ruleset (like Apply Changes). `pfctl -nf` only parses the file: no output means it would load.' , sim: true },
+        { task: 'Inspect rules, NAT, states', command: 'pfctl -sr\npfctl -vvsr | grep -A3 USER_RULE\npfctl -sn\npfctl -ss | grep 10.0.30.25\npfctl -si', explain: '`-sr` filter rules, `-sn` NAT/rdr rules, `-ss` states, `-si` counters and state-table size; `-vv` adds evaluation/packet counters and rule numbers.' , sim: true },
+        { task: 'Kill states', command: 'pfctl -k 10.0.30.25\npfctl -k 10.0.30.25 -k 203.0.113.80', explain: 'Kills states from a host (or between two hosts) so the next packet is evaluated against the current rules.', risk: '`pfctl -F states` flushes all states: every connection drops.' , sim: true },
+        { task: 'Disable / enable the packet filter (emergency only)', command: 'pfctl -d\npfctl -e', explain: 'Disables pf entirely: all filtering **and NAT** stop. Used only to regain GUI access after a lockout; re-enable (or reload the filter) as soon as the rule is fixed.', risk: 'While disabled, the firewall forwards everything unfiltered and LAN clients lose Internet (no NAT). A filter reload re-enables pf.' , sim: true },
+        { task: 'Add an emergency pass rule', command: 'easyrule pass lan tcp 10.0.10.25 10.0.10.1 443\neasyrule block wan 203.0.113.9', explain: 'Adds a real rule to config.xml (top of the interface\'s rules) and reloads the filter. Syntax: `easyrule pass <interface> <proto> <src> <dst> [port]`.' , sim: true },
         { task: 'Logs', command: 'tail -f /var/log/filter.log\ntail -n 50 /var/log/system.log\ntcpdump -n -e -ttt -i pflog0', explain: '2.7.x writes plain-text logs (older 2.4 used circular clog files). `pflog0` shows logged packets live with the rule number.' },
         { task: 'Routes and interfaces', command: 'netstat -rn -f inet\nifconfig -a\nifconfig vtnet1.30', explain: 'FreeBSD routing table and interface state (status: active / no carrier, vlan tag and parent).' },
         { task: 'Why a service failed to start', command: 'tail -n 30 /var/log/resolver.log\ntail -n 30 /var/log/dhcpd.log\nsockstat -4l | grep :53', explain: 'Typical: unbound cannot bind port 53 (dnsmasq running), syntax error in custom options; dhcpd "No subnet declaration for vtnet1.30" (interface has no address in a DHCP-enabled subnet).' },
@@ -164,7 +166,7 @@ export const PFSENSE_LESSON: Lesson = {
   level: 'intermediate',
   summary: 'How a pfSense firewall assigns interfaces, routes, filters and translates traffic, where its configuration and logs live, and how to find out (and safely fix) why traffic is blocked.',
   concepts: ['pfsense.rules', 'pfsense.nat', 'fw.stateful', 'fw.path', 'net.nat', 'net.vlan', 'net.routing', 'net.dhcp', 'dns.resolution', 'ops.recovery'],
-  mode: 'reference',
+  mode: 'simulated',
   guide: PFSENSE_GUIDE,
   caseStudyIds: ['pfsense-blocks'],
   objectives: ['N10-009:1.2', 'N10-009:2.1', 'N10-009:2.2', 'N10-009:3.4', 'N10-009:4.3', 'N10-009:5.3', 'N10-009:5.5', '200-301:4.1', '200-301:5.6'],
@@ -182,8 +184,8 @@ It does in one box what the lab's rtr01 does with several Linux components:
 | NAT | nftables \`masquerade\`, \`dnat\` | Firewall > NAT (Outbound, Port Forward, 1:1) |
 | DHCP / DNS | isc-dhcp-server, bind9 on ns1 | Services > DHCP Server, DNS Resolver (unbound) |
 
-### This lesson is reference-only
-pfSense is **not simulated** in the lab. Menu paths, console text and command output in this lesson are representative of **pfSense CE 2.7.2 on FreeBSD 14** (Netgate's pfSense Plus has the same structure with some differences). Practise the concepts (stateful filtering, NAT, routing, VLANs) in the simulator with the nftables and NAT lessons, then apply them here.
+### In the simulator
+The lab's perimeter firewall **fw01** is a simulated pfSense CE 2.7.2: WAN \`vtnet0\` 203.0.113.10, LAN \`vtnet1\` 10.0.20.254 (server network; rtr01 routes the internal networks 10.0.0.0/16 to it), DMZ (opt1) \`vtnet2\` 172.16.50.1/24 with the web server **dmz01** (172.16.50.10, published as portal.corp.lab). Its state is \`/conf/config.xml\`, compiled into a pf ruleset with pf's semantics (ingress filtering, first match, keep state, rdr before filtering, outbound NAT, logged default deny). You can use the **webConfigurator** (Interfaces, Aliases, Rules, NAT, Firewall log, States) from a browser on ws01 and the console shell (\`pfctl\`, \`easyrule\`, \`viconfig\`, \`/etc/rc.filter_configure\`, \`ifconfig\`, \`netstat -rn\`, \`/var/log/filter.log\`). The sandbox below, the pfSense tickets and **Lab 3** run on it. DHCP and DNS services, VLANs, VPNs, gateway monitoring, floating rules and packages are not simulated; for those, the examples in this lesson are from real systems.
 
 ### The example network
 - **WAN** = \`vtnet0\`, DHCP from an upstream router: 192.168.1.50/24, gateway 192.168.1.1 (an RFC1918 address: typical of labs and home networks).
@@ -387,7 +389,7 @@ pfSense settings are made in the GUI and stored in \`/cf/conf/config.xml\`. The 
     { message: 'VPN connected, but nothing reachable through it', layer: 'VPN rules tab / routes', meaning: 'Traffic from the tunnel is filtered on the OpenVPN/IPsec/WireGuard tab (often empty), or the remote network lacks a route/NAT.', firstCheck: 'Firewall > Rules > OpenVPN; Status > OpenVPN; Diagnostics > Routes' },
   ],
 
-  scenarioIds: [],
+  scenarioIds: ['pf-forward-no-rule', 'pf-rule-order', 'pf-outbound-manual', 'pf-alias-wrong', 'pf-rule-source'],
   assessmentId: 'pfsense',
   references: [
     { title: 'pfSense documentation (Netgate)', url: 'https://docs.netgate.com/pfsense/en/latest/' },

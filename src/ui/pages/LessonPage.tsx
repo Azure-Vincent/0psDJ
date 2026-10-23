@@ -330,6 +330,16 @@ function widgetsFor(id: string): LessonWidgets {
       ],
     };
   }
+  if (id === 'pfsense') {
+    return {
+      sandbox: [
+        { kind: 'pfweb', hostId: 'fw01', user: 'alice', fromHost: 'ws01', label: 'fw01 webConfigurator (browser on ws01)', banner: 'Alice\'s browser on ws01, opened on fw01\'s webConfigurator. Log in as admin (password Fw01-Adm1n-2026).' },
+        { hostId: 'fw01', user: 'root', label: 'fw01 console (shell)', banner: 'Sandbox: fw01 (pfSense 2.7.2) console, option 8 (Shell). webConfigurator login: admin / Fw01-Adm1n-2026. Try: pfctl -sr, pfctl -sn, pfctl -ss, pfctl -vvsr, pfctl -t INTERNAL_NETS -T show, tail /var/log/filter.log, ifconfig vtnet2, netstat -rn.' },
+        { hostId: 'ext01', user: 'guest', label: 'ext01 (Internet)', banner: 'Sandbox: ext01 on the Internet (203.0.113.80). portal.corp.lab is fw01\'s WAN address here: curl -I http://portal.corp.lab/.' },
+        { hostId: 'dmz01', user: 'alice', label: 'dmz01 (alice)', banner: 'Sandbox: dmz01 (172.16.50.10) in the DMZ. Try: ping -c 1 10.0.20.10 (blocked and logged), host srv01.corp.lab (DNS to ns1 allowed), curl -I http://203.0.113.80/ (Internet, NATed).' },
+      ],
+    };
+  }
   if (id === 'windows-rdp') {
     return {
       sandbox: [
