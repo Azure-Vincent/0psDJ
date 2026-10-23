@@ -32,6 +32,7 @@ import { NAT_GUIDE } from './guides/nat';
 import { IPV6_GUIDE } from './guides/ipv6';
 import { NFTABLES_GUIDE } from './guides/nftables';
 import { PFSENSE_ASSESSMENT, PFSENSE_LESSON } from './ops/pfsense';
+import { PRIMERS } from './primers';
 import type { Assessment, Lesson } from './types';
 
 /** Registry of complete lessons. Adding a lesson = adding an entry here (plus optional UI widgets). */
@@ -70,6 +71,9 @@ export const ASSESSMENTS: Record<string, Assessment> = {
   [RECOVERY_ASSESSMENT.id]: RECOVERY_ASSESSMENT,
   [WINDOWS_RDP_ASSESSMENT.id]: WINDOWS_RDP_ASSESSMENT,
 };
+
+// Attach the beginner primers (plain language and worked examples) to their lessons.
+for (const l of LESSONS) l.primer ??= PRIMERS[l.id];
 
 export function getLesson(id: string): Lesson | undefined {
   return LESSONS.find((l) => l.id === id);

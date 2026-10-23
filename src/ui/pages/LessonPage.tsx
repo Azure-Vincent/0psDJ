@@ -11,6 +11,7 @@ import { ConfigExplorer } from '../components/ConfigExplorer';
 import { DependencyMap } from '../components/DependencyMap';
 import { LabTerminals } from '../components/LabTerminals';
 import { Inline, Markdown } from '../components/Markdown';
+import { PrimerChecks, PrimerIntro, PrimerWalkthrough } from '../components/PrimerView';
 import { SequenceDiagram } from '../components/SequenceDiagram';
 import { CidrCalculator, HookDiagram, PacketTester } from '../components/FirewallWidgets';
 import { RunVisualizer } from '../components/RunVisualizer';
@@ -435,11 +436,20 @@ export function LessonPage({ lessonId, section }: { lessonId: string; section: s
           </button>
         ))}
       </div>
-      {sec === 'what' && <Markdown text={L.what} />}
+      {sec === 'what' && (
+        <>
+          {L.primer && <PrimerIntro p={L.primer} />}
+          {L.primer && <h2 className="indepth-head">In depth</h2>}
+          <Markdown text={L.what} />
+        </>
+      )}
       {sec === 'internals' && (
         <>
+          {L.primer && <PrimerWalkthrough p={L.primer} />}
+          {L.primer && <h2 className="indepth-head">In depth</h2>}
           <Markdown text={L.internals} />
           {w.internals}
+          {L.primer && <PrimerChecks p={L.primer} />}
           <h2>References</h2>
           <ul>{L.references.map((r) => <li key={r.url}><a href={r.url} target="_blank" rel="noreferrer">{r.title}</a></li>)}</ul>
           <p className="small muted">Links open in your browser and need internet access; everything else in the app works offline.</p>

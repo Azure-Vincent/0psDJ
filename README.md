@@ -26,7 +26,10 @@ For every technology it answers the same questions:
 
 - **19 lessons** on networking, interfaces and virtual switches, TLS, remote
   access, identity (including Kerberos), firewalls, containers, Linux and Windows administration,
-  and safe recovery. Each lesson explains how the technology works, with
+  and safe recovery. Each lesson starts in plain language (the short version,
+  an everyday analogy, the key ideas each with a concrete example from the lab,
+  one case followed step by step, common misconceptions and a quick
+  self-check), then explains in depth how the technology works, with
   interactive diagrams, and includes deployment guides (Ubuntu/Debian, RHEL,
   Windows, pfSense, Docker), configuration reference, an **Operate & recover**
   guide (files, logs, service management, diagnostic workflow, common
@@ -57,6 +60,8 @@ For every technology it answers the same questions:
   tracking.
 
 Everything is stored locally, and the app works without an Internet connection.
+The sidebar can be hidden (the « button, or Ctrl+\\) to give lessons, labs and
+terminals the full width; the choice is remembered.
 
 ### How the lab works
 

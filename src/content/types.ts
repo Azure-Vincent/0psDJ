@@ -138,6 +138,25 @@ export interface ServiceGuide {
   refIds: string[];
 }
 
+/**
+ * The beginner's way into a lesson: plain language first, one idea at a time,
+ * each with a concrete example from the lab. Shown before the in-depth text.
+ */
+export interface Primer {
+  /** What it is and why it matters, in one or two plain sentences. */
+  oneLiner: string;
+  /** An everyday comparison (and where it stops being accurate). */
+  analogy: RichText;
+  /** The few ideas everything else builds on, each with a concrete example. */
+  ideas: { title: string; explain: RichText; example: RichText }[];
+  /** One concrete case followed from start to finish. */
+  walkthrough: { title: string; intro?: RichText; steps: { label: string; detail: RichText; show?: string }[] };
+  /** Wrong beliefs that cause real mistakes, and what is true instead. */
+  misconceptions: { myth: string; truth: RichText }[];
+  /** Quick self-check; the answer is revealed on request. */
+  checks: { q: string; a: RichText }[];
+}
+
 export interface Lesson {
   id: string;
   moduleId: string;
@@ -147,6 +166,8 @@ export interface Lesson {
   concepts: ConceptId[];
   what: RichText;
   internals: RichText;
+  /** Beginner-friendly explanation shown before the in-depth text (registered in content/primers). */
+  primer?: Primer;
   deployment: DeploymentGuide[];
   configIntro: RichText;
   configFiles: { platform: string; items: { path: string; purpose: string }[] }[];

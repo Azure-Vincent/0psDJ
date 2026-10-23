@@ -39,10 +39,42 @@ const NAV: [string, string, string?][] = [
   ['settings', 'Settings'],
 ];
 
+const SIDEBAR_KEY = 'infralab.sidebar';
+
+function readCollapsed(): boolean {
+  try {
+    return localStorage.getItem(SIDEBAR_KEY) === 'collapsed';
+  } catch {
+    return false;
+  }
+}
+
 function Shell() {
   const route = useRoute();
   const { progress } = useProgress();
   const [q, setQ] = useState('');
+  // The sidebar can be hidden to give lessons, labs and terminals the full width (Ctrl+\ toggles it).
+  const [collapsed, setCollapsed] = useState(readCollapsed);
+  const toggleSidebar = () => setCollapsed((c) => !c);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(SIDEBAR_KEY, collapsed ? 'collapsed' : 'open');
+    } catch {
+      // Storage unavailable (private window): the choice lasts for this session only.
+    }
+  }, [collapsed]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === '\\') {
+        e.preventDefault();
+        setCollapsed((c) => !c);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   useEffect(() => {
     const t = progress.settings.theme;
@@ -76,9 +108,17 @@ function Shell() {
   const isActive = (path: string, prefix?: string) => (prefix ? route.join('/').startsWith(prefix) : route.join('/') === path || head === path);
 
   return (
-    <div className="app">
-      <aside className="sidebar">
-        <div className="brand"><span aria-hidden>⧉</span> Infrastructure Lab</div>
+    <div className={`app${collapsed ? ' collapsed' : ''}`}>
+      {collapsed && (
+        <div className="rail">
+          <button className="rail-toggle" onClick={toggleSidebar} aria-label="Show sidebar" aria-expanded={false} title="Show sidebar (Ctrl+\)">☰</button>
+        </div>
+      )}
+      <aside className="sidebar" hidden={collapsed}>
+        <div className="brand">
+          <span aria-hidden>⧉</span> Infrastructure Lab
+          <button className="rail-toggle" style={{ marginLeft: 'auto' }} onClick={toggleSidebar} aria-label="Hide sidebar" aria-expanded title="Hide sidebar (Ctrl+\)">«</button>
+        </div>
         <form className="search" onSubmit={(e) => { e.preventDefault(); if (q.trim()) go(`search?q=${encodeURIComponent(q.trim())}`); }}>
           <input placeholder="Search lessons, commands…" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search" />
         </form>
