@@ -173,6 +173,78 @@ PIDFile=/run/radvd.pid
 WantedBy=multi-user.target
 `,
   },
+  'krb5-kdc': {
+    path: '/lib/systemd/system/krb5-kdc.service',
+    wantedBy: 'multi-user.target',
+    text: `[Unit]
+Description=Kerberos 5 Key Distribution Center
+After=network.target
+
+[Service]
+Type=forking
+PIDFile=/run/krb5-kdc.pid
+EnvironmentFile=-/etc/default/krb5-kdc
+ExecReload=/bin/kill -HUP $MAINPID
+ExecStart=/usr/sbin/krb5kdc -P /run/krb5-kdc.pid $DAEMON_ARGS
+InaccessibleDirectories=-/etc/ssh -/etc/ssl/private  /root
+ReadOnlyDirectories=/
+ReadWriteDirectories=-/var/tmp /tmp /var/lib/krb5kdc -/var/run /run
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+
+[Install]
+WantedBy=multi-user.target
+`,
+  },
+  'krb5-admin-server': {
+    path: '/lib/systemd/system/krb5-admin-server.service',
+    wantedBy: 'multi-user.target',
+    text: `[Unit]
+Description=Kerberos 5 Admin Server
+After=network.target
+
+[Service]
+Type=forking
+PIDFile=/run/krb5-admin-server.pid
+EnvironmentFile=-/etc/default/krb5-admin-server
+ExecStart=/usr/sbin/kadmind -P /run/krb5-admin-server.pid $DAEMON_ARGS
+ExecReload=/bin/kill -HUP $MAINPID
+InaccessibleDirectories=-/etc/ssh -/etc/ssl/private  /root
+ReadOnlyDirectories=/
+ReadWriteDirectories=-/var/tmp /tmp /var/lib/krb5kdc -/var/run /run /var/log
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+
+[Install]
+WantedBy=multi-user.target
+`,
+  },
+  'systemd-timesyncd': {
+    path: '/lib/systemd/system/systemd-timesyncd.service',
+    wantedBy: 'sysinit.target',
+    text: `[Unit]
+Description=Network Time Synchronization
+Documentation=man:systemd-timesyncd.service(8)
+ConditionCapability=CAP_SYS_TIME
+ConditionVirtualization=!container
+DefaultDependencies=no
+After=systemd-sysusers.service
+Before=time-set.target sysinit.target shutdown.target
+Conflicts=shutdown.target
+Wants=time-set.target
+
+[Service]
+AmbientCapabilities=CAP_SYS_TIME
+ExecStart=!!/lib/systemd/systemd-timesyncd
+Restart=always
+RestartSec=0
+Type=notify
+User=systemd-timesync
+WatchdogSec=3min
+
+[Install]
+WantedBy=sysinit.target
+Alias=dbus-org.freedesktop.timesync1.service
+`,
+  },
   ssh: {
     path: '/lib/systemd/system/ssh.service',
     wantedBy: 'multi-user.target',

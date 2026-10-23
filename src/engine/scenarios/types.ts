@@ -53,7 +53,18 @@ export interface ResolveGoal {
   expect: string;
 }
 
-export type Goal = SshGoal | HttpGoal | ResolveGoal;
+/** Kerberos: kinit with the user's password on a host; optionally an SSH login that may use only the ticket. */
+export interface KerberosGoal {
+  kind: 'kerberos';
+  description: string;
+  fromHost: string;
+  localUser: string;
+  password: string;
+  /** ssh with gssapi-with-mic only (no keys, no password) to this host must log in. */
+  sshTarget?: string;
+}
+
+export type Goal = SshGoal | HttpGoal | ResolveGoal | KerberosGoal;
 
 export interface ConstraintResult {
   id: string;

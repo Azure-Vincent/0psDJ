@@ -20,6 +20,7 @@ export type Phase =
   | 'NDP'
   | 'TLS'
   | 'HTTP'
+  | 'Kerberos'
   | 'Teardown';
 
 export interface EndpointState {
@@ -56,6 +57,19 @@ export class Recorder {
 
   private snapshot(): Record<string, EndpointState> {
     return JSON.parse(JSON.stringify(this.current));
+  }
+
+  /** Remember the recording position, to discard an attempt that is replayed (e.g. after a prompt). */
+  mark(): { events: number; seq: number; inflight: number; phase: Phase; current: string } {
+    return { events: this.events.length, seq: this.seq, inflight: this.inflight.length, phase: this.phase, current: JSON.stringify(this.current) };
+  }
+
+  rollback(m: ReturnType<Recorder['mark']>): void {
+    this.events.length = m.events;
+    this.seq = m.seq;
+    this.inflight.length = m.inflight;
+    this.phase = m.phase;
+    this.current = JSON.parse(m.current);
   }
 
   setState(host: string, s: Partial<EndpointState>): void {

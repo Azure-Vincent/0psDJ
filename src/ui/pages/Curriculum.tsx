@@ -37,11 +37,11 @@ export function Curriculum() {
       <table>
         <tbody>
           {LABS.map((l) => (
-            <tr key={l.id}><td>{l.title}{l.note && <div className="small muted">{l.note}</div>}</td><td style={{ width: 100 }}><span className={`badge ${STATUS[l.status]}`}>{l.status}</span></td></tr>
+            <tr key={l.id}><td>{'link' in l && l.link ? <a href={`#/${l.link}`}>{l.title}</a> : l.title}{l.note && <div className="small muted">{l.note}</div>}</td><td style={{ width: 100 }}><span className={`badge ${STATUS[l.status]}`}>{l.status}</span></td></tr>
           ))}
         </tbody>
       </table>
-      <p className="small muted">Also planned: the visual Infrastructure Builder (topology design with simulated packet tracing). See docs/ARCHITECTURE.md for the phased plan.</p>
+      <p className="small muted">Design your own networks in the <a href="#/builder">Infrastructure Builder</a>: draw machines, switches and routers, then build and trace packets through them. See docs/ARCHITECTURE.md for the phased plan.</p>
     </div>
   );
 }

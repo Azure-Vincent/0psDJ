@@ -12,11 +12,12 @@ import { FILE_COMMANDS, getFile, resolvePath, writeChecked } from './cmdFiles';
 import { NET_COMMANDS } from './cmdNet';
 import { HTTP_COMMANDS } from './cmdHttp';
 import { SYSTEM_COMMANDS } from './cmdSystem';
-import { parseCommandLine } from './tokenize';
+import { KRB_COMMANDS } from './cmdKrb';
+import { expandParams, parseCommandLine, type Segment } from './tokenize';
 import { type CmdCtx, type CmdResult, type CommandDef, type EditorRequest, NeedInput, type SessionFrame } from './types';
 
 export const COMMANDS: Record<string, CommandDef> = Object.fromEntries(
-  [...FILE_COMMANDS, ...NET_COMMANDS, ...HTTP_COMMANDS, ...SYSTEM_COMMANDS].map((c) => [c.name, c]),
+  [...FILE_COMMANDS, ...NET_COMMANDS, ...HTTP_COMMANDS, ...SYSTEM_COMMANDS, ...KRB_COMMANDS].map((c) => [c.name, c]),
 );
 
 export interface ExecResult {
@@ -40,6 +41,8 @@ export interface CommandLogEntry {
 export class Shell {
   frames: SessionFrame[];
   readonly log: CommandLogEntry[] = [];
+  /** Exit status of the last command line ($?). */
+  private status = 0;
 
   constructor(
     private getWorld: () => World,
@@ -78,7 +81,7 @@ export class Shell {
       return queue.shift()!;
     };
 
-    const runIn = (frame: SessionFrame, cmdLine: string, stdin?: string): CmdResult => {
+    const runIn = (frame: SessionFrame, cmdLine: string, stdin?: string, lastStatus = 0): CmdResult => {
       let list;
       try {
         list = parseCommandLine(cmdLine);
@@ -86,13 +89,15 @@ export class Shell {
         return { out: `-bash: ${(e as Error).message}`, code: 2 };
       }
       const outputs: string[] = [];
-      let code = 0;
+      let code = lastStatus;
       let skip = false;
       for (const item of list) {
         if (!skip) {
           let input = stdin;
           let segOut = '';
-          for (const seg of item.pipeline) {
+          const status = code;
+          for (const raw of item.pipeline) {
+            const seg = expandSegment(frame, raw, status);
             if (seg.stdinFile) {
               const h = world.hosts[frame.hostId];
               const f = getFile(makeCtx(frame, undefined), normalizePath(seg.stdinFile, frame.cwd, h.users[frame.user].home));
@@ -129,6 +134,34 @@ export class Shell {
         else skip = false;
       }
       return { out: outputs.join('\n'), code };
+    };
+
+    // Like bash: an unquoted expansion that is empty disappears from the argument list.
+    const expandSegment = (frame: SessionFrame, seg: Segment, status: number): Segment => {
+      const host = world.hosts[frame.hostId];
+      const user = host.users[frame.user];
+      const lookup = (n: string): string => {
+        switch (n) {
+          case '?': return String(status);
+          case 'HOME': return user?.home ?? '/';
+          case 'USER': case 'LOGNAME': return frame.user;
+          case 'HOSTNAME': return host.hostname;
+          case 'PWD': return frame.cwd;
+          case 'SHELL': return user?.shell ?? '/bin/bash';
+          case 'UID': return String(user?.uid ?? 0);
+          case 'PATH': return user?.uid === 0 ? '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin' : '/usr/local/bin:/usr/bin:/bin:/usr/local/games:/usr/games';
+          default: return '';
+        }
+      };
+      const argv = seg.argv.flatMap((a) => {
+        const v = expandParams(a, lookup);
+        return v === '' && a !== '' && /^(\u0001[^\u0002]*\u0002)+$/.test(a) ? [] : [v];
+      });
+      return {
+        argv: argv.length ? argv : [''],
+        redirect: seg.redirect && { ...seg.redirect, file: expandParams(seg.redirect.file, lookup) },
+        stdinFile: seg.stdinFile && expandParams(seg.stdinFile, lookup),
+      };
     };
 
     const makeCtx = (frame: SessionFrame, stdin: string | undefined): CmdCtx => {
@@ -232,7 +265,7 @@ export class Shell {
 
     let result: CmdResult;
     try {
-      result = runIn(frames[frames.length - 1], line);
+      result = runIn(frames[frames.length - 1], line, undefined, this.status);
     } catch (e) {
       if (e instanceof NeedInput) {
         return { output: '', code: -1, needInput: { text: e.text, secret: e.secret, partial: e.partial }, commands: executed };
@@ -240,6 +273,7 @@ export class Shell {
       throw e;
     }
     this.frames = frames;
+    this.status = result.code;
     this.commit(world);
     const entry: CommandLogEntry = { time: world.clock, host: frames[frames.length - 1].hostId, user: this.frame.user, line, code: result.code };
     this.log.push(entry);

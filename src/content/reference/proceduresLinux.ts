@@ -308,4 +308,20 @@ export const PROCEDURES_LINUX: Procedure[] = [
     risks: 'Restarting the relay or server is safe for existing leases. Do not "fix" it by giving clients static addresses or opening the router firewall completely.',
     verify: 'The client shows "DHCPACK of … from <relay address>", ip -4 addr has a dynamic address in the VLAN\'s range, and the server journal shows the exchange "via <giaddr>".',
   },
+  {
+    id: 'proc:dhcpv6-diagnose', title: 'Diagnose a host without a DHCPv6 address', platform: 'Linux client (dhclient -6) · ISC dhcpd -6 · radvd',
+    services: ['DHCP', 'IPv6'],
+    symptoms: ['No IP address', 'No route to host'],
+    purpose: 'A host that should get its IPv6 address from DHCPv6 has only a link-local address: find which end of the exchange fails.',
+    steps: [
+      { title: 'Confirm the state on the client', command: 'ip -6 addr show eth0\nip -6 route\nsudo journalctl -t dhclient -n 20', why: 'Only fe80:: and a default route via fe80:: (from the RA) = DHCPv6 failed while router discovery works. "XMT: Solicit" without "RCV: Advertise" = no answer reached dhclient.' },
+      { title: 'Is the server running and listening on this link?', command: 'systemctl status isc-dhcp-server\nss -ulnp | grep 547', why: '"No subnet6 declaration for <if>" or a failed unit = INTERFACESv6 or dhcpd6.conf. Listening = "Listening on Socket/<if>/<prefix>".' },
+      { title: 'Does the server log the requests?', command: 'journalctl -u isc-dhcp-server -n 20', why: '"Solicit message from fe80::… … Sending Advertise" = the server answers, so look at the client. Nothing = the requests do not reach dhcpd.' },
+      { title: 'Follow the packets at both ends', command: 'sudo tcpdump -n -i eth3.30 port 547   # server\nsudo tcpdump -n -i eth0 port 546 or port 547   # client', why: 'Solicit on the server\'s wire but no log line = the server\'s input chain drops UDP 547. Advertise arriving at the client but no RCV line = the client\'s input chain drops UDP 546 (conntrack does not match it to the multicast Solicit).' },
+      { title: 'Check both firewalls', command: 'sudo nft list ruleset', why: 'Server: iifname "<if>" udp dport 547 accept. Client: ip6 saddr fe80::/10 udp sport 547 udp dport 546 accept. DHCPv6 is filtered, unlike ISC DHCPv4.' },
+      { title: 'Fix and retest', command: 'sudo systemctl reload nftables   # or restart isc-dhcp-server\nsudo dhclient -6 -v eth0   # on the client\nip -6 addr show eth0', why: 'The client retries by itself every few minutes; dhclient -6 asks at once.' },
+    ],
+    risks: 'Opening the firewall completely or giving the client a static address hides the cause and breaks address management. Restarting isc-dhcp-server restarts DHCPv4 too when both daemons run in the same unit.',
+    verify: '"PRC: Bound to lease" in the client log, a /128 "dynamic" address from the pool in ip -6 addr, "Reply NA: address … to client with duid …" on the server, and curl -6 to a server works.',
+  },
 ];

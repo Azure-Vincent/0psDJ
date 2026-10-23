@@ -24,14 +24,24 @@ For every technology it answers the same questions:
 
 ## What's inside
 
-- **18 lessons** on networking, interfaces and virtual switches, TLS, remote
-  access, identity, firewalls, containers, Linux and Windows administration,
+- **19 lessons** on networking, interfaces and virtual switches, TLS, remote
+  access, identity (including Kerberos), firewalls, containers, Linux and Windows administration,
   and safe recovery. Each lesson explains how the technology works, with
   interactive diagrams, and includes deployment guides (Ubuntu/Debian, RHEL,
   Windows, pfSense, Docker), configuration reference, an **Operate & recover**
   guide (files, logs, service management, diagnostic workflow, common
   failures) and a graded assessment.
-- **51 troubleshooting tickets**, each injecting a realistic fault into the
+- **A guided lab**: build a freshly installed Debian server into a hardened
+  intranet web server in nine steps (switch port, static address, DNS, SSH
+  keys and hardening, firewall, web page). The simulator checks each step
+  against the running machines, and the last step reboots everything.
+- **An Infrastructure Builder**: draw your own network (workstations, servers,
+  routers, VLAN-aware switches), set addresses, gateways, VLANs, firewall
+  rules and NAT, then build it. Every device becomes a simulated Debian
+  machine configured from the files the design generates. You get terminals
+  on each machine and a packet tracer that shows every hop and every firewall
+  and NAT decision.
+- **58 troubleshooting tickets**, each injecting a realistic fault into the
   lab. You investigate with real commands in terminals, record a diagnosis and
   repair the fault. The app then checks your fix immediately, again after
   rebooting every machine, and against security rules, so "just open the
@@ -50,10 +60,11 @@ Everything is stored locally, and the app works without an Internet connection.
 ### How the lab works
 
 The lab machines are not virtual machines. They are a **simulation** built
-into the app: a small network with a switch, a router, a DNS/DHCP server, a
-Linux server, workstations and an "Internet" host. Commands such as `ip`,
-`ss`, `systemctl`, `journalctl`, `nft`, `ssh`, `dig`, `curl`, `openssl` and
-`tcpdump` behave like their Debian 12 counterparts and all act on one
+into the app: a small network with a switch, a router, a DNS/DHCP server
+that is also the Kerberos KDC, a Linux server, workstations and an "Internet"
+host. Commands such as `ip`,
+`ss`, `systemctl`, `journalctl`, `nft`, `ssh`, `dig`, `curl`, `openssl`,
+`kinit` and `tcpdump` behave like their Debian 12 counterparts and all act on one
 consistent model: when you change a configuration file, the services, sockets,
 firewall decisions, packets and logs all follow from that change. Windows,
 Active Directory, Docker and pfSense are not simulated; they are taught from
@@ -142,6 +153,13 @@ is stored separately and is kept; it can also be exported and imported under
 
 Start with **Curriculum** for the learning path, or open a lesson from the
 sidebar. Each lesson has tabs from "What is it?" to "Assessment".
+**Guided labs** walks you through building something step by step, with a
+**Check step** button, hints and a reference solution for every step.
+**Infrastructure Builder** lets you design a network on a canvas: add devices,
+press **Connect** and click two devices to cable them, then click a device to
+set its addresses and rules. The checks below the canvas list mistakes such as
+duplicate addresses or an unreachable gateway. **Build & run** starts the
+network. Designs are saved in the browser and can be exported as JSON.
 **Troubleshooting lab** lists the tickets. Each ticket opens a workspace with
 terminals on the affected machines, a notes area, hints that get more specific
 each time you ask, and a **Verify** button. Lesson sandboxes reset with one
@@ -159,7 +177,7 @@ npm run typecheck    # TypeScript checks
 
 | Path | Contents |
 |---|---|
-| `src/engine/` | the simulator: network, services, shell commands, troubleshooting scenarios, PCAP |
+| `src/engine/` | the simulator: network, services, shell commands, troubleshooting scenarios, guided labs, PCAP |
 | `src/content/` | lessons, guides, case studies, reference library, certification map, glossary (plain data) |
 | `src/ui/` | the React interface |
 | `src/learning/` | grading and progress tracking |
@@ -174,7 +192,7 @@ components (OpenSSH 9.2, BIND 9.18, ISC DHCP 4.4, radvd, ifupdown2, nftables,
 systemd 252, nginx 1.22, OpenSSL 3.0, curl 7.88). Where the simulation
 simplifies, the app says so next to the feature. Examples: cryptographic values
 are synthetic (certificates are readable PEM data without real signatures),
-spanning tree and DHCPv6 are not simulated, and `tcpdump` shows recent traffic
+spanning tree and DHCPv6 relays are not simulated, and `tcpdump` shows recent traffic
 rather than a live capture.
 
 Output for Windows, Active Directory, Docker, pfSense and Cisco IOS is

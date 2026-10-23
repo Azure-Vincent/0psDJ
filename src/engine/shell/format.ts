@@ -1,4 +1,5 @@
 // tcpdump-style one-line rendering of captured frames.
+import { dhcp6TcpdumpName } from '../sim/dhcp6';
 import type { CapturedFrame, Packet } from '../types';
 
 function ts(ms: number): string {
@@ -32,7 +33,7 @@ function describeIcmp6(p: Packet): string {
     case 3: return `${pre}time exceeded in-transit, length 88`;
     case 1: {
       const q = i.quoted;
-      const what = i.code === 0 ? `unreachable route ${q?.dst}` : i.code === 1 ? `unreachable prohibited ${q?.dst}` : i.code === 4 ? `unreachable port, ${q?.dst} ${q?.proto} port ${q?.dport}` : `unreachable address ${q?.dst}`;
+      const what = i.code === 0 ? `unreachable route ${q?.dst}` : i.code === 1 ? `unreachable prohibited ${q?.dst}` : i.code === 4 ? `unreachable port, ${q?.dst} ${q?.proto} port ${q?.dport}` : i.code === 2 ? `beyond scope of source address ${q?.src}` : `unreachable address ${q?.dst}`;
       return `${pre}destination unreachable, ${what}, length 88`;
     }
     default: return `${pre}type ${i.type}, length 32`;
@@ -64,6 +65,7 @@ function describeIp4Style(p: Packet, isn: { a: number; b: number } | undefined, 
       const mac = p.app.fields.find((f) => f.name === 'Client MAC (chaddr)')?.value ?? '';
       return `${IP} ${p.src}.${p.udp.sport} > ${p.dst}.${p.udp.dport}: BOOTP/DHCP, ${p.app.fields[0]?.value.startsWith('Boot Request') ? `Request from ${mac}` : 'Reply'}, length ${p.udp.len}`;
     }
+    if (p.app?.protocol === 'DHCPv6') return `${IP} ${p.src}.${p.udp.sport} > ${p.dst}.${p.udp.dport}: dhcp6 ${dhcp6TcpdumpName(p.app.info)}`;
     if (p.app?.protocol === 'DNS') {
       const info = p.app.info;
       const id = /0x([0-9a-f]{4})/.exec(info)?.[1];

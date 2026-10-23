@@ -315,7 +315,7 @@ export const DHCP_ASSESSMENT: Assessment = {
       explanation: 'T2 defaults to 87.5 % of the lease: 0.875 × 28800 = 25200 s (7 h). T1, the first unicast renewal, is at 50 % = 14400 s.',
     },
     {
-      id: 'dhcp-q-renew', kind: 'single', level: 'intermediate',
+      id: 'dhcp-q-renew-relay', kind: 'single', level: 'intermediate',
       prompt: 'dev02 (VLAN 30) got its lease through the relay on rtr01. How does it renew at T1?',
       options: [
         { text: 'Unicast DHCPREQUEST from its own address straight to the server identifier (10.0.10.53), routed like any other packet', correct: true },
@@ -622,6 +622,58 @@ export const IPV6_ASSESSMENT: Assessment = {
       prompt: 'What prefix length do IPv6 LAN subnets normally use (required for SLAAC)?',
       accept: ['64', '/64'], placeholder: '/..', concepts: ['net.ipv6'],
       explanation: '/64: 64 bits network, 64 bits interface identifier.',
+    },
+    {
+      id: 'v6-q-dhcp6-route', kind: 'single', level: 'intermediate',
+      prompt: 'A network has a DHCPv6 server but the router does not send router advertisements. Clients get an address from DHCPv6. What is missing?',
+      options: [
+        { text: 'The default route: DHCPv6 has no router option, routers announce themselves only in RAs', correct: true },
+        { text: 'Nothing: DHCPv6 provides address, gateway and DNS like DHCPv4', misconception: 'DHCPv6 deliberately has no default-gateway option.' },
+        { text: 'The DNS servers', misconception: 'DNS (option 23) is exactly what DHCPv6 provides.' },
+        { text: 'The link-local address', misconception: 'Every interface creates its own link-local address.' },
+      ],
+      concepts: ['net.ipv6'],
+      explanation: 'IPv6 hosts always learn routers from RAs. With DHCPv6, run radvd with AdvManagedFlag (and the prefix as on-link).',
+    },
+    {
+      id: 'v6-q-dhcp6-fw', kind: 'single', level: 'advanced',
+      prompt: 'dev02\'s input chain has policy drop with "ct state established,related accept". The DHCPv6 server logs "Sending Advertise to fe80::5054:ff:fee7:2a port 546", but dev02 never gets an address. Why?',
+      options: [
+        { text: 'The Solicit went to the multicast group ff02::1:2; the Advertise comes from the server\'s own address, so conntrack sees a new flow and the drop policy applies', correct: true },
+        { text: 'DHCPv6 bypasses nftables, so the firewall cannot be the cause', misconception: 'That is true for ISC DHCPv4 (packet sockets), not for DHCPv6, which uses ordinary UDP sockets.' },
+        { text: 'ICMPv6 is blocked', misconception: 'DHCPv6 is UDP; and the client has a default route from the RA, so ICMPv6 works.' },
+        { text: 'The server needs a "routers" option', misconception: 'DHCPv6 has no routers option.' },
+      ],
+      concepts: ['net.ipv6', 'fw.stateful'],
+      explanation: 'Clients need "udp dport 546 accept" (ideally from fe80::/10, sport 547); servers need "udp dport 547 accept".',
+    },
+    {
+      id: 'v6-q-flags', kind: 'single', level: 'intermediate',
+      prompt: 'An RA has the O flag set and the M flag clear, with an autonomous prefix. What does a client that follows the flags do?',
+      options: [
+        { text: 'SLAAC for its address, and a stateless DHCPv6 Information-request for DNS and other options', correct: true },
+        { text: 'Stateful DHCPv6 for its address', misconception: 'That is the M (managed) flag.' },
+        { text: 'Nothing with DHCPv6', misconception: 'O = "other configuration" from DHCPv6.' },
+      ],
+      concepts: ['net.ipv6'],
+      explanation: 'M = addresses from DHCPv6, O = other configuration (DNS, domain search) from DHCPv6.',
+    },
+    {
+      id: 'v6-q-duid', kind: 'single', level: 'intermediate',
+      prompt: 'How does a DHCPv6 server recognise a client (e.g. for a reservation)?',
+      options: [
+        { text: 'By its DUID (DHCP Unique Identifier) and the IAID of the identity association', correct: true },
+        { text: 'By its MAC address, like DHCPv4', misconception: 'The MAC may be part of some DUID types, but the identifier is the DUID.' },
+        { text: 'By its link-local address', misconception: 'Addresses change; the DUID is stable.' },
+      ],
+      concepts: ['net.ipv6'],
+      explanation: 'Cloned VMs with the same stored DUID collide; reinstalling a machine creates a new one.',
+    },
+    {
+      id: 'v6-q-subnet6', kind: 'text', level: 'advanced',
+      prompt: 'dhcpd -6 logs "No subnet6 declaration for eth3 (fe80::5054:ff:fea1:4)". VLAN 30 (2001:db8:30::1/64) runs on eth3.30. What should INTERFACESv6 contain?',
+      accept: ['eth3.30', 'INTERFACESv6="eth3.30"'], placeholder: 'interface', concepts: ['net.ipv6'],
+      explanation: 'dhcpd -6 serves an interface whose global address lies in a subnet6; the VLAN parent eth3 has only a link-local address.',
     },
   ],
 };

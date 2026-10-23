@@ -34,11 +34,25 @@ export interface GoalResult {
 export function goalLabel(goal: Goal): string {
   if (goal.kind === 'http') return `${goal.fromHost}: curl ${goal.curlFlags ? goal.curlFlags + ' ' : ''}${goal.url}`;
   if (goal.kind === 'resolve') return `${goal.fromHost}: resolve ${goal.name}`;
+  if (goal.kind === 'kerberos') return `${goal.fromHost}: kinit ${goal.localUser}${goal.sshTarget ? ` + ssh ${goal.sshTarget} (Kerberos)` : ''}`;
   return `${goal.user}@${goal.target}`;
 }
 
 export function checkGoal(world: World, goal: Goal): GoalResult {
   const w = structuredClone(world);
+  if (goal.kind === 'kerberos') {
+    let cur = w;
+    const home = cur.hosts[goal.fromHost].users[goal.localUser].home;
+    const sh = new Shell(() => cur, (n) => (cur = n), { hostId: goal.fromHost, user: goal.localUser, cwd: home });
+    sh.execute('kdestroy');
+    const k = sh.execute('kinit', [goal.password]);
+    const lines = ['$ kinit', ...(k.output ? k.output.split('\n') : [])];
+    if (k.code !== 0) return { goal, ok: false, lines };
+    if (!goal.sshTarget) return { goal, ok: true, lines: [...lines, '(ticket obtained)'] };
+    const line = `ssh -o PubkeyAuthentication=no -o PasswordAuthentication=no -o BatchMode=yes -o StrictHostKeyChecking=accept-new ${goal.sshTarget} hostname`;
+    const r = sh.execute(line);
+    return { goal, ok: r.code === 0, lines: [...lines, `$ ${line}`, ...(r.output ? r.output.split('\n') : ['(no output)'])], authMethod: r.code === 0 ? 'gssapi-with-mic' : undefined };
+  }
   if (goal.kind === 'http' || goal.kind === 'resolve') {
     let cur = w;
     const user = goal.kind === 'http' ? goal.fromUser : 'root';
@@ -68,7 +82,9 @@ export function checkGoal(world: World, goal: Goal): GoalResult {
 export function rebootAll(world: World): World {
   const w = structuredClone(world);
   w.sessions = [];
-  for (const id of ['sw01', 'rtr01', 'ns1', 'srv01', 'ws01', 'ws02', 'ext01', 'dev01', 'dev02']) if (w.hosts[id]) bootHost(w, w.hosts[id]);
+  // Infrastructure first (switch, router, DNS/DHCP), then servers and clients; hosts added by a lab boot last.
+  const order = ['sw01', 'rtr01', 'ns1', 'srv01', 'ws01', 'ws02', 'ext01', 'dev01', 'dev02'];
+  for (const id of [...order, ...Object.keys(w.hosts).filter((h) => !order.includes(h))]) if (w.hosts[id]) bootHost(w, w.hosts[id]);
   w.clock += 30_000;
   return w;
 }

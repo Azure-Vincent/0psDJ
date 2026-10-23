@@ -108,7 +108,7 @@ describe('VLANs on sw01', () => {
     lab.run('rtr01', 'root', 'ip link set eth3.31 up');
     expect(lab.world.hosts.rtr01.ifaces.find((i) => i.name === 'eth3.31')!.segment).toBeNull(); // VLAN 31 not on the trunk
     lab.run('sw01', 'root', 'bridge vlan add dev swp7 vid 31');
-    expect(lab.world.hosts.rtr01.ifaces.find((i) => i.name === 'eth3.31')!.segment).toBe('vlan31');
+    expect(lab.world.hosts.rtr01.ifaces.find((i) => i.name === 'eth3.31')!.segment).toBe('sw01-vlan31');
     expect(lab.run('rtr01', 'root', 'ip link add link eth9 name eth9.5 type vlan id 5').output).toMatch(/Cannot find device "eth9"/);
   });
 });
@@ -165,7 +165,7 @@ describe('IPv6 in the lab', () => {
     const src = [...bytes.slice(22, 38)], dst = [...bytes.slice(38, 54)], msg = [...bytes.slice(54)];
     const len = msg.length;
     expect(checksum([...src, ...dst, 0, 0, (len >> 8) & 255, len & 255, 0, 0, 0, 58, ...msg])).toBe(0);
-    const tagged = runCapture('vlan-trunk').frames.find((f) => f.ip)!;
+    const tagged = runCapture('vlan-trunk').frames.find((f) => f.ip && !f.ip.src.includes(':'))!;
     const tb = frameBytes(tagged);
     expect([tb[12], tb[13], tb[14] & 0x0f, tb[15], tb[16], tb[17]]).toEqual([0x81, 0x00, 0, 30, 0x08, 0x00]);
     expect(buildPcap(cap.frames).length).toBeGreaterThan(24);
@@ -177,6 +177,7 @@ describe('VLAN/IPv6 visual runs, lessons and assessments', () => {
     'same-vlan': /ttl=64/, 'inter-vlan': /ttl=63/, 'wrong-access': /Destination Host Unreachable/, 'trunk-pruned': /Destination Host Unreachable/,
     slaac: /^$/, 'ndp-ping': /icmp_seq=1 ttl=63/, 'dual-stack': /Connected to srv01\.corp\.lab \(2001:db8:20::10\)/,
     'icmpv6-blocked': /Address unreachable/, 'happy-eyeballs': /Connected to srv01\.corp\.lab \(10\.0\.20\.10\)/, 'no-forwarding': /curl: \(28\)/,
+    dhcpv6: /RCV: Reply message on eth0[\s\S]*PRC: Bound to lease/, 'dhcpv6-stateless': /RCV: Reply message on eth0/, 'dhcpv6-client-fw': /XMT: Solicit on eth0, interval 8650ms\.\n\[Infrastructure Lab: no DHCPv6 lease yet/,
   };
   it.each([...VLAN_RUNS, ...IPV6_RUNS].map((r) => r.id))('run %s', (id) => {
     const run = [...VLAN_RUNS, ...IPV6_RUNS].find((r) => r.id === id)!;

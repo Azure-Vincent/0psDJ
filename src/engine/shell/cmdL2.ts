@@ -25,7 +25,20 @@ export const bridge: CommandDef = {
       return ok('');
     }
     if (obj === 'vlan' || obj === 'v') {
-      if (sub === 'show' || sub === 'list') return ok(formatBridgeVlans(h));
+      if (sub === 'show' || sub === 'list') {
+        const dev = rest.includes('dev') ? rest[rest.indexOf('dev') + 1] : undefined;
+        if (!dev) return ok(formatBridgeVlans(h));
+        if (!h.ifaces.some((i) => i.name === dev) && dev !== h.bridge.name) return err(`Cannot find device "${dev}"`, 1);
+        // Keep the header and the rows of that port (continuation lines start with spaces).
+        const [head, ...rows] = formatBridgeVlans(h).split('\n');
+        const mine: string[] = [];
+        let inPort = false;
+        for (const r of rows) {
+          if (!r.startsWith(' ')) inPort = r.split(/\s+/)[0] === dev;
+          if (inPort) mine.push(r);
+        }
+        return ok([head, ...mine].join('\n'));
+      }
       if (sub === 'add' || sub === 'del' || sub === 'delete') {
         if (ctx.user.uid !== 0) return err('RTNETLINK answers: Operation not permitted', 2);
         const dev = rest.includes('dev') ? rest[rest.indexOf('dev') + 1] : undefined;
@@ -101,8 +114,8 @@ export const rdisc6: CommandDef = {
       const lt = rt.cfg.routerLifetime;
       out.push(
         `Hop limit                 :           64 (      0x40)`,
-        'Stateful address conf.    :           No',
-        'Stateful other conf.      :           No',
+        `Stateful address conf.    : ${(rt.cfg.managed ? 'Yes' : 'No').padStart(12)}`,
+        `Stateful other conf.      : ${(rt.cfg.other ? 'Yes' : 'No').padStart(12)}`,
         'Mobile home agent         :           No',
         'Router preference         :       medium',
         'Neighbor discovery proxy  :           No',

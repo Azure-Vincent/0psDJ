@@ -37,7 +37,7 @@ export interface Addr6 {
   prefix: number;
   scope: 'link' | 'global' | 'host';
   /** kernel = link-local / loopback, static = configured, ra = SLAAC from a router advertisement. */
-  origin: 'kernel' | 'static' | 'ra';
+  origin: 'kernel' | 'static' | 'ra' | 'dhcp6';
   /** Remaining valid lifetime for SLAAC addresses (seconds at the time of assignment). */
   validLft?: number;
 }
@@ -63,6 +63,34 @@ export interface Interface {
   kind?: 'dummy';
   /** dhclient found no server and sleeps; it tries again at this time (ms). */
   dhcpRetryAt?: number;
+  /** DHCPv6 lease held by dhclient -6 on this interface. */
+  dhcp6?: Dhcp6Binding;
+  /** dhclient -6 has no lease and solicits again at this time (ms). */
+  dhcp6RetryAt?: number;
+  /** PIDs of the dhclient (-4) and dhclient -6 processes running for this interface. */
+  dhcpPid?: number;
+  dhcp6Pid?: number;
+  /** net.ipv6.conf.IF.autoconf: false = no SLAAC addresses from router advertisements (default on). */
+  autoconf6?: boolean;
+}
+
+export interface Dhcp6Binding {
+  /** Link-local address and DUID of the server that granted the lease. */
+  server: string;
+  serverDuid: string;
+  address: string;
+  iaid: string;
+  preferred: number;
+  valid: number;
+  obtained: number;
+  /** T1: RENEW (to the server that granted the lease). */
+  renewAt: number;
+  /** T2: REBIND (to any server). */
+  rebindAt: number;
+  expires: number;
+  state: 'bound' | 'renewing' | 'rebinding';
+  /** Next retransmission while RENEWING or REBINDING (ms). */
+  nextTry?: number;
 }
 
 export interface DhcpBinding {
@@ -187,6 +215,8 @@ export interface Host {
   capture: CapturedFrame[];
   nextPid: number;
   bootTime: number;
+  /** System clock error in ms (host time = world.clock + clockOffset). Kept across reboots, like the RTC. */
+  clockOffset?: number;
   /** Path MTU learned from ICMP "fragmentation needed"/"packet too big" (destination -> MTU). Runtime only. */
   pmtu?: Record<string, number>;
 }
@@ -263,11 +293,11 @@ export interface IcmpHeader {
   /** Echo payload size in bytes (ping -s; default 56). */
   size?: number;
   /** IPv6 Neighbor Discovery fields (RFC 4861). */
-  nd?: { target?: string; lladdr?: string; prefixes?: { prefix: string; autonomous: boolean; valid: number }[]; rdnss?: string[]; routerLifetime?: number; flags?: string };
+  nd?: { target?: string; lladdr?: string; prefixes?: { prefix: string; autonomous: boolean; onLink?: boolean; valid: number }[]; rdnss?: string[]; routerLifetime?: number; flags?: string; managed?: boolean; other?: boolean };
 }
 
 export interface AppLayer {
-  protocol: 'DNS' | 'SSH' | 'DATA' | 'DHCP' | 'TLS';
+  protocol: 'DNS' | 'SSH' | 'DATA' | 'DHCP' | 'DHCPv6' | 'TLS' | 'KRB5' | 'KADMIN';
   /** Short Wireshark-style "Info" text. */
   info: string;
   /** Decoded protocol fields visible to an observer. */

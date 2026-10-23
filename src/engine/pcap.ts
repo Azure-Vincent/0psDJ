@@ -64,10 +64,10 @@ function icmp6Body(p: Packet): number[] {
       return [flags, 0, 0, 0, ...ip6Bytes(nd?.target ?? '::'), ...lla(2, nd?.lladdr)];
     }
     case 134: {
-      const out = [64, 0, ...u16(nd?.routerLifetime ?? 0), ...u32(0), ...u32(0), ...lla(1, nd?.lladdr)];
+      const out = [64, (nd?.managed ? 0x80 : 0) | (nd?.other ? 0x40 : 0), ...u16(nd?.routerLifetime ?? 0), ...u32(0), ...u32(0), ...lla(1, nd?.lladdr)];
       for (const pr of nd?.prefixes ?? []) {
         const [a, len] = pr.prefix.split('/');
-        out.push(3, 4, Number(len), 0x80 | (pr.autonomous ? 0x40 : 0), ...u32(pr.valid), ...u32(14400), 0, 0, 0, 0, ...ip6Bytes(a));
+        out.push(3, 4, Number(len), (pr.onLink === false ? 0 : 0x80) | (pr.autonomous ? 0x40 : 0), ...u32(pr.valid), ...u32(14400), 0, 0, 0, 0, ...ip6Bytes(a));
       }
       if (nd?.rdnss?.length) out.push(25, 1 + 2 * nd.rdnss.length, 0, 0, ...u32(600), ...nd.rdnss.flatMap((d) => ip6Bytes(d)));
       return out;

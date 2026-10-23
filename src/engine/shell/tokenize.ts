@@ -1,5 +1,25 @@
 // Shell-like tokenizer: quotes, escapes, pipes, redirection, && / || / ;
 
+/** Parameter expansions ($?, $HOME, ${USER}) are kept as placeholders and resolved when the command runs. */
+export const VAR_OPEN = '\u0001';
+export const VAR_CLOSE = '\u0002';
+
+/** Reads a parameter name after "$" at line[i]; returns the name and the index of its last character. */
+function paramAt(line: string, i: number): { name: string; end: number } | null {
+  const next = line[i + 1];
+  if (next === '?') return { name: '?', end: i + 1 };
+  if (next === '{') {
+    const m = /^\{([A-Za-z_][A-Za-z0-9_]*|\?)\}/.exec(line.slice(i + 1));
+    return m ? { name: m[1], end: i + m[0].length } : null;
+  }
+  const m = /^[A-Za-z_][A-Za-z0-9_]*/.exec(line.slice(i + 1));
+  return m ? { name: m[0], end: i + m[0].length } : null;
+}
+
+export function expandParams(arg: string, lookup: (name: string) => string): string {
+  return arg.includes(VAR_OPEN) ? arg.replace(/\u0001([^\u0002]*)\u0002/g, (_, n: string) => lookup(n)) : arg;
+}
+
 export type Segment = { argv: string[]; redirect?: { file: string; append: boolean }; stdinFile?: string };
 export type Pipeline = Segment[];
 export type CommandList = { pipeline: Pipeline; op: ';' | '&&' | '||' | null }[];
@@ -14,6 +34,10 @@ export function tokenizeLine(line: string): string[] {
     if (q) {
       if (c === q) { q = null; continue; }
       if (c === '\\' && q === '"' && i + 1 < line.length && '"\\$'.includes(line[i + 1])) { cur += line[++i]; continue; }
+      if (c === '$' && q === '"') {
+        const p = paramAt(line, i);
+        if (p) { cur += VAR_OPEN + p.name + VAR_CLOSE; i = p.end; continue; }
+      }
       cur += c;
       continue;
     }
@@ -43,6 +67,10 @@ export function tokenizeLine(line: string): string[] {
       continue;
     }
     if (c === '#' && !cur && !has) break;
+    if (c === '$') {
+      const p = paramAt(line, i);
+      if (p) { cur += VAR_OPEN + p.name + VAR_CLOSE; i = p.end; has = true; continue; }
+    }
     cur += c;
     has = true;
   }

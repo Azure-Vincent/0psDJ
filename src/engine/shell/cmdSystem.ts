@@ -1,7 +1,9 @@
 // Service management, logs, firewall, SSH tooling and DNS server tooling.
 
+import { activeRecorder } from '../sim/trace';
 import {
   emptyRuleset, findChain, NftError, parseRuleExpr, parseRulesetFile, renderChain, renderRuleset,
+  type Table,
 } from '../config/nft';
 import { effectiveConfig, renderSshdT } from '../config/sshdConfig';
 import { parseZone, ZoneError } from '../config/zone';
@@ -15,6 +17,7 @@ import { dropIns, unitDirectives, unitPath, unitWantedBy } from '../sim/units';
 import { knownHostName, knownHostsEntries, runSsh } from '../sim/ssh';
 import { resolve } from '../sim/dns';
 import { dhcpAcquire, dhcpRelease } from '../sim/dhcp';
+import { dhcp6Acquire, dhcp6Release } from '../sim/dhcp6';
 import { tcpConnect, ERRNO_TEXT } from '../sim/tcp';
 import { base64Decode } from '../util/sha256';
 import { resolvePath } from './cmdFiles';
@@ -312,7 +315,7 @@ const journalctl: CommandDef = {
 const nft: CommandDef = {
   name: 'nft',
   summary: 'nftables firewall administration',
-  usage: 'nft [-a] list ruleset | nft add|insert rule FAMILY TABLE CHAIN EXPR | nft delete rule FAMILY TABLE CHAIN handle N | nft -f FILE | nft flush ruleset',
+  usage: 'nft [-a] list ruleset | nft add table|chain|rule ... | nft insert rule FAMILY TABLE CHAIN EXPR | nft delete rule FAMILY TABLE CHAIN handle N | nft delete chain|table ... | nft -f FILE | nft flush ruleset',
   run(args, ctx) {
     const deny = PERM(ctx, 'Operation not permitted (you must be root)');
     if (deny) return deny;
@@ -391,14 +394,51 @@ const nft: CommandDef = {
         c.rules.splice(idx, 1);
         return ok('');
       }
-      if (verb === 'chain' || (verb === 'add' && what === 'chain')) {
+      if ((verb === 'add' || verb === 'create') && what === 'table') {
+        const [fam, name] = rest;
+        if (!fam || !name || !['ip', 'ip6', 'inet', 'arp', 'bridge', 'netdev'].includes(fam)) return err(`Error: syntax error, unexpected end of file\n${verb} table ${rest.join(' ')}`, 1);
+        if (host.nft.tables.some((t) => t.family === fam && t.name === name)) {
+          return verb === 'create' ? err(`Error: Could not process rule: File exists\ncreate table ${fam} ${name}`, 1) : ok('');
+        }
+        host.nft.tables.push({ family: fam as Table['family'], name, chains: [], handle: host.nft.nextHandle++ });
+        return ok('');
+      }
+      if (verb === 'delete' && what === 'table') {
+        const [fam, name] = rest;
+        const i = host.nft.tables.findIndex((t) => t.family === fam && t.name === name);
+        if (i < 0) return err(`Error: Could not process rule: No such file or directory\ndelete table ${fam} ${name}`, 1);
+        host.nft.tables.splice(i, 1);
+        return ok('');
+      }
+      if (verb === 'delete' && what === 'chain') {
+        const [fam, table, chain] = rest;
+        const t = host.nft.tables.find((x) => x.family === fam && x.name === table);
+        const c = t?.chains.find((x) => x.name === chain);
+        if (!t || !c) return err(`Error: Could not process rule: No such file or directory\ndelete chain ${fam} ${table} ${chain}`, 1);
+        if (c.rules.length) return err(`Error: Could not process rule: Device or resource busy\ndelete chain ${fam} ${table} ${chain}`, 1);
+        t.chains = t.chains.filter((x) => x !== c);
+        return ok('');
+      }
+      if (verb === 'chain' || ((verb === 'add' || verb === 'create') && what === 'chain')) {
+        // nft add chain inet filter input '{ type filter hook input priority 0; policy drop; }'
         // nft chain inet filter input '{ policy accept; }'
         const r = verb === 'chain' ? [what, ...rest] : rest;
-        const [fam, table, chain, ...spec] = r;
-        const c = findChain(host.nft, fam, table, chain);
-        const m = /policy\s+(accept|drop)/.exec(spec.join(' '));
-        if (!c || !c.base || !m) return err('Error: Could not process rule: No such file or directory', 1);
-        c.base.policy = m[1] as 'accept' | 'drop';
+        const [fam, table, chain, ...specParts] = r;
+        const t = host.nft.tables.find((x) => x.family === fam && x.name === table);
+        if (!t || !chain) return err(`Error: Could not process rule: No such file or directory\nadd chain ${r.join(' ')}`, 1);
+        const spec = specParts.join(' ').replace(/^\{|\}$/g, '').trim();
+        const existing = t.chains.find((x) => x.name === chain);
+        if (existing) {
+          if (verb === 'create') return err(`Error: Could not process rule: File exists\ncreate chain ${fam} ${table} ${chain}`, 1);
+          const m = /policy\s+(accept|drop)/.exec(spec);
+          if (m && existing.base) existing.base.policy = m[1] as 'accept' | 'drop';
+          else if (m) return err('Error: Could not process rule: Operation not supported (policy on a regular chain)', 1);
+          return ok('');
+        }
+        // Reuse the configuration-file parser for the chain specification.
+        const parsed = parseRulesetFile(`table ${fam} ${table} {\n\tchain ${chain} {\n\t\t${spec}\n\t}\n}\n`, '/dev/stdin');
+        const c = parsed.tables[0].chains[0];
+        t.chains.push({ ...c, rules: [], handle: host.nft.nextHandle++ });
         return ok('');
       }
       return err(`Error: syntax error, unexpected ${verb ?? 'end of file'}`, 1);
@@ -486,7 +526,11 @@ const ssh: CommandDef = {
     const answers: string[] = [];
     // Collect answers interactively: runSsh is deterministic, so we re-run it with the
     // answers gathered so far until it either completes or asks the next question.
+    const rec = activeRecorder();
+    const start = rec?.mark();
     for (let guard = 0; guard < 8; guard++) {
+      // Only the final attempt belongs in a packet trace.
+      if (rec && start) rec.rollback(start);
       const snapshot = structuredClone(ctx.world);
       const res = runSsh(snapshot, {
         clientHostId: ctx.host.id,
@@ -502,6 +546,7 @@ const ssh: CommandDef = {
         family: p.opts.addressfamily === 'inet6' ? 6 : p.opts.addressfamily === 'inet' ? 4 : 0,
         pubkeyAuthentication: yesno(p.opts.pubkeyauthentication),
         passwordAuthentication: yesno(p.opts.passwordauthentication),
+        gssapiAuthentication: yesno(p.opts.gssapiauthentication),
         answers,
         remoteCommand: p.command,
       });
@@ -727,14 +772,30 @@ const nginxCmd: CommandDef = {
 
 const dhclient: CommandDef = {
   name: 'dhclient',
-  summary: 'DHCP client: obtain (or with -r release) a lease',
-  usage: 'dhclient [-v] [-r] [IFACE]',
+  summary: 'DHCP client: obtain (or with -r release) a lease; -6 for DHCPv6 (-S: stateless, options only)',
+  usage: 'dhclient [-4|-6] [-v] [-r] [-S] [IFACE]',
   run(args, ctx) {
     if (ctx.user.uid !== 0) return err('dhclient: Permission denied (you must be root)', 1);
     const { flags, rest } = parseFlags(args);
     const name = rest[0] ?? ctx.host.ifaces.find((i) => i.name !== 'lo')?.name;
     const iface = ctx.host.ifaces.find((i) => i.name === name);
     if (!iface || iface.name === 'lo') return err(`Cannot find device "${name}"`, 1);
+    if (flags.has('-6')) {
+      if (flags.has('-r')) {
+        const msg = dhcp6Release(ctx.world, ctx.host, iface);
+        return ok(flags.has('-v') ? (msg ?? 'dhclient: no DHCPv6 lease on ' + iface.name) : '');
+      }
+      const before = ctx.host.journal.length;
+      const bound = dhcp6Acquire(ctx.world, ctx.host, iface, { stateless: flags.has('-S') });
+      const lines = ctx.host.journal.slice(before).filter((e) => e.ident === 'dhclient').map((e) => e.message);
+      const shown = flags.has('-v') ? lines : [];
+      if (!bound && !flags.has('-S')) {
+        // dhclient -6 keeps soliciting until a server answers; the simulator returns to the prompt.
+        shown.push('[Infrastructure Lab: no DHCPv6 lease yet. dhclient -6 keeps soliciting in the background (every 2 minutes in the simulator); check "journalctl -t dhclient", the firewalls and the server.]');
+      }
+      return { out: shown.join('\n'), code: bound ? 0 : 2 };
+    }
+    if (flags.has('-S')) return err('dhclient: -S (information-request) is only meaningful with -6', 1);
     if (flags.has('-r')) {
       const msg = dhcpRelease(ctx.world, ctx.host, iface);
       return ok(flags.has('-v') ? (msg ?? 'dhclient: no active lease on ' + iface.name) : '');
@@ -750,12 +811,13 @@ const dhclient: CommandDef = {
 
 const dhcpdCmd: CommandDef = {
   name: 'dhcpd',
-  summary: 'ISC DHCP server: -t tests /etc/dhcp/dhcpd.conf',
-  usage: 'dhcpd -t [-cf FILE]',
+  summary: 'ISC DHCP server: -t tests /etc/dhcp/dhcpd.conf (-6: /etc/dhcp/dhcpd6.conf)',
+  usage: 'dhcpd -t [-4|-6] [-cf FILE]',
   run(args, ctx) {
     if (!ctx.host.services.dhcpd) return err('-bash: dhcpd: command not found', 127);
     if (!args.includes('-t')) return err('dhcpd: run the server with systemctl (isc-dhcp-server); this simulator supports dhcpd -t', 1);
-    const e = dhcpdTest(ctx.host);
+    const cf = args.indexOf('-cf') >= 0 ? args[args.indexOf('-cf') + 1] : undefined;
+    const e = dhcpdTest(ctx.host, args.includes('-6') ? 6 : 4, cf ? resolvePath(ctx, cf) : undefined);
     const head = 'Internet Systems Consortium DHCP Server 4.4.3-P1\nCopyright 2004-2022 Internet Systems Consortium.\nAll rights reserved.';
     return e.length ? err(`${head}\n${e.join('\n')}`, 1) : ok(head);
   },

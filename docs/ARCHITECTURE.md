@@ -212,6 +212,36 @@ then on a copy where **every host is rebooted**, then evaluates **constraints**
 modern KEX still offered, other users still able to log in). A fix that opens
 the firewall completely or only exists at runtime does not pass.
 
+### 5.4b Guided labs
+A guided lab (`GuidedLab` in `src/engine/labs/types.ts`) builds its own world
+(Lab 1: the corp.lab network plus a fresh srv02) and is a list of steps. Each
+step has an objective, background, tasks, hints, **checks** (functions of the
+world that run commands on a copy, never on the learner's machines) and a
+**reference solution** (shell commands). `checkStep()` evaluates one step; the
+final step sets `afterReboot`, so its check reboots every host on a copy and
+re-runs all earlier checks. Progress stores completed step ids; the world itself
+is kept for the browser session and rebuilt on demand by replaying the reference
+solutions of completed steps. `tests/labs.test.ts` proves that every step fails
+before its solution and passes after it.
+
+### 5.4c Infrastructure Builder
+A builder design (`Design` in `src/engine/builder/design.ts`) is plain JSON:
+nodes (kind, name, position, interfaces with IPv4/prefix, switch ports with
+access VLAN or trunk VLANs, gateway, static routes, services, input firewall,
+and on routers a forward policy with exceptions and source NAT) and cables
+between interfaces. `validateDesign()` returns errors (which block building)
+and warnings. `buildDesignWorld()` creates one Debian host per node with
+`createHost()` and writes the configuration as files: `/etc/network/interfaces`
+(static addresses, `gateway`, `up ip route add`, `eth0.20` sub-interfaces),
+ifupdown2 bridge configuration on switches, `/etc/nftables.conf`, the router's
+`ip_forward` sysctl, `/etc/hosts` with every machine, sshd and nginx. Cables to a
+switch become `World.links`; a cable between two machines becomes a private
+point-to-point segment. Then every host boots (switches first), so the running
+state comes from the files exactly as in the lab. `traceCommand()` runs one
+command with the recorder on a copy of the world and extracts the firewall,
+NAT and drop decisions from the hop notes. Cables between switches are not
+modelled yet: `segmentForVlan()` gives each switch its own broadcast domain per VLAN.
+
 ### 5.5 Diagnosis, hints, misconceptions
 The learner records hypotheses from a catalogue of plausible causes. Wrong
 choices are answered with *what that cause would look like and how to test it*
@@ -231,7 +261,7 @@ OpenSSH 9.2 negotiation and authentication flow and its log lines, StrictModes
 path checks, glibc resolver order and search list, BIND zone parsing and SERVFAIL
 on load errors, systemd enable/active semantics.
 
-Simplified: one IPv4 address per interface; no spanning tree, DHCPv6, DAD, MLD or privacy addresses; one TCP segment per SSH message, no congestion control or
+Simplified: Kerberos cryptography is synthetic (no cross-realm trust, renewal, delegation or PAC); NTP packets are not modelled (systemd-timesyncd sets the clock when it starts); one IPv4 address per interface; no spanning tree, DHCPv6 relays or prefix delegation, DAD, MLD or privacy addresses; one TCP segment per SSH message, no congestion control or
 window dynamics; cryptographic values are synthetic (fingerprints are genuine
 SHA-256 of synthetic key blobs); `tcpdump` shows a buffer of recent traffic
 instead of live capture (terminals are not concurrent); a subset of each tool's
@@ -254,9 +284,10 @@ options is implemented and unsupported options say so.
 | 3g | **Operations expansion**: content schema for service guides, case studies, reference library (commands, files/logs, procedures) and certification map; "Operate & recover" tab on every lesson; seven new lessons (systemd/filesystem, network recovery, safe recovery simulated; Windows/RDP, AD/Kerberos, Docker, pfSense as reference lessons); case studies A–G; engine: Debian unit files on disk, `systemctl cat/show/list-dependencies/--failed/is-failed`, `journalctl -f`, `tracepath`, `ethtool`, `cp`/`mv`/`diff`, two case-study tickets; content-integrity tests | ✅ |
 | 3f | **MTU and TLS**: interface MTU, packet sizes and DF, router ICMP fragmentation-needed / packet-too-big, PMTU cache (`ip route get`), silent drops on receiving MTU, TCP MSS, segmentation and retransmission backoff, nftables MSS clamping, `ping -s/-M`, `tracepath` PMTU; HTTP server blocks and file serving (status codes, large files), X.509 model (PEM certificates/keys/CSRs, lab CA hierarchy, public roots), OpenSSL-style verification, Debian trust store and `update-ca-certificates`, nginx `listen ssl` with load-time certificate/key checks, curl HTTPS (`-k`, `--cacert`, `--resolve`, `-o`, `-w`), `openssl x509/verify/s_client/req/genrsa/rsa`; stdin/stderr redirection; two lessons with chain inspector and MTU calculator, 8 traced runs, 6 tickets | ✅ |
 | 3h | **DHCP relay and renewal, interfaces and virtual switches**: isc-dhcp-relay on rtr01 (giaddr, -id/-iu, packet sockets that bypass nftables), dhcpd subnet selection by giaddr ("unknown network segment"), RFC 2131 lease timers (T1 renew, T2 rebind, expiry, 300 s retry) replayed as simulated time passes (`sleep`), INIT-REBOOT and DHCPNAK, dev02 on VLAN 30; interface engine: bridge device in `ip link`, dummy interfaces, /sys/class/net attributes, ifupdown failure for missing devices; sed addresses and ranges; interfaces lesson with guide, 5 DHCP traced runs, 6 tickets | ✅ |
-| 3i | Remaining Module A topics: DHCPv6; Lab 1 as a guided multi-step lab | ⏳ |
-| 4 | Infrastructure Builder (drag-and-drop topology on top of the same `World` model; packet tracing and firewall decisions already exist in the engine) | ⏳ |
-| 5 | Windows/AD track: Windows host model (services, Defender Firewall, event log), DNS SRV, Kerberos AS/TGS exchange visualisation, NTLM, LDAP; RDP lesson; Lab 2 | ⏳ |
+| 3i | **DHCPv6 and Lab 1**: ISC dhcpd -6 under isc-dhcp-server (INTERFACESv6, dhcpd6.conf, dhcpd6.leases, DUID-LLT), dhclient -6 (Solicit/Advertise/Request/Reply, Information-request, Renew/Rebind/expiry, Release) with nftables applying on both ends, ifupdown `inet6 dhcp`/`autoconf 0`, RA M/O flags, ICMPv6 "beyond scope" for link-local sources; IPv6 lesson sections, 3 visual runs, 3 tickets. Guided labs (`src/engine/labs`): steps with engine-evaluated checks, reference solutions, replay to resume, and a final reboot test; **Lab 1: Basic Linux Server** (srv02 from switch port to hardened web server, 9 steps); `printf`, `grep -e …`, `bridge vlan show dev` | ✅ |
+| 4 | **Infrastructure Builder** (`src/engine/builder`, `src/ui/pages/Builder.tsx`): drag-and-drop design of hosts, servers, routers (VLAN sub-interfaces, static routes, forward policy, masquerade) and VLAN-aware switches; validation (addresses, gateways, cabling, VLANs on trunks, firewall vs. services); generation of a `World` from real config files; terminals, reboot-all and a packet tracer listing firewall/NAT decisions; three templates; JSON import/export. VLAN broadcast domains are now per switch | ✅ |
+| 5a | **Kerberos and DNS SRV**: SRV/TXT records (zone parser, dig/host -t); MIT KDC and kadmind on ns1 (kdc.conf, kadm5.acl, principal database), KDC location through SRV records, AS exchange with encrypted-timestamp pre-authentication, TGS exchange, lifetimes, 300 s clock skew; kinit, klist, kvno, kdestroy, kadmin(.local) with ktadd/cpw/addprinc; per-host clocks (date, timedatectl, systemd-timesyncd); sshd GSSAPIAuthentication (gssapi-with-mic, keytab kvno, .k5login); lesson "Kerberos and DNS service records", 6 visual runs, 4 tickets; `nft add/delete table/chain`; `$?`/`$VAR` expansion in the shell | ✅ |
+| 5 | Windows/AD track: Windows host model (services, Defender Firewall, event log), NTLM, LDAP; RDP lesson; Lab 2 | ⏳ |
 | 6 | pfSense model (WAN/LAN/DMZ, NAT, state table, logs); Lab 3 | ⏳ |
 | 7 | Containers: image layers, namespaces, bridge networking, port publishing; Docker Compose; Lab 4 | ⏳ |
 | 8 | Enterprise services (web/reverse proxy, SMB/NFS, NTP, logging) and Labs 5–6 (multi-system outages, recovery) | ⏳ |

@@ -36,13 +36,15 @@ export interface Progress {
   exercises: Record<string, { attempts: number; correct: boolean }>;
   predictions: Record<string, { attempts: number; correct: boolean }>;
   attempts: TroubleshootingAttempt[];
+  /** Guided labs: completed step ids (in order of completion), steps done with "do it for me", timestamps. */
+  labs: Record<string, { completed: string[]; assisted: string[]; startedAt: number; finishedAt?: number }>;
   settings: { theme: Theme };
 }
 
 export const STORAGE_KEY = 'infralab.progress.v1';
 
 export function emptyProgress(): Progress {
-  return { version: 1, lessons: {}, concepts: {}, questions: {}, exercises: {}, predictions: {}, attempts: [], settings: { theme: 'system' } };
+  return { version: 1, lessons: {}, concepts: {}, questions: {}, exercises: {}, predictions: {}, attempts: [], labs: {}, settings: { theme: 'system' } };
 }
 
 export function loadProgress(storage: Pick<Storage, 'getItem'> | null): Progress {

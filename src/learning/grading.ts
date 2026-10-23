@@ -5,7 +5,7 @@
 import { evaluate, NftError, parseRuleExpr, parseRulesetFile } from '../engine/config/nft';
 import { effectiveConfig, formatErrors, parseSshdConfig } from '../engine/config/sshdConfig';
 import type { CommandExercise, Question } from '../content/types';
-import { tokenizeLine } from '../engine/shell/tokenize';
+import { expandParams, tokenizeLine } from '../engine/shell/tokenize';
 
 export interface GradeResult {
   correct: boolean;
@@ -102,7 +102,7 @@ export function gradeCommandExercise(ex: CommandExercise, answer: unknown): Grad
     const line = String(answer ?? '').trim();
     let argv: string[] = [];
     try {
-      argv = tokenizeLine(line).filter((t) => !t.startsWith('\u0000'));
+      argv = tokenizeLine(line).filter((t) => !t.startsWith('\u0000')).map((t) => expandParams(t, (n) => `$${n}`));
     } catch {
       return { correct: false, feedback: [{ ok: false, text: 'Could not parse the command line.' }] };
     }

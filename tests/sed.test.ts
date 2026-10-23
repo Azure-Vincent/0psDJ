@@ -48,3 +48,39 @@ describe('sed (GNU subset)', () => {
     expect(sed("sed '1,d' f")).toBe("sed: -e expression #1, char 3: unexpected `,'");
   });
 });
+
+describe('printf, grep -e, bridge vlan show dev', () => {
+  it('printf expands escapes and %s, and writes files through redirection', () => {
+    const sh = lab();
+    expect(sh("printf 'a\\tb %s=%d\\n' x 7")).toBe('a\tb x=7');
+    sh("printf 'one\\ntwo\\n' > /root/p");
+    expect(sh('cat /root/p')).toBe('one\ntwo');
+  });
+
+  it('grep accepts several -e patterns', () => {
+    const sh = lab();
+    expect(sh('grep -e b -e d f')).toBe('b\nd');
+    expect(sh('grep -c -e a -e e f')).toBe('2');
+  });
+
+  it('bridge vlan show dev PORT lists only that port', () => {
+    const l = new Lab();
+    expect(l.run('sw01', 'root', 'bridge vlan show dev swp6').output).toBe('port              vlan-id  \nswp6              20 PVID Egress Untagged');
+    expect(l.run('sw01', 'root', 'bridge vlan show dev nope').output).toBe('Cannot find device "nope"');
+  });
+});
+
+describe('shell parameter expansion', () => {
+  it('expands $?, $HOME, ${USER} outside single quotes, like bash', () => {
+    const lab = new Lab();
+    const sh = lab.shell('ws01', 'alice');
+    expect(sh.execute('false; echo $?').output).toBe('1');
+    sh.execute('ls /nonexistent');
+    expect(sh.execute('echo "last=$?"').output).toBe('last=2');
+    expect(sh.execute('echo $?').output).toBe('0');
+    expect(sh.execute(`echo '$HOME' "$HOME" \${USER}@$HOSTNAME`).output).toBe('$HOME /home/alice alice@ws01');
+    expect(sh.execute('echo a$ "b$" $UNSET x').output).toBe('a$ b$ x');
+    expect(sh.execute('cd $HOME/.ssh && pwd').output).toBe('/home/alice/.ssh');
+    expect(sh.execute("grep -c 'eth0$' /etc/network/interfaces").output).toBe('2');
+  });
+});

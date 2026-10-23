@@ -108,3 +108,7 @@ export function seededInt(seed: string, min: number, max: number): number {
   const n = ((b[0] << 24) | (b[1] << 16) | (b[2] << 8) | b[3]) >>> 0;
   return min + (n % (max - min + 1));
 }
+
+export function sha256Hex(s: string): string {
+  return Array.from(sha256(utf8(s)), (b) => b.toString(16).padStart(2, '0')).join('');
+}

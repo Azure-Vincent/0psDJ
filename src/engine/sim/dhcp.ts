@@ -29,10 +29,14 @@ import { seededInt } from '../util/sha256';
 import { log } from './journal';
 import { capture, nextId, sourceAddress, transmit } from './network';
 import { activeRecorder, withRecorder } from './trace';
+import { type Dhcpd6Loaded, nextEvent6, stepDhcp6 } from './dhcp6';
 
 export interface DhcpdLoaded {
   config: DhcpdConfig;
   interfaces: string[];
+  /** dhcpd -6, when INTERFACESv6 is set (same isc-dhcp-server unit, its own process). */
+  v6?: Dhcpd6Loaded;
+  pid6?: number;
 }
 
 export interface DhcpLease {
@@ -315,7 +319,8 @@ function initReboot(world: World, client: Host, iface: Interface, old: string, d
 export function dhcpAcquire(world: World, client: Host, iface: Interface, opts: { retry?: boolean } = {}): DhcpLease | null {
   // A retry comes from the dhclient process that is already running (same PID, no banner), in
   // INIT state: its lease is gone, so it starts with DISCOVER instead of INIT-REBOOT.
-  const pid = opts.retry ? client.nextPid : (client.nextPid += 5);
+  const pid = opts.retry ? (iface.dhcpPid ?? client.nextPid) : (client.nextPid += 5);
+  iface.dhcpPid = pid;
   const dl = clientLog(world, client, pid);
   const rec = activeRecorder();
   if (rec) rec.phase = 'DHCP';
@@ -434,7 +439,7 @@ export function dhcpRenew(world: World, client: Host, iface: Interface, mode: 'r
   const b = iface.dhcp;
   const ip = iface.address;
   if (!b || !ip) return false;
-  const dl = clientLog(world, client, client.nextPid);
+  const dl = clientLog(world, client, iface.dhcpPid ?? client.nextPid);
   const xid = seededInt(`xid:${client.id}:${world.counter}`, 1, 0x7fffffff) >>> 0;
   const m = msg(3, xid, iface.mac, { ciaddr: ip }, [], [{ name: 'Phase', value: mode === 'renew' ? 'RENEWING (T1): unicast to the server that granted the lease' : 'REBINDING (T2): broadcast to any server' }]);
   let servers: ServerCandidate[] = [];
@@ -503,18 +508,27 @@ function nextEvent(iface: Interface): number | undefined {
 export function maintainLeases(world: World, record = false): void {
   const now = world.clock;
   const retries = new Map<Interface, number>();
+  const retries6 = new Map<Interface, number>();
   withRecorder(record ? activeRecorder() : null, () => {
     for (let guard = 0; guard < 2000; guard++) {
-      let next: { host: Host; iface: Interface; at: number } | null = null;
+      let next: { host: Host; iface: Interface; at: number; v6: boolean } | null = null;
       for (const host of Object.values(world.hosts)) {
         for (const iface of host.ifaces) {
           const at = nextEvent(iface);
-          if (at !== undefined && at <= now && (!next || at < next.at)) next = { host, iface, at };
+          if (at !== undefined && at <= now && (!next || at < next.at)) next = { host, iface, at, v6: false };
+          const at6 = nextEvent6(iface);
+          if (at6 !== undefined && at6 <= now && (!next || at6 < next.at)) next = { host, iface, at: at6, v6: true };
         }
       }
       if (!next) break;
       const { host, iface, at } = next;
       world.clock = at;
+      if (next.v6) {
+        const tries = iface.dhcp6 ? 0 : retries6.get(iface) ?? 0;
+        if (!iface.dhcp6) retries6.set(iface, tries + 1);
+        stepDhcp6(world, host, iface, at, tries, now);
+        continue;
+      }
       const b = iface.dhcp;
       if (!b) {
         // A sleeping dhclient tries again every 5 minutes; after two attempts, skip to the last one.
@@ -547,7 +561,7 @@ export function maintainLeases(world: World, record = false): void {
         b.nextTry = at + RETRANSMIT_MS;
         continue;
       }
-      const dl = clientLog(world, host, host.nextPid);
+      const dl = clientLog(world, host, iface.dhcpPid ?? host.nextPid);
       dl(`DHCPREQUEST for ${iface.address} on ${iface.name} to 255.255.255.255 port 67`);
       dl(`No DHCPOFFERS received.`);
       dl(`No working leases in persistent database - sleeping.`);

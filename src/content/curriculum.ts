@@ -22,7 +22,7 @@ export const CURRICULUM: CurriculumModule[] = [
       { title: 'Ports and sockets', level: 'beginner', status: 'available', link: 'lesson/transport/what' },
       { title: 'DNS resolution', level: 'beginner', status: 'available', link: 'lesson/transport/internals' },
       { title: 'Stateful and stateless firewalls', level: 'intermediate', status: 'available', link: 'lesson/nftables/internals' },
-      { title: 'IPv6 and neighbor discovery', level: 'intermediate', status: 'available', link: 'lesson/ipv6' },
+      { title: 'IPv6, SLAAC, DHCPv6 and neighbor discovery', level: 'intermediate', status: 'available', link: 'lesson/ipv6', note: 'Addressing, router advertisements and SLAAC, stateful and stateless DHCPv6, Neighbor Discovery and ICMPv6 in firewalls, dual stack; 6 tickets.' },
       { title: 'DHCP address assignment, relay agents and lease renewal', level: 'beginner', status: 'available', link: 'lesson/dhcp', note: 'DORA, INIT-REBOOT and NAK, T1/T2 renewal and expiry, isc-dhcp-relay with giaddr, 7 tickets.' },
       { title: 'NAT and PAT', level: 'intermediate', status: 'available', link: 'lesson/nat' },
       { title: 'VLANs and segmentation', level: 'intermediate', status: 'available', link: 'lesson/vlan' },
@@ -53,7 +53,9 @@ export const CURRICULUM: CurriculumModule[] = [
       { title: 'Local users and groups', level: 'beginner', status: 'partial', link: 'troubleshoot' },
       { title: 'Active Directory, DNS and Kerberos (reference lesson)', level: 'intermediate', status: 'available', link: 'lesson/ad-kerberos/what' },
       { title: 'Active Directory Domain Services', level: 'intermediate', status: 'available', link: 'lesson/ad-kerberos/internals' },
-      { title: 'Kerberos (KDC, AS, TGS, SPNs, tickets)', level: 'advanced', status: 'available', link: 'lesson/ad-kerberos/internals' },
+      { title: 'Kerberos (KDC, AS, TGS, SPNs, tickets)', level: 'advanced', status: 'available', link: 'lesson/kerberos/internals', note: 'Simulated with MIT Kerberos in the lab (KDC on ns1, Kerberos SSH to srv01, 4 tickets); the AD view is in the reference lesson.' },
+      { title: 'DNS service records (SRV)', level: 'intermediate', status: 'available', link: 'lesson/kerberos/what' },
+      { title: 'Time synchronisation for authentication', level: 'beginner', status: 'available', link: 'lesson/kerberos/troubleshoot' },
       { title: 'NTLM', level: 'intermediate', status: 'planned' },
       { title: 'LDAP and LDAPS', level: 'intermediate', status: 'planned' },
       { title: 'DNS in Active Directory', level: 'intermediate', status: 'available', link: 'lesson/ad-kerberos/internals' },
@@ -61,7 +63,7 @@ export const CURRICULUM: CurriculumModule[] = [
       { title: 'SSSD', level: 'advanced', status: 'partial', link: 'lesson/ad-kerberos/deploy', note: 'Joining Linux to AD with realmd/SSSD.' },
       { title: 'RADIUS', level: 'advanced', status: 'planned' },
       { title: 'Certificate-based authentication and PKI', level: 'advanced', status: 'partial', link: 'lesson/tls/internals', note: 'Certificates, CAs, chains, trust stores, CSRs and issuance are in the TLS lesson; client-certificate authentication, smart cards and AD CS are not covered.' },
-      { title: 'Single sign-on', level: 'advanced', status: 'planned' },
+      { title: 'Single sign-on', level: 'advanced', status: 'partial', link: 'lesson/kerberos/what', note: 'Kerberos SSO for SSH (GSSAPI); SAML/OIDC web SSO not covered.' },
     ],
   },
   {
@@ -119,7 +121,7 @@ export const CURRICULUM: CurriculumModule[] = [
 ];
 
 export const LABS = [
-  { id: 'lab1', title: 'Lab 1: Basic Linux Server', status: 'partial' as const, note: 'The SSH lab (ws01, srv01, ns1, rtr01) covers networking, SSH, users, permissions and connectivity troubleshooting in simulation. A separate real-VM guide is in the SSH lesson\'s Deployment section.' },
+  { id: 'lab1', title: 'Lab 1: Basic Linux Server', status: 'available' as const, link: 'labs/lab1', note: 'Guided, 9 verified steps: build a fresh Debian server (srv02) from switch port to hardened web server, with DNS, SSH keys, nftables and a reboot test.' },
   { id: 'lab2', title: 'Lab 2: Windows Domain', status: 'partial' as const, note: 'No Windows simulator. The AD/Kerberos and Windows/RDP lessons include real-VM build guides, and case studies C and F walk through domain login and RDP failures.' },
   { id: 'lab3', title: 'Lab 3: Segmented Enterprise Network (pfSense)', status: 'partial' as const, note: 'Segmentation is simulated with a Linux router and VLAN switch; the pfSense lesson and case study E cover the same design on pfSense.' },
   { id: 'lab4', title: 'Lab 4: Containerized Application', status: 'partial' as const, note: 'Docker lesson with a Compose example, and case study D (unreachable web app). Not simulated.' },

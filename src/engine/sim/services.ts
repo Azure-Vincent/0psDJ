@@ -7,9 +7,11 @@ import { emptyRuleset, NftError, parseRulesetFile } from '../config/nft';
 import { parseInterfaces, vlanOf } from '../config/netconf';
 import { parseZone, ZoneError, type Zone } from '../config/zone';
 import { DhcpConfigError, parseDhcpdConf } from '../config/dhcpd';
+import { escapeBinary, inPrefix6, parseDhcpd6Conf, parseLeases6 } from '../config/dhcpd6';
+import { dhcp6Acquire, duidLlt, LEASES6, type Dhcpd6Loaded } from './dhcp6';
 import { dhcpAcquire, type DhcpdLoaded } from './dhcp';
 import { inCidr, parseCidr, parseIp } from '../net/ip';
-import { readFile } from '../fs';
+import { readFile, writeFile } from '../fs';
 import { parseNginxServers } from '../config/nginx';
 import { type Cert, parseCerts, parseKey } from './pki';
 import type { Host, ServiceRuntime, World } from '../types';
@@ -19,6 +21,7 @@ import { linkLocalFromMac } from '../net/ip6';
 import { bridgeFromConfig, recomputeL2 } from './l2';
 import { parseRadvdConf, RadvdConfigError, routerSolicit, sendRa, type RadvdLoaded } from './slaac';
 import { parsePublicKey, type ParsedPublicKey } from './keys';
+import { parseKadmAcl, parseKdcConf, parsePrincipalDb, ProfileError, type KdcConf } from '../config/krb5';
 
 export interface Listener {
   proto: 'tcp' | 'udp';
@@ -246,6 +249,9 @@ const named: ServiceDef = {
     return [
       { proto: 'udp', addr: '0.0.0.0', port: 53, process: 'named', pid, service: 'named' },
       { proto: 'tcp', addr: '0.0.0.0', port: 53, process: 'named', pid, service: 'named' },
+      // Debian's named.conf.options has "listen-on-v6 { any; };"
+      { proto: 'udp', addr: '::', port: 53, process: 'named', pid, service: 'named' },
+      { proto: 'tcp', addr: '::', port: 53, process: 'named', pid, service: 'named' },
       { proto: 'tcp', addr: '127.0.0.1', port: 953, process: 'named', pid, service: 'named' },
     ];
   },
@@ -424,19 +430,112 @@ const nginx: ServiceDef = {
 // ISC DHCP server
 // ---------------------------------------------------------------------------
 
-export function dhcpdInterfaces(host: Host): string[] {
-  const m = /^INTERFACESv4="([^"]*)"/m.exec(readFile(host, '/etc/default/isc-dhcp-server') ?? '');
+export function dhcpdInterfaces(host: Host, family: 4 | 6 = 4): string[] {
+  const re = family === 4 ? /^INTERFACESv4="([^"]*)"/m : /^INTERFACESv6="([^"]*)"/m;
+  const m = re.exec(readFile(host, '/etc/default/isc-dhcp-server') ?? '');
   return m ? m[1].split(/\s+/).filter(Boolean) : [];
 }
 
-/** dhcpd -t: returns error lines (empty when valid). */
-export function dhcpdTest(host: Host): string[] {
+/** dhcpd -t [-6]: returns error lines (empty when valid). */
+export function dhcpdTest(host: Host, family: 4 | 6 = 4, file?: string): string[] {
+  const path = file ?? (family === 4 ? '/etc/dhcp/dhcpd.conf' : '/etc/dhcp/dhcpd6.conf');
+  const text = readFile(host, path);
+  if (text === undefined) return [`Can't open ${path}: No such file or directory`];
   try {
-    parseDhcpdConf(readFile(host, '/etc/dhcp/dhcpd.conf') ?? '');
+    if (family === 4) parseDhcpdConf(text, path);
+    else parseDhcpd6Conf(text, path);
     return [];
   } catch (e) {
     return [e instanceof DhcpConfigError ? e.message : String(e), 'Configuration file errors encountered -- exiting'];
   }
+}
+
+function startDhcpd4(world: World, host: Host, pid: number): DhcpdLoaded | null {
+  const l = (m: string, prio: 'info' | 'err' = 'info') => log(world, host, 'dhcpd', m, { pid, unit: 'isc-dhcp-server.service', priority: prio });
+  l('Internet Systems Consortium DHCP Server 4.4.3-P1');
+  let config;
+  try {
+    config = parseDhcpdConf(readFile(host, '/etc/dhcp/dhcpd.conf') ?? '');
+  } catch (e) {
+    l(e instanceof DhcpConfigError ? e.message : String(e), 'err');
+    l('Configuration file errors encountered -- exiting', 'err');
+    return null;
+  }
+  const usable: string[] = [];
+  for (const name of dhcpdInterfaces(host)) {
+    const iface = host.ifaces.find((i) => i.name === name);
+    if (!iface || !iface.address) {
+      l(`No subnet declaration for ${name} (no IPv4 addresses).`, 'err');
+      l(`** Ignoring requests on ${name}.  If this is not what`, 'err');
+      continue;
+    }
+    const sub = config.subnets.find((s) => inCidr(iface.address!, parseCidr(`${s.network}/${s.prefix}`)!));
+    if (!sub) {
+      l(`No subnet declaration for ${name} (${iface.address}).`, 'err');
+      l(`** Ignoring requests on ${name}.  If this is not what`, 'err');
+      continue;
+    }
+    l(`Listening on LPF/${name}/${iface.mac}/${sub.network}/${sub.prefix}`);
+    l(`Sending on   LPF/${name}/${iface.mac}/${sub.network}/${sub.prefix}`);
+    usable.push(name);
+  }
+  if (usable.length === 0) {
+    l('Not configured to listen on any interfaces!', 'err');
+    return null;
+  }
+  l('Server starting service.');
+  return { config, interfaces: usable };
+}
+
+function startDhcpd6(world: World, host: Host, pid: number): Dhcpd6Loaded | null {
+  const l = (m: string, prio: 'info' | 'err' = 'info') => log(world, host, 'dhcpd', m, { pid, unit: 'isc-dhcp-server.service', priority: prio });
+  l('Internet Systems Consortium DHCP Server 4.4.3-P1');
+  const text = readFile(host, '/etc/dhcp/dhcpd6.conf');
+  if (text === undefined) {
+    l("Can't open /etc/dhcp/dhcpd6.conf: No such file or directory", 'err');
+    return null;
+  }
+  let config;
+  try {
+    config = parseDhcpd6Conf(text);
+  } catch (e) {
+    l(e instanceof DhcpConfigError ? e.message : String(e), 'err');
+    l('Configuration file errors encountered -- exiting', 'err');
+    return null;
+  }
+  const leases = parseLeases6(readFile(host, LEASES6) ?? '').filter((x) => x.state === 'active' && x.ends > world.clock);
+  l(`Wrote ${leases.length} NA, 0 TA, 0 PD leases to lease file.`);
+  l('Bound to *:547');
+  const usable: Dhcpd6Loaded['interfaces'] = [];
+  for (const name of dhcpdInterfaces(host, 6)) {
+    const iface = host.ifaces.find((i) => i.name === name);
+    // dhcpd -6 serves a link when one of the interface's own global addresses lies in a subnet6.
+    const globals = (iface?.addrs6 ?? []).filter((a) => a.scope === 'global' && a.origin !== 'dhcp6');
+    const sub = config.subnets.find((s) => globals.some((a) => inPrefix6(a.address, s.prefix)));
+    if (!iface || !iface.up || !sub) {
+      const ll = iface?.addrs6?.find((a) => a.scope === 'link')?.address;
+      l(`No subnet6 declaration for ${name} (${globals[0]?.address ?? ll ?? 'no IPv6 addresses'}).`, 'err');
+      l(`** Ignoring requests on ${name}.  If this is not what`, 'err');
+      l('   you want, please write a subnet6 declaration', 'err');
+      l('   in your dhcpd.conf file for the network segment', 'err');
+      l(`   to which interface ${name} is attached. **`, 'err');
+      continue;
+    }
+    l(`Listening on Socket/${name}/${sub.prefix}`);
+    l(`Sending on   Socket/${name}/${sub.prefix}`);
+    usable.push({ name, subnet: sub.prefix });
+  }
+  if (usable.length === 0) {
+    l('Not configured to listen on any interfaces!', 'err');
+    return null;
+  }
+  // dhcpd creates its DUID-LLT once and keeps it in the lease file.
+  const leaseText = readFile(host, LEASES6) ?? '';
+  const first = host.ifaces.find((i) => i.name === usable[0].name)!;
+  const duid = duidLlt(first.mac);
+  if (!/^server-duid /m.test(leaseText)) writeFile(host, LEASES6, `${leaseText}server-duid "${escapeBinary(duid.split(':').map((x) => parseInt(x, 16)))}";\n\n`, world.clock);
+  l('Server starting service.');
+  return { config, interfaces: usable, duid };
 }
 
 const dhcpd: ServiceDef = {
@@ -444,48 +543,32 @@ const dhcpd: ServiceDef = {
   unit: 'isc-dhcp-server.service',
   aliases: ['isc-dhcp-server', 'isc-dhcp-server.service', 'dhcpd'],
   description: 'LSB: DHCP server',
-  configFiles: ['/etc/dhcp/dhcpd.conf', '/etc/default/isc-dhcp-server'],
+  configFiles: ['/etc/dhcp/dhcpd.conf', '/etc/dhcp/dhcpd6.conf', '/etc/default/isc-dhcp-server'],
   start(world, host, rt) {
-    const pid = allocPid(host);
-    const l = (m: string, prio: 'info' | 'err' = 'info') => log(world, host, 'dhcpd', m, { pid, unit: 'isc-dhcp-server.service', priority: prio });
-    l('Internet Systems Consortium DHCP Server 4.4.3-P1');
-    let config;
-    try {
-      config = parseDhcpdConf(readFile(host, '/etc/dhcp/dhcpd.conf') ?? '');
-    } catch (e) {
-      l(e instanceof DhcpConfigError ? e.message : String(e), 'err');
-      l('Configuration file errors encountered -- exiting', 'err');
+    // The Debian init script starts dhcpd -4 and/or dhcpd -6 depending on INTERFACESv4/INTERFACESv6.
+    const has4 = dhcpdInterfaces(host, 4).length > 0;
+    const has6 = dhcpdInterfaces(host, 6).length > 0;
+    const script = allocPid(host);
+    log(world, host, 'isc-dhcp-server', has4 && !has6 ? 'Launching IPv4 server only.' : !has4 && has6 ? 'Launching IPv6 server only.' : 'Launching both IPv4 and IPv6 servers (please configure INTERFACES in /etc/default/isc-dhcp-server if you only want one or the other).', { pid: script, unit: 'isc-dhcp-server.service' });
+    const run4 = has4 || !has6;
+    const pid4 = run4 ? allocPid(host) : 0;
+    const v4 = run4 ? startDhcpd4(world, host, pid4) : null;
+    const pid6 = has6 ? allocPid(host) : 0;
+    const v6 = has6 ? startDhcpd6(world, host, pid6) : null;
+    if ((run4 && !v4) || (has6 && !v6)) {
+      log(world, host, 'isc-dhcp-server', `Starting ISC DHCP${run4 && !v4 ? 'v4' : 'v6'} server: dhcpd${run4 && !v4 ? '' : '6'}check syslog for diagnostics. ... failed!`, { pid: script, unit: 'isc-dhcp-server.service', priority: 'err' });
       return false;
     }
-    const usable: string[] = [];
-    for (const name of dhcpdInterfaces(host)) {
-      const iface = host.ifaces.find((i) => i.name === name);
-      if (!iface || !iface.address) {
-        l(`No subnet declaration for ${name} (no IPv4 addresses).`, 'err');
-        l(`** Ignoring requests on ${name}.  If this is not what`, 'err');
-        continue;
-      }
-      const sub = config.subnets.find((s) => inCidr(iface.address!, parseCidr(`${s.network}/${s.prefix}`)!));
-      if (!sub) {
-        l(`No subnet declaration for ${name} (${iface.address}).`, 'err');
-        l(`** Ignoring requests on ${name}.  If this is not what`, 'err');
-        continue;
-      }
-      l(`Listening on LPF/${name}/${iface.mac}/${sub.network}/${sub.prefix}`);
-      l(`Sending on   LPF/${name}/${iface.mac}/${sub.network}/${sub.prefix}`);
-      usable.push(name);
-    }
-    if (usable.length === 0) {
-      l('Not configured to listen on any interfaces!', 'err');
-      return false;
-    }
-    l('Server starting service.');
-    rt.pid = pid;
-    rt.loaded = { config, interfaces: usable } satisfies DhcpdLoaded;
+    rt.pid = run4 ? pid4 : pid6;
+    rt.loaded = { config: v4?.config ?? parseDhcpdConf(''), interfaces: v4?.interfaces ?? [], v6: v6 ?? undefined, pid6: v6 ? pid6 : undefined } satisfies DhcpdLoaded;
     return true;
   },
   listeners(_host, rt) {
-    return [{ proto: 'udp', addr: '0.0.0.0', port: 67, process: 'dhcpd', pid: rt.pid!, service: 'dhcpd' }];
+    const loaded = rt.loaded as DhcpdLoaded | null;
+    const out: Listener[] = [];
+    if (loaded?.interfaces.length) out.push({ proto: 'udp', addr: '0.0.0.0', port: 67, process: 'dhcpd', pid: rt.pid!, service: 'dhcpd' });
+    if (loaded?.v6) out.push({ proto: 'udp', addr: '::', port: 547, process: 'dhcpd', pid: loaded.pid6!, service: 'dhcpd' });
+    return out;
   },
 };
 
@@ -621,6 +704,119 @@ const radvd: ServiceDef = {
 };
 
 // ---------------------------------------------------------------------------
+// MIT Kerberos KDC (krb5kdc) and admin server (kadmind)
+// ---------------------------------------------------------------------------
+
+const KDC_CONF = '/etc/krb5kdc/kdc.conf';
+
+function loadKdcConf(world: World, host: Host, ident: string, unit: string, pid: number): KdcConf | null {
+  try {
+    const conf = parseKdcConf(readFile(host, KDC_CONF));
+    for (const [realm, r] of Object.entries(conf.realms)) {
+      if (parsePrincipalDb(readFile(host, r.databaseName)) === null) {
+        log(world, host, ident, `Cannot open DB2 database '${r.databaseName}': No such file or directory - while initializing database for realm ${realm}`, { pid, unit, priority: 'err' });
+        return null;
+      }
+    }
+    if (!Object.keys(conf.realms).length) {
+      log(world, host, ident, 'No realms specified in kdc.conf - while initializing realms', { pid, unit, priority: 'err' });
+      return null;
+    }
+    return conf;
+  } catch (e) {
+    if (!(e instanceof ProfileError)) throw e;
+    log(world, host, ident, `Improper format of Kerberos configuration file (${e.message}) - while initializing`, { pid, unit, priority: 'err' });
+    return null;
+  }
+}
+
+const krb5kdc: ServiceDef = {
+  name: 'krb5-kdc',
+  unit: 'krb5-kdc.service',
+  aliases: ['krb5-kdc', 'krb5-kdc.service', 'krb5kdc'],
+  description: 'Kerberos 5 Key Distribution Center',
+  configFiles: [KDC_CONF],
+  start(world, host, rt) {
+    const pid = allocPid(host);
+    const conf = loadKdcConf(world, host, 'krb5kdc', 'krb5-kdc.service', pid);
+    if (!conf) return false;
+    rt.pid = pid;
+    rt.loaded = { conf };
+    log(world, host, 'krb5kdc', 'setting up network...', { pid, unit: 'krb5-kdc.service' });
+    const r = Object.values(conf.realms)[0];
+    log(world, host, 'krb5kdc', `set up ${r.kdcPorts.length * 2 + r.kdcTcpPorts.length * 2} sockets`, { pid, unit: 'krb5-kdc.service' });
+    log(world, host, 'krb5kdc', `commencing operation`, { pid, unit: 'krb5-kdc.service' });
+    return true;
+  },
+  listeners(_host, rt) {
+    const conf = (rt.loaded as { conf: KdcConf }).conf;
+    const udp = [...new Set(Object.values(conf.realms).flatMap((r) => r.kdcPorts))];
+    const tcp = [...new Set(Object.values(conf.realms).flatMap((r) => r.kdcTcpPorts))];
+    return [
+      ...udp.flatMap((port) => ['0.0.0.0', '::'].map((addr) => ({ proto: 'udp' as const, addr, port, process: 'krb5kdc', pid: rt.pid!, service: 'krb5-kdc' }))),
+      ...tcp.flatMap((port) => ['0.0.0.0', '::'].map((addr) => ({ proto: 'tcp' as const, addr, port, process: 'krb5kdc', pid: rt.pid!, service: 'krb5-kdc' }))),
+    ];
+  },
+};
+
+const kadmind: ServiceDef = {
+  name: 'krb5-admin-server',
+  unit: 'krb5-admin-server.service',
+  aliases: ['krb5-admin-server', 'krb5-admin-server.service', 'kadmind', 'kadmin'],
+  description: 'Kerberos 5 Admin Server',
+  configFiles: [KDC_CONF, '/etc/krb5kdc/kadm5.acl'],
+  start(world, host, rt) {
+    const pid = allocPid(host);
+    const conf = loadKdcConf(world, host, 'kadmind', 'krb5-admin-server.service', pid);
+    if (!conf) return false;
+    const aclFile = Object.values(conf.realms)[0].aclFile;
+    const text = readFile(host, aclFile);
+    if (text === undefined) {
+      log(world, host, 'kadmind', `Cannot open ACL file ${aclFile}: No such file or directory - while initializing ACL file, aborting`, { pid, unit: 'krb5-admin-server.service', priority: 'err' });
+      return false;
+    }
+    rt.pid = pid;
+    rt.loaded = { conf, acl: parseKadmAcl(text), aclFile };
+    log(world, host, 'kadmind', 'Seeding random number generator', { pid, unit: 'krb5-admin-server.service' });
+    log(world, host, 'kadmind', 'starting', { pid, unit: 'krb5-admin-server.service' });
+    return true;
+  },
+  listeners(_host, rt) {
+    const pid = rt.pid!;
+    return [
+      { proto: 'tcp', addr: '0.0.0.0', port: 749, process: 'kadmind', pid, service: 'krb5-admin-server' },
+      { proto: 'tcp', addr: '0.0.0.0', port: 464, process: 'kadmind', pid, service: 'krb5-admin-server' },
+      { proto: 'udp', addr: '0.0.0.0', port: 464, process: 'kadmind', pid, service: 'krb5-admin-server' },
+    ];
+  },
+};
+
+// ---------------------------------------------------------------------------
+// systemd-timesyncd: NTP client. Simplified: NTP packets are not modelled; when
+// the service starts it sets the clock from the time server named in timesyncd.conf.
+// ---------------------------------------------------------------------------
+
+const timesyncd: ServiceDef = {
+  name: 'systemd-timesyncd',
+  unit: 'systemd-timesyncd.service',
+  aliases: ['systemd-timesyncd', 'systemd-timesyncd.service', 'timesyncd'],
+  description: 'Network Time Synchronization',
+  configFiles: ['/etc/systemd/timesyncd.conf'],
+  start(world, host, rt) {
+    const pid = allocPid(host);
+    rt.pid = pid;
+    rt.loaded = {};
+    const server = /^NTP=(\S+)/m.exec(readFile(host, '/etc/systemd/timesyncd.conf') ?? '')?.[1] ?? '0.debian.pool.ntp.org';
+    const off = host.clockOffset ?? 0;
+    host.clockOffset = 0;
+    log(world, host, 'systemd-timesyncd', `Contacted time server ${server}:123.`, { pid, unit: 'systemd-timesyncd.service' });
+    log(world, host, 'systemd-timesyncd', `Initial clock synchronization to ${new Date(world.clock).toUTCString().slice(0, 3)} ${new Date(world.clock).toISOString().replace('T', ' ').replace('Z', '')} UTC${Math.abs(off) >= 1000 ? ` (clock was ${Math.round(Math.abs(off) / 1000)} s ${off > 0 ? 'ahead' : 'behind'})` : ''}.`, { pid, unit: 'systemd-timesyncd.service' });
+    return true;
+  },
+  listeners: () => [],
+};
+
+// ---------------------------------------------------------------------------
 // networking (ifupdown)
 // ---------------------------------------------------------------------------
 
@@ -645,6 +841,11 @@ export function applyNetworkConfig(world: World, host: Host): string[] {
     delete i.mtu;
     delete i.dhcp;
     delete i.dhcpRetryAt;
+    delete i.dhcp6;
+    delete i.dhcp6RetryAt;
+    delete i.dhcpPid;
+    delete i.dhcp6Pid;
+    delete i.autoconf6;
   }
   const autoCfg = ifaces.filter((c) => c.auto && c.name !== LOOPBACK);
   // VLAN sub-interfaces (Debian "vlan" package: eth3.30 → raw device eth3, VLAN id 30)
@@ -657,6 +858,7 @@ export function applyNetworkConfig(world: World, host: Host): string[] {
   }
   if (host.kind === 'switch') host.bridge = bridgeFromConfig(ifaces, errors);
   const slaac: string[] = [];
+  const dhcp6: string[] = [];
   const missing = new Set<string>();
   for (const cfg of autoCfg) {
     const iface = host.ifaces.find((i) => i.name === cfg.name);
@@ -681,6 +883,10 @@ export function applyNetworkConfig(world: World, host: Host): string[] {
     if (cfg.family === 'inet6') {
       if (cfg.method === 'static' && cfg.address) iface.addrs6!.push({ address: cfg.address, prefix: cfg.prefix ?? 64, scope: 'global', origin: 'static' });
       if (cfg.method === 'auto') slaac.push(iface.name);
+      // "inet6 dhcp": dhclient -6 for the address; router advertisements still give the default route.
+      if (cfg.method === 'dhcp') { dhcp6.push(iface.name); if (!slaac.includes(iface.name)) slaac.push(iface.name); }
+      // ifupdown's "autoconf 0" sets net.ipv6.conf.IF.autoconf=0: no SLAAC addresses from RAs.
+      if (cfg.options.autoconf === '0') iface.autoconf6 = false;
       if (cfg.gateway) host.routes6.push({ dest: 'default', via: cfg.gateway, dev: iface.name, proto: 'boot' });
       for (const r of cfg.routes) if (r.dest.includes(':')) host.routes6.push({ dest: r.dest, via: r.via, dev: iface.name, proto: 'boot' });
       continue;
@@ -706,6 +912,7 @@ export function applyNetworkConfig(world: World, host: Host): string[] {
     if (iface && cfg.family === 'inet' && cfg.method === 'dhcp') dhcpAcquire(world, host, iface);
   }
   if (!host.ip6Forward) for (const name of slaac) routerSolicit(world, host, host.ifaces.find((i) => i.name === name)!);
+  for (const name of dhcp6) dhcp6Acquire(world, host, host.ifaces.find((i) => i.name === name)!);
   for (const e of errors) log(world, host, 'ifup', e, { unit: 'networking.service', priority: 'err' });
   return errors;
 }
@@ -723,7 +930,7 @@ const networking: ServiceDef = {
   listeners: () => [],
 };
 
-export const SERVICE_DEFS: ServiceDef[] = [networking, nftables, named, dhcpd, dhcrelay, radvd, sshd, nginx];
+export const SERVICE_DEFS: ServiceDef[] = [networking, timesyncd, nftables, named, krb5kdc, kadmind, dhcpd, dhcrelay, radvd, sshd, nginx];
 
 export function findService(host: Host, name: string): ServiceDef | undefined {
   const n = name.replace(/\.service$/, '');

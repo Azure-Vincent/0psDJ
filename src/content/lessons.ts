@@ -23,6 +23,8 @@ import { DHCP_GUIDE } from './guides/dhcp';
 import { SYSTEMD_ASSESSMENT, SYSTEMD_LESSON } from './ops/systemd';
 import { NETOPS_ASSESSMENT, NETOPS_LESSON } from './ops/netops';
 import { AD_KERBEROS_ASSESSMENT, AD_KERBEROS_LESSON } from './ops/adKerberos';
+import { KERBEROS_LESSON } from './kerberos/lesson';
+import { KERBEROS_ASSESSMENT } from './kerberos/assessment';
 import { DOCKER_ASSESSMENT, DOCKER_LESSON } from './ops/docker';
 import { RECOVERY_ASSESSMENT, RECOVERY_LESSON } from './ops/recovery';
 import { WINDOWS_RDP_ASSESSMENT, WINDOWS_RDP_LESSON } from './ops/windowsRdp';
@@ -44,7 +46,7 @@ export const LESSONS: Lesson[] = [
   { ...TLS_LESSON, guide: TLS_GUIDE, objectives: ['N10-009:1.4', 'N10-009:4.1', 'N10-009:5.3', '200-301:2.8', '200-301:5.4'] },
   { ...SSH_LESSON, guide: SSH_GUIDE, caseStudyIds: ['ssh-refused'], objectives: ['N10-009:3.5', 'N10-009:5.3', '200-301:4.8', '200-301:2.8'] },
   { ...NFTABLES_LESSON, guide: NFTABLES_GUIDE, caseStudyIds: ['shared-dependency', 'ssh-refused'], objectives: ['N10-009:4.3', 'N10-009:5.3', '200-301:5.6'] },
-  PFSENSE_LESSON, WINDOWS_RDP_LESSON, AD_KERBEROS_LESSON, DOCKER_LESSON,
+  PFSENSE_LESSON, WINDOWS_RDP_LESSON, AD_KERBEROS_LESSON, KERBEROS_LESSON, DOCKER_LESSON,
   SYSTEMD_LESSON, NETOPS_LESSON, RECOVERY_LESSON];
 
 export const ASSESSMENTS: Record<string, Assessment> = {
@@ -63,6 +65,7 @@ export const ASSESSMENTS: Record<string, Assessment> = {
   [SYSTEMD_ASSESSMENT.id]: SYSTEMD_ASSESSMENT,
   [NETOPS_ASSESSMENT.id]: NETOPS_ASSESSMENT,
   [AD_KERBEROS_ASSESSMENT.id]: AD_KERBEROS_ASSESSMENT,
+  [KERBEROS_ASSESSMENT.id]: KERBEROS_ASSESSMENT,
   [DOCKER_ASSESSMENT.id]: DOCKER_ASSESSMENT,
   [RECOVERY_ASSESSMENT.id]: RECOVERY_ASSESSMENT,
   [WINDOWS_RDP_ASSESSMENT.id]: WINDOWS_RDP_ASSESSMENT,

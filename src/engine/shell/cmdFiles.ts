@@ -214,16 +214,23 @@ const grep: CommandDef = {
   summary: 'print lines matching a pattern',
   usage: 'grep [-i] [-v] [-n] [-E] [-c] PATTERN [FILE...]',
   run(args, ctx) {
-    const { flags, rest } = parseFlags(args, ['-e']);
-    const pattern = (flags.get('-e') as string | undefined) ?? rest.shift();
-    if (pattern === undefined) return err('Usage: grep [OPTION]... PATTERNS [FILE]...', 2);
+    // Several -e PATTERN options are allowed; a line matches if any of them does.
+    const patterns: string[] = [];
+    const rawArgs: string[] = [];
+    for (let k = 0; k < args.length; k++) {
+      if (args[k] === '-e' && k + 1 < args.length) patterns.push(args[++k]);
+      else rawArgs.push(args[k]);
+    }
+    const { flags, rest } = parseFlags(rawArgs);
+    if (!patterns.length && rest.length) patterns.push(rest.shift()!);
+    if (!patterns.length) return err('Usage: grep [OPTION]... PATTERNS [FILE]...', 2);
     let re: RegExp;
     try {
-      // Basic regular expressions: \| is alternation, + ? ( ) { } | are literals.
-      const src = flags.has('-E')
-        ? pattern
-        : pattern.replace(/\\\|/g, '\u0001').replace(/[+?(){}|]/g, (m) => '\\' + m).replace(/\u0001/g, '|');
-      re = new RegExp(flags.has('-F') ? pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') : src, flags.has('-i') ? 'i' : '');
+      // -F: fixed strings; -E: extended regex; default: basic regex, where \| is alternation and + ? ( ) { } | are literals.
+      const one = (p: string) => (flags.has('-F') ? p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+        : flags.has('-E') ? `(?:${p})`
+        : p.replace(/\\\|/g, '\u0001').replace(/[+?(){}|]/g, (m) => '\\' + m).replace(/\u0001/g, '|'));
+      re = new RegExp(patterns.map(one).join('|'), flags.has('-i') ? 'i' : '');
     } catch {
       return err('grep: Invalid regular expression', 2);
     }
@@ -273,6 +280,29 @@ const echo: CommandDef = {
   run(args) {
     const n = args[0] === '-n';
     return ok((n ? args.slice(1) : args).join(' '));
+  },
+};
+
+// printf FORMAT [ARG...]: escapes \n \t \\ and conversions %s %d %%; the format is reused while arguments remain.
+const printf: CommandDef = {
+  name: 'printf',
+  summary: 'format and print text (\\n, \\t, %s, %d)',
+  usage: "printf FORMAT [ARGUMENT...]",
+  run(args) {
+    if (!args.length) return err('printf: usage: printf [-v var] format [arguments]', 2);
+    const [fmt, ...vals] = args;
+    let out = '';
+    let i = 0;
+    do {
+      out += fmt.replace(/\\(.)|%([sd%])/g, (_m, esc: string | undefined, conv: string | undefined) => {
+        if (esc !== undefined) return esc === 'n' ? '\n' : esc === 't' ? '\t' : esc === '\\' ? '\\' : esc;
+        if (conv === '%') return '%';
+        const v = vals[i++] ?? '';
+        return conv === 'd' ? String(Number.parseInt(v, 10) || 0) : v;
+      });
+    } while (i < vals.length && /%[sd]/.test(fmt));
+    // The shell adds the final newline when it prints or redirects output.
+    return ok(out.replace(/\n$/, ''));
   },
 };
 
@@ -893,7 +923,7 @@ const diff: CommandDef = {
   },
 };
 
-export const FILE_COMMANDS: CommandDef[] = [tee, sed, copyOrMove('cp'), copyOrMove('mv'), diff,
+export const FILE_COMMANDS: CommandDef[] = [tee, sed, printf, copyOrMove('cp'), copyOrMove('mv'), diff,
   ls, cat, headTail('head'), headTail('tail'), grep, wc, echo, touch, mkdirCmd, rm, chmod, chown, stat, cd, pwd,
   whoami, id, editor, { ...editor, name: 'vi' }, { ...editor, name: 'vim' }, { ...editor, name: 'editor' }, passwd, usermod,
 ];

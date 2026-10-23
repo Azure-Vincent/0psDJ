@@ -3,9 +3,9 @@ import type { Lesson } from '../types';
 export const IPV6_LESSON: Lesson = {
   id: 'ipv6',
   moduleId: 'A',
-  title: 'IPv6: addressing, SLAAC and Neighbor Discovery',
+  title: 'IPv6: addressing, SLAAC, DHCPv6 and Neighbor Discovery',
   level: 'intermediate',
-  summary: 'IPv6 addresses and notation, link-local and global addresses, /64 subnets, router advertisements and SLAAC, Neighbor Discovery instead of ARP, ICMPv6 and firewalls, and how dual-stack hosts choose between IPv4 and IPv6.',
+  summary: 'IPv6 addresses and notation, link-local and global addresses, /64 subnets, router advertisements and SLAAC, stateful and stateless DHCPv6 (DUID, IA_NA, M/O flags), Neighbor Discovery instead of ARP, ICMPv6 and firewalls, and how dual-stack hosts choose between IPv4 and IPv6.',
   concepts: ['net.ipv6', 'net.ndp', 'net.routing', 'fw.stateful'],
 
   what: `
@@ -25,9 +25,9 @@ export const IPV6_LESSON: Lesson = {
 | Header checksum / fragmentation by routers | yes | no |
 
 ### In the lab
-The **IPv6 pilot** runs in the development VLAN 30: rtr01 advertises **2001:db8:30::/64** with **radvd**; dev01 configures itself (SLAAC). srv01 has the static address **2001:db8:20::10** and ns1 publishes an **AAAA** record for srv01. Everything else stays IPv4-only, like many real networks in transition. (2001:db8::/32 is the documentation prefix.)
+The **IPv6 pilot** runs in the development VLAN 30: rtr01 advertises **2001:db8:30::/64** with **radvd** (M and O flags set); dev01 configures itself (SLAAC), the laptop dev02 gets its address and DNS server from **DHCPv6** (dhcpd -6 on rtr01) and only its default route from the RA. srv01 has the static address **2001:db8:20::10**, ns1 has **2001:db8:10::53** (the DNS server handed out by DHCPv6) and publishes an **AAAA** record for srv01. The office clients stay IPv4-only, like many real networks in transition. (2001:db8::/32 is the documentation prefix.)
 
-> The simulator implements IPv6 addresses (link-local EUI-64, static, SLAAC), routing with longest-prefix match, Neighbor Discovery (NS/NA via solicited-node multicast) and router discovery (RS/RA from radvd), ICMPv6 echo and errors, IPv6 forwarding (silent drop when disabled), nftables ip6/inet/icmpv6 matching with "untracked" ND messages, AAAA records with getaddrinfo() address selection, curl Happy Eyeballs vs ssh sequential fallback, and IPv6/ICMPv6 in tcpdump and PCAP export. ICMPv6 "packet too big" and path-MTU discovery are covered in the MTU lesson. Not modelled: DHCPv6, privacy (temporary) addresses, duplicate address detection, MLD, extension headers.
+> The simulator implements IPv6 addresses (link-local EUI-64, static, SLAAC), routing with longest-prefix match, Neighbor Discovery (NS/NA via solicited-node multicast) and router discovery (RS/RA from radvd), ICMPv6 echo and errors, IPv6 forwarding (silent drop when disabled), nftables ip6/inet/icmpv6 matching with "untracked" ND messages, AAAA records with getaddrinfo() address selection, curl Happy Eyeballs vs ssh sequential fallback, and IPv6/ICMPv6 in tcpdump and PCAP export. DHCPv6 between dhclient -6 and ISC dhcpd -6 (Solicit/Advertise/Request/Reply, Information-request, Renew/Rebind/Release, DUID-LLT, IA_NA, lifetimes and T1/T2, dhcpd6.conf and dhcpd6.leases, nftables on both ends, ff02::1:2 in tcpdump and PCAP), the RA M/O flags and on-link prefixes, "beyond scope of source address" for link-local senders. ICMPv6 "packet too big" and path-MTU discovery are covered in the MTU lesson. Not modelled: DHCPv6 relays and prefix delegation, rapid commit, privacy (temporary) addresses, duplicate address detection, MLD, extension headers.
 `,
 
   internals: `
@@ -56,6 +56,31 @@ A /64 leaves 64 bits for the host. With **EUI-64** they come from the MAC: 52:54
 3. Routers answer with a **Router Advertisement** (134) to ff02::1: prefix(es) with flags *on-link* and *autonomous*, the router lifetime, optional DNS servers (RDNSS), and the M/O flags pointing to DHCPv6.
 4. The host forms prefix + identifier for every autonomous /64 and installs **default via the router's link-local address**.
 Routers send RAs periodically too. A Linux host ignores RAs while it forwards IPv6 (it is a router itself).
+
+### DHCPv6 (RFC 8415)
+SLAAC gives an address and a router, but no central record of who has which address and (without RDNSS) no DNS server. **DHCPv6** fills that gap. Two flags in the RA tell hosts what to use:
+| RA flags | Meaning | Typical client behaviour |
+|---|---|---|
+| M=0, O=0 | SLAAC only | address from the prefix, DNS from RDNSS |
+| M=0, O=1 | **stateless DHCPv6** | SLAAC address + DNS/domain from DHCPv6 (Information-request) |
+| M=1 | **stateful DHCPv6** | address (IA_NA) and options from DHCPv6; SLAAC still happens if the prefix is autonomous (A flag) |
+NetworkManager, systemd-networkd, Windows, macOS, Android (no stateful DHCPv6 at all) and iOS follow the flags. Debian's ifupdown does not: \`iface eth0 inet6 dhcp\` simply runs \`dhclient -6\`.
+
+**Message flow** (client UDP 546, server UDP 547):
+1. **Solicit** from the client's link-local address to **ff02::1:2** (all DHCPv6 servers and relays on the link). No broadcast exists in IPv6.
+2. **Advertise** from each server, unicast to the client's link-local address, with an offered address.
+3. **Request** (again to ff02::1:2) naming the chosen server by its **server identifier**.
+4. **Reply**: the binding is committed. At **T1** the client sends **Renew** to that server, at **T2** **Rebind** to any server; when the **valid lifetime** ends the address is removed.
+Stateless clients send one **Information-request** and get a Reply with options only.
+
+**What is different from DHCPv4**
+- **Identity**: clients are identified by a **DUID** (DHCP Unique Identifier, e.g. DUID-LLT = type + time + MAC), not by their MAC. Addresses belong to an **IA_NA** (identity association for non-temporary addresses) with an **IAID**; dhclient derives the IAID from the last four bytes of the MAC. Reinstalling a machine creates a new DUID, so reservations by DUID break; ISC dhcpd also accepts \`hardware ethernet\` when the DUID contains the MAC.
+- **No default route and no prefix length**: DHCPv6 has no "routers" option. The default route always comes from router advertisements, and dhclient installs the address as a **/128**; the on-link /64 route also comes from the RA. A network with DHCPv6 but no RAs gives hosts an address they cannot route with.
+- **Lifetimes**: each address has a preferred and a valid lifetime (ISC dhcpd: valid = default-lease-time, preferred = 5/8 of it unless set); T1 and T2 are 0.5 and 0.8 of the preferred lifetime (sent by the server, or chosen by the client when the server sends 0, as RFC 8415 recommends).
+- **Firewalls matter on both ends**. ISC dhcpd, dhclient and dhcrelay read **DHCPv4** with packet sockets that bypass nftables; **DHCPv6 uses ordinary UDP sockets**. The server's input chain must accept UDP 547; the client's must accept UDP 546, and "ct state established" does not cover it, because the Solicit went to a multicast group and the Advertise comes from the server's own address (a new flow for conntrack). firewalld enables its "dhcpv6-client" service by default for this reason.
+- **Different option names** in ISC dhcpd: \`dhcp6.name-servers\`, \`dhcp6.domain-search\`, \`subnet6\`, \`range6\`, \`fixed-address6\`, in /etc/dhcp/dhcpd6.conf. dhcpd -6 serves a link only when the interface has a global address inside a \`subnet6\` declaration ("No subnet6 declaration for eth3 (fe80::…)").
+- **resolv.conf**: Debian's dhclient-script replaces /etc/resolv.conf with the DHCPv6 DNS servers on every bind or renewal, and the IPv4 dhclient does the same with its own; on a dual-stack laptop the file alternates between them.
+- **Without a global address** a host still has its link-local address, and Linux uses it as the source for global destinations. Routers must not forward such packets; they answer ICMPv6 "beyond scope of source address", which applications report as "No route to host".
 
 ### Neighbor Discovery replaces ARP (RFC 4861)
 To send to 2001:db8:20::10 on the link, a node sends a **Neighbor Solicitation** (135) to the **solicited-node multicast** group ff02::1:ff00:10 (last 24 bits of the target), Ethernet 33:33:ff:00:00:10, so only nodes with matching addresses are interrupted. The owner answers with a unicast **Neighbor Advertisement** (136) containing its MAC. \`ip -6 neigh\` shows the cache (REACHABLE, STALE, FAILED).
@@ -99,6 +124,34 @@ So "it works in the browser" proves little: test with \`curl -6\` / \`curl -4\`,
       ],
     },
     {
+      id: 'dhcpv6-server',
+      platform: 'Linux: DHCPv6 server (ISC dhcpd -6) with radvd',
+      summary: 'Stateful DHCPv6 for one VLAN, as on rtr01. Steps marked "simulated" work in the sandbox.',
+      prerequisites: ['A router (radvd) already advertising the prefix on the link.', 'The server has a global address inside the subnet on the interface it serves.', 'IPv6 DNS servers to hand out.'],
+      steps: [
+        { title: 'Tell hosts to use DHCPv6 (radvd)', command: 'sudoedit /etc/radvd.conf   # inside interface eth3.30 { ... }\n    AdvManagedFlag on;\n    AdvOtherConfigFlag on;\n\nsudo systemctl restart radvd\nrdisc6 eth0   # on a client', what: 'M (managed) = addresses from DHCPv6, O (other) = options from DHCPv6.', why: 'Clients that follow the flags (NetworkManager, systemd-networkd, Windows) start DHCPv6 only when they see them. Keep AdvAutonomous on if SLAAC hosts share the VLAN; turn it off to force managed addresses.', expected: 'Stateful address conf.    :          Yes\nStateful other conf.      :          Yes', simulated: true },
+        { title: 'Write dhcpd6.conf', command: 'sudoedit /etc/dhcp/dhcpd6.conf\n\ndefault-lease-time 600;\nmax-lease-time 7200;\noption dhcp6.name-servers 2001:db8:10::53;\noption dhcp6.domain-search "corp.lab";\nsubnet6 2001:db8:30::/64 {\n    range6 2001:db8:30::1000 2001:db8:30::1fff;\n}\n\nsudo dhcpd -t -6 -cf /etc/dhcp/dhcpd6.conf', what: 'A pool in the VLAN\'s /64 plus DNS options, then a syntax check.', why: 'DHCPv6 has its own option names (dhcp6.*) and no "routers" option: the default route comes from the RA.', expected: 'Internet Systems Consortium DHCP Server 4.4.3-P1', simulated: true },
+        { title: 'Choose the interface', command: 'sudoedit /etc/default/isc-dhcp-server\n\nINTERFACESv4=""\nINTERFACESv6="eth3.30"', what: 'The init script starts dhcpd -6 because INTERFACESv6 is set (and dhcpd -4 only if INTERFACESv4 is).', why: 'Use the VLAN sub-interface that carries the subnet6 address, not its parent.', expected: 'isc-dhcp-server[407]: Launching IPv6 server only.', simulated: true },
+        { title: 'Open the firewall', command: 'sudo nft add rule inet filter input iifname "eth3.30" udp dport 547 accept\n# persistent: add the same line to /etc/nftables.conf', what: 'dhcpd -6 receives on an ordinary UDP socket.', why: 'Unlike DHCPv4, nftables filters DHCPv6. Without this rule the server log stays silent.', expected: '', simulated: true },
+        { title: 'Start and watch', command: 'sudo systemctl restart isc-dhcp-server\njournalctl -u isc-dhcp-server -n 12\nss -ulnp | grep 547', what: 'Starts the server and shows it listening.', why: '"Listening on Socket/eth3.30/2001:db8:30::/64" confirms the interface and subnet6 match.', expected: 'dhcpd[414]: Listening on Socket/eth3.30/2001:db8:30::/64\nUNCONN 0 0 [::]:547 [::]:* users:(("dhcpd",pid=414,fd=6))', simulated: true },
+        { title: 'Leases and reservations', command: 'cat /var/lib/dhcp/dhcpd6.leases\n\n# reservation (by client DUID or by MAC)\nhost printer30 {\n    host-identifier option dhcp6.client-id 00:01:00:01:2b:e0:4a:64:52:54:00:e7:00:30;\n    fixed-address6 2001:db8:30::30;\n}', what: 'ia-na blocks keyed by IAID + DUID, and a fixed address.', why: 'The DUID is the client\'s identity; read it from the server log ("client with duid ...").', expected: 'ia-na "*\\000\\347\\000..." {\n  iaaddr 2001:db8:30::18b8 {\n    binding state active;', simulated: true },
+      ],
+    },
+    {
+      id: 'dhcpv6-client',
+      platform: 'Linux client: dhclient -6 (ifupdown)',
+      summary: 'Get an address (stateful) or only DNS (stateless) from DHCPv6.',
+      prerequisites: ['Debian with isc-dhcp-client; a router advertising the prefix (for the default route).'],
+      steps: [
+        { title: 'Configure', command: 'sudoedit /etc/network/interfaces\n\niface eth0 inet6 dhcp\n    autoconf 0\n\nsudo systemctl restart networking', what: 'Runs dhclient -6 at boot; "autoconf 0" stops SLAAC so the host uses only its managed address.', why: 'Without autoconf 0 the host gets both a SLAAC and a DHCPv6 address when the prefix is autonomous. NetworkManager: ipv6.method dhcp; netplan: dhcp6: true.', expected: '', simulated: true },
+        { title: 'Firewall on the client', command: 'sudo nft add rule inet filter input ip6 saddr fe80::/10 udp sport 547 udp dport 546 accept', what: 'Lets DHCPv6 replies in.', why: 'The Advertise/Reply comes from the server\'s link-local address to UDP 546; conntrack does not match it to the multicast Solicit.', expected: '', simulated: true },
+        { title: 'Ask by hand', command: 'sudo dhclient -6 -v eth0\nip -6 addr show eth0\nip -6 route', what: 'Solicit, Advertise, Request, Reply; then the /128 address and the RA routes.', why: 'The address is a /128 with lifetimes ("dynamic"); the default route and the on-link /64 come from the router advertisement (proto ra).', expected: 'PRC: Bound to lease 00:01:00:01:2b:61:b7:3a:52:54:00:a1:00:04.\ninet6 2001:db8:30::18b8/128 scope global dynamic\n2001:db8:30::/64 dev eth0 proto ra metric 1024', simulated: true },
+        { title: 'Stateless (DNS only)', command: 'sudo dhclient -6 -S -v eth0\ncat /etc/resolv.conf', what: 'Information-request: options only, no address.', why: 'For SLAAC hosts on networks with the O flag.', expected: 'RCV: Reply message on eth0 from fe80::5054:ff:fea1:4.\nsearch corp.lab.\nnameserver 2001:db8:10::53', simulated: true },
+        { title: 'Release', command: 'sudo dhclient -6 -r eth0', what: 'Sends a Release and removes the address.', why: 'Before moving a machine or when testing a server change.', expected: '', simulated: true },
+        { title: 'Windows', command: 'ipconfig /all   # "DHCPv6 IAID" and "DHCPv6 Client DUID"\nipconfig /renew6\nGet-NetIPAddress -AddressFamily IPv6 | ? PrefixOrigin -eq Dhcp', what: 'Windows shows its DUID and IAID and renews DHCPv6 separately.', why: 'The DUID is what the DHCPv6 server reservation must match.', expected: 'DHCPv6 Client DUID. . . . . . . . : 00-01-00-01-2B-...' },
+      ],
+    },
+    {
       id: 'windows6',
       platform: 'Windows',
       summary: 'Client checks.',
@@ -118,8 +171,11 @@ IPv6 configuration is mostly about prefixes, router advertisements and not break
     {
       platform: 'Linux',
       items: [
-        { path: '/etc/network/interfaces (inet6 static | auto)', purpose: 'Static IPv6 addresses and gateway, or SLAAC.' },
-        { path: '/etc/radvd.conf', purpose: 'Router advertisements: prefixes, flags, RDNSS (routers only).' },
+        { path: '/etc/network/interfaces (inet6 static | auto | dhcp)', purpose: 'Static IPv6 addresses and gateway, SLAAC, or DHCPv6 (dhclient -6); "autoconf 0" disables SLAAC addresses.' },
+        { path: '/etc/radvd.conf', purpose: 'Router advertisements: prefixes, flags (AdvManagedFlag / AdvOtherConfigFlag for DHCPv6), RDNSS (routers only).' },
+        { path: '/etc/dhcp/dhcpd6.conf', purpose: 'ISC dhcpd -6: subnet6, range6, dhcp6.name-servers, dhcp6.domain-search, host reservations (fixed-address6).' },
+        { path: '/etc/default/isc-dhcp-server (INTERFACESv6)', purpose: 'Interfaces dhcpd -6 serves; setting it makes the init script start the IPv6 daemon.' },
+        { path: '/var/lib/dhcp/dhcpd6.leases, /var/lib/dhcp/dhclient6.<if>.leases', purpose: 'Server bindings (ia-na by IAID + DUID) and the client\'s lease with its default-duid.' },
         { path: '/etc/sysctl.d/*.conf', purpose: 'net.ipv6.conf.all.forwarding (routers), accept_ra, disable_ipv6; last file wins.' },
         { path: '/etc/nftables.conf', purpose: 'inet tables cover both families; allow ipv6-icmp (ND) explicitly.' },
         { path: '/etc/gai.conf', purpose: 'getaddrinfo() address-selection policy (e.g. prefer IPv4).' },
@@ -132,6 +188,11 @@ IPv6 configuration is mostly about prefixes, router advertisements and not break
     { name: 'iface X inet6 auto', compiledDefault: '— (kernel accepts RAs by default)', recommended: 'Clients', explanation: 'Use SLAAC on the interface.', security: 'Rogue RAs from any host can redirect clients: use RA Guard on switches.' },
     { name: 'AdvAutonomous on (radvd)', compiledDefault: 'on', recommended: 'on for SLAAC networks', explanation: 'Clients may form addresses from this prefix.', security: '' },
     { name: 'RDNSS', compiledDefault: '—', recommended: 'Your resolvers', explanation: 'DNS servers in the RA (RFC 8106); used by NetworkManager, systemd-networkd, rdnssd, Windows, Android, iOS.', security: 'Same trust model as DHCP DNS options.' },
+    { name: 'AdvManagedFlag / AdvOtherConfigFlag (radvd)', compiledDefault: 'off / off', recommended: 'M on for stateful DHCPv6; O on for DNS via DHCPv6', explanation: 'The M and O flags in router advertisements: use DHCPv6 for addresses / for other configuration.', security: 'Only hosts that follow the flags react; ifupdown runs dhclient -6 whenever "inet6 dhcp" is configured.' },
+    { name: 'subnet6 / range6 (dhcpd6.conf)', compiledDefault: '—', recommended: 'One subnet6 per served link, matching an address on the listening interface', explanation: 'Declares the link and its pool. Without a matching subnet6 the server ignores the interface.', security: 'Keep pools inside the /64 that the RA announces on that link.' },
+    { name: 'option dhcp6.name-servers / dhcp6.domain-search', compiledDefault: '—', recommended: 'IPv6 addresses of your resolvers', explanation: 'DNS options 23 and 24. IPv4 option names (domain-name-servers) are errors in dhcpd6.conf.', security: 'The resolvers must accept queries over IPv6 (listen-on-v6, firewall rules for both families).' },
+    { name: 'default-lease-time / preferred-lifetime (dhcpd6.conf)', compiledDefault: '43200 / 5/8 of it', recommended: 'Hours to days in production (the lab uses 600 s)', explanation: 'Valid and preferred lifetime of addresses; T1/T2 are normally 0.5/0.8 of the preferred lifetime.', security: 'Short lifetimes make a server outage visible quickly.' },
+    { name: 'udp dport 547 (server) / udp dport 546 (client) accept', compiledDefault: '—', recommended: 'Always where nftables has a drop policy', explanation: 'DHCPv6 uses ordinary UDP sockets, which netfilter filters (unlike ISC DHCPv4\'s packet sockets).', security: 'Restrict to the link: ip6 saddr fe80::/10 on the client, iifname on the server.' },
     { name: 'meta l4proto ipv6-icmp accept (nftables)', compiledDefault: '—', recommended: 'Always on IPv6 hosts (or the RFC 4890 type list)', explanation: 'Lets Neighbor Discovery, router discovery and ICMPv6 errors through the input chain.', security: 'Dropping ICMPv6 breaks IPv6 entirely; it is not like dropping ping.' },
   ],
 
@@ -141,6 +202,7 @@ IPv6 configuration is mostly about prefixes, router advertisements and not break
 2. **Is the router reachable?** \`ping -6 <gateway>\`, \`ip -6 neigh\`, \`rdisc6 eth0\`.
 3. **Where does it stop?** \`traceroute -6\` / ping each hop. *Address unreachable* = the last router could not resolve the destination (ND failing: host down, wrong address, ICMPv6 blocked). *Silence* = forwarding disabled, a firewall drop, or no route back.
 4. **Name resolution**: \`dig AAAA name\`, \`getent ahosts name\` (order of addresses).
+4b. **DHCPv6 hosts without an address** (only fe80::): \`journalctl -t dhclient\` on the client (Solicit only? Advertise received?), \`journalctl -u isc-dhcp-server\` on the server (Solicit logged? Advertise sent?), \`tcpdump -n port 546 or port 547\` on both ends, and both firewalls. Server silent although tcpdump sees the Solicit → its input chain (UDP 547). Server sends Advertise but the client never logs it → the client's input chain (UDP 546). Service failed → \`systemctl status isc-dhcp-server\` ("No subnet6 declaration").
 5. **Compare families**: \`curl -4\` vs \`curl -6\`, \`ssh -4\` vs \`ssh -6\`.
 `,
 
@@ -150,9 +212,14 @@ IPv6 configuration is mostly about prefixes, router advertisements and not break
     { message: 'IPv6 times out silently, IPv4 works', layer: 'Forwarding / return path', meaning: 'Router with forwarding=0, a firewall drop, or no IPv6 route back on the server.', firstCheck: 'sysctl net.ipv6.conf.all.forwarding on routers; tcpdump on the server' },
     { message: 'Only fe80:: addresses', layer: 'Router discovery', meaning: 'No router advertisement received.', firstCheck: 'rdisc6 eth0; radvd status; VLAN of the port' },
     { message: 'Browser fine, ssh slow / scripts fail', layer: 'Dual stack', meaning: 'Broken IPv6 hidden by Happy Eyeballs.', firstCheck: 'curl -6 / ssh -6 tests' },
+    { message: 'XMT: Solicit on eth0, interval ...ms. (repeated, no RCV)', layer: 'DHCPv6 client', meaning: 'No Advertise reached dhclient: no server on the link, the server\'s firewall (547) or the client\'s firewall (546).', firstCheck: 'Server log; tcpdump -n port 546 on the client' },
+    { message: 'No subnet6 declaration for eth3 (fe80::5054:ff:fea1:4).', layer: 'DHCPv6 server', meaning: 'INTERFACESv6 names an interface without a global address inside any subnet6.', firstCheck: 'INTERFACESv6; ip -6 addr on that interface; subnet6 declarations' },
+    { message: 'Starting ISC DHCPv6 server: dhcpd6check syslog for diagnostics. ... failed!', layer: 'DHCPv6 server', meaning: 'The init script could not start dhcpd -6.', firstCheck: 'journalctl -u isc-dhcp-server for the dhcpd lines above it' },
+    { message: 'Destination unreachable: Beyond scope (ping -6) / No route to host', layer: 'Addressing', meaning: 'The host has only a link-local address; the router refuses to forward link-local sources.', firstCheck: 'ip -6 addr: missing global address (SLAAC, DHCPv6, static)' },
+    { message: 'unknown option dhcp6.domain-name-servers / domain-name-servers is an IPv4 option', layer: 'DHCPv6 server config', meaning: 'DHCPv4 option names used in dhcpd6.conf.', firstCheck: 'Use dhcp6.name-servers and dhcp6.domain-search' },
   ],
 
-  scenarioIds: ['ipv6-icmp-hardening', 'ipv6-forwarding-hardening', 'ipv6-server-gateway'],
+  scenarioIds: ['ipv6-icmp-hardening', 'ipv6-forwarding-hardening', 'ipv6-server-gateway', 'dhcp6-client-firewall', 'dhcp6-server-firewall', 'dhcp6-wrong-interface'],
   assessmentId: 'ipv6',
   references: [
     { title: 'RFC 8200: Internet Protocol, Version 6 (IPv6) Specification', url: 'https://www.rfc-editor.org/rfc/rfc8200' },
@@ -164,5 +231,10 @@ IPv6 configuration is mostly about prefixes, router advertisements and not break
     { title: 'RFC 8305: Happy Eyeballs Version 2', url: 'https://www.rfc-editor.org/rfc/rfc8305' },
     { title: 'RFC 4890: Recommendations for Filtering ICMPv6 Messages in Firewalls', url: 'https://www.rfc-editor.org/rfc/rfc4890' },
     { title: 'radvd.conf(5)', url: 'https://manpages.debian.org/bookworm/radvd/radvd.conf.5.en.html' },
+    { title: 'RFC 8415: Dynamic Host Configuration Protocol for IPv6 (DHCPv6)', url: 'https://www.rfc-editor.org/rfc/rfc8415' },
+    { title: 'RFC 4861 §4.2: Router Advertisement flags (M, O)', url: 'https://www.rfc-editor.org/rfc/rfc4861#section-4.2' },
+    { title: 'dhcpd.conf(5) (DHCPv6 declarations: subnet6, range6, fixed-address6)', url: 'https://manpages.debian.org/bookworm/isc-dhcp-server/dhcpd.conf.5.en.html' },
+    { title: 'dhclient(8)', url: 'https://manpages.debian.org/bookworm/isc-dhcp-client/dhclient.8.en.html' },
+    { title: 'interfaces(5): inet6 dhcp method', url: 'https://manpages.debian.org/bookworm/ifupdown/interfaces.5.en.html' },
   ],
 };

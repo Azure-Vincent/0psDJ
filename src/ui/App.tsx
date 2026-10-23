@@ -4,6 +4,7 @@ import { Dashboard } from './pages/Dashboard';
 import { Curriculum } from './pages/Curriculum';
 import { LessonPage } from './pages/LessonPage';
 import { TroubleshootList, TroubleshootWorkspace } from './pages/Troubleshoot';
+import { GuidedLabList, GuidedLabPage } from './pages/GuidedLab';
 import { Reference } from './pages/Reference';
 import { CaseStudyList, CaseStudyPage } from './pages/CaseStudies';
 import { Certification } from './pages/Certification';
@@ -12,6 +13,7 @@ import { Glossary } from './pages/Glossary';
 import { History } from './pages/History';
 import { Settings } from './pages/Settings';
 import { Search } from './pages/Search';
+import { Builder } from './pages/Builder';
 import { LESSONS } from '../content/lessons';
 import { CURRICULUM } from '../content/curriculum';
 
@@ -24,6 +26,8 @@ const NAV: [string, string, string?][] = [
     return ls.length ? [[`#${m.title}`, ''], ...ls.map((l): [string, string, string] => [`lesson/${l.id}/what`, l.title.split(':')[0], `lesson/${l.id}`])] : [];
   }),
   ['#Practice', ''],
+  ['labs', 'Guided labs', 'labs'],
+  ['builder', 'Infrastructure Builder'],
   ['troubleshoot', 'Troubleshooting lab', 'troubleshoot'],
   ['cases', 'Case studies', 'cases'],
   ['packets', 'Packet Lab'],
@@ -55,6 +59,8 @@ function Shell() {
   switch (head) {
     case 'curriculum': page = <Curriculum />; break;
     case 'lesson': page = <LessonPage key={a} lessonId={a ?? 'ssh'} section={b ?? 'what'} />; break;
+    case 'builder': page = <Builder />; break;
+    case 'labs': page = a ? <GuidedLabPage key={a} id={a} /> : <GuidedLabList />; break;
     case 'troubleshoot': page = a ? <TroubleshootWorkspace key={a} id={a} /> : <TroubleshootList />; break;
     case 'commands': page = <Reference initialTab="command" />; break;
     case 'reference': page = <Reference />; break;

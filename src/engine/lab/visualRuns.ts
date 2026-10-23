@@ -10,6 +10,8 @@ import type { World } from '../types';
 import { freshLab } from './dependencies';
 import { formatLease } from '../config/dhcpd';
 import { RTR01_NFT } from './sshLab';
+import { ALICE_KRB_PASSWORD } from './krbLab';
+import { DEV02_HARDENED_NFT } from '../scenarios/dhcpv6Scenarios';
 import { fullchain, WWW_CERT, WWW_CERT_2025 } from './pkiLab';
 import { certPem, CORP_ISSUING, keyPem } from '../sim/pki';
 
@@ -20,6 +22,8 @@ export interface VisualRun {
   host: string;
   user: string;
   command: string;
+  /** Answers to prompts the command asks (passwords). */
+  answers?: string[];
   setup?: (w: World) => void;
 }
 
@@ -35,7 +39,7 @@ export function runVisual(v: VisualRun): VisualResult {
   let w = w0;
   const sh = new Shell(() => w, (n) => (w = n), { hostId: v.host, user: v.user, cwd: w0.hosts[v.host].users[v.user].home });
   const rec = new Recorder();
-  const r = withRecorder(rec, () => sh.execute(v.command));
+  const r = withRecorder(rec, () => sh.execute(v.command, v.answers ?? []));
   return { trace: rec.events, output: r.output };
 }
 
@@ -281,6 +285,20 @@ export const IPV6_RUNS: VisualRun[] = [
     description: 'net.ipv6.conf.all.forwarding=0 on rtr01. The SYN reaches rtr01, which is not its destination and may not route it: IPv6 discards it silently (no ICMPv6 error, unlike IPv4\'s host-unreachable). curl retries and times out.',
     setup: (w) => script(w, 'rtr01', ['sysctl -w net.ipv6.conf.all.forwarding=0']),
   },
+  {
+    id: 'dhcpv6', label: 'Stateful DHCPv6: Solicit, Advertise, Request, Reply', host: 'dev02', user: 'root', command: 'dhclient -6 -v eth0',
+    description: 'dev02 has released its DHCPv6 lease. dhclient -6 sends a Solicit from its link-local address to ff02::1:2 (UDP 546 → 547). dhcpd -6 on rtr01 picks an address from range6 for dev02\'s DUID and IAID and advertises it by unicast to dev02\'s link-local address; dev02 requests it (naming the server DUID) and the Reply commits the lease. dhclient-script adds the address as a /128; the default route and the on-link /64 still come from radvd\'s router advertisements.',
+    setup: (w) => script(w, 'dev02', ['dhclient -6 -r eth0']),
+  },
+  {
+    id: 'dhcpv6-stateless', label: 'Stateless DHCPv6: Information-request', host: 'dev02', user: 'root', command: 'dhclient -6 -S -v eth0',
+    description: 'The O flag case: the client only asks for options. One Information-request to ff02::1:2 and a Reply with the DNS server (option 23) and the domain search list (option 24); no IA_NA, no address. dhclient-script writes them to /etc/resolv.conf.',
+  },
+  {
+    id: 'dhcpv6-client-fw', label: 'Client firewall drops the Advertise (UDP 546)', host: 'dev02', user: 'root', command: 'dhclient -6 -v eth0',
+    description: 'dev02 runs a hardened ruleset (policy drop, established/related, ICMP, SSH). Its Solicit leaves and rtr01 answers, but the Advertise comes from rtr01\'s link-local address to UDP 546 while the Solicit went to a multicast group: conntrack sees a new flow and the input chain drops it. dhclient keeps soliciting. DHCPv4 is not affected because ISC dhclient reads DHCPv4 with a packet socket that bypasses nftables.',
+    setup: (w) => { writeFile(w.hosts.dev02, '/etc/nftables.conf', DEV02_HARDENED_NFT, w.clock); script(w, 'dev02', ['dhclient -6 -r eth0', 'systemctl restart nftables']); },
+  },
 ];
 
 function serveCert(w: World, chainPem: string, keyPem?: string) {
@@ -330,5 +348,50 @@ export const MTU_RUNS: VisualRun[] = [
     id: 'tracepath', label: 'tracepath finds the bottleneck', host: 'ws01', user: 'alice', command: 'tracepath -n 203.0.113.80',
     description: 'tracepath sends UDP probes with DF set and increasing TTL. The first full-size probe draws "fragmentation needed (mtu 1492)" from rtr01; tracepath reports pmtu 1492 at that hop, shrinks its probes and continues to the destination.',
     setup: (w) => script(w, 'rtr01', ['ip link set dev eth2 mtu 1492']),
+  },
+];
+
+/** Run a command as a user (with prompt answers), mutating the world (setup steps). */
+function asUser(w: World, host: string, user: string, line: string, answers: string[] = []) {
+  let cur = w;
+  const sh = new Shell(() => cur, (n) => (cur = n), { hostId: host, user, cwd: w.hosts[host].users[user].home });
+  sh.execute(line, answers);
+  Object.assign(w, cur);
+}
+
+function kerberosSso(w: World) {
+  writeFile(w.hosts.srv01, '/etc/ssh/sshd_config.d/20-kerberos.conf', 'GSSAPIAuthentication yes\n', w.clock);
+  script(w, 'srv01', ['systemctl reload ssh']);
+}
+
+export const KRB_RUNS: VisualRun[] = [
+  {
+    id: 'kinit', label: 'kinit: find the KDC, pre-authenticate, get a TGT', host: 'ws01', user: 'alice', command: 'kinit', answers: [ALICE_KRB_PASSWORD],
+    description: 'krb5.conf names no KDC, so the library asks DNS for _kerberos._udp.corp.lab (SRV → ns1 port 88). The first AS-REQ carries no proof; the KDC answers "pre-authentication required". kinit asks for the password, turns it into a key, encrypts its current time with it and sends a second AS-REQ. The KDC decrypts the timestamp with its copy of alice\'s key, checks the clock and returns the TGT.',
+  },
+  {
+    id: 'kvno', label: 'kvno: a service ticket from the TGS', host: 'ws01', user: 'alice', command: 'kvno host/srv01.corp.lab',
+    description: 'With a TGT in the cache, no password is needed: the client sends the TGT and an authenticator to the ticket-granting service and receives a ticket for host/srv01.corp.lab, encrypted with srv01\'s key (kvno 2). This is single sign-on: one password, many services.',
+    setup: (w) => asUser(w, 'ws01', 'alice', 'kinit', [ALICE_KRB_PASSWORD]),
+  },
+  {
+    id: 'ssh-gssapi', label: 'SSH login with Kerberos (gssapi-with-mic)', host: 'ws01', user: 'alice', command: 'ssh -o PubkeyAuthentication=no srv01.corp.lab hostname',
+    description: 'sshd on srv01 has GSSAPIAuthentication yes. After the SSH key exchange the client gets a service ticket for host/srv01.corp.lab (TGS exchange) and sends it in the gssapi-with-mic request. sshd decrypts it with the key in /etc/krb5.keytab and maps alice@CORP.LAB to the local user alice. No key file and no password.',
+    setup: (w) => { kerberosSso(w); asUser(w, 'ws01', 'alice', 'kinit', [ALICE_KRB_PASSWORD]); },
+  },
+  {
+    id: 'skew', label: 'Clock skew: the KDC refuses the timestamp', host: 'ws01', user: 'alice', command: 'kinit', answers: [ALICE_KRB_PASSWORD],
+    description: 'ws01\'s clock is 9 minutes fast. The password is right, so the KDC can decrypt the timestamp, but it is more than 300 s away from the KDC\'s own time: KRB_AP_ERR_SKEW, "Clock skew too great". Kerberos uses timestamps instead of challenges, so it needs synchronised clocks.',
+    setup: (w) => { w.hosts.ws01.clockOffset = 9 * 60_000; },
+  },
+  {
+    id: 'stale-keytab', label: 'Stale keytab: the ticket cannot be decrypted', host: 'ws01', user: 'alice', command: 'ssh -v -o PubkeyAuthentication=no -o PasswordAuthentication=no srv01.corp.lab hostname',
+    description: 'The KDC changed host/srv01\'s key (kvno 3), srv01\'s keytab still has kvno 2. The client gets a perfectly valid ticket and sends it; sshd cannot decrypt it and answers USERAUTH_FAILURE, and with no other method left the login fails. Compare kvno on the client with klist -k on the server.',
+    setup: (w) => { kerberosSso(w); script(w, 'ns1', ['kadmin.local -q "cpw -randkey host/srv01.corp.lab"']); asUser(w, 'ws01', 'alice', 'kinit', [ALICE_KRB_PASSWORD]); },
+  },
+  {
+    id: 'no-srv', label: 'No SRV records: "Cannot find KDC"', host: 'ws01', user: 'alice', command: 'kinit', answers: [ALICE_KRB_PASSWORD],
+    description: 'The Kerberos SRV records were removed from the corp.lab zone. The library asks DNS for _kerberos._udp and _kerberos._tcp, gets NXDOMAIN for both and gives up without contacting any KDC.',
+    setup: (w) => { edit(w, 'ns1', '/etc/bind/db.corp.lab', (z) => z.replace(/; Kerberos realm CORP\.LAB[\s\S]*$/, '')); script(w, 'ns1', ['rndc reload']); },
   },
 ];
