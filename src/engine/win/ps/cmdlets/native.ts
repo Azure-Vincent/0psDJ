@@ -8,7 +8,10 @@ import { dnsQuery } from '../../../sim/dns';
 import { applyFirewall, FW_PROFILES, startWinService, stopWinService, winEvent, winListeners, winResolver, type FwProfile, type WinFwRule } from '../../model';
 import { echo, maskOf, resolve4, winMac } from '../netops';
 import { native, type PsCtx } from '../runtime';
+import { findReg, regKey, regValueChanged } from './files';
 import { GROUPS, setDisabled, userDisabled } from './system';
+import { readFile, writeFile } from '../../../fs';
+import { RDP_TCP_KEY } from '../../model';
 
 const ok = (out: string, code = 0) => ({ out, code });
 
@@ -17,6 +20,20 @@ function admin(ctx: PsCtx): boolean {
 }
 
 const has = (args: string[], ...flags: string[]) => args.some((a) => flags.includes(a.toLowerCase().replace(/^-/, '/')));
+
+native({
+  name: 'findstr', synopsis: 'Searches for strings in piped text or files (/i ignore case, /c:"literal").',
+  run(args, ctx, input) {
+    const ci = args.some((a) => a.toLowerCase() === '/i');
+    const literal = args.find((a) => /^\/c:/i.test(a))?.slice(3);
+    const words = literal !== undefined ? [literal] : args.filter((a) => !a.startsWith('/')).slice(0, 1).flatMap((a) => a.split(' '));
+    if (!words.length) return ok('FINDSTR: Bad command line', 2);
+    const norm = (t: string) => (ci ? t.toLowerCase() : t);
+    const hits = input.filter((l) => words.some((w) => norm(l).includes(norm(w))));
+    void ctx;
+    return ok(hits.join('\n'), hits.length ? 0 : 1);
+  },
+});
 
 // ---------------------------------------------------------------------------
 // ipconfig
@@ -358,18 +375,19 @@ native({
     const w = ctx.host.win!;
     const svc = nameRaw ? Object.values(w.services).find((s) => s.name.toLowerCase() === nameRaw.toLowerCase()) : undefined;
     const usage = 'DESCRIPTION:\n        SC is a command line program used for communicating with the\n        Service Control Manager and services.\nUSAGE:\n        sc <server> [command] [service name] <option1> <option2>...\n\n        query-----------Queries the status for a service.\n        qc--------------Queries the configuration information for a service.\n        start-----------Starts a service.\n        stop------------Sends a STOP request to a service.\n        config----------Changes the configuration of a service (persistent).';
-    if (!['query', 'qc', 'start', 'stop', 'config'].includes(verb)) return ok(usage, verb ? 1639 : 0);
+    if (!['query', 'queryex', 'qc', 'start', 'stop', 'config'].includes(verb)) return ok(usage, verb ? 1639 : 0);
     if (verb === 'query' && !nameRaw) {
       const out: string[] = [];
       for (const s of Object.values(w.services).filter((x) => x.status === 'Running')) out.push('', `SERVICE_NAME: ${s.name}`, `DISPLAY_NAME: ${s.displayName}`, '        TYPE               : 30  WIN32', `        STATE              : ${SC_STATE[s.status]}`);
       return ok(out.join('\n'));
     }
-    if (!svc) return ok(`[SC] ${verb === 'query' ? 'EnumQueryServicesStatus:OpenService' : 'OpenService'} FAILED 1060:\n\nThe specified service does not exist as an installed service.\n`, 1060);
+    if (!svc) return ok(`[SC] ${verb.startsWith('query') ? 'EnumQueryServicesStatus:OpenService' : 'OpenService'} FAILED 1060:\n\nThe specified service does not exist as an installed service.\n`, 1060);
     const type = svc.process === 'svchost' ? '20  WIN32_SHARE_PROCESS' : '10  WIN32_OWN_PROCESS';
     const status = () => ['', `SERVICE_NAME: ${svc.name}`, `        TYPE               : ${type}`, `        STATE              : ${verb === 'start' ? '2  START_PENDING' : verb === 'stop' ? '3  STOP_PENDING' : SC_STATE[svc.status]}`,
       `                                (${svc.status === 'Running' && !svc.protected ? 'STOPPABLE' : 'NOT_STOPPABLE'}, NOT_PAUSABLE, ${svc.status === 'Running' ? 'ACCEPTS_SHUTDOWN' : 'IGNORES_SHUTDOWN'})`,
       '        WIN32_EXIT_CODE    : 0  (0x0)', '        SERVICE_EXIT_CODE  : 0  (0x0)', '        CHECKPOINT         : 0x0', '        WAIT_HINT          : 0x0', ...(verb === 'start' ? [`        PID                : ${svc.pid ?? 0}`, '        FLAGS              :'] : [])].join('\n');
     if (verb === 'query') return ok(status());
+    if (verb === 'queryex') return ok(`${status()}\n        PID                : ${svc.pid ?? 0}\n        FLAGS              :`);
     if (verb === 'qc') {
       return ok(['[SC] QueryServiceConfig SUCCESS', '', `SERVICE_NAME: ${svc.name}`, `        TYPE               : ${type}`, `        START_TYPE         : ${SC_START[svc.startType]}`, '        ERROR_CONTROL      : 1   NORMAL',
         `        BINARY_PATH_NAME   : C:\\Windows\\system32\\${svc.process === 'svchost' ? 'svchost.exe -k netsvcs -p' : `${svc.process}.exe`}`, '        LOAD_ORDER_GROUP   :', '        TAG                : 0', `        DISPLAY_NAME       : ${svc.displayName}`,
@@ -600,5 +618,123 @@ native({
       return ok(`\nUpdated ${rules.length} rule(s).\nOk.\n`);
     }
     return ok('The following command was not found: ' + args.join(' ') + '.', 1);
+  },
+});
+
+// ---------------------------------------------------------------------------
+// reg, qwinsta, gpupdate
+// ---------------------------------------------------------------------------
+
+const REG_ROOT: Record<string, string> = { hklm: 'HKLM:', hkey_local_machine: 'HKLM:', hkcu: 'HKCU:', hkey_current_user: 'HKCU:' };
+
+/** "HKLM\SYSTEM\..." (reg.exe syntax) → the registry key name the model uses. */
+function regPath(p: string): string | null {
+  const m = /^([A-Za-z_]+)\\?(.*)$/.exec(p);
+  if (!m || !REG_ROOT[m[1].toLowerCase()]) return null;
+  return regKey(`${REG_ROOT[m[1].toLowerCase()]}\\${m[2]}`);
+}
+
+function regLine(name: string, v: string | number): string {
+  return typeof v === 'number' ? `    ${name}    REG_DWORD    0x${v.toString(16)}` : `    ${name}    REG_SZ    ${v}`;
+}
+
+function fullName(key: string): string {
+  return key.replace(/^HKLM:/, 'HKEY_LOCAL_MACHINE').replace(/^HKCU:/, 'HKEY_CURRENT_USER');
+}
+
+native({
+  name: 'reg', synopsis: 'Registry tool: reg query KEY [/v NAME], reg add KEY /v NAME /t REG_DWORD /d DATA /f, reg export KEY FILE, reg import FILE.',
+  run(args, ctx) {
+    const host = ctx.host;
+    const w = host.win!;
+    const verb = (args[0] ?? '').toLowerCase();
+    const flag = (f: string) => { const i = args.findIndex((a) => a.toLowerCase() === f); return i >= 0 ? args[i + 1] : undefined; };
+    const usage = 'ERROR: Invalid syntax.\nType "REG /?" for usage.';
+    const notFound = 'ERROR: The system was unable to find the specified registry key or value.';
+    if (!['query', 'add', 'export', 'import'].includes(verb)) return ok(usage, 1);
+    if (verb === 'import') {
+      if (!admin(ctx)) return ok('ERROR: Error accessing the registry.', 1);
+      const file = args[1] ? (/^[A-Za-z]:\\/.test(args[1]) ? args[1] : `${ctx.session.cwd.replace(/\\$/, '')}\\${args[1]}`) : '';
+      const k = Object.keys(host.fs).find((x) => x.toLowerCase() === file.toLowerCase());
+      const text = k ? readFile(host, k) : undefined;
+      if (text === undefined) return ok('ERROR: Error opening the file. There may be a disk or file system error.', 1);
+      let cur: string | null = null;
+      for (const line of text.split(/\r?\n/)) {
+        const km = /^\[(.*)\]$/.exec(line.trim());
+        if (km) { cur = regPath(km[1]); if (cur) w.registry[findReg(host, cur) ?? cur] ??= {}; continue; }
+        const vm = /^"([^"]+)"=(?:dword:([0-9a-fA-F]{8})|"(.*)")$/.exec(line.trim());
+        if (cur && vm) {
+          const key = findReg(host, cur) ?? cur;
+          w.registry[key][vm[1]] = vm[2] !== undefined ? parseInt(vm[2], 16) : vm[3];
+          regValueChanged(ctx.world, host, key, vm[1]);
+        }
+      }
+      return ok('The operation completed successfully.');
+    }
+    const keyArg = args[1] ?? '';
+    const key = regPath(keyArg);
+    if (!key) return ok('ERROR: Invalid key name.\nType "REG QUERY /?" for usage.', 1);
+    const real = findReg(host, key);
+    if (verb === 'query') {
+      if (!real) return ok(notFound, 1);
+      const vals = w.registry[real];
+      const name = flag('/v');
+      const shown = name ? Object.keys(vals).filter((n) => n.toLowerCase() === name.toLowerCase()) : Object.keys(vals);
+      if (name && !shown.length) return ok(notFound, 1);
+      const subs = name ? [] : Object.keys(w.registry).filter((k) => k.toLowerCase().startsWith(real.toLowerCase() + '\\') && !k.slice(real.length + 1).includes('\\') && !k.startsWith('__'));
+      return ok(['', fullName(real), ...shown.map((n) => regLine(n, vals[n])), '', ...subs.map(fullName)].join('\n'));
+    }
+    if (verb === 'export') {
+      if (!real) return ok(notFound, 1);
+      const file = args[2];
+      if (!file) return ok(usage, 1);
+      const keys = Object.keys(w.registry).filter((k) => k.toLowerCase() === real.toLowerCase() || k.toLowerCase().startsWith(real.toLowerCase() + '\\'));
+      const body = ['Windows Registry Editor Version 5.00', '', ...keys.flatMap((k) => [`[${fullName(k)}]`, ...Object.entries(w.registry[k]).map(([n, v]) => (typeof v === 'number' ? `"${n}"=dword:${v.toString(16).padStart(8, '0')}` : `"${n}"="${v}"`)), ''])].join('\r\n');
+      const path = /^[A-Za-z]:\\/.test(file) ? file : `${ctx.session.cwd.replace(/\\$/, '')}\\${file}`;
+      const parent = path.slice(0, path.lastIndexOf('\\'));
+      if (parent.length > 2 && !Object.keys(host.fs).some((x) => x.toLowerCase() === parent.toLowerCase())) return ok('ERROR: The system was unable to find the specified registry key or value.', 1);
+      writeFile(host, path, body, ctx.world.clock, { owner: ctx.user.name, group: ctx.user.name });
+      return ok('The operation completed successfully.');
+    }
+    // add
+    if (!admin(ctx)) return ok('ERROR: Access is denied.', 1);
+    const name = flag('/v');
+    const type = (flag('/t') ?? 'REG_SZ').toUpperCase();
+    const data = flag('/d') ?? '';
+    const k = real ?? key;
+    w.registry[k] ??= {};
+    if (name) {
+      if (Object.keys(w.registry[k]).some((n) => n.toLowerCase() === name.toLowerCase()) && !args.some((a) => a.toLowerCase() === '/f')) {
+        const ans = ctx.ask(`Value ${name} exists, overwrite(Yes/No)? `, false);
+        if (!/^y/i.test(ans.trim())) return ok('The operation was cancelled by the user.');
+      }
+      const existing = Object.keys(w.registry[k]).find((n) => n.toLowerCase() === name.toLowerCase()) ?? name;
+      if (type === 'REG_DWORD') {
+        const n = /^0x/i.test(data) ? parseInt(data, 16) : Number(data);
+        if (!Number.isFinite(n)) return ok('ERROR: Invalid syntax.\nType "REG ADD /?" for usage.', 1);
+        w.registry[k][existing] = n;
+      } else w.registry[k][existing] = data;
+      regValueChanged(ctx.world, host, k, existing);
+    }
+    return ok('The operation completed successfully.');
+  },
+});
+
+native({
+  name: 'qwinsta', synopsis: 'Lists Remote Desktop sessions and listeners (query session).',
+  run(_args, ctx) {
+    const host = ctx.host;
+    const port = host.win!.rdpPort ?? Number(host.win!.registry[RDP_TCP_KEY]?.PortNumber ?? 3389);
+    const listening = winListeners(host).some((l) => l.service === 'TermService' && l.port === port);
+    const rows = [' SESSIONNAME       USERNAME                 ID  STATE   TYPE        DEVICE', ' services                                    0  Disc', `>console           ${ctx.user.name.padEnd(20)}     1  Active`];
+    if (listening) rows.push(' rdp-tcp                                 65536  Listen');
+    return ok(rows.join('\n'));
+  },
+});
+
+native({
+  name: 'gpupdate', synopsis: 'Refreshes Group Policy (/force). win01 is not domain-joined: only local policy applies.',
+  run() {
+    return ok('Updating policy...\n\nComputer Policy update has completed successfully.\nUser Policy update has completed successfully.\n');
   },
 });

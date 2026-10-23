@@ -54,7 +54,7 @@ a command line with the collected answers on a fresh copy of the world; this is
 only correct because the engine is deterministic, and it is tested.
 
 **Honesty about simulation.** The app never claims to run Debian, Windows,
-pfSense or Docker. Deployment guides target real VMs and are labelled as such;
+pfSense or Docker (win01 is a simulated Windows Server, labelled as such). Deployment guides target real VMs and are labelled as such;
 the sandbox and scenarios are labelled as simulations, and simplifications are
 stated where they matter (see §5.6).
 
@@ -186,6 +186,7 @@ observation is computed from this state at the moment it is requested:
 | `systemctl status`, `journalctl` | service runtime state and the journal entries that operations actually wrote |
 | `ss`, `ip`, `nft list`, `conntrack -L`, `tcpdump` | runtime tables and per-interface capture buffers filled by the packets above |
 | `cat`, `ls -l`, `stat`, `sshd -T` | the filesystem and the real parsers |
+| PowerShell on win01 (`Get-Service`, `Get-NetFirewallRule`, `Test-NetConnection`, `ipconfig`, `netsh`, `sc.exe`, `reg`), `xfreerdp` from Linux | the Windows model in `host.win` (`src/engine/win/model.ts`): services and their start types, the registry values the lab uses, firewall profiles and rules compiled into the same packet filter, adapter settings, event logs; the RDP stages in `src/engine/win/rdp.ts` |
 
 So changing a firewall rule, a route, a file mode or a service state changes the
 connection result, the counters, the captures and the logs together, because
@@ -197,6 +198,29 @@ they are all consequences of the same computation.
 `/etc/nftables.conf` (if nftables is enabled) → ruleset, enabled units → started
 (running their config tests). This makes "fixed now, broken after reboot"
 faults real.
+
+### 5.2b Windows hosts and PowerShell
+A Windows host (`kind: 'windows'`) shares the network stack with the Linux
+hosts; what differs lives in `host.win`. Persistent configuration (what Windows
+keeps in the registry: service start types, firewall profiles and rules, adapter
+IP settings, `fDenyTSConnections`, the RDP `PortNumber`) is applied by
+`bootWindows()`: addresses and routes are set, Automatic services start in
+dependency order, TermService starts when Remote Desktop is enabled, and
+Windows Defender Firewall is compiled into an nft-style ruleset (block rules
+before allow rules, rules filtered by the active network profile, rule display
+names as comments) that `transmit()` evaluates like any other host's. Kernel
+listeners (IIS/http.sys, WinRM, SMB) belong to System, PID 4.
+
+The console runs a PowerShell 5.1 interpreter (`src/engine/win/ps`): a
+mode-sensitive parser (command vs. expression mode), plain-data objects with
+.NET type names (so a world snapshot stays `structuredClone`-able), parameter
+binding with prefixes, aliases, positional parameters and common parameters,
+Out-Default formatting with registered views (table/list/grouped), and error
+records in the 5.1 format. Cmdlets are grouped by module (`cmdlets/*.ts`);
+native programs (`ipconfig`, `ping`, `netsh`, `sc.exe`, `net`, `reg`, ...)
+receive string arguments and return text, as on Windows. `Shell.execute()`
+switches to PowerShell when the frame's host is Windows and keeps the session
+(variables, location, history) in the frame.
 
 ### 5.3 Fault injection
 Scenarios inject faults with the same shell commands an administrator would
@@ -261,6 +285,8 @@ OpenSSH 9.2 negotiation and authentication flow and its log lines, StrictModes
 path checks, glibc resolver order and search list, BIND zone parsing and SERVFAIL
 on load errors, systemd enable/active semantics.
 
+Simplified (Windows): win01 is standalone (no Active Directory, Group Policy objects, NTLM/Kerberos against a DC or LDAP); RDP is modelled as its stages (TCP, TLS, NLA with the local password, the logon right) without graphics; PowerShell implements the cmdlets and parameters the lessons and tickets use, without functions, modules, remoting or try/catch; registry and event logs cover the keys and events the lab uses.
+
 Simplified: Kerberos cryptography is synthetic (no cross-realm trust, renewal, delegation or PAC); NTP packets are not modelled (systemd-timesyncd sets the clock when it starts); one IPv4 address per interface; no spanning tree, DHCPv6 relays or prefix delegation, DAD, MLD or privacy addresses; one TCP segment per SSH message, no congestion control or
 window dynamics; cryptographic values are synthetic (fingerprints are genuine
 SHA-256 of synthetic key blobs); `tcpdump` shows a buffer of recent traffic
@@ -287,7 +313,8 @@ options is implemented and unsupported options say so.
 | 3i | **DHCPv6 and Lab 1**: ISC dhcpd -6 under isc-dhcp-server (INTERFACESv6, dhcpd6.conf, dhcpd6.leases, DUID-LLT), dhclient -6 (Solicit/Advertise/Request/Reply, Information-request, Renew/Rebind/expiry, Release) with nftables applying on both ends, ifupdown `inet6 dhcp`/`autoconf 0`, RA M/O flags, ICMPv6 "beyond scope" for link-local sources; IPv6 lesson sections, 3 visual runs, 3 tickets. Guided labs (`src/engine/labs`): steps with engine-evaluated checks, reference solutions, replay to resume, and a final reboot test; **Lab 1: Basic Linux Server** (srv02 from switch port to hardened web server, 9 steps); `printf`, `grep -e …`, `bridge vlan show dev` | ✅ |
 | 4 | **Infrastructure Builder** (`src/engine/builder`, `src/ui/pages/Builder.tsx`): drag-and-drop design of hosts, servers, routers (VLAN sub-interfaces, static routes, forward policy, masquerade) and VLAN-aware switches; validation (addresses, gateways, cabling, VLANs on trunks, firewall vs. services); generation of a `World` from real config files; terminals, reboot-all and a packet tracer listing firewall/NAT decisions; three templates; JSON import/export. VLAN broadcast domains are now per switch | ✅ |
 | 5a | **Kerberos and DNS SRV**: SRV/TXT records (zone parser, dig/host -t); MIT KDC and kadmind on ns1 (kdc.conf, kadm5.acl, principal database), KDC location through SRV records, AS exchange with encrypted-timestamp pre-authentication, TGS exchange, lifetimes, 300 s clock skew; kinit, klist, kvno, kdestroy, kadmin(.local) with ktadd/cpw/addprinc; per-host clocks (date, timedatectl, systemd-timesyncd); sshd GSSAPIAuthentication (gssapi-with-mic, keytab kvno, .k5login); lesson "Kerberos and DNS service records", 6 visual runs, 4 tickets; `nft add/delete table/chain`; `$?`/`$VAR` expansion in the shell | ✅ |
-| 5 | Windows/AD track: Windows host model (services, Defender Firewall, event log), NTLM, LDAP; RDP lesson; Lab 2 | ⏳ |
+| 5b | **Windows Server and PowerShell**: win01 (Windows Server 2022) on the server VLAN; Windows model with services (start types, dependencies, Service Control Manager events), Windows Defender Firewall (profiles, rules, network category) compiled into the packet filter, registry values, event logs (System, Security, Firewall, TerminalServices), local users and groups, IIS, adapters and DNS client; Windows PowerShell 5.1 interpreter (pipeline of objects, formatting views, 5.1 error records, about 100 cmdlets: services, processes, events, accounts, files, registry, NetTCPIP, DnsClient, NetSecurity, Test-NetConnection, Invoke-WebRequest) and console programs (ipconfig, ping, tracert, netstat, nslookup, netsh advfirewall, sc.exe, net, reg, qwinsta, findstr); RDP stages (TCP, TLS, NLA, logon right) with `xfreerdp` on the Linux hosts and logon events; the Windows/RDP lesson becomes simulated with a sandbox; 7 RDP tickets | ✅ |
+| 5 | Windows/AD track (remaining): domain controller (AD DS, DNS, Kerberos/NTLM for domain accounts), domain join, LDAP, Group Policy; Lab 2 | ⏳ |
 | 6 | pfSense model (WAN/LAN/DMZ, NAT, state table, logs); Lab 3 | ⏳ |
 | 7 | Containers: image layers, namespaces, bridge networking, port publishing; Docker Compose; Lab 4 | ⏳ |
 | 8 | Enterprise services (web/reverse proxy, SMB/NFS, NTP, logging) and Labs 5–6 (multi-system outages, recovery) | ⏳ |

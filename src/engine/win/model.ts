@@ -306,7 +306,8 @@ export function bootWindows(world: World, host: Host): void {
   applyAdapters(world, host);
   for (const s of Object.values(w.services)) if (s.startType === 'Automatic' || s.startType === 'AutomaticDelayedStart') startWinService(world, host, s.name);
   // TermService is "Manual" but trigger-started when Remote Desktop is enabled.
-  if (rdpEnabled(host) && w.services.TermService?.startType === 'Manual') startWinService(world, host, 'TermService');
+  // With it come its helpers: Remote Desktop Configuration and the UserMode Port Redirector.
+  if (rdpEnabled(host)) for (const n of ['TermService', 'SessionEnv', 'UmRdpService']) if (w.services[n]?.startType === 'Manual') startWinService(world, host, n);
   if (w.services.MpsSvc?.status !== 'Running') applyFirewall(host);
 }
 

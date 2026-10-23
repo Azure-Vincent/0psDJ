@@ -131,7 +131,7 @@ export function createWindowsHost(world: World, id: string, hostname: string, ma
   host.users.Administrator = winUser('Administrator', 500, WIN01_ADMIN_PASSWORD, ['Administrators'], 'Built-in account for administering the computer/domain');
   host.users.Guest = { ...winUser('Guest', 501, '', ['Guests'], 'Built-in account for guest access to the computer/domain'), password: null };
   host.users.alice = winUser('alice', 1001, WIN01_ALICE_PASSWORD, ['Remote Desktop Users', 'Users'], 'Alice Admin');
-  const dirs = ['C:\\', 'C:\\Windows', 'C:\\Windows\\System32', 'C:\\Windows\\System32\\drivers', 'C:\\Windows\\System32\\drivers\\etc', 'C:\\Windows\\System32\\LogFiles', 'C:\\Windows\\System32\\LogFiles\\Firewall', 'C:\\Program Files', 'C:\\Program Files (x86)', 'C:\\ProgramData', 'C:\\Users', 'C:\\Users\\Public', 'C:\\inetpub', 'C:\\inetpub\\wwwroot', 'C:\\inetpub\\logs', 'C:\\Temp'];
+  const dirs = ['C:\\', 'C:\\Windows', 'C:\\Windows\\System32', 'C:\\Windows\\System32\\drivers', 'C:\\Windows\\System32\\drivers\\etc', 'C:\\Windows\\System32\\LogFiles', 'C:\\Windows\\System32\\LogFiles\\Firewall', 'C:\\Program Files', 'C:\\Program Files (x86)', 'C:\\ProgramData', 'C:\\Users', 'C:\\Users\\Public', 'C:\\inetpub', 'C:\\inetpub\\wwwroot', 'C:\\inetpub\\logs', 'C:\\Temp', 'C:\\Backup'];
   for (const d of dirs) mkdir(host, d, t, { owner: 'SYSTEM', group: 'SYSTEM' });
   for (const u of ['Administrator', 'alice']) for (const d of ['', '\\Desktop', '\\Documents', '\\Downloads']) mkdir(host, `C:\\Users\\${u}${d}`, t, { owner: u, group: u });
   writeFile(host, 'C:\\Windows\\System32\\drivers\\etc\\hosts', WIN_HOSTS, t, { owner: 'SYSTEM', group: 'SYSTEM' });

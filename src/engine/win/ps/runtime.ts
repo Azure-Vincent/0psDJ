@@ -70,7 +70,8 @@ export interface CmdletDef {
 export interface NativeDef {
   name: string;
   synopsis: string;
-  run(args: string[], ctx: PsCtx): { out: string; code: number };
+  /** `input`: the previous pipeline element's output as text lines (a native program's stdin). */
+  run(args: string[], ctx: PsCtx, input: string[]): { out: string; code: number };
 }
 
 export const CMDLETS: Record<string, CmdletDef> = {};
@@ -603,7 +604,8 @@ function runPipeline(ctx: PsCtx, pl: Pipeline, item: PSValue | undefined, collec
     }
     if (r.kind === 'native') {
       const args = el.args.map((a) => (a.k === 'param' ? (a.value ? `-${a.name}:${toStr(evalExpr(ctx, a.value, item))}` : `-${a.name}`) : flatten(evalExpr(ctx, a.e, item)).map(toStr).join(' ')));
-      const res = r.def.run(args, ctx);
+      const stdin = data.length ? formatOutput(data).split('\n') : [];
+      const res = r.def.run(args, ctx, stdin);
       ctx.session.lastExit = res.code;
       ctx.session.lastOk = res.code === 0;
       data = res.out === '' ? [] : res.out.split('\n');

@@ -3,7 +3,7 @@
 // content cmdlets, and the registry values the lab uses (RDP settings).
 
 import { mkdir, writeFile } from '../../../fs';
-import type { Host } from '../../../types';
+import type { Host, World } from '../../../types';
 import { startWinService, TS_KEY, winEvent } from '../../model';
 import { formatOutput, registerView } from '../format';
 import { cmdlet, type Call, type PsCtx } from '../runtime';
@@ -118,14 +118,14 @@ function expand(ctx: PsCtx, p: string): string[] {
 // Registry (the keys the lab uses)
 // ---------------------------------------------------------------------------
 
-function regKey(p: string): string | null {
+export function regKey(p: string): string | null {
   const m = /^(?:Registry::)?(HKLM:|HKEY_LOCAL_MACHINE|HKCU:|HKEY_CURRENT_USER)[\\/]?(.*)$/i.exec(p.trim());
   if (!m) return null;
   const hive = /^HK(LM|EY_LOCAL)/i.test(m[1]) ? 'HKLM:' : 'HKCU:';
   return `${hive}\\${m[2].replace(/\//g, '\\').replace(/\\+$/, '')}`;
 }
 
-function findReg(host: Host, key: string): string | undefined {
+export function findReg(host: Host, key: string): string | undefined {
   return Object.keys(host.win!.registry).find((k) => k.toLowerCase() === key.toLowerCase());
 }
 
@@ -143,8 +143,13 @@ function regProps(key: string, values: Record<string, PSValue>, only?: string[])
 }
 
 /** Side effects of registry values (TermService watches its keys). */
-function regChanged(c: Call, key: string, name: string): void {
-  const host = c.ctx.host;
+function regChanged(c: { ctx: PsCtx }, key: string, name: string): void {
+  regValueChanged(c.ctx.world, c.ctx.host, key, name);
+}
+
+/** Side effects of a registry value change, whichever tool made it (Set-ItemProperty, reg add, reg import). */
+export function regValueChanged(world: World, host: Host, key: string, name: string): void {
+  const c = { ctx: { world, host } };
   const w = host.win!;
   if (key.toLowerCase() === TS_KEY.toLowerCase() && name.toLowerCase() === 'fdenytsconnections') {
     // TermService watches this value: the RDP listener opens or closes at once.

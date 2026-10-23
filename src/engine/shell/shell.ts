@@ -16,11 +16,12 @@ import { NET_COMMANDS } from './cmdNet';
 import { HTTP_COMMANDS } from './cmdHttp';
 import { SYSTEM_COMMANDS } from './cmdSystem';
 import { KRB_COMMANDS } from './cmdKrb';
+import { RDP_COMMANDS } from './cmdRdp';
 import { expandParams, parseCommandLine, type Segment } from './tokenize';
 import { type CmdCtx, type CmdResult, type CommandDef, type EditorRequest, NeedInput, type SessionFrame } from './types';
 
 export const COMMANDS: Record<string, CommandDef> = Object.fromEntries(
-  [...FILE_COMMANDS, ...NET_COMMANDS, ...HTTP_COMMANDS, ...SYSTEM_COMMANDS, ...KRB_COMMANDS].map((c) => [c.name, c]),
+  [...FILE_COMMANDS, ...NET_COMMANDS, ...HTTP_COMMANDS, ...SYSTEM_COMMANDS, ...KRB_COMMANDS, ...RDP_COMMANDS].map((c) => [c.name, c]),
 );
 
 export interface ExecResult {
@@ -31,6 +32,8 @@ export interface ExecResult {
   clear?: boolean;
   /** The command line that was executed, with commands recognised (for evidence logging). */
   commands: string[];
+  /** Per-line styling when it differs by line (PowerShell error records and warnings). */
+  lineKinds?: ('out' | 'err' | 'warn')[];
 }
 
 export interface CommandLogEntry {
@@ -326,7 +329,7 @@ export class Shell {
     const entry: CommandLogEntry = { time: world.clock, host: frame.hostId, user: frame.user, line, code };
     this.log.push(entry);
     this.onCommand?.(entry);
-    return { output, code, clear: ctx.clear, commands: line.trim() ? [line] : [] };
+    return { output, code, clear: ctx.clear, commands: line.trim() ? [line] : [], lineKinds: psLineKinds(output) };
   }
 
   /** Save the in-app editor buffer back into the simulated filesystem. */
@@ -344,6 +347,21 @@ export class Shell {
     this.commit(world);
     return null;
   }
+}
+
+/** Error records (from "<cmd> : message" or "At line:" to the closing " " line) are red, warnings yellow. */
+function psLineKinds(output: string): ('out' | 'err' | 'warn')[] {
+  const lines = output.split('\n');
+  const kinds: ('out' | 'err' | 'warn')[] = [];
+  let inErr = false;
+  lines.forEach((l, i) => {
+    if (!inErr && (/^At line:\d+ char:\d+$/.test(l) || (/ : /.test(l) && /^At line:\d+ char:\d+$/.test(lines[i + 1] ?? '')))) inErr = true;
+    if (inErr) {
+      kinds.push('err');
+      if (l === ' ') inErr = false;
+    } else kinds.push(/^WARNING: /.test(l) ? 'warn' : 'out');
+  });
+  return kinds;
 }
 
 function helpText(): string {

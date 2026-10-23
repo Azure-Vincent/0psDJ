@@ -63,6 +63,13 @@ const SYMPTOM: Record<string, RegExp> = {
   'krb-stale-keytab': /Permission denied \(publickey,gssapi-keyex,gssapi-with-mic\)/,
   'netif-renamed-nic': /Couldn't connect to server|No route to host/,
   'netif-bridge-port': /Couldn't connect to server|No route to host/,
+  'win-rdp-firewall': /ERRCONNECT_CONNECT_TRANSPORT_FAILED/,
+  'win-rdp-profile': /ERRCONNECT_CONNECT_TRANSPORT_FAILED/,
+  'win-rdp-disabled': /ERRCONNECT_CONNECT_FAILED/,
+  'win-termservice-disabled': /ERRCONNECT_CONNECT_FAILED/,
+  'win-rdp-port': /ERRCONNECT_CONNECT_FAILED/,
+  'win-rdp-rights': /ERRINFO_SERVER_INSUFFICIENT_PRIVILEGES/,
+  'win-account-disabled': /ERRCONNECT_ACCOUNT_DISABLED/,
   'mtu-uplink-mismatch': /curl: \(28\) Operation timed out after 30000 milliseconds with 0 out of 4718592 bytes received/,
 };
 

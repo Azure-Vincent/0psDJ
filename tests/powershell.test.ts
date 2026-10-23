@@ -155,7 +155,11 @@ describe('Remote Desktop configuration', () => {
     const { run } = console01();
     expect(run('sc.exe qc TermService').output).toContain('START_TYPE         : 3   DEMAND_START');
     expect(run('sc.exe config TermService start= disabled').output).toBe('[SC] ChangeServiceConfig SUCCESS');
-    expect(run('net stop "Remote Desktop Services"').output).toContain('was stopped successfully.');
+    const ask = run('net stop "Remote Desktop Services"');
+    expect(ask.needInput?.text).toContain('The following services are dependent on the Remote Desktop Services service.');
+    const stop = run('net stop "Remote Desktop Services"', ['Y']).output;
+    expect(stop).toContain('The Remote Desktop Services UserMode Port Redirector service was stopped successfully.');
+    expect(stop).toContain('The Remote Desktop Services service was stopped successfully.');
     expect(run('net start TermService').output).toContain('System error 1058 has occurred.');
     run('sc qc TermService');
     expect(run('Get-Content .\\qc').output).toBe('TermService');
@@ -173,5 +177,28 @@ describe('Console behaviour', () => {
     expect(q.needInput?.text).toContain('has children and the Recurse parameter was not specified');
     expect(run('Remove-Item C:\\Temp\\x', ['Y']).code).toBe(0);
     expect(run('Test-Path C:\\Temp\\x').output).toBe('False');
+  });
+});
+
+describe('xfreerdp (Remote Desktop from Linux)', () => {
+  it('asks to trust the certificate once, then logs on', () => {
+    const { lab, run } = console01();
+    const first = lab.run('ws01', 'alice', 'xfreerdp /v:win01.corp.lab /u:alice /p:Corp-Lab-2026');
+    expect(first.needInput?.text).toContain('Do you trust the above certificate? (Y/T/N)');
+    expect(lab.run('ws01', 'alice', 'xfreerdp /v:win01.corp.lab /u:alice /p:Corp-Lab-2026', ['Y']).code).toBe(0);
+    const again = lab.run('ws01', 'alice', 'xfreerdp /v:win01.corp.lab /u:alice /p:Corp-Lab-2026');
+    expect(again.needInput).toBeUndefined();
+    expect(again.output).toContain('logged WIN01\\alice on');
+    expect(run('(Get-WinEvent -FilterHashtable @{LogName="Security"; Id=4624} -MaxEvents 1).Id').output).toBe('4624');
+  });
+
+  it('reports each failing stage with FreeRDP\'s error and exit code', () => {
+    const { lab, run } = console01();
+    const bad = lab.run('ws01', 'alice', 'xfreerdp /v:win01.corp.lab /u:alice /p:wrong /cert:ignore');
+    expect(bad.code).toBe(132);
+    expect(bad.output).toContain('ERRCONNECT_LOGON_FAILURE [0x00020014]');
+    expect(run('Get-WinEvent -FilterHashtable @{LogName="Security"; Id=4625} -MaxEvents 1 | Format-List Message').output).toContain('0xC000006D');
+    expect(lab.run('ws01', 'alice', 'xfreerdp /v:nosuch.corp.lab /u:alice /p:x').output).toContain('ERRCONNECT_DNS_NAME_NOT_FOUND');
+    expect(lab.run('ws01', 'alice', 'xfreerdp /v:srv01 /u:alice /p:x').code).toBe(131);
   });
 });

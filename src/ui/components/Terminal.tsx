@@ -4,7 +4,7 @@ import type { EditorRequest } from '../../engine/shell/types';
 import { Editor } from './Editor';
 
 interface Line {
-  kind: 'cmd' | 'out' | 'err' | 'note';
+  kind: 'cmd' | 'out' | 'err' | 'warn' | 'note';
   prompt?: string;
   text: string;
 }
@@ -59,7 +59,7 @@ export function Terminal({ shell, banner, onExecuted, autoFocus }: { shell: Shel
       } else {
         setLines((ls) => {
           const head = ls.slice(0, start);
-          return r.output ? [...head, ...r.output.split('\n').map((t) => ({ kind: (r.code !== 0 && r.code !== -1 ? 'err' : 'out') as Line['kind'], text: t }))] : head;
+          return r.output ? [...head, ...r.output.split('\n').map((t, i) => ({ kind: (r.lineKinds?.[i] ?? (r.code !== 0 && r.code !== -1 ? 'err' : 'out')) as Line['kind'], text: t }))] : head;
         });
       }
       if (r.editor) setEditor(r.editor);
@@ -130,7 +130,7 @@ export function Terminal({ shell, banner, onExecuted, autoFocus }: { shell: Shel
               <span className="cmd">{l.text}</span>
             </div>
           ) : (
-            <div key={i} className={l.kind === 'err' ? 'err' : l.kind === 'note' ? 'note' : undefined}>{l.text || ' '}</div>
+            <div key={i} className={l.kind === 'err' ? 'err' : l.kind === 'warn' ? 'warn' : l.kind === 'note' ? 'note' : undefined}>{l.text || ' '}</div>
           ),
         )}
         <div>

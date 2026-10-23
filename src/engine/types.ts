@@ -300,7 +300,7 @@ export interface IcmpHeader {
 }
 
 export interface AppLayer {
-  protocol: 'DNS' | 'SSH' | 'DATA' | 'DHCP' | 'DHCPv6' | 'TLS' | 'KRB5' | 'KADMIN';
+  protocol: 'DNS' | 'SSH' | 'DATA' | 'DHCP' | 'DHCPv6' | 'TLS' | 'KRB5' | 'KADMIN' | 'RDP';
   /** Short Wireshark-style "Info" text. */
   info: string;
   /** Decoded protocol fields visible to an observer. */

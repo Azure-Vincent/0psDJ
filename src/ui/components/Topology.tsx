@@ -37,6 +37,8 @@ export function Topology() {
       {box(40, 262, 'srv01', ['10.0.20.10', '2001:db8:20::10', 'sshd :22, nginx :80 :443'], 150)}
       {box(208, 262, 'dev01', ['10.0.30.25', 'IPv6 SLAAC', '2001:db8:30::/64'], 128)}
       <path d="M201 250 V358 H208" fill="none" stroke="var(--lane)" />
+      <path d="M24 250 V358 H40" fill="none" stroke="var(--ok)" />
+      {box(40, 336, 'win01', ['10.0.20.30', 'Windows Server 2022', 'IIS, RDP, SMB, WinRM'], 150)}
       {box(208, 336, 'dev02', ['DHCP via relay', 'DHCPv6 from rtr01'], 124)}
       <text x={8} y={408} style={{ fill: 'var(--muted)', fontSize: 9.5 }}>All LAN ports are on sw01 (VLAN-aware Linux bridge): access ports for</text>
       <text x={8} y={420} style={{ fill: 'var(--muted)', fontSize: 9.5 }}>VLAN 10/20/30, trunk swp7 to rtr01 eth3. Console: sw01.</text>

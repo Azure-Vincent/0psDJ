@@ -64,7 +64,18 @@ export interface KerberosGoal {
   sshTarget?: string;
 }
 
-export type Goal = SshGoal | HttpGoal | ResolveGoal | KerberosGoal;
+/** Remote Desktop: xfreerdp from a Linux host must log the user on to a Windows host. */
+export interface RdpGoal {
+  kind: 'rdp';
+  description: string;
+  fromHost: string;
+  localUser: string;
+  target: string;
+  user: string;
+  password: string;
+}
+
+export type Goal = SshGoal | HttpGoal | ResolveGoal | KerberosGoal | RdpGoal;
 
 export interface ConstraintResult {
   id: string;
