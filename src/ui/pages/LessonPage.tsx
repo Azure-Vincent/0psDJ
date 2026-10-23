@@ -321,6 +321,24 @@ function widgetsFor(id: string): LessonWidgets {
       ],
     };
   }
+  if (id === 'ad-kerberos') {
+    return {
+      sandbox: [
+        { hostId: 'dc01', user: 'Administrator', label: 'dc01 console (PowerShell)', banner: 'Windows PowerShell\nCopyright (C) Microsoft Corporation. All rights reserved.\n\nSandbox: dc01, domain controller and DNS server of ad.corp.lab (CORP), signed in as CORP\\Administrator. Try: Get-ADUser -Filter *, Get-ADGroupMember RDP-Users, Get-DnsServerResourceRecord -ZoneName ad.corp.lab -RRType SRV, Get-DnsServerForwarder.' },
+        { hostId: 'win01', user: 'Administrator', label: 'win01 console (PowerShell)', banner: 'Windows PowerShell\nCopyright (C) Microsoft Corporation. All rights reserved.\n\nSandbox: win01, still in a workgroup. Join it: Set-DnsClientServerAddress -InterfaceAlias Ethernet0 -ServerAddresses 10.0.20.5, then Add-Computer -DomainName ad.corp.lab -Credential CORP\\Administrator -Restart (password Dc-Adm1n-2026). Then: Test-ComputerSecureChannel, nltest /sc_query:ad.corp.lab.' },
+        { hostId: 'ws01', user: 'alice', label: 'ws01 (alice)', banner: 'Sandbox: ws01. After the join and Add-LocalGroupMember -Group "Remote Desktop Users" -Member "CORP\\RDP-Users" on win01, try: xfreerdp /v:win01.corp.lab /u:CORP\\\\alice (password Office-Corp-2026).' },
+      ],
+    };
+  }
+  if (id === 'windows-rdp') {
+    return {
+      sandbox: [
+        { hostId: 'win01', user: 'Administrator', label: 'win01 console (PowerShell)', banner: 'Windows PowerShell\nCopyright (C) Microsoft Corporation. All rights reserved.\n\nSandbox: console on win01 (Windows Server 2022), signed in as Administrator. Try: Get-Service TermService, Get-NetFirewallRule -DisplayGroup "Remote Desktop", Get-NetTCPConnection -State Listen, ipconfig /all, Get-Help <cmdlet>.' },
+        { hostId: 'ws01', user: 'alice', label: 'ws01 (alice)', banner: 'Sandbox: ws01, Debian 12. alice\'s password on win01 is Corp-Lab-2026. Try: xfreerdp /v:win01.corp.lab /u:alice, nc -zv win01 3389, curl -I http://win01/.' },
+        { hostId: 'win01', user: 'alice', label: 'win01 (alice, standard user)', banner: 'Sandbox: PowerShell on win01 as WIN01\\alice, a standard user (Remote Desktop Users). Compare what she may change with the Administrator console.' },
+      ],
+    };
+  }
   if (id === 'nftables') {
     return {
       internals: (

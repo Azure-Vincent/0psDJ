@@ -321,5 +321,70 @@ export const CAUSES: Record<string, Cause> = Object.fromEntries(
       signature: 'kinit fails with "Password incorrect while getting initial credentials" (KDC log: PREAUTH_FAILED) or "Client \'name@REALM\' not found in Kerberos database" (CLIENT_NOT_FOUND). The KDC is reached and answers: this is about the account, not the infrastructure.',
       check: 'journalctl -u krb5-kdc on the KDC; kadmin.local -q "getprinc <user>" (exists? failed attempts?).',
     },
+    {
+      id: 'win-rdp-firewall', title: 'Windows Defender Firewall blocks RDP (Remote Desktop rules disabled)', category: 'Firewall', concept: 'win.rdp',
+      signature: 'RDP and "nc -zv <server> 3389" time out (dropped, no answer), while on the server TermService runs and listens on 3389. Get-NetFirewallRule -DisplayGroup "Remote Desktop" shows the rules with Enabled False (or missing), and the profile\'s default inbound action is Block.',
+      check: 'nc -zv -w 3 <server> 3389 from the client; on the server Get-NetTCPConnection -LocalPort 3389 -State Listen; Get-NetFirewallRule -DisplayGroup "Remote Desktop" | Format-Table Name, Enabled, Profile, Action; the Firewall operational log (2004/2005/2006).',
+    },
+    {
+      id: 'win-rdp-profile', title: 'Connection in the wrong network profile (Public) for the RDP rules', category: 'Firewall', concept: 'win.rdp',
+      signature: 'RDP times out, yet the Remote Desktop rules are enabled. Their Profile is Domain and/or Private, and Get-NetConnectionProfile shows NetworkCategory Public: Windows applies only the rules of the active profile. Typical after a network change (new switch port, new VLAN) on a server that is not domain-joined.',
+      check: 'Get-NetConnectionProfile; Get-NetFirewallRule -DisplayGroup "Remote Desktop" | Format-Table Name, Enabled, Profile; Get-NetFirewallProfile.',
+    },
+    {
+      id: 'win-rdp-disabled', title: 'Remote Desktop turned off (fDenyTSConnections = 1)', category: 'Configuration', concept: 'win.rdp',
+      signature: 'RDP is refused immediately (TCP reset). TermService is Running, but nothing listens on the RDP port. HKLM\\System\\CurrentControlSet\\Control\\Terminal Server has fDenyTSConnections = 1 ("Remote Desktop: Off"); a policy value under HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Terminal Services overrides it if present.',
+      check: 'Get-NetTCPConnection -LocalPort 3389 -State Listen; Get-Service TermService; Get-ItemProperty "HKLM:\\System\\CurrentControlSet\\Control\\Terminal Server" | Select-Object fDenyTSConnections.',
+    },
+    {
+      id: 'win-termservice-disabled', title: 'Remote Desktop Services (TermService) stopped or disabled', category: 'Service', concept: 'win.services',
+      signature: 'RDP is refused immediately: nothing listens on the RDP port. Get-Service TermService shows Stopped; with StartType Disabled, Start-Service fails and the System log has event 7000 ("cannot be started, either because it is disabled..."). Event 7036 records when it stopped.',
+      check: 'Get-Service TermService | Select-Object Name, Status, StartType; Get-WinEvent -LogName System -MaxEvents 20 (7036, 7040, 7000); sc.exe qc TermService.',
+    },
+    {
+      id: 'win-rdp-port', title: 'RDP listener moved to another port (PortNumber)', category: 'Configuration', concept: 'win.rdp',
+      signature: 'Connections to 3389 are refused, yet TermService runs and listens on another port (Get-NetTCPConnection / netstat -ano). PortNumber under ...\\Terminal Server\\WinStations\\RDP-Tcp is not 3389; the firewall rules still allow only 3389, so the new port times out from clients.',
+      check: 'Get-NetTCPConnection -State Listen; Get-ItemProperty "HKLM:\\System\\CurrentControlSet\\Control\\Terminal Server\\WinStations\\RDP-Tcp" | Select-Object PortNumber; Get-NetFirewallRule -DisplayGroup "Remote Desktop" | Get-NetFirewallPortFilter.',
+    },
+    {
+      id: 'win-rdp-rights', title: 'User lacks the right to log on through Remote Desktop', category: 'Authorization', concept: 'win.rdp',
+      signature: 'The connection and NLA authentication succeed, then the logon is refused: "not authorized for remote login" (FreeRDP: ERRINFO_SERVER_INSUFFICIENT_PRIVILEGES). Security event 4625 with Logon Type 10 and Status 0xC000015B. The user is in neither Remote Desktop Users nor Administrators (or a "Deny log on through Remote Desktop Services" right applies).',
+      check: 'Get-WinEvent -FilterHashtable @{LogName="Security"; Id=4625} -MaxEvents 5 | Format-List Message; Get-LocalGroupMember "Remote Desktop Users"; on domain members gpresult /r for the user rights policy.',
+    },
+    {
+      id: 'win-account-disabled', title: 'User account disabled', category: 'Authentication', concept: 'win.rdp',
+      signature: 'Authentication fails although the password is right: FreeRDP reports ERRCONNECT_ACCOUNT_DISABLED, the server logs 4625 with Status 0xC0000072, and Get-LocalUser shows Enabled False. Event 4725 records who disabled it and when.',
+      check: 'Get-LocalUser <name>; Get-WinEvent -FilterHashtable @{LogName="Security"; Id=4625,4725} -MaxEvents 5 | Format-List.',
+    },
+    {
+      id: 'win-wrong-password', title: 'Wrong user name or password', category: 'Authentication', concept: 'win.rdp',
+      signature: 'NLA fails with ERRCONNECT_LOGON_FAILURE ("The logon attempt failed"); the server logs 4625 with Status 0xC000006D (Sub Status 0xC000006A for a bad password, 0xC0000064 for an unknown user). The network path and the service are fine.',
+      check: 'Get-WinEvent -FilterHashtable @{LogName="Security"; Id=4625} -MaxEvents 5 | Format-List Message; Get-LocalUser; try +auth-only from the client.',
+    },
+    {
+      id: 'dom-member-dns', title: 'Domain member uses a DNS server without the AD zone', category: 'Name resolution', concept: 'ad.dns',
+      signature: 'Domain logons on the member fail ("The Local Security Authority cannot be contacted", 4625 status 0xC000005E) while local accounts work. nltest /sc_query reports ERROR_NO_LOGON_SERVERS, NETLOGON 5719 at boot, gpupdate fails. The member\'s DNS servers are not AD DNS servers, so Resolve-DnsName -Type SRV _ldap._tcp.dc._msdcs.<domain> says the name does not exist.',
+      check: 'Get-DnsClientServerAddress; Resolve-DnsName -Type SRV _ldap._tcp.dc._msdcs.ad.corp.lab; nltest /dsgetdc:ad.corp.lab; Get-WinEvent -LogName System (NETLOGON 5719).',
+    },
+    {
+      id: 'dom-dc-firewall', title: 'DC firewall blocks the directory (LDAP)', category: 'Firewall', concept: 'ad.kerberos',
+      signature: 'The member finds the DC in DNS (the SRV records resolve) but cannot contact it: nltest /dsgetdc fails, Test-NetConnection <dc> -Port 389 times out while port 53 works. Domain logons fail with no logon servers (0xC000005E). On the DC the Active Directory Domain Services firewall rules are disabled.',
+      check: 'Resolve-DnsName -Type SRV _ldap._tcp.dc._msdcs.<domain>; Test-NetConnection <dc> -Port 389 / 88 / 53; on the DC Get-NetFirewallRule -DisplayGroup "Active Directory Domain Services".',
+    },
+    {
+      id: 'dom-trust-broken', title: 'Broken secure channel (machine account password mismatch)', category: 'Authentication', concept: 'ad.kerberos',
+      signature: 'Every domain user fails on one member ("The trust relationship between this workstation and the primary domain failed", 4625 status 0xC000018D) while the DC is reachable and the same accounts work elsewhere. Test-ComputerSecureChannel returns False, nltest /sc_verify reports ERROR_ACCESS_DENIED with the DC named, NETLOGON 3210 in the System log. Typical after a snapshot revert or a reset of the computer account.',
+      check: 'Test-ComputerSecureChannel; nltest /sc_verify:<domain>; Get-WinEvent -LogName System (NETLOGON 3210); on the DC Get-ADComputer <name> and Security 4724 for <NAME>$.',
+    },
+    {
+      id: 'dom-account-locked', title: 'Domain account locked out', category: 'Authentication', concept: 'ad.kerberos',
+      signature: 'Logons with the correct password are refused with "account locked out" (FreeRDP ERRCONNECT_ACCOUNT_LOCKED_OUT, status 0xC0000234). Get-ADUser <user> -Properties LockedOut shows True; the DC logged 4740 naming the computer that relayed the bad passwords. Often a device with saved old credentials.',
+      check: 'Search-ADAccount -LockedOut; Get-ADUser <user> -Properties LockedOut, BadLogonCount; Get-WinEvent -FilterHashtable @{LogName="Security"; Id=4740} on the DC; 4625 events (source address) on the relaying server.',
+    },
+    {
+      id: 'dom-group-membership', title: 'User missing from the AD group that grants the logon right', category: 'Authorization', concept: 'win.rdp',
+      signature: 'Authentication succeeds, then the logon is refused (ERRINFO_SERVER_INSUFFICIENT_PRIVILEGES, 4625 Logon Type 10 status 0xC000015B). The server\'s local Remote Desktop Users group contains a domain group, and the user is no longer a member of that group in AD (Security 4729 on the DC).',
+      check: 'Get-LocalGroupMember "Remote Desktop Users" on the server; Get-ADGroupMember <group> and Get-ADPrincipalGroupMembership <user> on the DC.',
+    },
   ] as Cause[]).map((c) => [c.id, c]),
 );

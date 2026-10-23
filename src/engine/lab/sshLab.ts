@@ -15,6 +15,7 @@ import type { Host, World } from '../types';
 import { addUser, createHost, newWorld, staticInterfaces } from './builder';
 import { EXT01_NGINX_CONF, installExt01Web, installSrv01Pki, SRV01_NGINX_CONF, trustCorpRoot } from './pkiLab';
 import { installKerberos, KRB_ZONE_RECORDS } from './krbLab';
+import { installDc01, installWin01 } from './winLab';
 
 export const DEBIAN_SSHD_CONFIG = `
 # This is the sshd server system-wide configuration file.  See
@@ -403,6 +404,8 @@ rtr01   IN A    10.0.10.1
 ws01    IN A    10.0.10.25
 srv01   IN A    10.0.20.10
 srv01   IN AAAA 2001:db8:20::10
+win01   IN A    10.0.20.30
+dc01    IN A    10.0.20.5
 www     IN CNAME srv01
 ` + KRB_ZONE_RECORDS;
 
@@ -586,10 +589,12 @@ export function buildSshLab(): World {
   trustCorpRoot(dev2, t);
 
   installKerberos(world);
+  const win = installWin01(world);
+  const dc = installDc01(world, true);
 
   // Boot everything. Order matters: the switch first (it creates the VLANs),
   // ns1 must serve DHCP before ws02 boots, rtr01 must advertise before dev01.
-  for (const h of [sw, rtr, ns1, srv, ws, ws2, ext, dev, dev2]) bootHost(world, h);
+  for (const h of [sw, rtr, ns1, srv, ws, ws2, ext, dev, dev2, dc, win]) bootHost(world, h);
 
   // History: alice connected yesterday-style earlier today, accepting the host key.
   world.clock += 60_000;

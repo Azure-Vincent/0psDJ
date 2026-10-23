@@ -5,7 +5,6 @@
 // the network model, so routing, firewalls and DNS affect Kerberos as they
 // would on real machines.
 
-import { parseResolvConf } from '../config/netconf';
 import {
   aclAllows, cachePath, deriveKey, ENCTYPES, formatCache, formatPrincipalDb, newPrincipal, parseCache,
   parseKrb5Conf, parsePrincipalDb, ProfileError, qualify, realmOf,
@@ -14,7 +13,7 @@ import {
 import { readFile, writeFile } from '../fs';
 import type { Host, Packet, World } from '../types';
 import { seededInt } from '../util/sha256';
-import { dnsQuery, resolve } from './dns';
+import { dnsQuery, resolve, resolverConf } from './dns';
 import { log } from './journal';
 import { icmpMeaning, nextId, sendIcmpError, sourceAddress, transmit } from './network';
 import { findListener } from './services';
@@ -147,7 +146,7 @@ function note(world: World, host: Host, title: string, detail: string) {
 }
 
 function srvLookup(world: World, host: Host, qname: string): { target: string; port: number; prio: number }[] | null {
-  const rc = parseResolvConf(readFile(host, '/etc/resolv.conf'));
+  const rc = resolverConf(host);
   for (const ns of rc.nameservers.length ? rc.nameservers : ['127.0.0.1']) {
     const ex = dnsQuery(world, host, ns, qname, rc.timeout, 'SRV');
     if (ex.outcome === 'timeout' || ex.outcome === 'unreachable' || ex.outcome === 'port-unreachable') continue;
@@ -422,6 +421,7 @@ const PERM_NAMES: Record<string, string> = { a: 'add', d: 'delete', m: 'modify',
 
 export function kadminRequest(k: KadminContext, argv: string[]): KadminResult {
   const [cmd, ...args] = argv;
+  if (!cmd) return { lines: [] };
   const out: string[] = [];
   const db = loadDb(k.kdc, k.conf, k.realm);
   if (!db) return { lines: [`kadmin${k.local ? '.local' : ''}: Cannot open DB2 database '${dbPath(k.conf, k.realm)}': No such file or directory while initializing kadmin${k.local ? '.local' : ''} interface`] };

@@ -7,12 +7,15 @@ import { runSsh } from '../sim/ssh';
 import { Shell } from '../shell/shell';
 import type { World } from '../types';
 import { CAUSES } from './catalog';
+import { isWindows } from '../win/model';
 import type { Constraint, ConstraintResult, Goal, Scenario } from './types';
 
 /** Run shell commands as root on a host, mutating `world` in place (used to inject faults). */
 export function script(world: World, hostId: string, lines: string[], gapMs = 45_000): string[] {
   let w = world;
-  const sh = new Shell(() => w, (n) => (w = n), { hostId, user: 'root', cwd: '/root' });
+  // Windows hosts are configured from an administrator's PowerShell console.
+  const win = isWindows(w.hosts[hostId]);
+  const sh = new Shell(() => w, (n) => (w = n), win ? { hostId, user: 'Administrator', cwd: w.hosts[hostId].users.Administrator.home } : { hostId, user: 'root', cwd: '/root' });
   const outputs: string[] = [];
   for (const l of lines) {
     w.clock += gapMs;
@@ -34,6 +37,7 @@ export interface GoalResult {
 export function goalLabel(goal: Goal): string {
   if (goal.kind === 'http') return `${goal.fromHost}: curl ${goal.curlFlags ? goal.curlFlags + ' ' : ''}${goal.url}`;
   if (goal.kind === 'resolve') return `${goal.fromHost}: resolve ${goal.name}`;
+  if (goal.kind === 'rdp') return `${goal.fromHost}: xfreerdp /v:${goal.target} /u:${goal.user}`;
   if (goal.kind === 'kerberos') return `${goal.fromHost}: kinit ${goal.localUser}${goal.sshTarget ? ` + ssh ${goal.sshTarget} (Kerberos)` : ''}`;
   return `${goal.user}@${goal.target}`;
 }
@@ -52,6 +56,16 @@ export function checkGoal(world: World, goal: Goal): GoalResult {
     const line = `ssh -o PubkeyAuthentication=no -o PasswordAuthentication=no -o BatchMode=yes -o StrictHostKeyChecking=accept-new ${goal.sshTarget} hostname`;
     const r = sh.execute(line);
     return { goal, ok: r.code === 0, lines: [...lines, `$ ${line}`, ...(r.output ? r.output.split('\n') : ['(no output)'])], authMethod: r.code === 0 ? 'gssapi-with-mic' : undefined };
+  }
+  if (goal.kind === 'rdp') {
+    let cur = w;
+    const home = cur.hosts[goal.fromHost].users[goal.localUser].home;
+    const sh = new Shell(() => cur, (n) => (cur = n), { hostId: goal.fromHost, user: goal.localUser, cwd: home });
+    const line = `xfreerdp /v:${goal.target} /u:'${goal.user}' /p:'${goal.password}' /cert:ignore`;
+    const r = sh.execute(line);
+    // Timestamps vary between runs; show the messages only.
+    const lines = [`$ ${line.replace(goal.password, '********')}`, ...(r.output ? r.output.split('\n').map((l) => l.replace(/^\[[\d:]+\] \[\d+:\d+\] /, '')) : ['(no output)'])];
+    return { goal, ok: r.code === 0, lines };
   }
   if (goal.kind === 'http' || goal.kind === 'resolve') {
     let cur = w;
@@ -83,7 +97,8 @@ export function rebootAll(world: World): World {
   const w = structuredClone(world);
   w.sessions = [];
   // Infrastructure first (switch, router, DNS/DHCP), then servers and clients; hosts added by a lab boot last.
-  const order = ['sw01', 'rtr01', 'ns1', 'srv01', 'ws01', 'ws02', 'ext01', 'dev01', 'dev02'];
+  // Domain controllers before members (members look for a DC while they boot).
+  const order = ['sw01', 'rtr01', 'ns1', 'dc01', 'srv01', 'ws01', 'ws02', 'ext01', 'dev01', 'dev02'];
   for (const id of [...order, ...Object.keys(w.hosts).filter((h) => !order.includes(h))]) if (w.hosts[id]) bootHost(w, w.hosts[id]);
   w.clock += 30_000;
   return w;

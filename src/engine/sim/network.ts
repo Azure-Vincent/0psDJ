@@ -8,6 +8,7 @@
 // admin-prohibited) are generated where the real kernel would generate them and
 // are themselves routed back, so asymmetric failures behave realistically.
 
+import { WF_TABLE } from '../win/model';
 import { evaluate, evaluateNat, renderRule, type EvalResult, type PacketContext, type RejectType } from '../config/nft';
 import { familyOf, inPrefix, normAddr, prefixLength } from '../net/addr';
 import { inCidr, parseCidr, parseIp } from '../net/ip';
@@ -409,6 +410,11 @@ function natPostrouting(world: World, host: Host, p: Packet, st: NatState, oif: 
 export function describeDecision(hook: string, fw: EvalResult): string {
   const d = fw.decidedBy;
   if (!d) return `${hook}: no nftables base chain on this hook (accepted)`;
+  if (d.table === `inet ${WF_TABLE}`) {
+    const [profile, dir] = d.chain.split('-');
+    if (d.policy) return `Windows Defender Firewall (${profile} profile): no ${dir.toLowerCase()} rule matched, default action ${fw.verdict === 'accept' ? 'Allow' : 'Block'}`;
+    return `Windows Defender Firewall (${profile} profile): rule "${d.rule!.comment ?? d.rule!.handle}" → ${fw.verdict === 'accept' ? 'Allow' : 'Block'}`;
+  }
   if (d.policy) return `nft ${d.table} ${d.chain}: no rule matched, chain policy ${fw.verdict}`;
   return `nft ${d.table} ${d.chain}: rule handle ${d.rule!.handle} "${renderRule({ ...d.rule!, counter: null })}" → ${fw.verdict}`;
 }
@@ -697,6 +703,8 @@ export interface TransmitOptions {
  * the caller's object keeps its original TTL.
  */
 export function transmit(world: World, fromHostId: string, original: Packet, opts: TransmitOptions = {}): Delivery {
+  // Windows' default TTL / hop limit is 128 (Linux: 64).
+  if (world.hosts[fromHostId]?.kind === 'windows' && (original.ttl === 64 || (original.ttl === 255 && !original.icmp?.nd))) original.ttl = 128;
   const rec = activeRecorder();
   const ev = rec?.beginPacket(world.clock, fromHostId, clonePacket(original));
   const d = transmitInner(world, fromHostId, original, opts);

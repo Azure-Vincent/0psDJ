@@ -4,6 +4,7 @@ import { getRef } from '../src/content/reference';
 import { applySolution, checkStep } from '../src/engine/labs/engine';
 import { GUIDED_LABS } from '../src/engine/labs';
 import { LAB1 } from '../src/engine/labs/lab1';
+import { LAB2 } from '../src/engine/labs/lab2';
 import type { World } from '../src/engine/types';
 import { Lab } from './helpers';
 
@@ -18,6 +19,19 @@ function linkResolves(link: string): boolean {
 }
 
 describe('guided labs', () => {
+  it('Lab 2: each step fails before its solution and passes after it; the reboot test passes at the end', () => {
+    let world: World = LAB2.build();
+    for (const step of LAB2.steps.filter((s) => !s.afterReboot)) {
+      const before = checkStep(world, LAB2, step);
+      expect(before.passed, `${step.id} should not pass before its solution`).toBe(false);
+      world = applySolution(world, step);
+      const after = checkStep(world, LAB2, step);
+      expect(after.results.filter((r) => !r.ok).map((r) => `${r.id}: ${r.detail}`), step.id).toEqual([]);
+    }
+    const final = checkStep(world, LAB2, LAB2.steps.at(-1)!);
+    expect(final.results.filter((r) => !r.ok).map((r) => `${r.step} / ${r.id}: ${r.detail}`)).toEqual([]);
+  });
+
   it.each(GUIDED_LABS.map((l) => l.id))('%s: links, terminals and solutions are well-formed', (id) => {
     const lab = GUIDED_LABS.find((l) => l.id === id)!;
     const world = lab.build();

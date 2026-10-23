@@ -21,6 +21,7 @@ import { linkLocalFromMac } from '../net/ip6';
 import { bridgeFromConfig, recomputeL2 } from './l2';
 import { parseRadvdConf, RadvdConfigError, routerSolicit, sendRa, type RadvdLoaded } from './slaac';
 import { parsePublicKey, type ParsedPublicKey } from './keys';
+import { bootWindows, winListeners } from '../win/model';
 import { parseKadmAcl, parseKdcConf, parsePrincipalDb, ProfileError, type KdcConf } from '../config/krb5';
 
 export interface Listener {
@@ -1013,6 +1014,7 @@ export function allListeners(host: Host): Listener[] {
     const rt = host.services[def.name];
     if (rt && rt.state === 'active') out.push(...def.listeners(host, rt));
   }
+  out.push(...winListeners(host));
   return out;
 }
 
@@ -1029,6 +1031,10 @@ export function findListener(host: Host, proto: 'tcp' | 'udp', addr: string, por
 
 /** Simulated reboot: runtime state is discarded and rebuilt from persistent files. */
 export function bootHost(world: World, host: Host): void {
+  if (host.kind === 'windows' && host.win) {
+    bootWindows(world, host);
+    return;
+  }
   host.conntrack = [];
   host.nat = [];
   host.neighbors = [];

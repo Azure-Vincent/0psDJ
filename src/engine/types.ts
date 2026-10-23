@@ -7,6 +7,7 @@
 // are modelled faithfully.
 
 import type { Ruleset } from './config/nft';
+import type { WinState } from './win/model';
 
 export interface FileNode {
   type: 'file' | 'dir';
@@ -192,7 +193,9 @@ export interface Host {
   hostname: string;
   domain: string;
   osName: string;
-  kind: 'linux' | 'router' | 'switch';
+  kind: 'linux' | 'router' | 'switch' | 'windows';
+  /** Windows hosts: configuration (registry) and runtime state (services, event logs). */
+  win?: WinState;
   role: string;
   users: Record<string, UserAccount>;
   fs: Record<string, FileNode>;
@@ -297,7 +300,7 @@ export interface IcmpHeader {
 }
 
 export interface AppLayer {
-  protocol: 'DNS' | 'SSH' | 'DATA' | 'DHCP' | 'DHCPv6' | 'TLS' | 'KRB5' | 'KADMIN';
+  protocol: 'DNS' | 'SSH' | 'DATA' | 'DHCP' | 'DHCPv6' | 'TLS' | 'KRB5' | 'KADMIN' | 'RDP';
   /** Short Wireshark-style "Info" text. */
   info: string;
   /** Decoded protocol fields visible to an observer. */

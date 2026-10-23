@@ -61,14 +61,20 @@ Everything is stored locally, and the app works without an Internet connection.
 
 The lab machines are not virtual machines. They are a **simulation** built
 into the app: a small network with a switch, a router, a DNS/DHCP server
-that is also the Kerberos KDC, a Linux server, workstations and an "Internet"
-host. Commands such as `ip`,
+that is also the Kerberos KDC, a Linux server, a Windows server, an Active
+Directory domain controller, workstations and an "Internet" host. Commands such as `ip`,
 `ss`, `systemctl`, `journalctl`, `nft`, `ssh`, `dig`, `curl`, `openssl`,
 `kinit` and `tcpdump` behave like their Debian 12 counterparts and all act on one
 consistent model: when you change a configuration file, the services, sockets,
-firewall decisions, packets and logs all follow from that change. Windows,
-Active Directory, Docker and pfSense are not simulated; they are taught from
-documentation and representative output.
+firewall decisions, packets and logs all follow from that change. The Windows
+server (win01, Windows Server 2022) has a Windows PowerShell 5.1 console:
+cmdlets such as `Get-Service`, `Get-NetFirewallRule`, `Test-NetConnection` and
+`Get-WinEvent` and programs such as `ipconfig`, `netsh` and `sc.exe` work on the
+same model, and the Linux machines connect to it with `xfreerdp`. The domain
+controller dc01 runs Active Directory and DNS for ad.corp.lab: members find it
+through DNS SRV records, join the domain, and pass domain logons to it over
+their secure channel. Docker and pfSense are not simulated; they are taught
+from documentation and representative output.
 
 ## Installation
 
@@ -195,7 +201,12 @@ are synthetic (certificates are readable PEM data without real signatures),
 spanning tree and DHCPv6 relays are not simulated, and `tcpdump` shows recent traffic
 rather than a live capture.
 
-Output for Windows, Active Directory, Docker, pfSense and Cisco IOS is
+The Windows server follows Windows Server 2022 and Windows PowerShell 5.1
+(output formats, error records, event IDs). The domain has one DC; domain
+logons use NTLM pass-through, and Kerberos for Windows logons, Group Policy
+objects and replication are not modelled. PowerShell covers the cmdlets and
+parameters the lessons, tickets and labs use.
+Other output for Windows, Active Directory, Docker, pfSense and Cisco IOS is
 representative of the versions named on each page; check the exact wording
 against your own systems when it matters. The certification map is a study
 aid, not a guarantee of exam readiness: check objectives against the vendors'

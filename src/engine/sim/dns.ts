@@ -4,7 +4,8 @@
 // expansion with ndots:1. Queries and responses are real UDP packets routed
 // through the network model, so firewalls/routing affect DNS just like SSH.
 
-import { parseHostsFile, parseResolvConf } from '../config/netconf';
+import { parseHostsFile, parseResolvConf, type ResolvConf } from '../config/netconf';
+import { isWindows, WIN_HOSTS_PATH, winResolver } from '../win/model';
 import { answerQuery, type DnsAnswer, type ZoneRecord } from '../config/zone';
 import { readFile } from '../fs';
 import { familyOf, isIpAddress, normAddr } from '../net/addr';
@@ -143,10 +144,25 @@ export function dnsQuery(world: World, host: Host, server: string, qname: string
     world.clock += timeoutS * 1000;
     return { server, qname, outcome: 'timeout', rttMs: timeoutS * 1000 };
   }
-  const loaded = srv.services.named?.loaded as NamedLoaded | undefined;
-  let ans: DnsAnswer = answerQuery(loaded?.zones ?? [], qname, qtype);
-  const failed = loaded?.failedZones.some((z) => qname.toLowerCase().replace(/\.$/, '').endsWith(z));
-  if (failed) ans = { rcode: 'SERVFAIL', answers: [], authoritative: false };
+  let ans: DnsAnswer;
+  const wds = isWindows(srv) ? srv.win!.dnsServer : undefined;
+  if (wds) {
+    // Windows DNS Server: its zones (AD-integrated), otherwise recursion through the forwarders.
+    ans = answerQuery(wds.zones, qname, qtype);
+    if (ans.rcode === 'REFUSED') {
+      ans = { rcode: 'SERVFAIL', answers: [], authoritative: false };
+      for (const f of wds.forwarders) {
+        const ex = dnsQuery(world, srv, f, qname, 2, qtype);
+        if (ex.outcome === 'answer' || ex.outcome === 'nodata') { ans = { rcode: 'NOERROR', answers: ex.answer!.answers as ZoneRecord[], authoritative: false }; break; }
+        if (ex.outcome === 'nxdomain') { ans = { rcode: 'NXDOMAIN', answers: [], authoritative: false }; break; }
+      }
+    }
+  } else {
+    const loaded = srv.services.named?.loaded as NamedLoaded | undefined;
+    ans = answerQuery(loaded?.zones ?? [], qname, qtype);
+    const failed = loaded?.failedZones.some((z) => qname.toLowerCase().replace(/\.$/, '').endsWith(z));
+    if (failed) ans = { rcode: 'SERVFAIL', answers: [], authoritative: false };
+  }
   const rbytes = encodeDns(id, qname, { rcode: RCODE[ans.rcode], aa: ans.authoritative, ra: false, answers: ans.answers }, qtype);
   const r: Packet = {
     id: nextId(world), src: fq.dst, dst: fq.src, ttl: 64, proto: 'udp',
@@ -190,7 +206,13 @@ export function lookupHostsFile(host: Host, name: string): string | undefined {
 
 export function lookupHostsFileAll(host: Host, name: string): string[] {
   const n = name.toLowerCase().replace(/\.$/, '');
-  return parseHostsFile(readFile(host, '/etc/hosts')).filter((e) => e.names.some((x) => x.toLowerCase() === n)).map((e) => e.ip);
+  return parseHostsFile(readFile(host, isWindows(host) ? WIN_HOSTS_PATH : '/etc/hosts')).filter((e) => e.names.some((x) => x.toLowerCase() === n)).map((e) => e.ip);
+}
+
+/** The stub resolver's servers and search list (/etc/resolv.conf, or a Windows host's adapter settings). */
+export function resolverConf(host: Host): ResolvConf {
+  if (isWindows(host)) return { ...winResolver(host), timeout: 2, attempts: 2 };
+  return parseResolvConf(readFile(host, '/etc/resolv.conf'));
 }
 
 /**
@@ -207,6 +229,8 @@ export function resolve(world: World, host: Host, name: string, opts: { useHosts
     if (fam && familyOf(ip) !== fam) return { ok: false, error: 'EAI_NODATA', exchanges: [], message: 'Address family for hostname not supported' };
     return { ok: true, ip, addrs: [ip], source: 'literal', fqdn: ip, exchanges: [] };
   }
+  // Windows answers "localhost" itself (its hosts file entries are commented out).
+  if (isWindows(host) && name.toLowerCase() === 'localhost') return { ok: true, ip: '127.0.0.1', addrs: ['127.0.0.1'], source: 'hosts', fqdn: 'localhost', exchanges: [] };
   const has6 = globalAddrs6(host).length > 0;
   const has4 = hostAddresses(host, 4).some((a) => !a.startsWith('127.'));
   const want6 = fam === 6 || (fam === 0 && has6);
@@ -216,7 +240,7 @@ export function resolve(world: World, host: Host, name: string, opts: { useHosts
     const ips = order(lookupHostsFileAll(host, name));
     if (ips.length) return { ok: true, ip: ips[0], addrs: ips, source: 'hosts', fqdn: name, exchanges: [] };
   }
-  const rc = parseResolvConf(readFile(host, '/etc/resolv.conf'));
+  const rc = resolverConf(host);
   const exchanges: DnsExchange[] = [];
   if (rc.nameservers.length === 0) rc.nameservers.push('127.0.0.1');
   const dots = (name.match(/\./g) ?? []).length;

@@ -544,6 +544,7 @@ const usermod: CommandDef = {
   run(args, ctx) {
     if (ctx.user.uid !== 0) return err('usermod: Permission denied.\nusermod: cannot lock /etc/passwd; try again later.');
     const { flags, rest } = parseFlags(args, ['-G', '-s']);
+    if (!rest[0]) return err('Usage: usermod [options] LOGIN\n\nOptions:\n  -a, --append                  append the user to the supplemental GROUPS\n                                mentioned by the -G option without removing\n                                the user from other groups\n  -G, --groups GROUPS           new list of supplementary GROUPS\n  -L, --lock                    lock the user account\n  -s, --shell SHELL             new login shell for the user account\n  -U, --unlock                  unlock the user account', 2);
     const u = ctx.host.users[rest[0]];
     if (!u) return err(`usermod: user '${rest[0]}' does not exist`, 6);
     if (flags.has('-G')) {

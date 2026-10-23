@@ -129,11 +129,10 @@ function makePing(name: string, forced?: 6): CommandDef {
           const rep: Packet = { id: nextId(ctx.world), src: d.final.dst, dst: d.final.src, ttl: 64, proto: 'icmp', icmp: { ...echoIcmp(v6, true, icmpId, seq), size }, df };
           const back = transmit(ctx.world, target.id, rep);
           if (back.status === 'delivered') {
-            const hopsBack = back.hops.filter((h) => h.egress && h.ingress).length;
             const t = ctx.world.clock - start + 0.15;
             times.push(t);
             received++;
-            out.push(`${size + 8} bytes from ${dst}: icmp_seq=${seq} ttl=${64 - hopsBack} time=${rtt(t)} ms`);
+            out.push(`${size + 8} bytes from ${dst}: icmp_seq=${seq} ttl=${back.final.ttl} time=${rtt(t)} ms`);
           }
         } else if (d.error?.delivered) {
           const e = d.error.packet;
@@ -619,6 +618,7 @@ const hostCmd: CommandDef = {
       return hostTyped(type, rest[0], rest[1], ctx);
     }
     const args = argv;
+    if (!args[0]) return err('Usage: host [-aCdilrTvVw] [-c class] [-N ndots] [-t type] [-W time]\n            [-R number] [-m flag] [-p port] hostname [server]', 1);
     const r = nslookup.run(args, ctx);
     const name = args[0];
     const m = /Address: (\d+\.\d+\.\d+\.\d+)/.exec(r.out);
@@ -635,6 +635,7 @@ const getent: CommandDef = {
   usage: 'getent hosts NAME | getent ahosts|ahostsv4|ahostsv6 NAME | getent passwd [USER] | getent group [GROUP]',
   run(args, ctx) {
     const [db, key] = args;
+    if (!db) return err("getent: wrong number of arguments\nTry `getent --help' or `getent --usage' for more information.", 1);
     // Simplification: "hosts" uses the same getaddrinfo() selection as applications
     // (glibc's getent hosts actually asks for AF_INET6 first).
     if (db === 'hosts' || db === 'ahosts' || db === 'ahostsv4' || db === 'ahostsv6') {

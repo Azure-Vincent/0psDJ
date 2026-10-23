@@ -1,4 +1,5 @@
 import type { Host, UserAccount, World } from '../types';
+import type { PsSession } from '../win/ps/runtime';
 
 export class NeedInput {
   /** `partial` is output produced before the question (shown above the prompt). */
@@ -12,6 +13,8 @@ export interface SessionFrame {
   /** Present when this frame was entered via ssh (so `exit` closes the session). */
   ssh?: { hostId: string; user: string; fromIp: string; fromPort: number; pid: number; clientHostId: string; target: string };
   sudoOk?: boolean;
+  /** PowerShell session state (variables, location, history) on a Windows host. */
+  ps?: PsSession;
 }
 
 export interface EditorRequest {

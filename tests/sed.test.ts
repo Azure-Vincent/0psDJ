@@ -84,3 +84,16 @@ describe('shell parameter expansion', () => {
     expect(sh.execute("grep -c 'eth0$' /etc/network/interfaces").output).toBe('2');
   });
 });
+
+describe('argument errors print usage, never "undefined"', () => {
+  it('ssh -o, usermod, host, getent, kadmin.local -q ""', () => {
+    const lab = new Lab();
+    expect(lab.run('ws01', 'alice', 'ssh -o').output).toMatch(/^ssh: option requires an argument -- o\nusage: ssh/);
+    expect(lab.run('ws01', 'alice', 'ssh -o StrictHostKeyChecking srv01').output).toMatch(/no argument after keyword "stricthostkeychecking"/);
+    expect(lab.run('ws01', 'alice', "ssh -o 'BatchMode yes' -o ConnectTimeout=3 srv01.corp.lab hostname").output).toBe('srv01');
+    expect(lab.run('ws01', 'root', 'usermod').output).toMatch(/^Usage: usermod \[options\] LOGIN/);
+    expect(lab.run('ws01', 'alice', 'host').output).toMatch(/^Usage: host /);
+    expect(lab.run('ws01', 'alice', 'getent').output).toMatch(/^getent: wrong number of arguments/);
+    expect(lab.run('ns1', 'root', 'kadmin.local -q ""').output).toBe('Authenticating as principal root/admin@CORP.LAB with password.');
+  });
+});

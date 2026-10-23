@@ -11,6 +11,7 @@ import { ASSESSMENTS, LESSONS, getLesson } from '../src/content/lessons';
 import { FILE_REFS, PROCEDURES, REF_ENTRIES, getRef } from '../src/content/reference';
 import { ALL_SCENARIOS } from '../src/engine/scenarios';
 import { COMMANDS } from '../src/engine/shell/shell';
+import { resolveCommand } from '../src/engine/win/ps/runtime';
 
 const SHELL_BUILTINS = new Set(['sudo', 'exit', 'logout', 'clear', 'true', 'false', 'help', 'which', 'type', 'for', 'echo']);
 const SECTIONS = new Set(['what', 'internals', 'visualize', 'deploy', 'config', 'operate', 'troubleshoot', 'assess']);
@@ -41,7 +42,8 @@ function routeOk(link: string): string | null {
 
 /** First word of every command line in a (possibly multi-line) command string. */
 function commandWords(cmd: string): string[] {
-  return cmd.split('\n').flatMap((line) => line.replace(/"[^"]*"|'[^']*'/g, 'Q').split(/\s*(?:&&|\|\||;|\|)\s*/)).map((part) => {
+  // Quoted strings and brace blocks (PowerShell hashtables and script blocks) are arguments, not command separators.
+  return cmd.split('\n').flatMap((line) => line.replace(/"[^"]*"|'[^']*'/g, 'Q').replace(/@?\{[^{}]*\}/g, 'Q').split(/\s*(?:&&|\|\||;|\|)\s*/)).map((part) => {
     const words = part.trim().replace(/^sudo\s+(-\S+\s+)*/, '').split(/\s+/);
     return words[0];
   }).filter((w) => w && !w.startsWith('#'));
@@ -89,7 +91,8 @@ describe.each(LESSONS.map((L) => [L.id, L] as const))('lesson %s', (_id, L) => {
     for (const m of L.guide?.management ?? []) for (const t of m.tasks) if (t.sim) sim.push(t.command);
     for (const w of L.guide?.workflow ?? []) if (w.sim) sim.push(w.command);
     for (const cmd of sim) {
-      for (const word of commandWords(cmd)) expect(COMMANDS[word] || SHELL_BUILTINS.has(word), `"${word}" in: ${cmd}`).toBeTruthy();
+      // Linux commands, or PowerShell cmdlets and Windows programs (win01's console).
+      for (const word of commandWords(cmd)) expect(COMMANDS[word] || SHELL_BUILTINS.has(word) || resolveCommand(word), `"${word}" in: ${cmd}`).toBeTruthy();
     }
   });
   it('has diagrams that fit', () => {
