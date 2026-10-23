@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { ASSESSMENTS, getLesson } from '../../content/lessons';
 import { CURRICULUM } from '../../content/curriculum';
 import type { Lesson, Section } from '../../content/types';
-import { DHCP_RUNS, FIREWALL_RUNS, IP_RUNS, IPV6_RUNS, MTU_RUNS, NAT_RUNS, TLS_RUNS, TRANSPORT_RUNS, VLAN_RUNS } from '../../engine/lab/visualRuns';
+import { DHCP_RUNS, FIREWALL_RUNS, IP_RUNS, IPV6_RUNS, KRB_RUNS, MTU_RUNS, NAT_RUNS, TLS_RUNS, TRANSPORT_RUNS, VLAN_RUNS } from '../../engine/lab/visualRuns';
 import { OUTCOME_LABELS, SSH_DEPENDENCIES, freshLab, runWithFault } from '../../engine/lab/dependencies';
 import { ALL_SCENARIOS } from '../../engine/scenarios';
 import type { World } from '../../engine/types';
@@ -19,7 +19,7 @@ import { LayeredDiagramView, StaticSequenceView } from '../components/Diagrams';
 import { CASE_STUDIES } from '../../content/cases';
 import { CERT_EXAMS } from '../../content/certification';
 import { EncapsulationExplorer, ResolverTracer, RouteLookup, SubnetPractice } from '../components/NetworkWidgets';
-import { DHCP_LANES, IPV6_LANES, LAB_LANES, MTU_LANES, NAT_LANES, TLS_LANES, VLAN_LANES, segmentOf } from '../components/labLanes';
+import { DHCP_LANES, IPV6_LANES, KRB_LANES, LAB_LANES, MTU_LANES, NAT_LANES, TLS_LANES, VLAN_LANES, segmentOf } from '../components/labLanes';
 import { ChainInspector, MtuCalculator } from '../components/TlsMtuWidgets';
 import { Ipv6Explorer, VlanExplorer } from '../components/L2V6Widgets';
 import { DhcpAllocator, NatInspector } from '../components/NetServiceWidgets';
@@ -309,6 +309,16 @@ function widgetsFor(id: string): LessonWidgets {
       visualize: <RunVisualizer runs={MTU_RUNS} lanes={MTU_LANES} />,
       configTool: { title: 'MTU and MSS calculator', node: <MtuCalculator /> },
       sandbox: [ws01, rtr01, { hostId: 'ext01', user: 'guest', label: 'ext01 (Internet)', banner: 'Sandbox: ext01, a server on the Internet (203.0.113.80) with a 4.5 MB download in /downloads/.' }],
+    };
+  }
+  if (id === 'kerberos') {
+    return {
+      visualize: <RunVisualizer runs={KRB_RUNS} lanes={KRB_LANES} />,
+      sandbox: [
+        { hostId: 'ws01', user: 'alice', label: 'ws01 (alice)', banner: 'Sandbox: ws01. alice@CORP.LAB\'s Kerberos password is Corp-Lab-2026 (sudo on ws01: ws01-alice). Try: kinit, klist, kvno host/srv01.corp.lab, host -t SRV _kerberos._udp.corp.lab.' },
+        { hostId: 'ns1', user: 'root', label: 'ns1 console (root)', banner: 'Sandbox: console on ns1, the KDC for CORP.LAB. Try: kadmin.local -q "listprincs", journalctl -u krb5-kdc, cat /etc/krb5kdc/kdc.conf.' },
+        { hostId: 'srv01', user: 'root', label: 'srv01 console (root)', banner: 'Sandbox: console on srv01. Try: klist -ke, then enable Kerberos logins: echo "GSSAPIAuthentication yes" > /etc/ssh/sshd_config.d/20-kerberos.conf; systemctl reload ssh. Admin principal: alice/admin (Corp-Admin-2026).' },
+      ],
     };
   }
   if (id === 'nftables') {

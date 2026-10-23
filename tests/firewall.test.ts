@@ -124,3 +124,23 @@ describe('firewall scenarios reject unsafe fixes', () => {
     expect(v.constraints.find((c) => c.id === 'rtr-forward-restrictive')?.ok).toBe(false);
   });
 });
+
+describe('nft add/delete table and chain', () => {
+  it('builds a ruleset from the command line like nft does', async () => {
+    const { Lab } = await import('./helpers');
+    const lab = new Lab();
+    const run = (c: string) => lab.run('ns1', 'root', c);
+    expect(run('nft add table inet f').code).toBe(0);
+    expect(run("nft add chain inet f in '{ type filter hook input priority 0; policy accept; }'").code).toBe(0);
+    expect(run('nft add rule inet f in udp dport 88 drop').code).toBe(0);
+    expect(run('nft list table inet f').output).toMatch(/table inet f \{\n\tchain in \{\n\t\ttype filter hook input priority filter; policy accept;\n\t\tudp dport 88 drop/);
+    // UDP 88 dropped: the client falls back to TCP after three 1-second UDP timeouts.
+    expect(lab.run('ws01', 'alice', 'kinit', ['Corp-Lab-2026']).code).toBe(0);
+    expect(run('nft add rule inet f in tcp dport 88 drop').code).toBe(0);
+    expect(lab.run('ws01', 'alice', 'kinit', ['Corp-Lab-2026']).output).toMatch(/Cannot contact any KDC/);
+    expect(run('nft delete chain inet f in').output).toMatch(/Device or resource busy/);
+    expect(run('nft create table inet f').output).toMatch(/File exists/);
+    expect(run('nft delete table inet f').code).toBe(0);
+    expect(lab.run('ws01', 'alice', 'kinit', ['Corp-Lab-2026']).code).toBe(0);
+  });
+});

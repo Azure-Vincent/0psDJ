@@ -616,8 +616,11 @@ function runSshInner(world: World, o: SshClientOptions, out: string[]): SshResul
   if (methods.includes('gssapi-with-mic') && o.gssapiAuthentication !== false) {
     dbg('Next authentication method: gssapi-with-mic');
     const gssFail = (minor: string, serverSide?: string) => {
-      dbg('Unspecified GSS failure.  Minor code may provide more information');
-      dbg(minor);
+      // A server-side rejection reaches the client only as USERAUTH_FAILURE: it just moves on.
+      if (!serverSide) {
+        dbg('Unspecified GSS failure.  Minor code may provide more information');
+        dbg(minor);
+      }
       if (serverSide) {
         slog('DEBUG1', `Unspecified GSS failure.  Minor code may provide more information\n${serverSide}`, 'info', ctxEff);
         note('sshd cannot accept the Kerberos ticket', `${serverSide}. sshd logs the GSSAPI error only with LogLevel DEBUG1; at INFO the login silently falls through to the next method. Compare the key version on both sides: "klist -k /etc/krb5.keytab" on the server and "kvno host/NAME" on the client.`, server.id);
@@ -656,8 +659,9 @@ function runSshInner(world: World, o: SshClientOptions, out: string[]): SshResul
         else if (Math.abs(hostTime(world, client) - hostTime(world, server)) > 300_000) serverErr = 'Clock skew too great';
         if (serverErr) {
           failures++;
-          gssFail('Unspecified GSS failure.  Minor code may provide more information', serverErr);
+          gssFail('', serverErr);
           enc('s2c', 30 + methodList.length, `SSH_MSG_USERAUTH_FAILURE methods="${methodList}"`, [], 'USERAUTH_FAILURE', 'The server could not decrypt or accept the ticket.');
+          dbg(`Authentications that can continue: ${methodList}`);
         } else if (!valid || !userOk) {
           failures++;
           note('Kerberos principal not allowed for this account', !valid ? 'The account is invalid or not allowed.' : `The ticket is valid, but ${cache.principal} may not log in as "${user}": without a ~/.k5login file only the principal ${user}@${serverConf?.defaultRealm ?? 'DEFAULT.REALM'} maps to the local user ${user}; a ~/.k5login lists the principals allowed instead.`, server.id);

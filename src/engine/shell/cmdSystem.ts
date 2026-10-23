@@ -3,6 +3,7 @@
 import { activeRecorder } from '../sim/trace';
 import {
   emptyRuleset, findChain, NftError, parseRuleExpr, parseRulesetFile, renderChain, renderRuleset,
+  type Table,
 } from '../config/nft';
 import { effectiveConfig, renderSshdT } from '../config/sshdConfig';
 import { parseZone, ZoneError } from '../config/zone';
@@ -314,7 +315,7 @@ const journalctl: CommandDef = {
 const nft: CommandDef = {
   name: 'nft',
   summary: 'nftables firewall administration',
-  usage: 'nft [-a] list ruleset | nft add|insert rule FAMILY TABLE CHAIN EXPR | nft delete rule FAMILY TABLE CHAIN handle N | nft -f FILE | nft flush ruleset',
+  usage: 'nft [-a] list ruleset | nft add table|chain|rule ... | nft insert rule FAMILY TABLE CHAIN EXPR | nft delete rule FAMILY TABLE CHAIN handle N | nft delete chain|table ... | nft -f FILE | nft flush ruleset',
   run(args, ctx) {
     const deny = PERM(ctx, 'Operation not permitted (you must be root)');
     if (deny) return deny;
@@ -393,14 +394,51 @@ const nft: CommandDef = {
         c.rules.splice(idx, 1);
         return ok('');
       }
-      if (verb === 'chain' || (verb === 'add' && what === 'chain')) {
+      if ((verb === 'add' || verb === 'create') && what === 'table') {
+        const [fam, name] = rest;
+        if (!fam || !name || !['ip', 'ip6', 'inet', 'arp', 'bridge', 'netdev'].includes(fam)) return err(`Error: syntax error, unexpected end of file\n${verb} table ${rest.join(' ')}`, 1);
+        if (host.nft.tables.some((t) => t.family === fam && t.name === name)) {
+          return verb === 'create' ? err(`Error: Could not process rule: File exists\ncreate table ${fam} ${name}`, 1) : ok('');
+        }
+        host.nft.tables.push({ family: fam as Table['family'], name, chains: [], handle: host.nft.nextHandle++ });
+        return ok('');
+      }
+      if (verb === 'delete' && what === 'table') {
+        const [fam, name] = rest;
+        const i = host.nft.tables.findIndex((t) => t.family === fam && t.name === name);
+        if (i < 0) return err(`Error: Could not process rule: No such file or directory\ndelete table ${fam} ${name}`, 1);
+        host.nft.tables.splice(i, 1);
+        return ok('');
+      }
+      if (verb === 'delete' && what === 'chain') {
+        const [fam, table, chain] = rest;
+        const t = host.nft.tables.find((x) => x.family === fam && x.name === table);
+        const c = t?.chains.find((x) => x.name === chain);
+        if (!t || !c) return err(`Error: Could not process rule: No such file or directory\ndelete chain ${fam} ${table} ${chain}`, 1);
+        if (c.rules.length) return err(`Error: Could not process rule: Device or resource busy\ndelete chain ${fam} ${table} ${chain}`, 1);
+        t.chains = t.chains.filter((x) => x !== c);
+        return ok('');
+      }
+      if (verb === 'chain' || ((verb === 'add' || verb === 'create') && what === 'chain')) {
+        // nft add chain inet filter input '{ type filter hook input priority 0; policy drop; }'
         // nft chain inet filter input '{ policy accept; }'
         const r = verb === 'chain' ? [what, ...rest] : rest;
-        const [fam, table, chain, ...spec] = r;
-        const c = findChain(host.nft, fam, table, chain);
-        const m = /policy\s+(accept|drop)/.exec(spec.join(' '));
-        if (!c || !c.base || !m) return err('Error: Could not process rule: No such file or directory', 1);
-        c.base.policy = m[1] as 'accept' | 'drop';
+        const [fam, table, chain, ...specParts] = r;
+        const t = host.nft.tables.find((x) => x.family === fam && x.name === table);
+        if (!t || !chain) return err(`Error: Could not process rule: No such file or directory\nadd chain ${r.join(' ')}`, 1);
+        const spec = specParts.join(' ').replace(/^\{|\}$/g, '').trim();
+        const existing = t.chains.find((x) => x.name === chain);
+        if (existing) {
+          if (verb === 'create') return err(`Error: Could not process rule: File exists\ncreate chain ${fam} ${table} ${chain}`, 1);
+          const m = /policy\s+(accept|drop)/.exec(spec);
+          if (m && existing.base) existing.base.policy = m[1] as 'accept' | 'drop';
+          else if (m) return err('Error: Could not process rule: Operation not supported (policy on a regular chain)', 1);
+          return ok('');
+        }
+        // Reuse the configuration-file parser for the chain specification.
+        const parsed = parseRulesetFile(`table ${fam} ${table} {\n\tchain ${chain} {\n\t\t${spec}\n\t}\n}\n`, '/dev/stdin');
+        const c = parsed.tables[0].chains[0];
+        t.chains.push({ ...c, rules: [], handle: host.nft.nextHandle++ });
         return ok('');
       }
       return err(`Error: syntax error, unexpected ${verb ?? 'end of file'}`, 1);

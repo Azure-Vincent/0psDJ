@@ -51,6 +51,13 @@ export const MTU_LANES: Lane[] = [
   { id: 'ext01', label: 'ext01', sub: 'Internet 203.0.113.80' },
 ];
 
+export const KRB_LANES: Lane[] = [
+  { id: 'ws01', label: 'ws01', sub: 'kinit / ssh (alice)' },
+  { id: 'ns1', label: 'ns1', sub: 'DNS + KDC CORP.LAB' },
+  { id: 'rtr01', label: 'rtr01', sub: 'router' },
+  { id: 'srv01', label: 'srv01', sub: 'sshd + keytab' },
+];
+
 export function segmentOf(host: string, iface?: string): string {
   if (host === 'rtr01') return iface === 'eth1' ? 'srv20' : iface === 'eth2' ? 'wan' : iface?.startsWith('eth3') ? 'dev30 (VLAN 30)' : 'lan10';
   if (host === 'srv01') return 'srv20';

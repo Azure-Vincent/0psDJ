@@ -30,6 +30,19 @@ function krbFail(cmd: string, e: unknown, while_: string): ReturnType<CommandDef
   throw e;
 }
 
+/** ask() that remembers the prompts it showed, so the final output keeps them (as a terminal would). */
+function recordingAsk(ctx: CmdCtx) {
+  const shown: string[] = [];
+  return {
+    shown,
+    ask: (text: string, secret: boolean, partial?: string) => {
+      const a = ctx.ask(text, secret, partial);
+      shown.push(secret ? text : text + a);
+      return a;
+    },
+  };
+}
+
 function readKeytab(ctx: CmdCtx, path: string): { entries?: KeytabEntry[]; error?: string } {
   const f = getFile(ctx, path);
   if (f.error === 'Permission denied') return { error: 'Permission denied' };
@@ -62,12 +75,14 @@ const kinit: CommandDef = {
       keytabEntry = kt.entries!.filter((e) => e.principal === principal).sort((a, b) => b.kvno - a.kvno)[0];
       if (!keytabEntry) return err(`kinit: Keytab contains no suitable keys for ${principal} while getting initial credentials`, 1);
     }
+    const p = recordingAsk(ctx);
     try {
-      const tgt = getInitialCreds(ctx.world, ctx.host, principal, keytabEntry ? { keytab: keytabEntry } : { password: () => ctx.ask(`Password for ${principal}: `, true) });
+      const tgt = getInitialCreds(ctx.world, ctx.host, principal, keytabEntry ? { keytab: keytabEntry } : { password: () => p.ask(`Password for ${principal}: `, true) });
       writeCache(ctx.world, ctx.host, ctx.user.uid, ctx.user.name, ctx.user.primaryGroup, { principal, tickets: [tgt] });
-      return ok('');
+      return ok(p.shown.join('\n'));
     } catch (e) {
-      return krbFail('kinit', e, 'while getting initial credentials');
+      const r = krbFail('kinit', e, 'while getting initial credentials');
+      return { ...r, out: [...p.shown, r.out].join('\n') };
     }
   },
 };
@@ -192,8 +207,10 @@ const kadminLocal: CommandDef = {
     const db = getFile(ctx, conf.realms[realm].databaseName);
     if (db.error === 'Permission denied') return err('kadmin.local: Permission denied while initializing kadmin.local interface', 1);
     const actor = `${ctx.user.name}/admin@${realm}`;
-    const res = kadminRequest({ world: ctx.world, kdc: ctx.host, conf, realm, actor, local: true, ask: (t, s) => ctx.ask(t, s) }, argv);
-    return ok([`Authenticating as principal ${actor} with password.`, ...applyKeytab(ctx, res, 'kadmin.local')].join('\n'));
+    const head = `Authenticating as principal ${actor} with password.`;
+    const p = recordingAsk(ctx);
+    const res = kadminRequest({ world: ctx.world, kdc: ctx.host, conf, realm, actor, local: true, ask: (t, s) => p.ask(t, s, head) }, argv);
+    return ok([head, ...p.shown, ...applyKeytab(ctx, res, 'kadmin.local')].join('\n'));
   },
 };
 
@@ -217,11 +234,12 @@ const kadmin: CommandDef = {
       return krbFail('kadmin', e, 'while initializing kadmin interface');
     }
     const head = `Authenticating as principal ${principal} with password.`;
+    const p = recordingAsk(ctx);
     try {
-      const res = kadminRemote(ctx.world, ctx.host, principal, () => (wIdx >= 0 ? args[wIdx + 1] : ctx.ask(`Password for ${principal}: `, true, head)), argv, (t, s) => ctx.ask(t, s));
-      return ok([head, ...applyKeytab(ctx, res, 'kadmin')].join('\n'));
+      const res = kadminRemote(ctx.world, ctx.host, principal, () => (wIdx >= 0 ? args[wIdx + 1] : p.ask(`Password for ${principal}: `, true, head)), argv, (t, s) => p.ask(t, s, [head, ...p.shown].join('\n')));
+      return ok([head, ...p.shown, ...applyKeytab(ctx, res, 'kadmin')].join('\n'));
     } catch (e) {
-      if (e instanceof KrbError) return err(`${head}\nkadmin: ${e.message} while initializing kadmin interface`, 1);
+      if (e instanceof KrbError) return err([head, ...p.shown, `kadmin: ${e.message} while initializing kadmin interface`].join('\n'), 1);
       throw e;
     }
   },

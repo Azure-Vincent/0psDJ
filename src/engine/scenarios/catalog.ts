@@ -291,5 +291,35 @@ export const CAUSES: Record<string, Cause> = Object.fromEntries(
       signature: 'isc-dhcp-server fails to start (or starts only IPv4): "No subnet6 declaration for eth3 (fe80::...)", "Not configured to listen on any interfaces!". INTERFACESv6 names an interface (often the parent of a VLAN sub-interface) that has no global address inside any subnet6 declaration.',
       check: 'systemctl status isc-dhcp-server; INTERFACESv6 in /etc/default/isc-dhcp-server; ip -6 addr on the named interface compared with the subnet6 declarations in dhcpd6.conf.',
     },
+    {
+      id: 'krb-clock-skew', title: 'Client clock differs from the KDC by more than 5 minutes', category: 'Authentication', concept: 'ad.kerberos',
+      signature: 'kinit fails with "Clock skew too great while getting initial credentials" (and SSO logins fail with the same error on the server side). The KDC logs "PREAUTH_FAILED ... Clock skew too great". "date" on the client and on the KDC differ by more than the allowed 300 s; timedatectl shows "System clock synchronized: no" and often "NTP service: inactive".',
+      check: 'date (or date +%s) on the client and the KDC; timedatectl; journalctl -u krb5-kdc on the KDC; systemctl status systemd-timesyncd.',
+    },
+    {
+      id: 'krb-missing-srv', title: 'DNS SRV records for the KDC are missing', category: 'Name resolution', concept: 'ad.dns',
+      signature: 'kinit fails immediately with "Cannot find KDC for realm" without contacting any server. krb5.conf has no kdc line for the realm (dns_lookup_kdc), and "host -t SRV _kerberos._udp.<domain>" returns NXDOMAIN. The KDC itself is running and reachable.',
+      check: 'host -t SRV _kerberos._udp.corp.lab and _kerberos._tcp; [realms] in /etc/krb5.conf; the zone file and its serial on the DNS server.',
+    },
+    {
+      id: 'krb-kdc-firewall', title: 'Firewall blocks the KDC (port 88)', category: 'Firewall', concept: 'ad.kerberos',
+      signature: 'kinit waits several seconds and fails with "Cannot contact any KDC for realm". SRV records resolve, the KDC process is running and listening (ss -ulnp shows krb5kdc on :88), but its log shows no AS_REQ from the client. tcpdump on the KDC shows requests to port 88 arriving; the input chain has no rule for UDP/TCP 88.',
+      check: 'ss -ulnp and ss -tlnp on the KDC; journalctl -u krb5-kdc (any AS_REQ?); tcpdump -n -i eth0 port 88; nft list ruleset on the KDC.',
+    },
+    {
+      id: 'krb-kdc-down', title: 'KDC service not running', category: 'Service', concept: 'ad.kerberos',
+      signature: 'kinit fails quickly with "Cannot contact any KDC for realm": the KDC host answers with ICMP port unreachable because nothing listens on UDP 88. "systemctl status krb5-kdc" shows inactive or failed.',
+      check: 'systemctl status krb5-kdc; ss -ulnp | grep :88; journalctl -u krb5-kdc.',
+    },
+    {
+      id: 'krb-stale-keytab', title: 'Server keytab has an old key version (kvno)', category: 'Cryptography', concept: 'ad.kerberos',
+      signature: 'kinit and kvno work, but Kerberos (GSSAPI) logins to one server fail and ssh falls back to keys or passwords. "kvno host/<server>" on a client shows a key version that "klist -k /etc/krb5.keytab" on the server does not have: the principal\'s key was changed on the KDC (cpw -randkey, a second ktadd) and the server\'s keytab was not updated. sshd at LogLevel DEBUG1 logs "Key version number for principal in key table is incorrect".',
+      check: 'kvno host/srv01.corp.lab on the client; klist -k /etc/krb5.keytab on the server; getprinc host/srv01.corp.lab on the KDC (Key: vno ...).',
+    },
+    {
+      id: 'krb-wrong-password', title: 'Wrong password or unknown principal', category: 'Authentication', concept: 'ad.kerberos',
+      signature: 'kinit fails with "Password incorrect while getting initial credentials" (KDC log: PREAUTH_FAILED) or "Client \'name@REALM\' not found in Kerberos database" (CLIENT_NOT_FOUND). The KDC is reached and answers: this is about the account, not the infrastructure.',
+      check: 'journalctl -u krb5-kdc on the KDC; kadmin.local -q "getprinc <user>" (exists? failed attempts?).',
+    },
   ] as Cause[]).map((c) => [c.id, c]),
 );

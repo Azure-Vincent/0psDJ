@@ -24,8 +24,8 @@ For every technology it answers the same questions:
 
 ## What's inside
 
-- **18 lessons** on networking, interfaces and virtual switches, TLS, remote
-  access, identity, firewalls, containers, Linux and Windows administration,
+- **19 lessons** on networking, interfaces and virtual switches, TLS, remote
+  access, identity (including Kerberos), firewalls, containers, Linux and Windows administration,
   and safe recovery. Each lesson explains how the technology works, with
   interactive diagrams, and includes deployment guides (Ubuntu/Debian, RHEL,
   Windows, pfSense, Docker), configuration reference, an **Operate & recover**
@@ -41,7 +41,7 @@ For every technology it answers the same questions:
   machine configured from the files the design generates. You get terminals
   on each machine and a packet tracer that shows every hop and every firewall
   and NAT decision.
-- **54 troubleshooting tickets**, each injecting a realistic fault into the
+- **58 troubleshooting tickets**, each injecting a realistic fault into the
   lab. You investigate with real commands in terminals, record a diagnosis and
   repair the fault. The app then checks your fix immediately, again after
   rebooting every machine, and against security rules, so "just open the
@@ -60,10 +60,11 @@ Everything is stored locally, and the app works without an Internet connection.
 ### How the lab works
 
 The lab machines are not virtual machines. They are a **simulation** built
-into the app: a small network with a switch, a router, a DNS/DHCP server, a
-Linux server, workstations and an "Internet" host. Commands such as `ip`,
-`ss`, `systemctl`, `journalctl`, `nft`, `ssh`, `dig`, `curl`, `openssl` and
-`tcpdump` behave like their Debian 12 counterparts and all act on one
+into the app: a small network with a switch, a router, a DNS/DHCP server
+that is also the Kerberos KDC, a Linux server, workstations and an "Internet"
+host. Commands such as `ip`,
+`ss`, `systemctl`, `journalctl`, `nft`, `ssh`, `dig`, `curl`, `openssl`,
+`kinit` and `tcpdump` behave like their Debian 12 counterparts and all act on one
 consistent model: when you change a configuration file, the services, sockets,
 firewall decisions, packets and logs all follow from that change. Windows,
 Active Directory, Docker and pfSense are not simulated; they are taught from
