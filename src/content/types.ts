@@ -46,6 +46,8 @@ export interface ConfigDirective {
 export interface Section {
   id: 'what' | 'internals' | 'visualize' | 'deploy' | 'config' | 'operate' | 'troubleshoot' | 'assess';
   title: string;
+  /** Tab label when the title is long (the title becomes its tooltip). */
+  short?: string;
 }
 
 // --- Diagrams (data-driven, rendered as SVG) ----------------------------------
