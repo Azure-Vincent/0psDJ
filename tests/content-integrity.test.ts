@@ -96,6 +96,19 @@ describe.each(LESSONS.map((L) => [L.id, L] as const))('lesson %s', (_id, L) => {
       for (const word of commandWords(cmd)) expect(COMMANDS[word] || PF_COMMANDS[word] || SHELL_BUILTINS.has(word) || resolveCommand(word), `"${word}" in: ${cmd}`).toBeTruthy();
     }
   });
+  it('has a complete beginner primer', () => {
+    const p = L.primer;
+    expect(p, 'primer').toBeDefined();
+    expect(p!.oneLiner.length).toBeGreaterThan(40);
+    expect(p!.ideas.length).toBeGreaterThanOrEqual(4);
+    for (const i of p!.ideas) expect(i.example.trim().length, `example for "${i.title}"`).toBeGreaterThan(30);
+    expect(p!.walkthrough.steps.length).toBeGreaterThanOrEqual(4);
+    expect(p!.misconceptions.length).toBeGreaterThanOrEqual(3);
+    expect(p!.checks.length).toBeGreaterThanOrEqual(4);
+    // Code fences must be balanced or the markdown renderer swallows the rest of the text.
+    const texts = [p!.analogy, ...p!.ideas.flatMap((i) => [i.explain, i.example]), ...p!.walkthrough.steps.map((s) => s.detail), ...p!.misconceptions.map((m) => m.truth), ...p!.checks.map((c) => c.a)];
+    for (const t of texts) expect((t.match(/```/g) ?? []).length % 2, t.slice(0, 60)).toBe(0);
+  });
   it('has diagrams that fit', () => {
     const g = L.guide;
     if (!g) return;

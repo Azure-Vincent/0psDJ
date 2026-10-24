@@ -242,6 +242,11 @@ textarea { width: 100%; font-family: var(--mono); font-size: 12.5px; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
 .app { display: grid; grid-template-columns: 228px 1fr; height: 100%; }
+.app.collapsed { grid-template-columns: 40px 1fr; }
+.rail { background: var(--panel); border-right: 1px solid var(--border); display: flex; flex-direction: column; align-items: center; padding-top: 10px; }
+.rail-toggle { border: 1px solid transparent; background: none; padding: 2px 8px; font-size: 15px; line-height: 1.2; color: var(--muted); }
+.rail-toggle:hover { color: var(--accent); border-color: var(--border); }
+.sidebar[hidden] { display: none; }
 .sidebar { background: var(--panel); border-right: 1px solid var(--border); display: flex; flex-direction: column; min-height: 0; }
 .brand { padding: 14px 16px 10px; font-weight: 700; font-size: 15px; display: flex; align-items: center; gap: 8px; }
 .brand small { font-weight: 400; color: var(--muted); }
@@ -361,3 +366,26 @@ textarea { width: 100%; font-family: var(--mono); font-size: 12.5px; }
 .builder-inspector label { display: inline-flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 .builder-run { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); gap: 12px; margin-top: 10px; align-items: start; }
 @media (max-width: 1000px) { .builder-grid, .builder-run { grid-template-columns: 1fr; } }
+
+/* Lesson primers: the plain-language layer before the in-depth text. */
+.primer { margin-bottom: 18px; }
+.primer-oneliner { font-size: 15px; }
+.primer-analogy { margin: 12px 0; border-left: 3px solid var(--h3); }
+.primer-ideas { list-style: none; padding: 0; display: grid; gap: 12px; }
+.primer-ideas > li, .primer-myths > div, .primer-steps > li { min-width: 0; }
+.primer pre { overflow-x: auto; max-width: 100%; }
+.primer-ideas h3 { display: flex; align-items: center; gap: 8px; margin: 0 0 6px; }
+.primer-num { display: inline-flex; align-items: center; justify-content: center; min-width: 22px; height: 22px; border-radius: 11px; background: var(--accent); color: var(--on-accent); font-size: 12px; font-weight: 700; margin-right: 8px; }
+.primer-ideas h3 .primer-num { margin-right: 0; }
+.primer-example { background: var(--panel-2); border-radius: 6px; padding: 8px 12px; margin-top: 8px; }
+.primer-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--accent); font-weight: 700; margin-bottom: 2px; }
+.primer-myths { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 10px; }
+.primer-myth { font-weight: 600; margin-bottom: 6px; }
+.primer-truth .md p:first-child { margin-top: 4px; }
+.primer-steps { list-style: none; padding: 0; margin: 0; border-left: 2px solid var(--border); margin-left: 10px; }
+.primer-steps > li { position: relative; padding: 2px 0 12px 22px; }
+.primer-step-head { display: flex; align-items: center; margin-left: -34px; }
+.primer-show { margin: 6px 0 0; max-height: 260px; overflow: auto; }
+.primer-check { margin: 8px 0; }
+.primer-answer { margin-top: 6px; padding: 6px 10px; border-radius: 6px; background: var(--ok-soft); }
+.indepth-head { margin-top: 26px; padding-top: 10px; border-top: 1px dashed var(--border); }

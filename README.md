@@ -26,7 +26,10 @@ For every technology it answers the same questions:
 
 - **19 lessons** on networking, interfaces and virtual switches, TLS, remote
   access, identity (including Kerberos), firewalls, containers, Linux and Windows administration,
-  and safe recovery. Each lesson explains how the technology works, with
+  and safe recovery. Each lesson starts in plain language (the short version,
+  an everyday analogy, the key ideas each with a concrete example from the lab,
+  one case followed step by step, common misconceptions and a quick
+  self-check), then explains in depth how the technology works, with
   interactive diagrams, and includes deployment guides (Ubuntu/Debian, RHEL,
   Windows, pfSense, Docker), configuration reference, an **Operate & recover**
   guide (files, logs, service management, diagnostic workflow, common
@@ -57,6 +60,8 @@ For every technology it answers the same questions:
   tracking.
 
 Everything is stored locally, and the app works without an Internet connection.
+The sidebar can be hidden (the « button, or Ctrl+\\) to give lessons, labs and
+terminals the full width; the choice is remembered.
 
 ### How the lab works
 
@@ -128,19 +133,29 @@ AppImage and a `.tar.gz` in `release/` for other distributions.
 
 ### Windows
 
-1. Install Node.js 20+ from <https://nodejs.org> (the LTS installer; keep the default options).
-2. Download and extract the source code.
-3. Double-click **`launch.cmd`** in the project folder.
+**Easiest: download the app.** Open the
+[latest release](https://github.com/Azure-Vincent/0psDJ/releases/latest) and
+download one of:
 
-The first start installs the dependencies and builds the app; later starts
-are quick. Keep the console window open while you use the app. After updating
-the source code, run `launch.cmd --rebuild`.
+- **`InfrastructureLab-Setup-<version>-win-x64.exe`**: the installer. Double-click
+  it; it installs for your user only (no administrator rights needed), starts
+  the app, and adds **Infrastructure Lab** to the Start menu and the desktop.
+  Remove it from **Settings → Apps**.
+- **`InfrastructureLab-<version>-win-x64-portable.exe`**: no installation; double-click
+  it to run (handy on a USB stick or a locked-down PC). It starts a little slower
+  because it unpacks itself each time.
 
-To create a standalone `.exe` you can copy to other Windows PCs without Node.js,
-open a terminal in the project folder and run `npm install` then
-`npm run dist:win`. This produces `release\InfrastructureLab-<version>-win-x64.exe`
-(a portable app) and a `.zip`. They are unsigned, so SmartScreen warns on first
-start: choose **More info → Run anyway**.
+Neither needs Node.js. The files are not code-signed, so Windows SmartScreen
+may say "Windows protected your PC" the first time: choose **More info → Run
+anyway**.
+
+**From the source code** (for development): install Node.js 20+ from
+<https://nodejs.org>, download and extract the source code, and double-click
+**`launch.cmd`** in the project folder. The first start installs the
+dependencies and builds the app; keep the console window open while you use
+it. After updating the source code, run `launch.cmd --rebuild`. To build the
+installer and the portable `.exe` yourself, run `npm install` then
+`npm run dist:win`; the files appear in `release\`.
 
 ### macOS
 
@@ -156,8 +171,9 @@ unsigned, so open it the first time with **right-click → Open**.
 
 ### Updating
 
-Download the new source (or `git pull`) and start the app again with
-`./launch.sh` (Linux/macOS) or `launch.cmd --rebuild` (Windows). Your progress
+On Windows, download and run the new installer (or portable `.exe`) from the
+latest release. From source, download the new source (or `git pull`) and start
+the app again with `./launch.sh` (Linux/macOS) or `launch.cmd --rebuild` (Windows). Your progress
 is stored separately and is kept; it can also be exported and imported under
 **Settings**.
 
