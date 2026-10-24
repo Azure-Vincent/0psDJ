@@ -27,13 +27,19 @@ export function searchAll(query: string): Hit[] {
     ];
     for (const [id, title, text] of sections) if (text.toLowerCase().includes(q)) hits.push({ kind: 'Lesson', title: `${L.title} › ${title}`, snippet: snippet(text, q), link: `lesson/${L.id}/${id}` });
   }
+  // The service guide is shown across tabs: index each part under the tab that shows it.
   for (const L of LESSONS) {
     const g = L.guide;
     if (!g) continue;
-    const text = [g.purpose, ...g.architecture.map((a) => `${a.q} ${a.a}`), ...g.files.map((f) => `${f.path} ${f.contains} ${f.problems}`),
-      ...g.management.flatMap((m) => m.tasks.map((t) => `${t.task} ${t.command} ${t.explain}`)), ...g.workflow.map((w) => `${w.question} ${w.command} ${w.broken}`),
-      ...g.failures.map((f) => `${f.symptom} ${f.causes.join(' ')} ${f.fix}`)].join(' \n ');
-    if (text.toLowerCase().includes(q)) hits.push({ kind: 'Lesson', title: `${L.title} › Operate & recover`, snippet: snippet(text, q), link: `lesson/${L.id}/operate` });
+    const parts: [string, string, string][] = [
+      ['internals', 'How it works', g.architecture.map((a) => `${a.q} ${a.a}`).join(' \n ')],
+      ['config', 'Configuration', g.files.map((f) => `${f.path} ${f.contains} ${f.problems}`).join(' \n ')],
+      ['operate', 'Operate & recover', [g.purpose, L.operateIntro ?? '', ...g.management.flatMap((m) => m.tasks.map((t) => `${t.task} ${t.command} ${t.explain}`)), ...g.actions.map((a) => `${a.action} ${a.when}`)].join(' \n ')],
+      ['troubleshoot', 'Troubleshooting', [...g.workflow.map((w) => `${w.question} ${w.command} ${w.broken}`), ...g.failures.map((f) => `${f.symptom} ${f.causes.join(' ')} ${f.fix}`)].join(' \n ')],
+    ];
+    for (const [id, title, text] of parts) {
+      if (text.toLowerCase().includes(q) && !hits.some((h) => h.link === `lesson/${L.id}/${id}`)) hits.push({ kind: 'Lesson', title: `${L.title} › ${title}`, snippet: snippet(text, q), link: `lesson/${L.id}/${id}` });
+    }
   }
   const KIND = { command: 'Command', file: 'File / log', procedure: 'Procedure' } as const;
   for (const e of REF_ENTRIES) {

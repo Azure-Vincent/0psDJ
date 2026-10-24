@@ -15,9 +15,6 @@ export const NAT_LESSON: Lesson = {
 - **Source NAT (SNAT / masquerade)**: outbound connections from inside hosts leave with the router's public address as source. The outside world only ever sees the router. *Masquerade* is SNAT that automatically uses the address of the outgoing interface (useful when that address is assigned by DHCP).
 - **Destination NAT (DNAT / port forwarding)**: inbound connections to the public address (on a given port) are redirected to an inside server. This is how a web server on a private address is **published**.
 
-### What NAT is not
-NAT is not a firewall: it hides addresses as a side effect, but a forwarding router still forwards anything you route to it. Filtering rules decide what is allowed. With IPv6 there are enough addresses that NAT is generally not used; firewalls do the job instead.
-
 ### In the lab
 rtr01 has a third interface **eth2** on the "Internet" 203.0.113.0/24 (a documentation range standing in for public addresses) with **203.0.113.2**. Its ruleset has a \`table ip nat\`: \`oifname "eth2" masquerade\` and \`iifname "eth2" tcp dport 80 dnat to 10.0.20.10:80\`. **ext01** (203.0.113.80) is a host on the Internet with no route to private networks: exactly like a real Internet host.
 
@@ -55,12 +52,6 @@ tcp 6 117 ESTABLISHED src=10.0.10.25 dst=203.0.113.80 sport=52088 dport=80 src=2
 \`\`\`
 The first tuple is the packet as it arrived (original direction); the second is the **expected reply**. When they are not mirror images, the flow is translated: here the reply goes to 203.0.113.2, so the source was masqueraded.
 
-### Typical mistakes
-- **No masquerade:** private source addresses leave on the uplink; the remote side cannot route replies to 10.x (on the real Internet, providers drop such packets). Outbound connections time out.
-- **Wrong DNAT target:** the router faithfully forwards to an address that does not exist (ARP fails → ICMP host unreachable) or to the wrong port (RST → refused).
-- **Filtering the public address:** a forward rule matching \`dport 8080\` when 8080 is DNATed to port 80 never matches: the filter sees port 80. Match the inside address/port (or, on a real system, \`ct status dnat\`).
-- **Hairpin NAT:** inside clients using the public address of an inside server need an extra SNAT rule so replies return through the router (not modelled here).
-- **ip_forward=0:** NAT rules are irrelevant if the router does not route at all.
 `,
 
   deployment: [
@@ -131,6 +122,14 @@ NAT rules live in nat-type chains. The NAT inspector below runs one connection t
 3. **Inbound: does the packet reach the inside server?** \`tcpdump\` on the server. Nothing → forward filter (remember it sees the translated packet) or a wrong DNAT target. SYN arrives but no answer → the server's own firewall or its route back.
 4. **What did conntrack record?** \`conntrack -L\`: compare the original and reply tuples. A DNAT entry to an unexpected address points straight at the rule.
 5. **Old flows:** after changing NAT rules, existing connections keep their translation. \`conntrack -F\` on a lab router (careful in production: it resets every tracked flow).
+
+### Typical mistakes
+- **No masquerade:** private source addresses leave on the uplink; the remote side cannot route replies to 10.x (on the real Internet, providers drop such packets). Outbound connections time out.
+- **Wrong DNAT target:** the router faithfully forwards to an address that does not exist (ARP fails → ICMP host unreachable) or to the wrong port (RST → refused).
+- **Filtering the public address:** a forward rule matching \`dport 8080\` when 8080 is DNATed to port 80 never matches: the filter sees port 80. Match the inside address/port (or, on a real system, \`ct status dnat\`).
+- **Hairpin NAT:** inside clients using the public address of an inside server need an extra SNAT rule so replies return through the router (not modelled here).
+- **ip_forward=0:** NAT rules are irrelevant if the router does not route at all.
+
 `,
 
   errorMap: [

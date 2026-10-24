@@ -12,7 +12,7 @@ import type { Assessment, Lesson, ServiceGuide } from '../types';
 
 export const NETOPS_GUIDE: ServiceGuide = {
   purpose:
-    'Every host needs four things before any application can talk: a **link** (carrier on the interface), an **address and prefix**, **routes** (at least a default gateway), and a **resolver** (DNS servers). The kernel holds this state; a **network manager** puts it there from configuration files at boot and whenever something changes. Linux has several managers (ifupdown on Debian and in this lab, systemd-networkd behind Netplan on Ubuntu server, NetworkManager on RHEL and desktops), Windows has its own TCP/IP stack and DHCP/DNS client services, and each one has different files, commands and restart behaviour. This guide teaches you to find out **which manager is in charge before touching anything**, to investigate from the physical interface up to the application, and to apply changes without cutting off your own remote session.',
+    'Every host needs four things before any application can talk: a **link** (carrier on the interface), an **address and prefix**, **routes** (at least a default gateway), and a **resolver** (DNS servers). The kernel holds this state; a **network manager** puts it there from configuration files at boot and whenever something changes. Linux has several managers (ifupdown on Debian and in this lab, systemd-networkd behind Netplan on Ubuntu server, NetworkManager on RHEL and desktops), Windows has its own TCP/IP stack and DHCP/DNS client services, and each one has different files, commands and restart behaviour. This lesson teaches you to find out **which manager is in charge before touching anything**, to investigate from the physical interface up to the application, and to apply changes without cutting off your own remote session.',
   architecture: [
     { q: 'What does it accomplish?', a: 'Brings interfaces up, assigns static or DHCP/SLAAC addresses, installs routes, configures DNS servers and search domains, and keeps them correct when links flap, leases renew or Wi-Fi roams. On routers it also enables forwarding (`net.ipv4.ip_forward=1`).' },
     { q: 'How does it work internally?', a: 'The **kernel** owns the live state: interfaces, addresses, routes and the neighbour (ARP/NDP) cache, changed through **netlink** (what `ip` uses). A **manager** translates configuration files into netlink calls: `ifup` reads `/etc/network/interfaces` once and exits; NetworkManager and systemd-networkd are daemons that watch links and re-apply configuration; Netplan is not a daemon at all, it only **generates** networkd or NetworkManager configuration from YAML. The **resolver** is separate: glibc reads `/etc/nsswitch.conf` (`hosts: files dns`), then `/etc/hosts`, then the DNS servers in `/etc/resolv.conf`, which may point to a local stub (systemd-resolved on 127.0.0.53).' },
@@ -219,71 +219,6 @@ export const NETOPS_LESSON: Lesson = {
 
 **Stop at the first layer that fails.** If there is no default route, DNS, SSH and HTTP will all fail, and none of them is the problem.
 
-### Investigating with real output (lab, Debian 12)
-**Link: \`ip -br link\`, \`ethtool eth0\`**
-\`\`\`
-lo               UNKNOWN        00:00:00:00:00:00 <LOOPBACK,UP,LOWER_UP>
-eth0             UP             52:54:00:d4:00:19 <BROADCAST,MULTICAST,UP,LOWER_UP>
-\`\`\`
-\`UP\` + \`LOWER_UP\` = administratively up **and** carrier. Abnormal: \`<NO-CARRIER,BROADCAST,MULTICAST,UP>\` with state \`DOWN\` (cable, switch port, VM NIC disconnected), or no \`UP\` flag at all (someone ran \`ip link set eth0 down\`). \`ethtool eth0\` should show \`Speed: 1000Mb/s\`, \`Duplex: Full\`, \`Link detected: yes\`; \`100Mb/s\` or \`Half\` on a gigabit port means a negotiation or cabling problem (slow transfers, errors in \`ip -s link\`). As a normal user, ethtool prints "netlink error: Operation not permitted" for some fields; that is not a fault.
-
-**Address: \`ip -br addr\`**
-\`\`\`
-eth0             UP             10.0.10.25/24 fe80::5054:ff:fed4:19/64
-\`\`\`
-Abnormal: only a \`fe80::\` address (no IPv4: DHCP failed), a wrong prefix such as \`10.0.10.25/16\` (the net-wrong-mask ticket: the host then thinks 10.0.20.10 is on its own wire and ARPs for it instead of using the gateway).
-
-**Route: \`ip route\`, \`ip route get\`**
-\`\`\`
-default via 10.0.10.1 dev eth0 onlink
-10.0.10.0/24 dev eth0 proto kernel scope link src 10.0.10.25
-$ ip route get 10.0.20.10
-10.0.20.10 via 10.0.10.1 dev eth0 src 10.0.10.25 uid 1000
-\`\`\`
-\`ip route get\` shows the decision the kernel makes for one destination. Abnormal: no \`default\` line ("connect: Network is unreachable", "RTNETLINK answers: Network is unreachable"), or \`via 10.0.10.254\` when the router is .1.
-
-**Neighbours: \`ip neigh\`**
-\`\`\`
-10.0.10.53 dev eth0 lladdr 52:54:00:b2:00:35 REACHABLE
-10.0.10.1 dev eth0 lladdr 52:54:00:a1:00:01 REACHABLE
-\`\`\`
-Abnormal: \`10.0.10.254 dev eth0 FAILED\`: ARP got no answer, nobody has that address. ping then reports "From 10.0.10.25 icmp_seq=1 Destination Host Unreachable" (from **your own** address).
-
-**Path: \`ping\`, \`tracepath\`, \`traceroute\`**
-\`\`\`
-$ tracepath -n 203.0.113.80
- 1?: [LOCALHOST]                      pmtu 1500
- 1:  10.0.10.1                                        0.950ms
- 2:  203.0.113.80                                     1.150ms reached
-     Resume: pmtu 1500 hops 2 back 2
-\`\`\`
-Abnormal: "From 10.0.10.1 icmp_seq=1 Destination Host Unreachable" (the **router** cannot deliver: net-ip-forward), \`!H\` in traceroute, or the first hop already silent. Caution: \`traceroute -n 10.0.20.10\` in the lab shows hop 1 and then \`* * *\`, because srv01's firewall drops the UDP probes while ping and SSH work. Silence is not proof of a fault.
-
-**Names: \`dig\`, \`getent\`**
-\`\`\`
-;; ->>HEADER<<- opcode: QUERY, status: NOERROR, id: 33015
-;; ANSWER SECTION:
-srv01.corp.lab.		3600	IN	A	10.0.20.10
-;; SERVER: 10.0.10.53#53(10.0.10.53) (UDP)
-\`\`\`
-Check \`status:\` and \`SERVER:\`. Abnormal: ";; communications error to 10.0.10.35#53: host unreachable" (a typo in resolv.conf: net-dns-resolvconf), "timed out ... no servers could be reached" while \`ping 10.0.10.53\` works (DNS blocked or named down: case-dns-outage), \`status: NXDOMAIN\` / \`SERVFAIL\` (the server answers, the zone is wrong). \`dig\` asks DNS directly; \`getent hosts\` follows \`/etc/nsswitch.conf\` like applications do, so a stale \`/etc/hosts\` line shows up only in getent.
-
-**Ports and packets: \`ss\`, \`nc\`, \`tcpdump\`, \`nft\`**
-\`ss -tlnp\` on the server lists listeners; \`nc -zv host 22\` tests from the client; \`tcpdump -n -i eth0 arp\` or \`port 53\` proves what is on the wire (e.g. repeated "ARP, Request who-has 10.0.10.254" with no reply); \`nft list ruleset\` shows what the host firewall drops.
-
-**Real systems only (not in the simulator):** \`nmcli\`, \`networkctl\`, \`resolvectl\`, \`netplan\`. They are covered below with output from named platforms.
-
-### Before you restart anything: who manages this host?
-Every fix must go into the configuration of the manager that is actually running, otherwise it is overwritten or ignored. Check:
-- \`systemctl status NetworkManager systemd-networkd networking\`: which one is active?
-- \`ls /etc/netplan\`: YAML here means Netplan generates the real config (Ubuntu).
-- \`nmcli general status\` / \`nmcli device status\`: NetworkManager's view.
-- \`networkctl list\`: SETUP "configured" = networkd manages the link; "unmanaged" = it does not.
-- \`/etc/network/interfaces\` with \`auto\`/\`iface\` stanzas and \`networking.service\` active: ifupdown (the lab).
-
-In the lab, ws01 answers: "Unit NetworkManager.service could not be found.", "Unit systemd-networkd.service could not be found.", \`networking.service\` active (exited), and no /etc/netplan. So: **ifupdown**, configured in /etc/network/interfaces.
-
-> **Remote sessions.** Re-applying an interface, restarting a network manager, releasing a DHCP lease or restarting an adapter on Windows all **disconnect sessions over that interface**. If the new configuration is wrong, you will not get back in. Have a console (hypervisor, IPMI/iLO/iDRAC, serial) or a scheduled rollback ready before you start.
 `,
 
   internals: `
@@ -294,114 +229,6 @@ In the lab, ws01 answers: "Unit NetworkManager.service could not be found.", "Un
 
 Most "mysterious" network faults are a mismatch between 1 and 2: a runtime change that was never saved (lost at reboot), or a saved change that was never applied (works only after the next reboot). \`ip link set eth0 down\` followed by \`up\` shows this nicely in the lab: the kernel deletes the default route when the link goes down, and bringing the link up does not restore it; only \`systemctl restart networking\` (re-reading the file) does.
 
-### Procedures per network manager
-**ifupdown (Debian, the lab)**
-- Inspect: \`systemctl status networking\`, \`cat /etc/network/interfaces\`, \`journalctl -u networking -b\`.
-- Re-apply one interface: \`sudo ifdown eth0 && sudo ifup eth0\` (bring it down **before** editing the stanza if you change addresses, because ifdown removes what the file says now).
-- Re-apply all: \`sudo systemctl restart networking\` (= \`ifdown -a\` + \`ifup -a\`). ifupdown2 (sw01) has \`ifreload -a\`, which only applies differences.
-- Risk: the restart briefly removes every address and route; on a remote server with a broken file you stay locked out.
-
-**systemd-networkd**
-- Inspect: \`systemctl status systemd-networkd\`, \`networkctl list\`, \`networkctl status ens18\`.
-- Re-apply: \`sudo networkctl reload\` (re-read files), \`sudo networkctl reconfigure ens18\` (one link), \`sudo systemctl restart systemd-networkd\` (all links).
-
-Representative output (Ubuntu 24.04 server):
-\`\`\`
-$ networkctl list
-IDX LINK  TYPE     OPERATIONAL SETUP
-  1 lo    loopback carrier     unmanaged
-  2 ens18 ether    routable    configured
-
-2 links listed.
-\`\`\`
-"routable/configured" is healthy. "degraded" = only link-local addresses; "no-carrier" = no link; "configuring" stuck = waiting for DHCP; "unmanaged" on your main NIC = networkd is not the manager (or no .network file matches).
-
-**Netplan (Ubuntu)**
-Netplan is a **generator**, not a daemon: it reads \`/etc/netplan/*.yaml\` and writes networkd files to \`/run/systemd/network/\` (or NetworkManager profiles to \`/run/NetworkManager/system-connections/\`).
-\`\`\`
-# /etc/netplan/50-cloud-init.yaml (Ubuntu 24.04, mode 0600)
-network:
-  version: 2
-  renderer: networkd
-  ethernets:
-    ens18:
-      addresses: [10.0.20.10/24]
-      routes:
-        - to: default
-          via: 10.0.20.1
-      nameservers:
-        addresses: [10.0.10.53]
-        search: [corp.lab]
-\`\`\`
-- \`sudo netplan get\`: merged configuration of all YAML files.
-- \`sudo netplan generate\`: validate and generate only; YAML errors are reported with file, line and column.
-- \`sudo netplan try\`: apply, then **revert automatically after 120 s** unless you press ENTER. This is the safe way to change a remote server's network: if you lose the connection, you simply wait two minutes.
-- \`sudo netplan apply\`: apply permanently. Interfaces whose config changed are re-applied; if that is the interface you are connected through and the new config is wrong, your session is gone with no rollback.
-
-**NetworkManager (RHEL 9, desktops)**
-- Inspect: \`systemctl status NetworkManager\`, \`nmcli general status\`, \`nmcli device status\`, \`nmcli connection show\`.
-- Change: \`sudo nmcli connection modify "ens18" ipv4.addresses 10.0.20.10/24 ipv4.gateway 10.0.20.1 ipv4.dns 10.0.10.53 ipv4.method manual\`, then \`sudo nmcli connection up "ens18"\`.
-- Reconnect: \`sudo nmcli connection down "ens18" && sudo nmcli connection up "ens18"\` (disconnects!); \`sudo systemctl restart NetworkManager\` re-reads everything and normally keeps active connections.
-
-Representative output (RHEL 9.4):
-\`\`\`
-$ nmcli general status
-STATE      CONNECTIVITY  WIFI-HW  WIFI     WWAN-HW  WWAN
-connected  full          enabled  enabled  enabled  enabled
-$ nmcli device status
-DEVICE  TYPE      STATE                   CONNECTION
-ens18   ethernet  connected               ens18
-lo      loopback  connected (externally)  lo
-\`\`\`
-Abnormal: STATE \`disconnected\` or \`connecting (getting IP configuration)\` (DHCP not answering), a device "unmanaged" (NM ignores it), CONNECTIVITY \`limited\` (no route to the Internet check host).
-
-### DNS: which resolver to touch
-| How /etc/resolv.conf looks | Who owns DNS | How to change it | What to restart |
-|---|---|---|---|
-| Symlink to \`../run/systemd/resolve/stub-resolv.conf\`, \`nameserver 127.0.0.53\` | systemd-resolved (Ubuntu) | Netplan \`nameservers:\` / networkd \`DNS=\`; check with \`resolvectl status\` | \`netplan apply\`; \`resolvectl flush-caches\` for stale answers |
-| "# Generated by NetworkManager" | NetworkManager | \`nmcli con mod <name> ipv4.dns ...\` then \`nmcli con up <name>\` | Nothing else |
-| Regular file on a DHCP client (ws02) | dhclient (DHCP option 6) | Fix the DHCP server's \`option domain-name-servers\` | \`dhclient -v eth0\` to renew |
-| Regular static file (ws01, srv01) | Nobody | Edit /etc/resolv.conf directly | Nothing: glibc re-reads it |
-
-Representative \`resolvectl status\` (Ubuntu 24.04):
-\`\`\`
-Global
-         Protocols: -LLMNR -mDNS -DNSOverTLS DNSSEC=no/unsupported
-  resolv.conf mode: stub
-
-Link 2 (ens18)
-    Current Scopes: DNS
-         Protocols: +DefaultRoute -LLMNR -mDNS -DNSOverTLS DNSSEC=no/unsupported
-Current DNS Server: 10.0.10.53
-       DNS Servers: 10.0.10.53
-        DNS Domain: corp.lab
-\`\`\`
-With resolved, \`dig\` against 127.0.0.53 tests the stub; \`dig @10.0.10.53\` tests the real server. Windows: \`ipconfig /all\` (DNS Servers), \`Resolve-DnsName\`, \`ipconfig /flushdns\`, \`Set-DnsClientServerAddress\`.
-
-### Renew, re-apply, restart or reboot: different tools for different problems
-| Action | Fixes | Does not fix | Disrupts |
-|---|---|---|---|
-| Renew DHCP lease (\`dhclient -v eth0\`, \`ipconfig /renew\`) | Expired/missing lease; updated router/DNS options from the server | Static configuration errors; server-side DHCP faults | Little (renew keeps the address); \`release\` drops it |
-| Flush DNS cache (\`resolvectl flush-caches\`, \`ipconfig /flushdns\`) | Stale cached answers after a DNS record change | Wrong nameserver configuration; DNS server down | Nothing |
-| Re-apply one interface (\`ifdown/ifup\`, \`nmcli con up\`, \`networkctl reconfigure\`, \`Restart-NetAdapter\`) | Changed config of that interface; wedged link | Problems on other hosts; a wrong config (it applies it faithfully) | All sessions over that interface |
-| Restart the network manager (\`systemctl restart networking / NetworkManager / systemd-networkd\`) | Several interfaces changed; a stuck manager | DNS server problems, firewall, routing elsewhere | ifupdown: every interface; NM/networkd: changed links |
-| Reboot | Driver/kernel state; proves persistence | Anything wrong in the files (it comes back wrong) | Everything, longest |
-
-Restarting the network is never the fix for "DNS does not resolve" or "the website is down": find the failing layer first.
-
-### Safe recovery for remote servers
-- **Out-of-band access first**: hypervisor console (Proxmox/VMware/Hyper-V), IPMI/iLO/iDRAC remote console, serial console, cloud provider serial console. Test it *before* the change.
-- **Keep a known-good copy**: \`sudo cp -a /etc/network/interfaces /root/interfaces.good\` (or the netplan YAML / NM keyfile).
-- **Scheduled rollback**: arm a timer that restores the good copy unless you cancel it:
-\`\`\`
-sudo systemd-run --on-active=5min --unit=net-rollback \\
-  /bin/sh -c 'cp /root/interfaces.good /etc/network/interfaces; systemctl restart networking'
-# change and test; if you can still log in:
-sudo systemctl stop net-rollback.timer
-\`\`\`
-With \`at\`: \`echo 'cp /root/interfaces.good /etc/network/interfaces; systemctl restart networking' | sudo at now + 5 minutes\`, cancel with \`sudo atrm <job>\`.
-- **Use the tool's own safety net**: \`netplan try\`; on NetworkManager, \`nmcli connection modify\` + \`nmcli connection up\` (a failed activation leaves the device disconnected, so pair it with a rollback timer too).
-- **Change one thing at a time, test from a second session**, and keep the first session open until the new one works.
 `,
 
   deployment: [
@@ -486,6 +313,30 @@ With \`at\`: \`echo 'cp /root/interfaces.good /etc/network/interfaces; systemctl
 Each manager has its own configuration format, and only the active one's files matter. The directives below are the ones that cause most network outages; "compiled default" is the behaviour when the setting is absent.
 
 > Validate before applying: \`netplan generate\` (YAML), \`nmcli connection show <name>\` (what NM will apply), \`ifup --no-act eth0\` (ifupdown dry run), and always keep the previous file.
+
+### DNS: which resolver to touch
+| How /etc/resolv.conf looks | Who owns DNS | How to change it | What to restart |
+|---|---|---|---|
+| Symlink to \`../run/systemd/resolve/stub-resolv.conf\`, \`nameserver 127.0.0.53\` | systemd-resolved (Ubuntu) | Netplan \`nameservers:\` / networkd \`DNS=\`; check with \`resolvectl status\` | \`netplan apply\`; \`resolvectl flush-caches\` for stale answers |
+| "# Generated by NetworkManager" | NetworkManager | \`nmcli con mod <name> ipv4.dns ...\` then \`nmcli con up <name>\` | Nothing else |
+| Regular file on a DHCP client (ws02) | dhclient (DHCP option 6) | Fix the DHCP server's \`option domain-name-servers\` | \`dhclient -v eth0\` to renew |
+| Regular static file (ws01, srv01) | Nobody | Edit /etc/resolv.conf directly | Nothing: glibc re-reads it |
+
+Representative \`resolvectl status\` (Ubuntu 24.04):
+\`\`\`
+Global
+         Protocols: -LLMNR -mDNS -DNSOverTLS DNSSEC=no/unsupported
+  resolv.conf mode: stub
+
+Link 2 (ens18)
+    Current Scopes: DNS
+         Protocols: +DefaultRoute -LLMNR -mDNS -DNSOverTLS DNSSEC=no/unsupported
+Current DNS Server: 10.0.10.53
+       DNS Servers: 10.0.10.53
+        DNS Domain: corp.lab
+\`\`\`
+With resolved, \`dig\` against 127.0.0.53 tests the stub; \`dig @10.0.10.53\` tests the real server. Windows: \`ipconfig /all\` (DNS Servers), \`Resolve-DnsName\`, \`ipconfig /flushdns\`, \`Set-DnsClientServerAddress\`.
+
 `,
 
   configFiles: [
@@ -536,6 +387,96 @@ Each manager has its own configuration format, and only the active one's files m
     { name: 'search / ipv4.dns-search', compiledDefault: '(none, or the domain from DHCP option 15)', recommended: 'The internal domain (corp.lab)', explanation: 'Appended to short names: `ssh srv01` tries srv01.corp.lab.', security: 'Long search lists slow down every failed lookup.' },
   ],
 
+  operateIntro: `
+### Before you restart anything: who manages this host?
+Every fix must go into the configuration of the manager that is actually running, otherwise it is overwritten or ignored. Check:
+- \`systemctl status NetworkManager systemd-networkd networking\`: which one is active?
+- \`ls /etc/netplan\`: YAML here means Netplan generates the real config (Ubuntu).
+- \`nmcli general status\` / \`nmcli device status\`: NetworkManager's view.
+- \`networkctl list\`: SETUP "configured" = networkd manages the link; "unmanaged" = it does not.
+- \`/etc/network/interfaces\` with \`auto\`/\`iface\` stanzas and \`networking.service\` active: ifupdown (the lab).
+
+In the lab, ws01 answers: "Unit NetworkManager.service could not be found.", "Unit systemd-networkd.service could not be found.", \`networking.service\` active (exited), and no /etc/netplan. So: **ifupdown**, configured in /etc/network/interfaces.
+
+> **Remote sessions.** Re-applying an interface, restarting a network manager, releasing a DHCP lease or restarting an adapter on Windows all **disconnect sessions over that interface**. If the new configuration is wrong, you will not get back in. Have a console (hypervisor, IPMI/iLO/iDRAC, serial) or a scheduled rollback ready before you start.
+
+### Procedures per network manager
+**ifupdown (Debian, the lab)**
+- Inspect: \`systemctl status networking\`, \`cat /etc/network/interfaces\`, \`journalctl -u networking -b\`.
+- Re-apply one interface: \`sudo ifdown eth0 && sudo ifup eth0\` (bring it down **before** editing the stanza if you change addresses, because ifdown removes what the file says now).
+- Re-apply all: \`sudo systemctl restart networking\` (= \`ifdown -a\` + \`ifup -a\`). ifupdown2 (sw01) has \`ifreload -a\`, which only applies differences.
+- Risk: the restart briefly removes every address and route; on a remote server with a broken file you stay locked out.
+
+**systemd-networkd**
+- Inspect: \`systemctl status systemd-networkd\`, \`networkctl list\`, \`networkctl status ens18\`.
+- Re-apply: \`sudo networkctl reload\` (re-read files), \`sudo networkctl reconfigure ens18\` (one link), \`sudo systemctl restart systemd-networkd\` (all links).
+
+Representative output (Ubuntu 24.04 server):
+\`\`\`
+$ networkctl list
+IDX LINK  TYPE     OPERATIONAL SETUP
+  1 lo    loopback carrier     unmanaged
+  2 ens18 ether    routable    configured
+
+2 links listed.
+\`\`\`
+"routable/configured" is healthy. "degraded" = only link-local addresses; "no-carrier" = no link; "configuring" stuck = waiting for DHCP; "unmanaged" on your main NIC = networkd is not the manager (or no .network file matches).
+
+**Netplan (Ubuntu)**
+Netplan is a **generator**, not a daemon: it reads \`/etc/netplan/*.yaml\` and writes networkd files to \`/run/systemd/network/\` (or NetworkManager profiles to \`/run/NetworkManager/system-connections/\`).
+\`\`\`
+# /etc/netplan/50-cloud-init.yaml (Ubuntu 24.04, mode 0600)
+network:
+  version: 2
+  renderer: networkd
+  ethernets:
+    ens18:
+      addresses: [10.0.20.10/24]
+      routes:
+        - to: default
+          via: 10.0.20.1
+      nameservers:
+        addresses: [10.0.10.53]
+        search: [corp.lab]
+\`\`\`
+- \`sudo netplan get\`: merged configuration of all YAML files.
+- \`sudo netplan generate\`: validate and generate only; YAML errors are reported with file, line and column.
+- \`sudo netplan try\`: apply, then **revert automatically after 120 s** unless you press ENTER. This is the safe way to change a remote server's network: if you lose the connection, you simply wait two minutes.
+- \`sudo netplan apply\`: apply permanently. Interfaces whose config changed are re-applied; if that is the interface you are connected through and the new config is wrong, your session is gone with no rollback.
+
+**NetworkManager (RHEL 9, desktops)**
+- Inspect: \`systemctl status NetworkManager\`, \`nmcli general status\`, \`nmcli device status\`, \`nmcli connection show\`.
+- Change: \`sudo nmcli connection modify "ens18" ipv4.addresses 10.0.20.10/24 ipv4.gateway 10.0.20.1 ipv4.dns 10.0.10.53 ipv4.method manual\`, then \`sudo nmcli connection up "ens18"\`.
+- Reconnect: \`sudo nmcli connection down "ens18" && sudo nmcli connection up "ens18"\` (disconnects!); \`sudo systemctl restart NetworkManager\` re-reads everything and normally keeps active connections.
+
+Representative output (RHEL 9.4):
+\`\`\`
+$ nmcli general status
+STATE      CONNECTIVITY  WIFI-HW  WIFI     WWAN-HW  WWAN
+connected  full          enabled  enabled  enabled  enabled
+$ nmcli device status
+DEVICE  TYPE      STATE                   CONNECTION
+ens18   ethernet  connected               ens18
+lo      loopback  connected (externally)  lo
+\`\`\`
+Abnormal: STATE \`disconnected\` or \`connecting (getting IP configuration)\` (DHCP not answering), a device "unmanaged" (NM ignores it), CONNECTIVITY \`limited\` (no route to the Internet check host).
+
+> Restarting the network is never the fix for "DNS does not resolve" or "the website is down": find the failing layer first.
+### Safe recovery for remote servers
+- **Out-of-band access first**: hypervisor console (Proxmox/VMware/Hyper-V), IPMI/iLO/iDRAC remote console, serial console, cloud provider serial console. Test it *before* the change.
+- **Keep a known-good copy**: \`sudo cp -a /etc/network/interfaces /root/interfaces.good\` (or the netplan YAML / NM keyfile).
+- **Scheduled rollback**: arm a timer that restores the good copy unless you cancel it:
+\`\`\`
+sudo systemd-run --on-active=5min --unit=net-rollback \\
+  /bin/sh -c 'cp /root/interfaces.good /etc/network/interfaces; systemctl restart networking'
+# change and test; if you can still log in:
+sudo systemctl stop net-rollback.timer
+\`\`\`
+With \`at\`: \`echo 'cp /root/interfaces.good /etc/network/interfaces; systemctl restart networking' | sudo at now + 5 minutes\`, cancel with \`sudo atrm <job>\`.
+- **Use the tool's own safety net**: \`netplan try\`; on NetworkManager, \`nmcli connection modify\` + \`nmcli connection up\` (a failed activation leaves the device disconnected, so pair it with a rollback timer too).
+- **Change one thing at a time, test from a second session**, and keep the first session open until the new one works.
+
+`,
   troubleshootingIntro: `
 ### A method for "the network does not work"
 1. **Find the manager** (systemctl status NetworkManager systemd-networkd networking; ls /etc/netplan). Do not restart anything yet.
@@ -546,6 +487,61 @@ Each manager has its own configuration format, and only the active one's files m
 6. **Apply safely**: console or scheduled rollback, one change at a time, verify from a second session, then verify persistence.
 
 The tickets below cover a wrong prefix, a wrong gateway, a router that stopped forwarding, a wrong resolver address, a server without default route, a DHCP server handing out the wrong router, a switch port in the wrong VLAN, a missing IPv6 gateway, and two multi-fault case studies.
+
+### Investigating with real output (lab, Debian 12)
+**Link: \`ip -br link\`, \`ethtool eth0\`**
+\`\`\`
+lo               UNKNOWN        00:00:00:00:00:00 <LOOPBACK,UP,LOWER_UP>
+eth0             UP             52:54:00:d4:00:19 <BROADCAST,MULTICAST,UP,LOWER_UP>
+\`\`\`
+\`UP\` + \`LOWER_UP\` = administratively up **and** carrier. Abnormal: \`<NO-CARRIER,BROADCAST,MULTICAST,UP>\` with state \`DOWN\` (cable, switch port, VM NIC disconnected), or no \`UP\` flag at all (someone ran \`ip link set eth0 down\`). \`ethtool eth0\` should show \`Speed: 1000Mb/s\`, \`Duplex: Full\`, \`Link detected: yes\`; \`100Mb/s\` or \`Half\` on a gigabit port means a negotiation or cabling problem (slow transfers, errors in \`ip -s link\`). As a normal user, ethtool prints "netlink error: Operation not permitted" for some fields; that is not a fault.
+
+**Address: \`ip -br addr\`**
+\`\`\`
+eth0             UP             10.0.10.25/24 fe80::5054:ff:fed4:19/64
+\`\`\`
+Abnormal: only a \`fe80::\` address (no IPv4: DHCP failed), a wrong prefix such as \`10.0.10.25/16\` (the net-wrong-mask ticket: the host then thinks 10.0.20.10 is on its own wire and ARPs for it instead of using the gateway).
+
+**Route: \`ip route\`, \`ip route get\`**
+\`\`\`
+default via 10.0.10.1 dev eth0 onlink
+10.0.10.0/24 dev eth0 proto kernel scope link src 10.0.10.25
+$ ip route get 10.0.20.10
+10.0.20.10 via 10.0.10.1 dev eth0 src 10.0.10.25 uid 1000
+\`\`\`
+\`ip route get\` shows the decision the kernel makes for one destination. Abnormal: no \`default\` line ("connect: Network is unreachable", "RTNETLINK answers: Network is unreachable"), or \`via 10.0.10.254\` when the router is .1.
+
+**Neighbours: \`ip neigh\`**
+\`\`\`
+10.0.10.53 dev eth0 lladdr 52:54:00:b2:00:35 REACHABLE
+10.0.10.1 dev eth0 lladdr 52:54:00:a1:00:01 REACHABLE
+\`\`\`
+Abnormal: \`10.0.10.254 dev eth0 FAILED\`: ARP got no answer, nobody has that address. ping then reports "From 10.0.10.25 icmp_seq=1 Destination Host Unreachable" (from **your own** address).
+
+**Path: \`ping\`, \`tracepath\`, \`traceroute\`**
+\`\`\`
+$ tracepath -n 203.0.113.80
+ 1?: [LOCALHOST]                      pmtu 1500
+ 1:  10.0.10.1                                        0.950ms
+ 2:  203.0.113.80                                     1.150ms reached
+     Resume: pmtu 1500 hops 2 back 2
+\`\`\`
+Abnormal: "From 10.0.10.1 icmp_seq=1 Destination Host Unreachable" (the **router** cannot deliver: net-ip-forward), \`!H\` in traceroute, or the first hop already silent. Caution: \`traceroute -n 10.0.20.10\` in the lab shows hop 1 and then \`* * *\`, because srv01's firewall drops the UDP probes while ping and SSH work. Silence is not proof of a fault.
+
+**Names: \`dig\`, \`getent\`**
+\`\`\`
+;; ->>HEADER<<- opcode: QUERY, status: NOERROR, id: 33015
+;; ANSWER SECTION:
+srv01.corp.lab.		3600	IN	A	10.0.20.10
+;; SERVER: 10.0.10.53#53(10.0.10.53) (UDP)
+\`\`\`
+Check \`status:\` and \`SERVER:\`. Abnormal: ";; communications error to 10.0.10.35#53: host unreachable" (a typo in resolv.conf: net-dns-resolvconf), "timed out ... no servers could be reached" while \`ping 10.0.10.53\` works (DNS blocked or named down: case-dns-outage), \`status: NXDOMAIN\` / \`SERVFAIL\` (the server answers, the zone is wrong). \`dig\` asks DNS directly; \`getent hosts\` follows \`/etc/nsswitch.conf\` like applications do, so a stale \`/etc/hosts\` line shows up only in getent.
+
+**Ports and packets: \`ss\`, \`nc\`, \`tcpdump\`, \`nft\`**
+\`ss -tlnp\` on the server lists listeners; \`nc -zv host 22\` tests from the client; \`tcpdump -n -i eth0 arp\` or \`port 53\` proves what is on the wire (e.g. repeated "ARP, Request who-has 10.0.10.254" with no reply); \`nft list ruleset\` shows what the host firewall drops.
+
+**Real systems only (not in the simulator):** \`nmcli\`, \`networkctl\`, \`resolvectl\`, \`netplan\`. The Operate & recover tab covers them with output from named platforms.
+
 `,
 
   errorMap: [

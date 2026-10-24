@@ -357,6 +357,13 @@ pfSense settings are made in the GUI and stored in \`/cf/conf/config.xml\`. The 
     { name: 'System > Advanced > Networking: DHCP Server Backend', compiledDefault: 'ISC DHCP (2.7.2)', recommended: 'ISC for stability in 2.7.2 labs; Kea if you need it and accept its feature gaps in 2.7.x', explanation: 'Selects the DHCPv4/v6 daemon; settings pages stay the same.', security: 'ISC DHCP is end-of-life upstream; Netgate moved new development to Kea.' },
   ],
 
+  operateIntro: `
+### Change safely
+- Change one thing, Apply, test, and note it (config history records each save).
+- Prefer **filter reload** (Apply) and targeted **state kills** over Reset States, interface re-saves or reboots.
+- Before changing rules that carry your own management traffic, keep the console reachable. If you lock yourself out: console → option 8 → \`easyrule pass lan tcp 10.0.10.25 10.0.10.1 443\`, or \`pfctl -d\` (filtering and NAT stop), fix the rule in the GUI, \`pfctl -e\` / reload the filter; or console option 15 to restore the previous configuration.
+- Never fix a block by disabling pf or adding "any to any" on WAN; fix the specific rule.
+`,
   troubleshootingIntro: `
 ### Which layer on pfSense made the decision?
 1. **Client side first.** Address, mask, gateway and DNS from DHCP; is the client in the VLAN you think? (Status > DHCP Leases.)
@@ -367,11 +374,6 @@ pfSense settings are made in the GUI and stored in \`/cf/conf/config.xml\`. The 
 6. **NAT.** Outbound mode (Manual forgets new subnets), port forward with its associated rule, the internal server's gateway pointing to pfSense, Block private networks on a lab WAN.
 7. **Capture to prove it.** Diagnostics > Packet Capture on the ingress and egress interface: where does the packet stop, and is its source translated?
 
-### Fix safely
-- Change one thing, Apply, test, and note it (config history records each save).
-- Prefer **filter reload** (Apply) and targeted **state kills** over Reset States, interface re-saves or reboots.
-- Before changing rules that carry your own management traffic, keep the console reachable. If you lock yourself out: console → option 8 → \`easyrule pass lan tcp 10.0.10.25 10.0.10.1 443\`, or \`pfctl -d\` (filtering and NAT stop), fix the rule in the GUI, \`pfctl -e\` / reload the filter; or console option 15 to restore the previous configuration.
-- Never fix a block by disabling pf or adding "any to any" on WAN; fix the specific rule.
 `,
 
   errorMap: [

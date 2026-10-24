@@ -8,7 +8,7 @@ import type { Assessment, Lesson, ServiceGuide } from '../types';
 
 export const WINDOWS_RDP_GUIDE: ServiceGuide = {
   purpose:
-    'Remote Desktop Services (service name **TermService**) lets an administrator or user run an interactive Windows desktop on a remote machine over the Remote Desktop Protocol (RDP). A listener (**RDP-Tcp**) accepts connections on TCP and UDP 3389, the connection is protected by TLS, the user is authenticated **before** a session is created when Network Level Authentication (NLA, implemented with CredSSP) is required, the Local Security Authority checks the **user right** "Allow log on through Remote Desktop Services", and Winlogon builds a desktop session. Each of those steps depends on something else (the service, the listener, the firewall, DNS, a domain controller, synchronised time, Group Policy) and each fails with its own message. All example output in this guide is representative of **Windows Server 2022** and **Windows 11 23H2** in a domain. Tasks marked "in simulator" also run on the lab\'s simulated Windows server **win01** (Windows PowerShell 5.1); domain logons run in the simulated domain ad.corp.lab (dc01; see Lab 2), while Group Policy objects and Kerberos for Windows logons are not simulated.',
+    'Remote Desktop Services (service name **TermService**) lets an administrator or user run an interactive Windows desktop on a remote machine over the Remote Desktop Protocol (RDP). A listener (**RDP-Tcp**) accepts connections on TCP and UDP 3389, the connection is protected by TLS, the user is authenticated **before** a session is created when Network Level Authentication (NLA, implemented with CredSSP) is required, the Local Security Authority checks the **user right** "Allow log on through Remote Desktop Services", and Winlogon builds a desktop session. Each of those steps depends on something else (the service, the listener, the firewall, DNS, a domain controller, synchronised time, Group Policy) and each fails with its own message. All example output in this lesson is representative of **Windows Server 2022** and **Windows 11 23H2** in a domain. Tasks marked "in simulator" also run on the lab\'s simulated Windows server **win01** (Windows PowerShell 5.1); domain logons run in the simulated domain ad.corp.lab (dc01; see Lab 2), while Group Policy objects and Kerberos for Windows logons are not simulated.',
   architecture: [
     { q: 'What does it accomplish?', a: 'Graphical remote administration and remote work: a full desktop session (or single RemoteApp programs on an RD Session Host farm) with redirected clipboard, drives, printers, audio and smart cards. On Windows Server, up to **two concurrent administrative sessions** are allowed without RDS licensing ("Remote Desktop for Administration"); more sessions for users need the RD Session Host role and RDS CALs. Windows 10/11 Pro/Enterprise allow one session at a time.' },
     { q: 'How does it work internally?', a: '**TermService** (display name "Remote Desktop Services", a svchost-hosted service running as NETWORK SERVICE) owns the **listener** (a "WinStation" named RDP-Tcp, configured under `HKLM\\SYSTEM\\CurrentControlSet\\Control\\Terminal Server\\WinStations\\RDP-Tcp`). For each connection it negotiates the security protocol, runs TLS and (with NLA) CredSSP, then asks the Local Session Manager (part of the OS session infrastructure) to create a session: a new `csrss.exe` and `winlogon.exe`, then the user\'s shell. **UmRdpService** ("Remote Desktop Services UserMode Port Redirector") handles redirection of drives, printers and ports and depends on TermService. **SessionEnv** ("Remote Desktop Configuration") manages configuration and certificate tasks.' },
@@ -188,19 +188,8 @@ Windows Server is administered through a small number of building blocks. Once y
 ### Remote Desktop Protocol (RDP)
 RDP gives you a graphical session on a remote Windows machine. The server side is the **Remote Desktop Services** service (\`TermService\`), listening on **TCP and UDP 3389**. It is the standard way to administer Windows Server with a GUI, and it fails in many distinct ways: disabled, service stopped, port blocked, listener changed, NLA/CredSSP problems, missing user rights, domain authentication, DNS, routing, Group Policy. This lesson gives you a complete diagnostic process for all of them.
 
-### Important locations
-| Tool | Opens / does |
-|---|---|
-| \`services.msc\` | Services: status, startup type, dependencies, recovery actions |
-| \`eventvwr.msc\` | Event Viewer |
-| \`regedit\` | Registry editor |
-| \`wf.msc\` | Windows Defender Firewall with Advanced Security |
-| \`gpedit.msc\` | Local Group Policy editor (not on Home editions) |
-| \`gpresult /r\`, \`gpresult /h report.html\` | Which GPOs and settings were applied |
-| \`Get-Service\`, \`Get-WinEvent\`, \`Get-NetTCPConnection\` | PowerShell equivalents of systemctl, journalctl, ss |
-| \`sconfig\` | Text menu on Server Core and Desktop Experience (option 7: Remote Desktop) |
-
 > The examples follow a domain in the lab naming plan (\`corp.lab\`, member server \`app01\` 10.0.20.21, DC \`dc01\` 10.0.20.5, client \`WS01\` 10.0.10.25) and their output is representative of Windows Server 2022 and Windows 11 23H2. The **sandbox and the tickets** use the simulated server **win01** (10.0.20.30): a standalone Windows Server 2022 with a Windows PowerShell 5.1 console (services, the event log, the registry, Windows Defender Firewall, local accounts, NetTCPIP and DnsClient cmdlets, ipconfig, netstat, netsh, sc.exe, reg). Connect to it from ws01 with \`xfreerdp /v:win01.corp.lab /u:alice\`. Domain logons (CORP\\alice) work once win01 is joined to the simulated domain ad.corp.lab (dc01): see the Active Directory lesson and Lab 2. Group Policy objects and Kerberos for Windows logons are not simulated.
+
 `,
 
   internals: `
@@ -375,6 +364,21 @@ RDP configuration lives in the registry, with **Group Policy values overriding t
     { name: 'TrustedHosts (WinRM client)', compiledDefault: '(empty)', recommended: 'Empty in a domain; specific hosts otherwise', explanation: 'Hosts the WinRM client may use NTLM with when Kerberos is not possible (IP addresses, workgroups).', security: '`*` lets your credentials go to any host that answers, including an impostor; prefer HTTPS (5986).' },
   ],
 
+  operateIntro: `
+### Management tools
+| Tool | Opens / does |
+|---|---|
+| \`services.msc\` | Services: status, startup type, dependencies, recovery actions |
+| \`eventvwr.msc\` | Event Viewer |
+| \`regedit\` | Registry editor |
+| \`wf.msc\` | Windows Defender Firewall with Advanced Security |
+| \`gpedit.msc\` | Local Group Policy editor (not on Home editions) |
+| \`gpresult /r\`, \`gpresult /h report.html\` | Which GPOs and settings were applied |
+| \`Get-Service\`, \`Get-WinEvent\`, \`Get-NetTCPConnection\` | PowerShell equivalents of systemctl, journalctl, ss |
+| \`sconfig\` | Text menu on Server Core and Desktop Experience (option 7: Remote Desktop) |
+
+
+`,
   troubleshootingIntro: `
 ### A complete RDP diagnostic process
 1. **Read the exact client message.** It identifies the failing layer (table below). Ask the user for a screenshot rather than a summary.
@@ -385,14 +389,9 @@ RDP configuration lives in the registry, with **Group Policy values overriding t
 6. **Authorisation**: Security 4625 with Logon Type 10 and Status 0xC000015B → user rights. \`gpresult /h\` names the GPO.
 7. **Fix in the right place** (the GPO, not a local override that the next refresh reverts), restart only what is needed, and **verify** from the client with the affected user.
 
-### Restarting the right service, safely
-- Changing PortNumber or the certificate, or a missing/stuck listener → \`Restart-Service TermService -Force\` (also restarts UmRdpService).
-- **This disconnects every RDP session, including yours.** Use the console/hypervisor/iLO, or from another host: \`Invoke-Command -ComputerName app01 { Restart-Service TermService -Force }\`. Warn logged-on users first.
-- Policy or user-rights changes → \`gpupdate /force\`; no service restart needed.
-- Verify recovery: \`Get-Service TermService, UmRdpService\` (Running), \`qwinsta\` (rdp-tcp Listen), \`Test-NetConnection app01 -Port 3389\` from a client, a real logon (LSM 21, Security 4624 type 10).
-
 ### Do not "fix" by weakening security
 Disabling NLA, setting CredSSP to "Vulnerable", adding users to Administrators or turning off the firewall can make a symptom go away. Each is a workaround that leaves a vulnerability; if one is ever used to recover access, record it and remove it.
+
 `,
 
   errorMap: [

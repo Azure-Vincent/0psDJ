@@ -16,8 +16,7 @@ import { SequenceDiagram } from '../components/SequenceDiagram';
 import { TabBar } from '../components/TabBar';
 import { CidrCalculator, HookDiagram, PacketTester } from '../components/FirewallWidgets';
 import { RunVisualizer } from '../components/RunVisualizer';
-import { GuideView } from '../components/GuideView';
-import { LayeredDiagramView, StaticSequenceView } from '../components/Diagrams';
+import { type CatalogueFile, FileCatalogue, GuideArchitecture, GuideDiagrams as ServiceDiagrams, GuideFailures, GuideOperate, GuideWorkflow } from '../components/GuideView';
 import { CASE_STUDIES } from '../../content/cases';
 import { CERT_EXAMS } from '../../content/certification';
 import { EncapsulationExplorer, ResolverTracer, RouteLookup, SubnetPractice } from '../components/NetworkWidgets';
@@ -126,20 +125,25 @@ function Deploy({ L, specs }: { L: Lesson; specs: TermSpec[] }) {
   );
 }
 
+/**
+ * One catalogue for the Config tab: the guide's files (what they hold, when
+ * they are read, what bad values break) plus any path the configuration
+ * overview lists that the guide does not describe.
+ */
+function catalogue(L: Lesson): CatalogueFile[] {
+  const files: CatalogueFile[] = [...(L.guide?.files ?? [])];
+  const known = new Set(files.map((f) => f.path));
+  for (const g of L.configFiles) for (const it of g.items) if (!known.has(it.path)) { files.push({ path: it.path, platform: g.platform, contains: it.purpose }); known.add(it.path); }
+  return files;
+}
+
 function Config({ L, tool }: { L: Lesson; tool?: { title: string; node: ReactNode } }) {
   return (
     <div>
       <Markdown text={L.configIntro} />
       {tool && <><h2>{tool.title}</h2>{tool.node}</>}
-      <h2>Files, services and logs</h2>
-      <div className="grid2">
-        {L.configFiles.map((g) => (
-          <div className="card" key={g.platform}>
-            <h3>{g.platform}</h3>
-            <table><tbody>{g.items.map((it) => <tr key={it.path}><td className="mono" style={{ whiteSpace: 'nowrap' }}>{it.path}</td><td>{it.purpose}</td></tr>)}</tbody></table>
-          </div>
-        ))}
-      </div>
+      <h2>Files, directories and logs</h2>
+      <FileCatalogue files={catalogue(L)} />
       <h2>Important directives</h2>
       <table>
         <thead><tr><th>Directive</th><th>Default</th><th>Recommended</th><th>What it does</th><th>Security implications</th></tr></thead>
@@ -164,6 +168,7 @@ function Troubleshoot({ L }: { L: Lesson }) {
   return (
     <div>
       <Markdown text={L.troubleshootingIntro} />
+      {L.guide && <GuideWorkflow g={L.guide} simulated={L.mode !== 'reference'} />}
       <h2>From error message to layer</h2>
       <table>
         <thead><tr><th>Client message</th><th>Layer</th><th>Meaning</th><th>First check</th></tr></thead>
@@ -173,6 +178,7 @@ function Troubleshoot({ L }: { L: Lesson }) {
           ))}
         </tbody>
       </table>
+      {L.guide && <GuideFailures g={L.guide} />}
       {(L.caseStudyIds ?? []).length > 0 && (
         <>
           <h2>Case studies</h2>
@@ -191,7 +197,7 @@ function Troubleshoot({ L }: { L: Lesson }) {
         </>
       )}
       {L.scenarioIds.length === 0 ? (
-        <p className="callout small">This technology is not modelled by the simulator, so there are no interactive tickets for it. Work through the diagnostic workflow in <a href={`#/lesson/${L.id}/operate`}>Operate &amp; recover</a> and the case studies above on a real lab VM.</p>
+        <p className="callout small">This technology is not modelled by the simulator, so there are no interactive tickets for it. Work through the diagnostic workflow and the case studies above on a real lab VM.</p>
       ) : <>
       <h2>Practice scenarios</h2>
       <p className="muted small">Each scenario breaks the lab in a realistic way. You investigate with real commands, record a diagnosis, repair it, and the engine verifies the fix now, after a reboot of every host, and against the security policy.</p>
@@ -381,13 +387,13 @@ function widgetsFor(id: string): LessonWidgets {
 }
 
 /** Lessons without a simulator visualisation show their guide's diagrams instead. */
-function GuideDiagrams({ L }: { L: Lesson }) {
-  if (!L.guide) return <p className="muted">No visualisation for this lesson.</p>;
+function Visualize({ L, sim }: { L: Lesson; sim?: ReactNode }) {
+  if (!sim && !L.guide) return <p className="muted">No visualisation for this lesson.</p>;
   return (
     <div>
-      {L.mode === 'reference' && <p className="callout small">The simulator does not model this technology, so these diagrams are drawn from documentation rather than generated from a running lab.</p>}
-      <LayeredDiagramView d={L.guide.dependencies} />
-      {L.guide.sequence && <StaticSequenceView s={L.guide.sequence} />}
+      {sim}
+      {!sim && L.mode === 'reference' && <p className="callout small">The simulator does not model this technology, so these diagrams are drawn from documentation rather than generated from a running lab.</p>}
+      {L.guide && <ServiceDiagrams g={L.guide} />}
     </div>
   );
 }
@@ -397,6 +403,33 @@ function objectiveTitle(id: string): string {
   const exam = CERT_EXAMS.find((e) => e.code === code);
   const o = exam?.domains.flatMap((d) => d.objectives).find((x) => x.id === id);
   return o ? `${exam!.name} ${num} ${o.title}` : id;
+}
+
+/** What each tab answers, so the reader knows where to look. */
+const TAB_QUESTIONS: Record<Section['id'], string> = {
+  what: 'What is it, why does it matter, where will I meet it?',
+  internals: 'What happens step by step? Which components, ports and processes are involved?',
+  visualize: 'What does it look like on the wire, and what does it depend on?',
+  deploy: 'How do I install and set it up on each platform?',
+  config: 'Which files and settings control it, and what do bad values break?',
+  operate: 'How do I check, change, reload or restart it safely, and confirm it is healthy?',
+  troubleshoot: 'It is broken: where do I start, what does this error mean, and how do I tell the causes apart?',
+  assess: 'Do I understand it?',
+};
+
+function LessonMap({ L, sections }: { L: Lesson; sections: Section[] }) {
+  return (
+    <>
+      <h2>In this lesson</h2>
+      <table className="lesson-map">
+        <tbody>
+          {sections.filter((s) => s.id !== 'what').map((s) => (
+            <tr key={s.id}><th><a href={`#/lesson/${L.id}/${s.id}`}>{s.title}</a></th><td>{TAB_QUESTIONS[s.id]}</td></tr>
+          ))}
+        </tbody>
+      </table>
+    </>
+  );
 }
 
 export function LessonPage({ lessonId, section }: { lessonId: string; section: string }) {
@@ -441,6 +474,7 @@ export function LessonPage({ lessonId, section }: { lessonId: string; section: s
           {L.primer && <PrimerIntro p={L.primer} />}
           {L.primer && <h2 className="indepth-head">In depth</h2>}
           <Markdown text={L.what} />
+          <LessonMap L={L} sections={sections} />
         </>
       )}
       {sec === 'internals' && (
@@ -449,18 +483,30 @@ export function LessonPage({ lessonId, section }: { lessonId: string; section: s
           {L.primer && <h2 className="indepth-head">In depth</h2>}
           <Markdown text={L.internals} />
           {w.internals}
-          {L.primer && <PrimerChecks p={L.primer} />}
+          {L.guide && <GuideArchitecture g={L.guide} />}
           <h2>References</h2>
           <ul>{L.references.map((r) => <li key={r.url}><a href={r.url} target="_blank" rel="noreferrer">{r.title}</a></li>)}</ul>
           <p className="small muted">Links open in your browser and need internet access; everything else in the app works offline.</p>
         </>
       )}
-      {sec === 'visualize' && (w.visualize ?? <GuideDiagrams L={L} />)}
+      {sec === 'visualize' && <Visualize L={L} sim={w.visualize} />}
       {sec === 'deploy' && <Deploy L={L} specs={w.sandbox} />}
       {sec === 'config' && <Config L={L} tool={w.configTool} />}
-      {sec === 'operate' && L.guide && <GuideView g={L.guide} simulated={L.mode !== 'reference'} />}
+      {sec === 'operate' && L.guide && (
+        <>
+          <Markdown text={L.guide.purpose} />
+          {L.operateIntro && <Markdown text={L.operateIntro} />}
+          <GuideOperate g={L.guide} simulated={L.mode !== 'reference'} />
+        </>
+      )}
       {sec === 'troubleshoot' && <Troubleshoot L={L} />}
-      {sec === 'assess' && <AssessmentView assessment={ASSESSMENTS[L.assessmentId]} />}
+      {sec === 'assess' && (
+        <>
+          {L.primer && <PrimerChecks p={L.primer} />}
+          {L.primer && <h2>Graded assessment</h2>}
+          <AssessmentView assessment={ASSESSMENTS[L.assessmentId]} />
+        </>
+      )}
     </div>
   );
 }

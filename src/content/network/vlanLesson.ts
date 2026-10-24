@@ -63,12 +63,6 @@ A Linux host (router, hypervisor) receives tagged frames on the physical NIC and
 ### Router-on-a-stick
 rtr01 has one sub-interface per VLAN on the trunk, each with an address that is that VLAN's **default gateway** (10.0.30.1 on eth3.30). A packet from dev01 (VLAN 30) to srv01 (VLAN 20): dev01 → switch (untagged in, tagged 30 out on swp7) → rtr01 eth3.30 → routing decision, TTL−1, forward filter → eth1 (VLAN 20) → srv01. Between VLANs the rules of routing apply: different subnets, gateways, firewall.
 
-### Typical mistakes
-- **Access port in the wrong VLAN**: link up, host correctly configured, but ARP for the gateway goes unanswered (the host may even get an address from another VLAN's DHCP server).
-- **VLAN missing on a trunk** ("pruned"): a whole VLAN loses its gateway while hosts inside it still talk to each other.
-- **Native VLAN mismatch**: two ends disagree on which VLAN is untagged; traffic leaks between VLANs or disappears.
-- **Wrong sub-interface ID**: router tags with VLAN 3 instead of 30; looks healthy on the router.
-- **Forgetting the runtime/persistent split**: \`bridge vlan add\` fixes it now, the file is what survives a reboot.
 `,
 
   deployment: [
@@ -146,6 +140,14 @@ The switch configuration decides which broadcast domain every port belongs to. T
 3. **Is the VLAN carried towards the router?** \`bridge vlan show\` on the trunk port; \`tcpdump -e -n -i eth3\` on the router: tagged frames out, anything in?
 4. **Does the router tag correctly?** \`ip -d link show\` on the router: "vlan protocol 802.1Q id 30".
 5. **Persistent?** Compare \`bridge vlan show\` with /etc/network/interfaces; ifreload -a or a reboot will apply the file.
+
+### Typical mistakes
+- **Access port in the wrong VLAN**: link up, host correctly configured, but ARP for the gateway goes unanswered (the host may even get an address from another VLAN's DHCP server).
+- **VLAN missing on a trunk** ("pruned"): a whole VLAN loses its gateway while hosts inside it still talk to each other.
+- **Native VLAN mismatch**: two ends disagree on which VLAN is untagged; traffic leaks between VLANs or disappears.
+- **Wrong sub-interface ID**: router tags with VLAN 3 instead of 30; looks healthy on the router.
+- **Forgetting the runtime/persistent split**: \`bridge vlan add\` fixes it now, the file is what survives a reboot.
+
 `,
 
   errorMap: [

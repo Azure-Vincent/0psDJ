@@ -298,10 +298,6 @@ The application must listen on **0.0.0.0 inside the container**. If it listens o
 ### 8. Logs
 With the default **json-file** driver, stdout/stderr go to \`/var/lib/docker/containers/<id>/<id>-json.log\` and \`docker logs\` reads them back (\`--tail\`, \`--since\`, \`-f\`, \`-t\`). There is **no rotation by default**: set \`"log-opts": {"max-size": "10m", "max-file": "3"}\` in daemon.json (applies to new containers) or use the \`local\` driver. The logs are deleted with the container, so recreate destroys them. Applications that log to files inside the container instead of stdout are invisible to \`docker logs\`.
 
-### 9. Restart vs recreate vs daemon restart
-- **\`docker restart\` / \`docker compose restart\`**: same container, same configuration, same writable layer. Fixes a hung process; ignores any change in compose.yaml or .env.
-- **Recreate** (\`docker compose up -d\` after a change, \`--force-recreate\`): removes the container and creates a new one from the image and current configuration. New ID and IP, empty writable layer, logs gone; volumes kept.
-- **Daemon restart** (\`systemctl restart docker\`): stops **every** container on the host (unless \`"live-restore": true\`), then starts those whose restart policy says so. A host-wide outage, needed only for daemon-level changes.
 `,
 
   deployment: [
@@ -421,6 +417,12 @@ Always check what is really in effect: \`docker compose config\` for the project
     { name: 'volumes / bind mount options :ro, :z, :Z', compiledDefault: 'read-write, no relabel', recommended: ':ro where possible; :z on SELinux hosts for shared content', explanation: 'Mount mode and SELinux relabelling.', security: ':Z on a system directory relabels it for one container and breaks the host.' },
   ],
 
+  operateIntro: `
+### Before you restart or recreate
+- Before recreating a broken container, save its evidence: \`docker logs web > web-$(date +%F-%H%M).log\` and \`docker inspect web > web-inspect.json\`.
+- Never "clean up" with \`docker system prune -a --volumes\` or \`docker compose down -v\` on a server without knowing which volumes hold data.
+
+`,
   troubleshootingIntro: `
 ### Layer by layer, stop at the first failing check
 1. **Daemon**: \`systemctl status docker\`, \`journalctl -u docker\`. Can you run \`docker ps\` at all?
@@ -434,12 +436,6 @@ Always check what is really in effect: \`docker compose config\` for the project
 ### Workaround vs fix
 Running the container with \`--network host\`, as root, with \`chmod 777\` on a volume, with \`--privileged\`, or disabling the host firewall can make a symptom disappear while creating a security problem. The fix is the specific setting: the listen address, the port mapping, the network, the UID or SELinux label, the missing variable.
 
-### Restart, recreate, or restart the daemon?
-- Configuration (compose.yaml, .env, image tag) changed → **recreate** (\`docker compose up -d\`).
-- Process hung, configuration unchanged → **restart** that container.
-- Daemon-level change or daemon broken → **restart docker**, in a window, knowing it stops every container (unless live-restore).
-- Before recreating a broken container, save its evidence: \`docker logs web > web-$(date +%F-%H%M).log\` and \`docker inspect web > web-inspect.json\`.
-- Never "clean up" with \`docker system prune -a --volumes\` or \`docker compose down -v\` on a server without knowing which volumes hold data.
 `,
 
   errorMap: [

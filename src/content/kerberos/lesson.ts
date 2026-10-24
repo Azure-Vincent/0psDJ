@@ -71,10 +71,6 @@ For \`ssh srv01.corp.lab\` the client needs a ticket for \`host/<name>@<REALM>\`
 ### Keys and key version numbers
 Every principal has a key and a **kvno** that increases when the key changes (\`cpw\`, \`ktadd\`). The KDC always encrypts with the current key; the keytab must have that kvno. **ktadd** in kadmin randomises the key and writes it to the local keytab in one step: run it **on the server that uses the keytab**. Running ktadd elsewhere, or \`cpw -randkey\` on the KDC, silently breaks the server until its keytab is replaced. Clients may hold service tickets for the old kvno until they expire, which is why keeping old keytab entries for a while is common practice.
 
-### Where to look
-- Client: \`kinit\`, \`klist\`, \`kvno host/NAME\`, \`ssh -v\`, \`date\`/\`timedatectl\`, \`host -t SRV _kerberos._udp.DOMAIN\`.
-- KDC: \`journalctl -u krb5-kdc\` (one line per request: AS_REQ/TGS_REQ, client, service, result: ISSUE, NEEDED_PREAUTH, PREAUTH_FAILED, CLIENT_NOT_FOUND, LOOKING_UP_SERVER ...), \`kadmin.local -q "getprinc NAME"\`.
-- Server: \`klist -ke\` (keytab), \`sshd -T | grep gssapi\`, sshd log (GSSAPI errors appear at LogLevel DEBUG1).
 `,
 
   deployment: [
@@ -171,6 +167,12 @@ Kerberos configuration is small, but every line matters: the client file decides
 3. **kvno works, the login does not?** The server side: keytab missing or wrong kvno (\`klist -ke\` vs \`kvno\`), service not configured (GSSAPIAuthentication), account mapping (\`.k5login\`), clock on the server.
 4. **Always check the KDC log**: \`journalctl -u krb5-kdc\` shows every request and its result.
 5. Prove the fix with a login that cannot fall back: \`ssh -o PubkeyAuthentication=no -o PasswordAuthentication=no\`.
+
+### Where to look
+- Client: \`kinit\`, \`klist\`, \`kvno host/NAME\`, \`ssh -v\`, \`date\`/\`timedatectl\`, \`host -t SRV _kerberos._udp.DOMAIN\`.
+- KDC: \`journalctl -u krb5-kdc\` (one line per request: AS_REQ/TGS_REQ, client, service, result: ISSUE, NEEDED_PREAUTH, PREAUTH_FAILED, CLIENT_NOT_FOUND, LOOKING_UP_SERVER ...), \`kadmin.local -q "getprinc NAME"\`.
+- Server: \`klist -ke\` (keytab), \`sshd -T | grep gssapi\`, sshd log (GSSAPI errors appear at LogLevel DEBUG1).
+
 `,
 
   errorMap: [

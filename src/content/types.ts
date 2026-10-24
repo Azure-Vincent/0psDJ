@@ -174,6 +174,8 @@ export interface Lesson {
   configIntro: RichText;
   configFiles: { platform: string; items: { path: string; purpose: string }[] }[];
   directives: ConfigDirective[];
+  /** Day-to-day operation (managing the service, safe changes and restarts), shown at the top of "Operate & recover". */
+  operateIntro?: RichText;
   troubleshootingIntro: RichText;
   errorMap: { message: string; layer: string; meaning: string; firstCheck: string }[];
   scenarioIds: string[];
@@ -181,7 +183,7 @@ export interface Lesson {
   references: Reference[];
   /** "simulated" lessons have a sandbox and tickets; "reference" lessons are taught from documentation and real-system examples only. */
   mode?: 'simulated' | 'reference';
-  /** Operate & recover guide (architecture, files, logs, service management, diagnostic workflow). */
+  /** Service guide, shown across tabs: architecture (How it works), diagrams (Visualize), files (Config), management (Operate), workflow and failures (Troubleshooting). */
   guide?: ServiceGuide;
   /** End-to-end case studies related to this lesson. */
   caseStudyIds?: string[];
