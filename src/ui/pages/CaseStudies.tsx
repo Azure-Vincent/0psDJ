@@ -104,7 +104,7 @@ export function CaseStudyPage({ id }: { id: string }) {
 
       <h2>Related</h2>
       <div className="row" style={{ gap: 6 }}>
-        {c.lessonIds.map((l) => <a key={l} className="badge" href={`#/lesson/${l}/operate`}>Lesson: {getLesson(l)?.title.split(':')[0] ?? l}</a>)}
+        {c.lessonIds.map((l) => <a key={l} className="badge" href={`#/lesson/${l}/troubleshoot`}>Lesson: {getLesson(l)?.title.split(':')[0] ?? l}</a>)}
         {(c.refIds ?? []).map((r) => <RefBadge key={r} id={r} />)}
       </div>
     </div>

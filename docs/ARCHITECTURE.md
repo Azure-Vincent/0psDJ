@@ -95,12 +95,12 @@ dashboard recommends it *and* any prerequisite that is not yet proficient.
 ┌──────────────┬─────────────────────────────────────────────────────────────────┐
 │ Brand        │ Page                                                            │
 │ [ search ]   │                                                                 │
-│ Dashboard    │ Lesson: tabs 1 What · 2 How it works (+dependency map) ·        │
-│ Curriculum   │   3 Visualize (sequence diagram | inspector) · 4 Deploy         │
-│ LEARN        │   (platform guides + sandbox terminals) · 5 Configuration       │
-│  (by module) │   (effective-config explorer, directive table) ·                │
-│ PRACTICE     │   6 Operate & recover (guide) · 7 Troubleshooting (error→layer  │
-│  Troublesh.  │   map, case studies, tickets) · 8 Assessment                    │
+│ Dashboard    │ Lesson: tabs Overview · How it works (+architecture) ·          │
+│ Curriculum   │   Visualize (sequence diagram, dependencies) · Deploy           │
+│ LEARN        │   (platform guides + sandbox terminals) · Config (explorer,     │
+│  (by module) │   file catalogue, directives) · Operate (management, reload/    │
+│ PRACTICE     │   restart, verify) · Troubleshoot (workflow, error→layer,       │
+│  Troublesh.  │   failures, case studies, tickets) · Assessment (self-check)    │
 │  Case stud.  │ Case study: 12 elements, environment diagram, linked ticket     │
 │  Packet Lab  │ Troubleshooting workspace (3 columns):                          │
 │ REFERENCE    │  ticket/briefing/topology/hints │ terminals: ws01 · srv01 ·     │
@@ -112,6 +112,19 @@ dashboard recommends it *and* any prerequisite that is not yet proficient.
 │ offline note │                                                                 │
 └──────────────┴─────────────────────────────────────────────────────────────────┘
 ```
+
+**What goes in each lesson tab.** Each tab answers one question, and a piece of information lives in exactly one tab (`tests/learning.test.ts` rejects a `###` heading repeated across tabs):
+
+| Tab | Answers | Sources |
+|---|---|---|
+| Overview | What is it, why does it matter, where will I meet it? | primer (one-liner, analogy, key ideas, misconceptions), `what`, a map of the other tabs |
+| How it works | What happens step by step; which components, ports and processes? | primer walkthrough, `internals`, internals widgets, guide architecture/ports/processes, references |
+| Visualize | What does it look like on the wire; what does it depend on? | simulator runs, guide dependency diagram and message sequence |
+| Deploy | How do I install and set it up per platform? | `deployment` + sandbox |
+| Config | Which files and settings control it; what do bad values break? | `configIntro`, config tool, one file catalogue (guide files + configFiles), directives |
+| Operate & recover | How do I check, change, reload or restart it safely and confirm it is healthy? | guide purpose, `operateIntro`, management tasks, reload/restart/reboot, verification |
+| Troubleshooting | Where do I start, what does this error mean, how do I tell causes apart? | `troubleshootingIntro`, guide workflow, error map, guide failures, case studies, tickets |
+| Assessment | Do I understand it? | primer self-check, graded assessment |
 
 Principles: no decorative controls; every button does something; planned
 features are labelled "planned" and have no buttons; the answer to a ticket is
@@ -337,6 +350,6 @@ options is implemented and unsupported options say so.
 ### Adding a new service (checklist)
 1. Engine: add a `ServiceDef` in `sim/services.ts` (start/reload/listeners/config parsing) and any protocol simulator under `sim/` that records `TraceEvent`s.
 2. Shell: add the service's admin/diagnostic commands under `shell/`.
-3. Content: add a `Lesson` (with a `ServiceGuide` for the Operate & recover tab) and an `Assessment` and register them in `src/content/lessons.ts`; add command, file and procedure entries to the reference library (`src/content/reference/`), glossary entries, and objective links in `src/content/certification.ts`. Mark a command `sim: true` only if it runs in the simulator exactly as written; `tests/content-integrity.test.ts` checks this and every cross-link. Optional interactive widgets are wired in `widgetsFor()` in `src/ui/pages/LessonPage.tsx`.
+3. Content: add a `Lesson` (with a `ServiceGuide`, which is shown across the tabs) and an `Assessment` and register them in `src/content/lessons.ts`; add command, file and procedure entries to the reference library (`src/content/reference/`), glossary entries, and objective links in `src/content/certification.ts`. Mark a command `sim: true` only if it runs in the simulator exactly as written; `tests/content-integrity.test.ts` checks this and every cross-link. Optional interactive widgets are wired in `widgetsFor()` in `src/ui/pages/LessonPage.tsx`.
 4. Scenarios: add `Scenario` objects (goals: SSH login, HTTP request or name lookup) with `setup`, `solution` and constraints, and register the set in `src/engine/scenarios/index.ts`; the generic scenario test proves each one breaks and is fixable.
 5. Curriculum: flip the topic status to `available` with a link.

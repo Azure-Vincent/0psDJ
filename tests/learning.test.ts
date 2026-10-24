@@ -10,6 +10,7 @@ import { emptyProgress, loadProgress, mastery, recordConcepts, saveProgress } fr
 import { SSH_SCENARIOS } from '../src/engine/scenarios/sshScenarios';
 import { COMMANDS } from '../src/engine/shell/shell';
 import type { Question } from '../src/content/types';
+import { LESSONS } from '../src/content/lessons';
 
 const q = (id: string) => SSH_ASSESSMENT.questions.find((x) => x.id === id)! as Question;
 
@@ -96,5 +97,29 @@ describe('progress and mastery', () => {
     expect(p.concepts['fw.stateful']?.misconceptions).toEqual(['firewall-drop', 'firewall-reject']);
     for (let i = 0; i < 8; i++) p = recordConcepts(p, ['fw.stateful'], true, 3 + i);
     expect(mastery(p.concepts['fw.stateful']).level).toBe('proficient');
+  });
+});
+
+describe('lesson tabs: one kind of information per tab', () => {
+  // Overview, How it works, Config, Operate and Troubleshooting each have their own text.
+  const fields = ['what', 'internals', 'configIntro', 'operateIntro', 'troubleshootingIntro'] as const;
+  it('no section heading is repeated across tabs of a lesson', () => {
+    for (const L of LESSONS) {
+      const seen = new Map<string, string>();
+      for (const f of fields) {
+        for (const h of (L[f] ?? '').match(/^### .*/gm) ?? []) {
+          const key = h.toLowerCase();
+          expect(seen.get(key), `${L.id}: "${h}" in ${f} and ${seen.get(key)}`).toBeUndefined();
+          seen.set(key, f);
+        }
+      }
+    }
+  });
+  it('every lesson has an Operate guide, and the Config file catalogue lists each path once per platform', () => {
+    for (const L of LESSONS) {
+      expect(L.guide, L.id).toBeDefined();
+      const keys = L.guide!.files.map((f) => `${f.platform}|${f.path}`);
+      expect(new Set(keys).size, L.id).toBe(keys.length);
+    }
   });
 });

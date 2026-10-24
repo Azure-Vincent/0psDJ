@@ -29,7 +29,7 @@ Each layer **encapsulates** the one above: an HTTP request becomes the payload o
 - What happens at each router? (**TTL decrement, new frame, forwarding policy**)
 - How do failures announce themselves? (**ICMP errors**, or silence)
 
-> IPv6 (neighbour discovery instead of ARP, 128-bit addresses) follows the same logic; the simulator models IPv4 only.
+> IPv6 (neighbour discovery instead of ARP, 128-bit addresses) follows the same logic: see the IPv6 lesson.
 `,
 
   internals: `

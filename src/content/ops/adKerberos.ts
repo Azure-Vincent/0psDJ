@@ -373,6 +373,10 @@ AD configuration lives in three places: the **directory** itself (users, compute
     { name: 'Group Policy refresh interval', compiledDefault: '90 min ± 30 (members), 5 min (DCs)', recommended: 'Default', explanation: 'Background refresh of computer and user policy.', security: 'Very short intervals add load on DCs and SYSVOL without real benefit.' },
   ],
 
+  operateIntro: `
+> **Record every change** and when you made it (proc:incident-record): AD changes replicate, so a mistake spreads to every DC within minutes. Check replication (\`repadmin /replsummary\`) before restarting anything on a DC.
+
+`,
   troubleshootingIntro: `
 ### Follow the chain, stop at the first broken link
 1. **Network and DNS**: does the client use only AD DNS, and does \`Resolve-DnsName -Type SRV _ldap._tcp.dc._msdcs.corp.lab\` return the DCs?
@@ -386,12 +390,6 @@ AD configuration lives in three places: the **directory** itself (users, compute
 ### Workaround vs fix
 Adding a hosts entry for the DC, raising the clock skew tolerance, accessing a share by IP (forcing NTLM), unjoining and rejoining every broken PC, or restarting all DCs "to clear it" may hide a symptom. The fix is the configuration that caused it: DNS settings, the time source, the SPN on the right account, the snapshot practice, the firewall rule.
 
-### Restarting safely
-- **Check replication first** (\`repadmin /replsummary\`): if you restart the only healthy DC, nobody can log on.
-- Prefer **targeted actions**: \`nltest /dsregdns\` (re-register DNS), \`w32tm /resync\`, \`repadmin /syncall\`, \`klist purge\`, \`gpupdate /force\`, \`Restart-Service Netlogon\` on one DC.
-- Restarting **NTDS** stops Kdc, DFSR, IsmServ and DNS Server on that DC. Reboot DCs **one at a time** and verify each before the next.
-- **Seizing FSMO roles** is a last resort for a DC that is permanently gone, never a troubleshooting step.
-- Record what you changed and when (proc:incident-record): AD changes replicate, so a mistake spreads to every DC within minutes.
 `,
 
   errorMap: [

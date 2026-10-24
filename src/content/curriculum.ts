@@ -75,7 +75,7 @@ export const CURRICULUM: CurriculumModule[] = [
       { title: 'Firewall state tables (conntrack)', level: 'intermediate', status: 'partial', link: 'lesson/nftables/internals' },
       { title: 'Router forward-chain filtering between segments', level: 'intermediate', status: 'partial', link: 'lesson/nftables/visualize' },
       { title: 'pfSense (simulated fw01: webConfigurator, interfaces, aliases, rules, port forwards, outbound NAT, states, firewall log; DHCP, DNS Resolver and captures as reference)', level: 'intermediate', status: 'available', link: 'lesson/pfsense/what' },
-      { title: 'Windows Defender Firewall', level: 'beginner', status: 'partial', link: 'lesson/windows-rdp/operate', note: 'Rules for RDP, logging and diagnosis; deployment guide in the nftables lesson.' },
+      { title: 'Windows Defender Firewall', level: 'beginner', status: 'partial', link: 'lesson/windows-rdp/internals', note: 'Rules for RDP, logging and diagnosis; deployment guide in the nftables lesson.' },
       { title: 'UFW and firewalld', level: 'beginner', status: 'partial', link: 'lesson/nftables/deploy', note: 'Deployment guides only (real VM).' },
       { title: 'NAT', level: 'intermediate', status: 'available', link: 'lesson/nat/internals', note: 'nftables masquerade/SNAT/DNAT; pfSense port forwards and outbound NAT on fw01; Windows NAT planned' },
       { title: 'VLAN-based segmentation', level: 'intermediate', status: 'partial', link: 'lesson/vlan/internals', note: 'Linux VLAN-aware bridge and router-on-a-stick; inter-VLAN firewall policy on pfSense planned' },

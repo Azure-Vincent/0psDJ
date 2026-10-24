@@ -10,7 +10,7 @@ import type { Assessment, Lesson, ServiceGuide } from '../types';
 
 export const SYSTEMD_GUIDE: ServiceGuide = {
   purpose:
-    '**systemd** is PID 1 on Debian, Ubuntu, RHEL and almost every current Linux distribution: the first process the kernel starts and the parent of every service. It reads **unit files**, works out which units are needed for the requested **target** (normally `multi-user.target`), starts them in dependency order, puts each one in its own **cgroup**, restarts them when their policy says so, and records everything they print in the **journal** (`systemd-journald`). When a service "does not start", the answer is almost always in two places: `systemctl status <unit>` (what systemd did and the exit code) and `journalctl -u <unit>` (what the program said). This guide is about operating systemd and journald themselves; the per-service guides (SSH, nftables, DHCP) build on it.',
+    '**systemd** is PID 1 on Debian, Ubuntu, RHEL and almost every current Linux distribution: the first process the kernel starts and the parent of every service. It reads **unit files**, works out which units are needed for the requested **target** (normally `multi-user.target`), starts them in dependency order, puts each one in its own **cgroup**, restarts them when their policy says so, and records everything they print in the **journal** (`systemd-journald`). When a service "does not start", the answer is almost always in two places: `systemctl status <unit>` (what systemd did and the exit code) and `journalctl -u <unit>` (what the program said). This lesson is about operating systemd and journald themselves; the SSH, nftables and DHCP lessons build on it.',
   architecture: [
     { q: 'What does it accomplish?', a: 'It boots the system to a defined state (a target), supervises long-running services (start, stop, restart on failure, resource limits), activates services on demand (sockets, timers, paths, devices), mounts filesystems from `/etc/fstab`, and collects logs from the kernel, services and syslog() in one indexed journal.' },
     { q: 'How does it work internally?', a: 'systemd loads every unit file from its search path (`/etc/systemd/system` overrides `/run/systemd/system`, which overrides `/lib/systemd/system` = `/usr/lib/systemd/system`), plus units created at boot by **generators** (e.g. `systemd-sysv-generator` turns `/etc/init.d` scripts into units in `/run/systemd/generator.late`). It builds a dependency graph from `Wants=`/`Requires=` (what must also start) and `After=`/`Before=` (in which order), then queues **jobs** (start, stop, restart, reload) and runs them in parallel where ordering allows. Each service runs in a cgroup such as `/system.slice/ssh.service`, so systemd always knows every process that belongs to it, even after forks.' },
@@ -222,23 +222,8 @@ At boot systemd activates \`default.target\`, a symlink to \`multi-user.target\`
 ### The journal
 \`systemd-journald\` collects kernel messages, the stdout/stderr of every service, and anything sent to syslog. Each entry carries the unit, PID, priority (0 emerg … 3 err … 4 warning … 6 info … 7 debug, the syslog severities) and boot ID, which is what makes \`journalctl -u ssh -b -p err\` possible. **rsyslog**, when installed, copies messages into the classic text files in \`/var/log\`.
 
-### Essential commands
-| Command | What it tells you |
-|---|---|
-| \`systemctl status ssh\` | Loaded (file, enabled/disabled), Active (running/exited/dead/failed), helper process exit codes, main PID, cgroup, last 10 log lines. |
-| \`sudo systemctl start ssh\` / \`stop ssh\` | Change the state now. Silent on success. |
-| \`sudo systemctl restart ssh\` | Stop then start: new process, new config, rebinds ports. If the start fails, the service stays down. |
-| \`sudo systemctl reload ssh\` | Runs ExecReload (for ssh: \`sshd -t\` then SIGHUP). Same PID; a failed reload keeps the old daemon. |
-| \`sudo systemctl enable ssh\` | Start at boot (prints "Created symlink ..."); add \`--now\` to also start it. |
-| \`systemctl --failed\` | Every unit in the failed state. "0 loaded units listed." is what you want. |
-| \`journalctl -u ssh -b\` | This unit's messages since the current boot, oldest first. |
-| \`journalctl -fu ssh\` | Follow the unit's log live while you reproduce the problem. |
-| \`systemctl cat ssh\` | The unit file that is really used, plus drop-ins, each with its path. |
-| \`systemctl list-dependencies ssh\` | Tree of units it pulls in, with state dots. |
+> The lab hosts are Debian 12 (systemd 252). The simulator models \`systemctl\` (status, start, stop, restart, reload, enable, disable, is-active, is-enabled, is-failed, list-units, --failed, cat, list-dependencies, show, daemon-reload, mask, unmask) and \`journalctl\` for the lab's services. \`systemctl edit\` and \`get-default\` are explained here but not simulated.
 
-> **ssh.service vs sshd.service.** On Debian/Ubuntu the unit is \`ssh.service\`, with \`Alias=sshd.service\`, so \`systemctl status sshd\` also works there and shows "ssh.service". On RHEL it is \`sshd.service\` and \`ssh\` does not exist ("Unit ssh.service could not be found."). The same trap exists for apache2/httpd, bind9/named, isc-dhcp-server/dhcpd.
-
-> The lab hosts are Debian 12 (systemd 252). The simulator models \`systemctl\` (status, start, stop, restart, reload, enable, disable, is-active, is-enabled, is-failed, list-units, --failed, cat, list-dependencies, show, daemon-reload) and \`journalctl\` for the lab's services. \`systemctl mask\`, \`edit\` and \`get-default\` are explained here but not simulated.
 `,
 
   internals: `
@@ -493,6 +478,10 @@ The table below explains the directives you will read and write most often in \`
     { name: 'NoNewPrivileges= / ProtectSystem= / ProtectHome=', compiledDefault: 'no / no / no', recommended: 'yes / full or strict / yes for custom services', explanation: 'Sandboxing: forbids setuid privilege gain, mounts /usr and /etc (full) or the whole tree (strict) read-only, hides /home. nftables.service uses ProtectSystem=full and ProtectHome=true.', security: '`systemd-analyze security <unit>` rates a unit\'s exposure.' },
   ],
 
+  operateIntro: `
+### Unit names differ between distributions
+On Debian/Ubuntu the unit is \`ssh.service\`, with \`Alias=sshd.service\`, so \`systemctl status sshd\` also works there and shows "ssh.service". On RHEL it is \`sshd.service\` and \`ssh\` does not exist ("Unit ssh.service could not be found."). The same trap exists for apache2/httpd, bind9/named, isc-dhcp-server/dhcpd.
+`,
   troubleshootingIntro: `
 ### A method for "the service does not work"
 1. **Name the unit correctly** (ssh vs sshd, apache2 vs httpd) and run \`systemctl status <unit>\`. Read Loaded (which file, enabled?) and Active (running, exited, dead, failed).
