@@ -13,6 +13,13 @@ import type { ScoredSshGoal } from './types';
 const GO_KEX = ['curve25519-sha256', 'curve25519-sha256@libssh.org', 'ecdh-sha2-nistp256', 'ecdh-sha2-nistp384', 'ecdh-sha2-nistp521', 'diffie-hellman-group14-sha256', 'diffie-hellman-group14-sha1', 'ext-info-c', 'kex-strict-c-v00@openssh.com'];
 
 const DIAL_FAILED = 'Unable to dial the remote host. Make sure the host is up, and credentials are correct';
+/**
+ * The engine gives each check a deadline (a few seconds). A SYN that gets no
+ * answer at all (firewall drop, no route back, host down) makes Go's dial wait
+ * far longer than that, so the engine's own deadline fires first and the
+ * result carries the engine's message instead of Go's.
+ */
+const CHECK_TIMEOUT = { status: 'Encountered an unexpected error during the check.', error: 'check timed out. this is most likely due to services timing out' };
 
 /** Go's net.Dial / ssh.Dial error text for a simulated SSH attempt. */
 export function goSshError(world: World, goal: ScoredSshGoal, r: SshResult): string {
@@ -54,6 +61,9 @@ export function scoredSshCheck(world: World, goal: ScoredSshGoal): { ok: boolean
   if (r.outcome === 'session') return { ok: true, lines: [head, 'Status: Success!'] };
   if (r.failure === 'shell') {
     return { ok: false, lines: [head, 'Status: Unable to run the check command', 'Error: Process exited with status 1', `Output: ${r.lines.find((l) => /not available/.test(l)) ?? ''}`] };
+  }
+  if (r.failure === 'connect' && (r.errno === 'ETIMEDOUT' || !r.errno)) {
+    return { ok: false, lines: [head, `Status: ${CHECK_TIMEOUT.status}`, `Error: ${CHECK_TIMEOUT.error}`] };
   }
   return { ok: false, lines: [head, `Status: ${DIAL_FAILED}`, `Error: ${goSshError(w, goal, r)}`] };
 }

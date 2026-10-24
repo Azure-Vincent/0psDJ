@@ -45,7 +45,7 @@ For every technology it answers the same questions:
   machine configured from the files the design generates. You get terminals
   on each machine and a packet tracer that shows every hop and every firewall
   and NAT decision.
-- **80 troubleshooting tickets**, each injecting a realistic fault into the
+- **85 troubleshooting tickets**, each injecting a realistic fault into the
   lab. You investigate with real commands in terminals, record a diagnosis and
   repair the fault. The app then checks your fix immediately, again after
   rebooting every machine, and against security rules, so "just open the
@@ -53,7 +53,11 @@ For every technology it answers the same questions:
   competitions show: the scoring engine's own error messages (Go's SSH client:
   "unable to authenticate, attempted methods [none password]", "handshake
   failed: EOF") for a changed password, a pam_faillock lockout by an attacker,
-  PermitRootLogin, an expired account and AllowGroups.
+  PermitRootLogin, an expired account and AllowGroups, plus reachability
+  failures: "connection refused" (sshd stopped, masked with `systemctl mask`,
+  or listening on loopback only) and the engine's "check timed out. this is
+  most likely due to services timing out" (a firewall drop, no route back to
+  the engine, or a check that went from refused to timed out).
 - **7 end-to-end case studies**: SSH refused, a server with no Internet, a failed
   domain login, an unreachable Docker app, pfSense blocking traffic, RDP broken
   by a policy change, and several services failing at once.

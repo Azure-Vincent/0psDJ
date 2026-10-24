@@ -12,6 +12,7 @@ import { KRB_SCENARIOS } from './krbScenarios';
 import { WIN_SCENARIOS } from './winScenarios';
 import { DOMAIN_SCENARIOS } from './domainScenarios';
 import { PF_SCENARIOS } from './pfScenarios';
+import { SCORING_REACH_SCENARIOS } from './scoringReachScenarios';
 import { SCORING_SCENARIOS } from './scoringScenarios';
 import type { Scenario } from './types';
 
@@ -23,7 +24,7 @@ export const SCENARIO_SETS: { id: string; title: string; scenarios: Scenario[] }
   { id: 'netif', title: 'Interfaces and virtual switches', scenarios: NETIF_SCENARIOS },
   { id: 'mtu', title: 'MTU and path MTU discovery', scenarios: MTU_SCENARIOS },
   { id: 'ssh', title: 'SSH', scenarios: SSH_SCENARIOS },
-  { id: 'scoring', title: 'Scored services (competition scoring engine)', scenarios: SCORING_SCENARIOS },
+  { id: 'scoring', title: 'Scored services (competition scoring engine)', scenarios: [...SCORING_SCENARIOS, ...SCORING_REACH_SCENARIOS] },
   { id: 'tls', title: 'TLS and certificates', scenarios: TLS_SCENARIOS },
   { id: 'kerberos', title: 'Kerberos and DNS service records', scenarios: KRB_SCENARIOS },
   { id: 'windows', title: 'Windows Server and Remote Desktop', scenarios: WIN_SCENARIOS },

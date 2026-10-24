@@ -1082,7 +1082,7 @@ export function bootHost(world: World, host: Host): void {
   for (const def of SERVICE_DEFS) {
     const rt = host.services[def.name];
     if (!rt) continue;
-    if (rt.enabled) startService(world, host, def);
+    if (rt.enabled && !rt.masked) startService(world, host, def);
   }
   if (!host.services.networking) applyNetworkConfig(world, host);
 }

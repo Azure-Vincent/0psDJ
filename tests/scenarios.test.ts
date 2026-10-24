@@ -85,6 +85,11 @@ const SYMPTOM: Record<string, RegExp> = {
   'score-root-prohibit': /attempted methods \[none password\], no supported methods remain/,
   'score-account-expired': /ssh: handshake failed: EOF/,
   'score-allowgroups': /attempted methods \[none password\], no supported methods remain/,
+  'score-sshd-masked': /dial tcp 10\.0\.20\.10:22: connect: connection refused/,
+  'score-sshd-loopback': /dial tcp 10\.0\.20\.10:22: connect: connection refused/,
+  'score-ssh-firewall-drop': /check timed out\. this is most likely due to services timing out/,
+  'score-ssh-no-route-back': /check timed out\. this is most likely due to services timing out/,
+  'score-refused-then-timeout': /check timed out\. this is most likely due to services timing out/,
   'mtu-uplink-mismatch': /curl: \(28\) Operation timed out after 30000 milliseconds with 0 out of 4718592 bytes received/,
 };
 
