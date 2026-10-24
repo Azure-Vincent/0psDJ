@@ -151,13 +151,35 @@ const systemctl: CommandDef = {
         continue;
       }
       const rt = host.services[def.name];
-      const needRoot = ['start', 'stop', 'restart', 'reload', 'enable', 'disable', 'reload-or-restart', 'try-restart'].includes(verb);
+      const needRoot = ['start', 'stop', 'restart', 'reload', 'enable', 'disable', 'reload-or-restart', 'try-restart', 'mask', 'unmask'].includes(verb);
       if (needRoot && ctx.user.uid !== 0) {
         out.push(`Failed to ${verb} ${def.unit}: Access denied`, 'See system logs and \'systemctl status ' + def.unit + '\' for details.');
         code = 1;
         continue;
       }
+      const maskedPath = `/etc/systemd/system/${def.unit}`;
+      if (rt.masked && ['start', 'restart', 'reload-or-restart', 'try-restart'].includes(verb)) {
+        out.push(`Failed to ${verb === 'reload-or-restart' || verb === 'try-restart' ? 'restart' : verb} ${def.unit}: Unit ${def.unit} is masked.`);
+        code = 1;
+        continue;
+      }
+      if (rt.masked && verb === 'enable') {
+        out.push(`Failed to enable unit: Unit file ${maskedPath} is masked.`);
+        code = 1;
+        continue;
+      }
       switch (verb) {
+        case 'mask':
+          if (!rt.masked) out.push(`Created symlink ${maskedPath} → /dev/null.`);
+          rt.masked = true;
+          writeFile(host, maskedPath, '', ctx.world.clock, { mode: 0o777 });
+          if (flags.has('--now')) stopService(ctx.world, host, def);
+          break;
+        case 'unmask':
+          if (rt.masked) out.push(`Removed "${maskedPath}".`);
+          rt.masked = false;
+          delete host.fs[maskedPath];
+          break;
         case 'status': {
           const icon = rt.state === 'active' ? '●' : rt.state === 'failed' ? '×' : '○';
           const active = rt.state === 'active'
@@ -167,7 +189,8 @@ const systemctl: CommandDef = {
               : rt.since ? `inactive (dead) since ${dayTime(rt.since)}; ${ago(ctx.world.clock - rt.since)}` : 'inactive (dead)';
           out.push(`${icon} ${def.unit} - ${def.description}`);
           const frag = unitPath(def.name) ?? `/lib/systemd/system/${def.unit}`;
-          out.push(frag.startsWith('/run/systemd/generator')
+          if (rt.masked) out.push(`     Loaded: masked (Reason: Unit ${def.unit} is masked.)`);
+          else out.push(frag.startsWith('/run/systemd/generator')
             ? `     Loaded: loaded (/etc/init.d/${def.unit.replace(/\.service$/, '')}; generated)`
             : `     Loaded: loaded (${frag}; ${rt.enabled ? 'enabled' : 'disabled'}; preset: enabled)`);
           const drop = dropIns(host, def.unit);
@@ -230,8 +253,8 @@ const systemctl: CommandDef = {
           if (rt.state !== 'active') code = 3;
           break;
         case 'is-enabled':
-          out.push(rt.enabled ? 'enabled' : 'disabled');
-          if (!rt.enabled) code = 1;
+          out.push(rt.masked ? 'masked' : rt.enabled ? 'enabled' : 'disabled');
+          if (!rt.enabled || rt.masked) code = 1;
           break;
         case 'is-failed':
           out.push(rt.state);

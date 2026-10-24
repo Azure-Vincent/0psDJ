@@ -32,13 +32,13 @@ describe('scoring engine SSH check (Go client messages)', () => {
     // Password logins not offered to this account: Go never tries the password.
     expect(errorOf(w, { ...CHECK, user: 'alice', password: 'x' })).toBe('Error: ssh: handshake failed: ssh: unable to authenticate, attempted methods [none], no supported methods remain');
     expect(errorOf(w, { ...CHECK, target: 'nosuch.corp.lab' })).toBe('Error: dial tcp: lookup nosuch.corp.lab on 10.0.10.53:53: no such host');
-    // srv01's firewall drops ports it does not allow: no answer at all.
-    expect(errorOf(w, { ...CHECK, port: 2222 })).toBe('Error: dial tcp 10.0.20.10:2222: i/o timeout');
+    // srv01's firewall drops ports it does not allow: no answer at all, so the engine's check deadline fires first.
+    expect(scoredSshCheck(w, { ...CHECK, port: 2222 }).lines.slice(1)).toEqual(['Status: Encountered an unexpected error during the check.', 'Error: check timed out. this is most likely due to services timing out']);
     const stopped = structuredClone(w);
     script(stopped, 'srv01', ['systemctl stop ssh']);
     expect(errorOf(stopped)).toBe('Error: dial tcp 10.0.20.10:22: connect: connection refused');
     script(w, 'srv01', ['nft add rule inet filter input tcp dport 22 drop', 'nft insert rule inet filter input tcp dport 22 drop']);
-    expect(errorOf(w)).toBe('Error: dial tcp 10.0.20.10:22: i/o timeout');
+    expect(errorOf(w)).toBe('Error: check timed out. this is most likely due to services timing out');
     w = baseline();
     script(w, 'srv01', [`usermod -s /usr/sbin/nologin ${SCORE_USER}`]);
     expect(scoredSshCheck(w, CHECK).lines).toContain('Error: Process exited with status 1');
@@ -144,5 +144,22 @@ describe('sshd_config: Match blocks and Include', () => {
     expect(e.usePAM).toBe(true);
     expect(e.passwordAuthentication).toBe(true);
     expect(effectiveConfig(parsed, { user: 'joe', groups: ['joe'], address: '10.0.10.25' }).passwordAuthentication).toBe(false);
+  });
+});
+
+describe('systemctl mask', () => {
+  it('refuses start and enable, shows masked, and keeps the unit down across a reboot until unmasked', () => {
+    const lab = new Lab(baseline());
+    expect(lab.run('srv01', 'root', 'systemctl mask ssh').output).toMatch(/Created symlink .* → \/dev\/null\./);
+    expect(lab.run('srv01', 'root', 'systemctl is-enabled ssh').output).toBe('masked');
+    expect(lab.run('srv01', 'root', 'systemctl start ssh').output).toMatch(/Unit ssh\.service is masked\./);
+    expect(lab.run('srv01', 'root', 'systemctl enable ssh').code).not.toBe(0);
+    expect(lab.run('srv01', 'root', 'systemctl status ssh').output).toMatch(/Loaded: masked/);
+    lab.run('srv01', 'root', 'systemctl stop ssh');
+    expect(errorOf(rebootAll(lab.world))).toBe('Error: dial tcp 10.0.20.10:22: connect: connection refused');
+    expect(lab.run('srv01', 'alice', 'systemctl unmask ssh').code).not.toBe(0);
+    lab.run('srv01', 'root', 'systemctl unmask ssh');
+    lab.run('srv01', 'root', 'systemctl start ssh');
+    expect(errorOf(lab.world)).toBe('Status: Success!');
   });
 });

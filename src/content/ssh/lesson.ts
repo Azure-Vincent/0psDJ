@@ -194,15 +194,16 @@ Competition scoring engines (CCDC and similar), monitoring and automation tools 
 | Scoring engine / Go message | OpenSSH equivalent | What it tells you | First check on the server |
 |---|---|---|---|
 | \`dial tcp: lookup NAME on 10.0.10.53:53: no such host\` | Could not resolve hostname | DNS: the engine never connected | \`dig NAME @DNS-SERVER\` |
-| \`dial tcp IP:22: i/o timeout\` | Connection timed out | No answer: firewall drop, routing, host down | \`nft list ruleset\`, \`ip route\` |
-| \`dial tcp IP:22: connect: connection refused\` | Connection refused | Host answered, nothing listens on 22 | \`systemctl status ssh\`, \`ss -tlnp\` |
+| Status "Unable to dial the remote host…" + \`dial tcp IP:22: connect: connection refused\` | Connection refused | The host answered with a reset: nothing listens on IP:22 (sshd stopped, disabled, masked, or listening on another address or port) | \`systemctl status ssh\`, \`ss -tlnp\`, \`sshd -T \\| grep -E 'listenaddress\\|port'\` |
+| Status "Encountered an unexpected error during the check." + \`check timed out. this is most likely due to services timing out\` | Connection timed out | No answer at all, so the engine's own deadline fired before Go's dial gave up: a firewall DROP, a missing route back to the engine, or the host is down | \`nft list ruleset\`, \`ip route\`, \`tcpdump -ni any port 22\` |
+| \`dial tcp IP:22: i/o timeout\` | Connection timed out | Same as the row above, from a tool whose deadline is longer than the dial timeout | \`nft list ruleset\`, \`ip route\` |
 | \`ssh: handshake failed: ssh: no common algorithm for key exchange\` | Unable to negotiate … no matching key exchange method | Algorithm lists do not overlap | \`sshd -T \\| grep kexalgorithms\` |
 | \`ssh: handshake failed: ssh: unable to authenticate, attempted methods [none password], no supported methods remain\` | Permission denied (publickey,password) | The server offered password logins and **refused the password**: wrong or changed password, locked password, pam_faillock lockout, AllowUsers/AllowGroups, PermitRootLogin | \`journalctl -u ssh -n 30\`, \`faillock --user U\`, \`passwd -S U\` |
 | \`… attempted methods [none], no supported methods remain\` | Permission denied (publickey) | Password logins are **not offered** for this account (PasswordAuthentication no, or a Match block) | \`sshd -T -C user=U,host=H,addr=IP \\| grep passwordauthentication\` |
 | \`ssh: handshake failed: EOF\` | Connection closed by IP port 22 | The server dropped the connection: expired account (PAM account check), MaxStartups, sshd crash | \`journalctl -u ssh\`, \`chage -l U\` |
 | \`Process exited with status 1\` (check command) | This account is currently not available. | Login worked; the shell or command failed (nologin shell, missing home) | \`getent passwd U\` |
 
-The same Go message ("attempted methods [none password]") covers several unrelated causes: the server log tells them apart ("Failed password", "pam_faillock … temporarily locked", "not allowed because …"). A check that fails, passes, then fails again usually means a lockout that expires and is re-triggered, or a password someone keeps changing back. Practise these in the **Scored services** tickets.
+The same Go message ("attempted methods [none password]") covers several unrelated causes: the server log tells them apart ("Failed password", "pam_faillock … temporarily locked", "not allowed because …"). A check that turns from **refused** to **timed out** means two things changed: the service came back but something now drops the packets (a firewall rule added in the meantime) — fix both, and make sure the service starts at boot. A check that fails, passes, then fails again usually means a lockout that expires and is re-triggered, or a password someone keeps changing back. Practise these in the **Scored services** tickets.
 `,
 
   errorMap: [
@@ -223,7 +224,7 @@ The same Go message ("attempted methods [none password]") covers several unrelat
     { message: 'This account is currently not available.', layer: 'Session', meaning: 'Authentication succeeded but the shell is /usr/sbin/nologin.', firstCheck: 'getent passwd USER' },
   ],
 
-  scenarioIds: ['ssh-config-typo', 'ssh-port-moved', 'ssh-firewall-drop', 'ssh-client-key-perms', 'ssh-hostkey-changed', 'ssh-bob-password', 'ssh-firewall-reject', 'ssh-dns-stale', 'ssh-missing-gateway', 'ssh-perms-strictmodes', 'ssh-allowusers', 'ssh-dns-zone-error', 'ssh-kex-legacy', 'ssh-monday-reboot', 'score-password-changed', 'score-faillock', 'score-root-prohibit', 'score-account-expired', 'score-allowgroups'],
+  scenarioIds: ['ssh-config-typo', 'ssh-port-moved', 'ssh-firewall-drop', 'ssh-client-key-perms', 'ssh-hostkey-changed', 'ssh-bob-password', 'ssh-firewall-reject', 'ssh-dns-stale', 'ssh-missing-gateway', 'ssh-perms-strictmodes', 'ssh-allowusers', 'ssh-dns-zone-error', 'ssh-kex-legacy', 'ssh-monday-reboot', 'score-password-changed', 'score-faillock', 'score-root-prohibit', 'score-account-expired', 'score-allowgroups', 'score-sshd-masked', 'score-sshd-loopback', 'score-ssh-firewall-drop', 'score-ssh-no-route-back', 'score-refused-then-timeout'],
   assessmentId: 'ssh',
   references: [
     { title: 'RFC 4251: The Secure Shell (SSH) Protocol Architecture', url: 'https://www.rfc-editor.org/rfc/rfc4251' },

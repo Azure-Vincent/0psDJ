@@ -152,6 +152,8 @@ export interface ServiceRuntime {
   /** Service-specific snapshot of the configuration loaded at (re)start. */
   loaded: unknown;
   result: string; // systemd "Result:" e.g. success, exit-code
+  /** systemctl mask: /etc/systemd/system/UNIT is a link to /dev/null; the unit cannot be started or enabled. */
+  masked?: boolean;
 }
 
 export interface LogEntry {

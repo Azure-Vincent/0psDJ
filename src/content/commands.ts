@@ -318,8 +318,8 @@ const CORE_COMMAND_REFS: CommandRef[] = [
   {
     id: 'systemctl', name: 'systemctl', platform: 'Linux', category: 'Services', simulator: 'systemctl',
     purpose: 'Controls systemd units: status, start/stop/restart/reload, enable/disable at boot.',
-    syntax: 'systemctl status|start|stop|restart|reload|enable [--now]|disable|is-active|is-enabled UNIT',
-    args: [{ arg: 'status', meaning: 'State, enablement, main PID, recent log lines' }, { arg: 'reload', meaning: 'Ask the daemon to re-read config (sshd keeps sessions)' }, { arg: 'enable --now', meaning: 'Start at boot AND start now' }],
+    syntax: 'systemctl status|start|stop|restart|reload|enable [--now]|disable|mask|unmask|is-active|is-enabled UNIT',
+    args: [{ arg: 'status', meaning: 'State, enablement, main PID, recent log lines' }, { arg: 'reload', meaning: 'Ask the daemon to re-read config (sshd keeps sessions)' }, { arg: 'enable --now', meaning: 'Start at boot AND start now' }, { arg: 'mask / unmask', meaning: 'mask links the unit to /dev/null: it cannot be started by hand, by another unit or at boot until unmasked' }],
     example: { command: 'systemctl status ssh', output: '× ssh.service - OpenBSD Secure Shell server\n     Loaded: loaded (/lib/systemd/system/ssh.service; enabled; preset: enabled)\n     Active: failed (Result: exit-code) since Mon 2026-10-19 08:41:02 UTC; 3min ago\n    Process: 1290 ExecStartPre=/usr/sbin/sshd -t (code=exited, status=255/EXCEPTION)' },
     interpretation: '"enabled" = will start at boot; "active (running)" = running now. status=255 from ExecStartPre=sshd -t means the config test failed: the next lines of the journal say why.',
     limitations: 'Status shows only the last few log lines; use journalctl -u UNIT for history.',

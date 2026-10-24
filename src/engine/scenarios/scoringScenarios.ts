@@ -34,7 +34,7 @@ Match User root Address ${SCORER_IP}
     PermitRootLogin yes
 `;
 
-const JOE_CHECK: ScoredSshGoal = {
+export const JOE_CHECK: ScoredSshGoal = {
   kind: 'scored-ssh', fromHost: 'ws01', fromUser: 'alice', target: 'srv01.corp.lab', user: SCORE_USER, password: SCORE_PASSWORD,
   description: `The scoring engine's SSH check passes again: it logs in to srv01.corp.lab as ${SCORE_USER} with the published password (${SCORE_PASSWORD}) and runs whoami.`,
 };
@@ -43,12 +43,12 @@ const ROOT_CHECK: ScoredSshGoal = {
   description: `The scoring engine's root SSH check passes again: it logs in to srv01.corp.lab as root with the published password (${SCORE_ROOT_PASSWORD}) from ${SCORER_IP} and runs whoami.`,
 };
 
-const TERMINALS = [
+export const SCORING_TERMINALS = [
   { hostId: 'srv01', user: 'root', label: 'srv01 console (root)', banner: 'srv01 console (hypervisor), logged in as root. Scored service: SSH. Try: journalctl -u ssh -n 20, faillock --user joe, passwd -S joe, chage -l joe, sshd -T -C user=joe,host=ws01,addr=10.0.10.25.' },
   { hostId: 'ws01', user: 'alice', label: 'ws01 (alice)', banner: `ws01 (${SCORER_IP}): the scoring engine's checks come from this address. Reproduce a check with: ssh -o PubkeyAuthentication=no ${SCORE_USER}@srv01.corp.lab (password ${SCORE_PASSWORD}).` },
 ];
 
-const BRIEFING = [
+export const SCORING_BRIEFING = [
   'Competition: the white team\'s scoring engine checks your services every few minutes. A check that fails costs points; its results table shows the raw error of its Go SSH client.',
   `Scored service: SSH on srv01.corp.lab (10.0.20.10). The engine logs in from ${SCORER_IP} as ${SCORE_USER} (password ${SCORE_PASSWORD}) and, for some checks, as root (${SCORE_ROOT_PASSWORD}), then runs whoami. It ignores host keys and tries the password once.`,
   'srv01 policy (CHG-1042): key-only SSH logins and no root logins, except the password logins the competition rules require: the scored group, and root from the scoring engine only (/etc/ssh/sshd_config.d/50-scoring.conf).',
@@ -76,7 +76,7 @@ function loadedSshd(world: World): SshdLoaded | null {
   return (world.hosts.srv01.services.ssh?.loaded as SshdLoaded | null) ?? null;
 }
 
-function aliceKeysStillWork(): Constraint {
+export function aliceKeysStillWork(): Constraint {
   const goal: Goal = { description: '', localUser: 'alice', user: 'alice', target: 'srv01.corp.lab', method: 'publickey' };
   return {
     id: 'alice-key-login', required: true,
@@ -155,9 +155,9 @@ export const SCORING_SCENARIOS: Scenario[] = [
     title: 'The red team\'s souvenir',
     difficulty: 'beginner',
     ticket: `Scoring engine, SSH (srv01): failing since 02:14. "Unable to dial the remote host. Make sure the host is up, and credentials are correct - ssh: handshake failed: ssh: unable to authenticate, attempted methods [none password], no supported methods remain". Teammate: "Nobody on our team touched ${SCORE_USER}."`,
-    briefing: BRIEFING,
+    briefing: SCORING_BRIEFING,
     goals: [JOE_CHECK],
-    terminals: TERMINALS,
+    terminals: SCORING_TERMINALS,
     setup(world) {
       scoringBaseline(world);
       // The red team got in with a reused password and changed joe's.
@@ -173,7 +173,7 @@ export const SCORING_SCENARIOS: Scenario[] = [
       'account-locked': `passwd -S ${SCORE_USER} shows P (usable password), not L (locked).`,
       'user-not-allowed': 'The log says "Failed password", not "not allowed because ...": the account passes the AllowUsers/AllowGroups checks.',
       'auth-method-disabled': '"attempted methods [none password]" means password was offered by the server and tried: password logins are enabled for this account.',
-      'firewall-drop': 'A firewall problem fails at "dial tcp ... i/o timeout", before any SSH handshake. Here authentication was reached.',
+      'firewall-drop': 'A firewall that drops SSH gives no answer at all: the engine reports "check timed out", before any SSH handshake. Here authentication was reached.',
       'sshd-not-running': 'sshd answered and offered password authentication: it is running.',
     },
     hints: [
@@ -197,9 +197,9 @@ export const SCORING_SCENARIOS: Scenario[] = [
     title: 'Locked out by the attacker',
     difficulty: 'intermediate',
     ticket: `Scoring engine, SSH (srv01): failing for 20 minutes with "ssh: handshake failed: ssh: unable to authenticate, attempted methods [none password], no supported methods remain". Teammate: "I checked, ${SCORE_USER}'s password is still the published one. I also turned on account lockout this morning, like the hardening guide says."`,
-    briefing: [...BRIEFING, `Hardening this morning: pam_faillock enabled on srv01 (/etc/pam.d/common-auth, /etc/security/faillock.conf).`],
+    briefing: [...SCORING_BRIEFING, `Hardening this morning: pam_faillock enabled on srv01 (/etc/pam.d/common-auth, /etc/security/faillock.conf).`],
     goals: [JOE_CHECK],
-    terminals: [...TERMINALS, { hostId: 'dev01', user: 'erin', label: 'dev01 (erin)', banner: `dev01 (${ATTACKER_IP}), a developer workstation on VLAN 30.` }],
+    terminals: [...SCORING_TERMINALS, { hostId: 'dev01', user: 'erin', label: 'dev01 (erin)', banner: `dev01 (${ATTACKER_IP}), a developer workstation on VLAN 30.` }],
     setup(world) {
       scoringBaseline(world);
       writeFile(world.hosts.srv01, '/etc/pam.d/common-auth', COMMON_AUTH_FAILLOCK, world.clock);
@@ -246,9 +246,9 @@ export const SCORING_SCENARIOS: Scenario[] = [
     title: 'Root, but only with keys',
     difficulty: 'intermediate',
     ticket: 'Scoring engine, SSH root check (srv01): failing since the last round with "ssh: handshake failed: ssh: unable to authenticate, attempted methods [none password], no supported methods remain". The joe check still passes. Teammate: "I tightened 50-scoring.conf: root should only use keys, per the hardening guide."',
-    briefing: BRIEFING,
+    briefing: SCORING_BRIEFING,
     goals: [ROOT_CHECK, JOE_CHECK],
-    terminals: TERMINALS,
+    terminals: SCORING_TERMINALS,
     setup(world) {
       scoringBaseline(world);
       script(world, 'srv01', ["sed -i 's/^    PermitRootLogin yes$/    PermitRootLogin prohibit-password/' /etc/ssh/sshd_config.d/50-scoring.conf", 'systemctl reload ssh'], 60_000);
@@ -286,9 +286,9 @@ export const SCORING_SCENARIOS: Scenario[] = [
     title: 'Account hygiene',
     difficulty: 'intermediate',
     ticket: `Scoring engine, SSH (srv01): failing since the account clean-up with "ssh: handshake failed: EOF". Teammate: "I ran the inactive-accounts script from the hardening checklist: it expires accounts nobody logged in to interactively for 90 days."`,
-    briefing: BRIEFING,
+    briefing: SCORING_BRIEFING,
     goals: [JOE_CHECK],
-    terminals: TERMINALS,
+    terminals: SCORING_TERMINALS,
     setup(world) {
       scoringBaseline(world);
       script(world, 'srv01', [`chage -E 2026-10-01 ${SCORE_USER}`], 60_000);
@@ -326,9 +326,9 @@ export const SCORING_SCENARIOS: Scenario[] = [
     title: 'Only admins may SSH',
     difficulty: 'beginner',
     ticket: 'Scoring engine, SSH (srv01): both checks failing after the audit fix, "ssh: handshake failed: ssh: unable to authenticate, attempted methods [none password], no supported methods remain". Teammate: "Audit finding: restrict SSH to the admin group. Done: AllowGroups sshadmins. My key login still works."',
-    briefing: BRIEFING,
+    briefing: SCORING_BRIEFING,
     goals: [JOE_CHECK, ROOT_CHECK],
-    terminals: TERMINALS,
+    terminals: SCORING_TERMINALS,
     setup(world) {
       scoringBaseline(world);
       script(world, 'srv01', ['usermod -aG sshadmins alice', "printf 'AllowGroups sshadmins\\n' >> /etc/ssh/sshd_config.d/10-hardening.conf", 'systemctl reload ssh'], 60_000);

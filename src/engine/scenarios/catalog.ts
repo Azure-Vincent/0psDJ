@@ -436,5 +436,10 @@ export const CAUSES: Record<string, Cause> = Object.fromEntries(
       signature: 'Password logins fail with the right password ("Failed password" + pam_unix authentication failure) while key logins may still work. passwd -S <user> shows L and the /etc/shadow hash starts with "!".',
       check: 'passwd -S <user>; grep <user> /etc/shadow; unlock with passwd -u <user> or usermod -U <user>.',
     },
+    {
+      id: 'service-masked', title: 'Service unit masked (systemctl mask: linked to /dev/null)', category: 'Service', concept: 'svc.systemd',
+      signature: 'The service is down and cannot be started or enabled: "Failed to start X.service: Unit X.service is masked.", systemctl status shows "Loaded: masked", is-enabled prints "masked". It stays down after reboots. Clients get "connection refused".',
+      check: 'systemctl status UNIT; systemctl is-enabled UNIT; ls -l /etc/systemd/system/UNIT; fix with systemctl unmask UNIT && systemctl enable --now UNIT.',
+    },
   ] as Cause[]).map((c) => [c.id, c]),
 );
