@@ -232,7 +232,13 @@ export function parseSshdConfig(
         for (const pattern of args) {
           const re = globToRegExp(pattern);
           const files = listFiles().filter((f) => re.test(f)).sort();
-          for (const f of files) parseFile(f, depth + 1);
+          for (const f of files) {
+            // A Match block opened in an included file ends with that file:
+            // the including file continues in the context it had before.
+            const outer = currentMatch;
+            parseFile(f, depth + 1);
+            currentMatch = outer;
+          }
         }
         return;
       }
@@ -285,9 +291,6 @@ export function parseSshdConfig(
   };
 
   parseFile(path, 0);
-  // A Match block opened in an included file ends at the end of that file in
-  // real sshd; our blocks are tracked globally which is equivalent for the
-  // configs used by the labs (Match blocks live at the end of the main file).
   return result;
 }
 

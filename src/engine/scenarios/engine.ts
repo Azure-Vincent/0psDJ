@@ -8,6 +8,7 @@ import { Shell } from '../shell/shell';
 import type { World } from '../types';
 import { CAUSES } from './catalog';
 import { isWindows } from '../win/model';
+import { scoredSshCheck } from './scoring';
 import type { Constraint, ConstraintResult, Goal, Scenario } from './types';
 
 /** Run shell commands as root on a host, mutating `world` in place (used to inject faults). */
@@ -38,11 +39,13 @@ export function goalLabel(goal: Goal): string {
   if (goal.kind === 'http') return `${goal.fromHost}: curl ${goal.curlFlags ? goal.curlFlags + ' ' : ''}${goal.url}`;
   if (goal.kind === 'resolve') return `${goal.fromHost}: resolve ${goal.name}`;
   if (goal.kind === 'rdp') return `${goal.fromHost}: xfreerdp /v:${goal.target} /u:${goal.user}`;
+  if (goal.kind === 'scored-ssh') return `scoring engine: SSH ${goal.user}@${goal.target} (password)`;
   if (goal.kind === 'kerberos') return `${goal.fromHost}: kinit ${goal.localUser}${goal.sshTarget ? ` + ssh ${goal.sshTarget} (Kerberos)` : ''}`;
   return `${goal.user}@${goal.target}`;
 }
 
 export function checkGoal(world: World, goal: Goal): GoalResult {
+  if (goal.kind === 'scored-ssh') return { goal, ...scoredSshCheck(world, goal) };
   const w = structuredClone(world);
   if (goal.kind === 'kerberos') {
     let cur = w;

@@ -32,6 +32,8 @@ export interface UserAccount {
   gecos: string;
   /** Plain-text password for the simulation only; null = no password set (locked). */
   password: string | null;
+  /** Account expiry as a day number (days since 1970-01-01, the 8th field of /etc/shadow); undefined/null/-1 = never. */
+  expires?: number | null;
 }
 
 export interface Addr6 {

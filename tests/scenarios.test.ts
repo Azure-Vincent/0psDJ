@@ -80,6 +80,11 @@ const SYMPTOM: Record<string, RegExp> = {
   'pf-outbound-manual': /Couldn't connect to server/,
   'pf-alias-wrong': /No route to host/,
   'pf-rule-source': /Couldn't connect to server/,
+  'score-password-changed': /attempted methods \[none password\], no supported methods remain/,
+  'score-faillock': /attempted methods \[none password\], no supported methods remain/,
+  'score-root-prohibit': /attempted methods \[none password\], no supported methods remain/,
+  'score-account-expired': /ssh: handshake failed: EOF/,
+  'score-allowgroups': /attempted methods \[none password\], no supported methods remain/,
   'mtu-uplink-mismatch': /curl: \(28\) Operation timed out after 30000 milliseconds with 0 out of 4718592 bytes received/,
 };
 

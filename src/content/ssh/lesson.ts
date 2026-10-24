@@ -187,6 +187,22 @@ Use the explorer below: it runs the simulator's sshd parser on your text and sho
 5. **Fix in the persistent configuration**, then verify now AND after a reboot, and check you did not weaken security.
 
 The client is deliberately vague about authentication failures (to avoid helping attackers). Authorization and permission problems are only explained in the **server log**.
+
+### Scoring engines and other programs (Go's SSH client)
+Competition scoring engines (CCDC and similar), monitoring and automation tools are often written in Go and report **Go's** error text, not OpenSSH's. They usually log in with a password, try it **once**, and ignore host keys. Translate the message, then investigate exactly as above:
+
+| Scoring engine / Go message | OpenSSH equivalent | What it tells you | First check on the server |
+|---|---|---|---|
+| \`dial tcp: lookup NAME on 10.0.10.53:53: no such host\` | Could not resolve hostname | DNS: the engine never connected | \`dig NAME @DNS-SERVER\` |
+| \`dial tcp IP:22: i/o timeout\` | Connection timed out | No answer: firewall drop, routing, host down | \`nft list ruleset\`, \`ip route\` |
+| \`dial tcp IP:22: connect: connection refused\` | Connection refused | Host answered, nothing listens on 22 | \`systemctl status ssh\`, \`ss -tlnp\` |
+| \`ssh: handshake failed: ssh: no common algorithm for key exchange\` | Unable to negotiate … no matching key exchange method | Algorithm lists do not overlap | \`sshd -T \\| grep kexalgorithms\` |
+| \`ssh: handshake failed: ssh: unable to authenticate, attempted methods [none password], no supported methods remain\` | Permission denied (publickey,password) | The server offered password logins and **refused the password**: wrong or changed password, locked password, pam_faillock lockout, AllowUsers/AllowGroups, PermitRootLogin | \`journalctl -u ssh -n 30\`, \`faillock --user U\`, \`passwd -S U\` |
+| \`… attempted methods [none], no supported methods remain\` | Permission denied (publickey) | Password logins are **not offered** for this account (PasswordAuthentication no, or a Match block) | \`sshd -T -C user=U,host=H,addr=IP \\| grep passwordauthentication\` |
+| \`ssh: handshake failed: EOF\` | Connection closed by IP port 22 | The server dropped the connection: expired account (PAM account check), MaxStartups, sshd crash | \`journalctl -u ssh\`, \`chage -l U\` |
+| \`Process exited with status 1\` (check command) | This account is currently not available. | Login worked; the shell or command failed (nologin shell, missing home) | \`getent passwd U\` |
+
+The same Go message ("attempted methods [none password]") covers several unrelated causes: the server log tells them apart ("Failed password", "pam_faillock … temporarily locked", "not allowed because …"). A check that fails, passes, then fails again usually means a lockout that expires and is re-triggered, or a password someone keeps changing back. Practise these in the **Scored services** tickets.
 `,
 
   errorMap: [
@@ -201,10 +217,13 @@ The client is deliberately vague about authentication failures (to avoid helping
     { message: 'WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!', layer: 'Transport (host key)', meaning: 'known_hosts holds a different key for this name. Rebuilt server, wrong IP in DNS, or interception.', firstCheck: 'Compare fingerprints out-of-band (ssh-keygen -lf on the server console); dig NAME' },
     { message: 'Permission denied (publickey)', layer: 'Authentication / authorization', meaning: 'Only publickey is offered and no key was accepted: missing/wrong key, unsafe permissions (StrictModes), account not allowed, or client could not load its key.', firstCheck: 'journalctl -u ssh on the server; ssh -v ("Offering"/"Server accepts key"); ls -ld ~ ~/.ssh' },
     { message: 'Permission denied, please try again.', layer: 'Authentication', meaning: 'A password was rejected (wrong password, invalid/not-allowed user, root login refused).', firstCheck: 'journalctl -u ssh: "Failed password for [invalid user] …"' },
+    { message: 'ssh: handshake failed: ssh: unable to authenticate, attempted methods [none password], no supported methods remain (Go / scoring engine)', layer: 'Authentication / authorization', meaning: 'Go\'s client (scoring engines, monitoring) tried a password the server offered and it was refused. Same as OpenSSH "Permission denied (publickey,password)": wrong or changed password, locked password, pam_faillock lockout, AllowUsers/AllowGroups or PermitRootLogin.', firstCheck: 'journalctl -u ssh -n 30 on the server; faillock --user USER; passwd -S USER' },
+    { message: 'ssh: handshake failed: EOF (Go / scoring engine)', layer: 'Account / service', meaning: 'The server closed the connection during the handshake or login: an expired account (PAM account check), MaxStartups throttling, or something that is not sshd on the port.', firstCheck: 'journalctl -u ssh; chage -l USER' },
+    { message: 'Your account has expired; please contact your system administrator.', layer: 'Account (PAM)', meaning: 'Authentication succeeded but PAM\'s account phase refused the expired account; sshd logs "fatal: Access denied for user … by PAM account configuration".', firstCheck: 'chage -l USER; chage -E -1 USER to remove the expiry' },
     { message: 'This account is currently not available.', layer: 'Session', meaning: 'Authentication succeeded but the shell is /usr/sbin/nologin.', firstCheck: 'getent passwd USER' },
   ],
 
-  scenarioIds: ['ssh-config-typo', 'ssh-port-moved', 'ssh-firewall-drop', 'ssh-client-key-perms', 'ssh-hostkey-changed', 'ssh-bob-password', 'ssh-firewall-reject', 'ssh-dns-stale', 'ssh-missing-gateway', 'ssh-perms-strictmodes', 'ssh-allowusers', 'ssh-dns-zone-error', 'ssh-kex-legacy', 'ssh-monday-reboot'],
+  scenarioIds: ['ssh-config-typo', 'ssh-port-moved', 'ssh-firewall-drop', 'ssh-client-key-perms', 'ssh-hostkey-changed', 'ssh-bob-password', 'ssh-firewall-reject', 'ssh-dns-stale', 'ssh-missing-gateway', 'ssh-perms-strictmodes', 'ssh-allowusers', 'ssh-dns-zone-error', 'ssh-kex-legacy', 'ssh-monday-reboot', 'score-password-changed', 'score-faillock', 'score-root-prohibit', 'score-account-expired', 'score-allowgroups'],
   assessmentId: 'ssh',
   references: [
     { title: 'RFC 4251: The Secure Shell (SSH) Protocol Architecture', url: 'https://www.rfc-editor.org/rfc/rfc4251' },

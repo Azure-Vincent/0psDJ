@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { SCORING_SCENARIOS } from '../src/engine/scenarios/scoringScenarios';
 import { SSH_ASSESSMENT } from '../src/content/ssh/assessment';
 import { COMMAND_EXERCISES, COMMAND_REFS } from '../src/content/commands';
 import { SSH_LESSON } from '../src/content/ssh/lesson';
@@ -67,8 +68,10 @@ describe('command exercises and reference', () => {
     for (const c of COMMAND_REFS) if (c.simulator) expect(COMMANDS[c.simulator], c.id).toBeDefined();
   });
   it('lesson links to existing scenarios', () => {
-    for (const id of SSH_LESSON.scenarioIds) expect(SSH_SCENARIOS.some((s) => s.id === id)).toBe(true);
-    expect(SSH_LESSON.scenarioIds).toHaveLength(SSH_SCENARIOS.length);
+    // The SSH lesson covers its own tickets and the scored-service (competition) SSH tickets.
+    const linked = [...SSH_SCENARIOS, ...SCORING_SCENARIOS];
+    for (const id of SSH_LESSON.scenarioIds) expect(linked.some((s) => s.id === id), id).toBe(true);
+    expect(SSH_LESSON.scenarioIds).toHaveLength(linked.length);
   });
 });
 

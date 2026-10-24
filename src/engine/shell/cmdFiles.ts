@@ -2,7 +2,8 @@
 // chmod, chown, stat, cd, pwd, id, whoami, editors, passwd, usermod.
 
 import { basename, canAccess, canTraverse, dirname, listDir, mkdir, modeString, normalizePath, writeFile } from '../fs';
-import { formatSyslogTime, isoTime } from '../sim/journal';
+import { FAILLOCK_DIR, faillockConf, faillockRecords, faillockReset } from '../sim/accounts';
+import { formatSyslogTime, isoTime, log } from '../sim/journal';
 import type { FileNode, Host, Interface } from '../types';
 import { type CmdCtx, type CommandDef, err, ok, parseFlags } from './types';
 
@@ -31,7 +32,7 @@ export function virtualFile(host: Host, path: string): string | undefined {
   }
   if (path === '/etc/shadow') {
     return Object.values(host.users)
-      .map((u) => `${u.name}:${u.password === null ? '!' : '$y$j9T$simulated$hash'}:20015:0:99999:7:::`)
+      .map((u) => `${u.name}:${u.password === null ? '!' : `${u.password.startsWith('!') ? '!' : ''}$y$j9T$simulated$hash`}:20015:0:99999:7::${u.expires !== undefined && u.expires !== null && u.expires >= 0 ? u.expires : ''}:`)
       .join('\n') + '\n';
   }
   if (path === '/proc/sys/net/ipv4/ip_forward') return host.ipForward ? '1\n' : '0\n';
@@ -515,15 +516,47 @@ const editor: CommandDef = {
   },
 };
 
+const SHADOW_LASTCHG = 20015; // 2024-10-19: the day the lab accounts were created
+
+/** "Oct 19, 2026" as chage prints dates. */
+function chageDate(day: number): string {
+  const d = new Date(day * 86_400_000);
+  return `${['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][d.getUTCMonth()]} ${String(d.getUTCDate()).padStart(2, '0')}, ${d.getUTCFullYear()}`;
+}
+
+/** YYYY-MM-DD, -1 / '' (never) or a day number, as chage -E and usermod -e accept them. */
+function parseExpiry(v: string): number | null | undefined {
+  if (v === '-1' || v === '') return null;
+  if (/^\d+$/.test(v)) return Number(v);
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(v);
+  if (!m) return undefined;
+  return Math.floor(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])) / 86_400_000);
+}
+
 const passwd: CommandDef = {
   name: 'passwd',
-  summary: 'change a user password',
-  usage: 'passwd [USER]',
+  summary: 'change a user password; -S status, -l lock, -u unlock',
+  usage: 'passwd [-S|-l|-u] [USER]',
   run(args, ctx) {
-    const target = args[0] ?? ctx.user.name;
+    const opt = args.find((a) => /^-[Slu]$/.test(a));
+    const target = args.find((a) => !a.startsWith('-')) ?? ctx.user.name;
     const u = ctx.host.users[target];
     if (!u) return err(`passwd: user '${target}' does not exist`);
     if (ctx.user.uid !== 0 && target !== ctx.user.name) return err(`passwd: You may not view or modify password information for ${target}.`);
+    if (opt === '-S') {
+      const st = u.password === null || u.password.startsWith('!') ? 'L' : u.password === '' ? 'NP' : 'P';
+      const d = new Date(SHADOW_LASTCHG * 86_400_000);
+      return ok(`${u.name} ${st} ${String(d.getUTCMonth() + 1).padStart(2, '0')}/${String(d.getUTCDate()).padStart(2, '0')}/${d.getUTCFullYear()} 0 99999 7 -1`);
+    }
+    if (opt === '-l' || opt === '-u') {
+      if (ctx.user.uid !== 0) return err('passwd: Permission denied.');
+      if (opt === '-l' && u.password !== null && !u.password.startsWith('!')) u.password = '!' + u.password;
+      if (opt === '-u') {
+        if (u.password === null || u.password === '!') return err('passwd: unlocking the password would result in a passwordless account.\nYou should set a password with usermod -p to unlock the password of this account.', 3);
+        if (u.password.startsWith('!')) u.password = u.password.slice(1);
+      }
+      return ok('passwd: password changed.');
+    }
     if (ctx.user.uid !== 0) {
       const cur = ctx.ask(`Current password: `, true);
       if (cur !== u.password) return err('passwd: Authentication token manipulation error\npasswd: password unchanged');
@@ -533,17 +566,102 @@ const passwd: CommandDef = {
     if (a !== b) return err('Sorry, passwords do not match.\npasswd: Authentication token manipulation error\npasswd: password unchanged', 10);
     if (!a) return err('No password has been supplied.\npasswd: Authentication token manipulation error\npasswd: password unchanged', 10);
     u.password = a;
+    log(ctx.world, ctx.host, 'passwd', `pam_unix(passwd:chauthtok): password changed for ${u.name}`, { pid: ctx.host.nextPid++, priority: 'notice' });
     return ok('passwd: password updated successfully');
+  },
+};
+
+const chpasswd: CommandDef = {
+  name: 'chpasswd',
+  summary: 'set passwords in batch from standard input (USER:PASSWORD lines)',
+  usage: "echo 'USER:PASSWORD' | chpasswd",
+  run(_args, ctx) {
+    if (ctx.user.uid !== 0) return err('chpasswd: Permission denied.\nchpasswd: cannot lock /etc/passwd; try again later.', 1);
+    const lines = (ctx.stdin ?? '').split('\n').filter((l) => l.trim());
+    const errors: string[] = [];
+    lines.forEach((l, i) => {
+      const at = l.indexOf(':');
+      if (at < 0) { errors.push(`chpasswd: line ${i + 1}: missing new password`); return; }
+      const name = l.slice(0, at);
+      const u = ctx.host.users[name];
+      if (!u) { errors.push(`chpasswd: (user ${name}) pam_chauthtok() failed, error:\nAuthentication token manipulation error\nchpasswd: (line ${i + 1}, user ${name}) password not changed`); return; }
+      u.password = l.slice(at + 1);
+      log(ctx.world, ctx.host, 'chpasswd', `pam_unix(chpasswd:chauthtok): password changed for ${name}`, { pid: ctx.host.nextPid++, priority: 'notice' });
+    });
+    return errors.length ? err(errors.join('\n'), 1) : ok('');
+  },
+};
+
+const chage: CommandDef = {
+  name: 'chage',
+  summary: 'show or change account and password expiry (-l USER, -E DATE|-1 USER)',
+  usage: 'chage -l USER | chage -E YYYY-MM-DD|-1 USER',
+  run(args, ctx) {
+    const { flags, rest } = parseFlags(args, ['-E']);
+    const name = rest[0];
+    if (!name) return err('Usage: chage [options] LOGIN\n\nOptions:\n  -E, --expiredate EXPIRE_DATE  set account expiration date to EXPIRE_DATE\n  -l, --list                    show account aging information', 2);
+    const u = ctx.host.users[name];
+    if (!u) return err(`chage: user '${name}' does not exist in /etc/passwd`, 1);
+    if (flags.has('-l') && !flags.has('-E')) {
+      if (ctx.user.uid !== 0 && ctx.user.name !== name) return err('chage: Permission denied.', 1);
+      const exp = u.expires !== undefined && u.expires !== null && u.expires >= 0 ? chageDate(u.expires) : 'never';
+      return ok([
+        `Last password change\t\t\t\t\t: ${chageDate(SHADOW_LASTCHG)}`,
+        'Password expires\t\t\t\t\t: never',
+        'Password inactive\t\t\t\t\t: never',
+        `Account expires\t\t\t\t\t\t: ${exp}`,
+        'Minimum number of days between password change\t\t: 0',
+        'Maximum number of days between password change\t\t: 99999',
+        'Number of days of warning before password expires\t: 7',
+      ].join('\n'));
+    }
+    if (ctx.user.uid !== 0) return err('chage: Permission denied.', 1);
+    if (flags.has('-E')) {
+      const v = parseExpiry(String(flags.get('-E')));
+      if (v === undefined) return err(`chage: invalid date '${flags.get('-E')}'`, 2);
+      u.expires = v;
+      return ok('');
+    }
+    return err('chage: interactive mode is not available here; use -l, -E', 2);
+  },
+};
+
+const faillock: CommandDef = {
+  name: 'faillock',
+  summary: 'show or reset pam_faillock login failure records (--user USER, --reset)',
+  usage: 'faillock [--user USER] [--reset]',
+  run(args, ctx) {
+    const { flags } = parseFlags(args, ['--user']);
+    const only = flags.get('--user') as string | undefined;
+    if (only !== undefined && !ctx.host.users[only]) return err(`faillock: Unknown user: ${only}`, 1);
+    if (ctx.user.uid !== 0 && only !== ctx.user.name) return err(`faillock: Error opening the tally file for ${only ?? 'all users'}: Permission denied`, 1);
+    const users = only ? [only] : Object.keys(ctx.host.fs).filter((p) => p.startsWith(`${FAILLOCK_DIR}/`)).map((p) => p.slice(FAILLOCK_DIR.length + 1)).sort();
+    if (flags.has('--reset')) {
+      if (ctx.user.uid !== 0) return err('faillock: Error resetting the tally: Permission denied', 1);
+      for (const u of users) faillockReset(ctx.host, u);
+      return ok('');
+    }
+    const conf = faillockConf(ctx.host);
+    const interval = (conf?.failInterval ?? 900) * 1000;
+    const out: string[] = [];
+    for (const u of users) {
+      out.push(`${u}:`, 'When                Type  Source                                           Valid');
+      for (const r of faillockRecords(ctx.host, u)) {
+        const when = isoTime(r.time).replace('T', ' ').slice(0, 19);
+        out.push(`${when} RHOST ${r.source.padEnd(48)} ${ctx.world.clock - r.time <= interval ? 'V' : 'I'}`);
+      }
+    }
+    return ok(out.join('\n'));
   },
 };
 
 const usermod: CommandDef = {
   name: 'usermod',
-  summary: 'modify a user account (-aG GROUP, -s SHELL, -L/-U)',
-  usage: 'usermod [-aG GROUP] [-s SHELL] [-L|-U] USER',
+  summary: 'modify a user account (-aG GROUP, -s SHELL, -L/-U, -e EXPIRE)',
+  usage: 'usermod [-aG GROUP] [-s SHELL] [-L|-U] [-e YYYY-MM-DD|\'\'] USER',
   run(args, ctx) {
     if (ctx.user.uid !== 0) return err('usermod: Permission denied.\nusermod: cannot lock /etc/passwd; try again later.');
-    const { flags, rest } = parseFlags(args, ['-G', '-s']);
+    const { flags, rest } = parseFlags(args, ['-G', '-s', '-e']);
     if (!rest[0]) return err('Usage: usermod [options] LOGIN\n\nOptions:\n  -a, --append                  append the user to the supplemental GROUPS\n                                mentioned by the -G option without removing\n                                the user from other groups\n  -G, --groups GROUPS           new list of supplementary GROUPS\n  -L, --lock                    lock the user account\n  -s, --shell SHELL             new login shell for the user account\n  -U, --unlock                  unlock the user account', 2);
     const u = ctx.host.users[rest[0]];
     if (!u) return err(`usermod: user '${rest[0]}' does not exist`, 6);
@@ -552,6 +670,11 @@ const usermod: CommandDef = {
       u.groups = flags.has('-a') ? [...new Set([...u.groups, ...gs])] : gs;
     }
     if (flags.has('-s')) u.shell = String(flags.get('-s'));
+    if (flags.has('-e')) {
+      const v = parseExpiry(String(flags.get('-e')));
+      if (v === undefined) return err(`usermod: invalid date '${flags.get('-e')}'`, 3);
+      u.expires = v;
+    }
     if (flags.has('-L') && u.password && !u.password.startsWith('!')) u.password = '!' + u.password;
     if (flags.has('-U') && u.password?.startsWith('!')) u.password = u.password.slice(1);
     return ok('');
@@ -926,7 +1049,7 @@ const diff: CommandDef = {
 
 export const FILE_COMMANDS: CommandDef[] = [tee, sed, printf, copyOrMove('cp'), copyOrMove('mv'), diff,
   ls, cat, headTail('head'), headTail('tail'), grep, wc, echo, touch, mkdirCmd, rm, chmod, chown, stat, cd, pwd,
-  whoami, id, editor, { ...editor, name: 'vi' }, { ...editor, name: 'vim' }, { ...editor, name: 'editor' }, passwd, usermod,
+  whoami, id, editor, { ...editor, name: 'vi' }, { ...editor, name: 'vim' }, { ...editor, name: 'editor' }, passwd, chpasswd, chage, faillock, usermod,
 ];
 
 export { basename };
