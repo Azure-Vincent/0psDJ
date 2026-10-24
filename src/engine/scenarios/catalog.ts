@@ -152,6 +152,21 @@ export const CAUSES: Record<string, Cause> = Object.fromEntries(
       check: 'On the router: sysctl net.ipv4.ip_forward; grep -r ip_forward /etc/sysctl.conf /etc/sysctl.d/; tcpdump on both interfaces.',
     },
     {
+      id: 'web-config-error', title: 'nginx configuration error: the service failed to (re)start', category: 'Configuration', concept: 'svc.systemd',
+      signature: 'nginx is "failed" after a restart and nothing listens on :80 or :443 (connection refused). journalctl -u nginx and nginx -t show an [emerg] line naming the file and line (a missing certificate, a typo, a bad listen).',
+      check: 'nginx -t; systemctl status nginx; journalctl -u nginx -n 20.',
+    },
+    {
+      id: 'web-file-permissions', title: 'Web files not readable by the nginx worker (www-data)', category: 'Permissions', concept: 'linux.permissions',
+      signature: 'The site answers 403 Forbidden. error.log: open() "…/index.html" failed (13: Permission denied) or "… is forbidden (13: Permission denied)". The workers run as www-data: every directory on the path needs x, the file needs r.',
+      check: 'tail /var/log/nginx/error.log; namei -l /var/www/html/index.html (or ls -ld each directory); sudo -u www-data cat the file.',
+    },
+    {
+      id: 'web-content-changed', title: 'Site content replaced (defacement)', category: 'Service', concept: 'svc.listening',
+      signature: 'The server answers 200 OK, but the page is not the expected one. The file under the web root changed (ls -l: new time, owner or mode); access.log shows who requested it.',
+      check: 'curl the page and compare; ls -l and diff against the backup or package copy; who can write the file (ls -l, find -perm -o+w).',
+    },
+    {
       id: 'listen-loopback', title: 'Service listens only on 127.0.0.1 (loopback)', category: 'Service', concept: 'svc.listening',
       signature: 'Connections from other hosts are refused (RST) while the same request from the server itself works. ss -tlnp shows 127.0.0.1:PORT instead of 0.0.0.0:PORT.',
       check: 'ss -tlnp on the server; the service\'s listen/bind configuration (nginx: listen; sshd: ListenAddress).',

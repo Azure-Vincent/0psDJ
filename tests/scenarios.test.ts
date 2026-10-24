@@ -90,6 +90,13 @@ const SYMPTOM: Record<string, RegExp> = {
   'score-ssh-firewall-drop': /check timed out\. this is most likely due to services timing out/,
   'score-ssh-no-route-back': /check timed out\. this is most likely due to services timing out/,
   'score-refused-then-timeout': /check timed out\. this is most likely due to services timing out/,
+  'score-web-forbidden': /expected status code 200, got 403 \(403 Forbidden\)/,
+  'score-web-defaced': /expected content "Corp Lab Intranet" not found in the page \(page title: "owned"\)/,
+  'score-web-cert-renamed': /Get "http:\/\/www\.corp\.lab\/": dial tcp 10\.0\.20\.10:80: connect: connection refused/,
+  'score-web-https-only': /check timed out\. this is most likely due to services timing out/,
+  'score-dns-hijack': /www\.corp\.lab\. A: expected 10\.0\.20\.10, got 10\.0\.30\.66/,
+  'score-dns-servfail': /www\.corp\.lab\. A: server answered SERVFAIL/,
+  'score-dns-firewall': /check timed out\. this is most likely due to services timing out/,
   'mtu-uplink-mismatch': /curl: \(28\) Operation timed out after 30000 milliseconds with 0 out of 4718592 bytes received/,
 };
 

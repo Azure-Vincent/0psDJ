@@ -85,7 +85,7 @@ function progressMeter(size: number, ms: number): string {
 const curl: CommandDef = {
   name: 'curl',
   summary: 'transfer a URL over HTTP or HTTPS',
-  usage: 'curl [-4|-6] [-I] [-v] [-s] [-k] [-L] [--cacert FILE] [--resolve HOST:PORT:ADDR] [-m SECONDS] [-o FILE|-O] [-w FORMAT] URL',
+  usage: 'curl [-4|-6] [-I|-i] [-v] [-s] [-k] [-L] [--cacert FILE] [--resolve HOST:PORT:ADDR] [-m SECONDS] [-o FILE|-O] [-w FORMAT] URL',
   run(args, ctx) {
     const { flags, rest } = parseFlags(args, ['-m', '--max-time', '--connect-timeout', '-o', '--output', '--cacert', '--resolve', '-w', '--write-out']);
     const url = rest[0];
@@ -96,6 +96,7 @@ const curl: CommandDef = {
     const showErr = !silent || flags.has('-S') || flags.has('--show-error');
     const verbose = flags.has('-v') || flags.has('--verbose');
     const head = flags.has('-I') || flags.has('--head');
+    const include = flags.has('-i') || flags.has('--include');
     const insecure = flags.has('-k') || flags.has('--insecure');
     const follow = flags.has('-L') || flags.has('--location');
     const max = flags.get('-m') ?? flags.get('--max-time');
@@ -229,7 +230,7 @@ const curl: CommandDef = {
       if (recorder) recorder.phase = 'HTTP';
       vlog.push(`> ${head ? 'HEAD' : 'GET'} ${path} HTTP/1.1`, `> Host: ${hostHeader}`, '> User-Agent: curl/7.88.1', '> Accept: */*', '>');
       conn.send('c2s', 78 + path.length + hostHeader.length + (proto === 'TLS' ? 22 : 0), { protocol: proto, info: proto === 'TLS' ? 'Application Data' : `${reqInfo} Host: ${hostHeader}`, fields: [], encrypted: proto === 'TLS' });
-      const res: HttpResponse = handleRequest(server, srv, { method: head ? 'HEAD' : 'GET', path, hostHeader, plainOnTls: scheme === 'http' && sockTls, now: ctx.world.clock });
+      const res: HttpResponse = handleRequest(server, srv, { method: head ? 'HEAD' : 'GET', path, hostHeader, plainOnTls: scheme === 'http' && sockTls, now: ctx.world.clock, client: { ip: conn.sv.peer, ua: 'curl/7.88.1' } });
       const statusLine = `HTTP/1.1 ${res.status} ${res.reason}`;
       const hdrs = [statusLine, ...res.headers.map(([k, v]) => `${k}: ${v}`)];
       const hb = headerBytes(res);
@@ -272,7 +273,7 @@ const curl: CommandDef = {
       if (res.binary) {
         return err([verbose ? vlog.join('\n') : '', 'Warning: Binary output can mess up your terminal. Use "--output -" to tell \nWarning: curl to output it to your console anyway, or consider "--output \nWarning: <FILE>" to save to a file.'].filter(Boolean).join('\n'), 23);
       }
-      return ok([verbose ? vlog.join('\n') : '', res.body.replace(/\n$/, ''), wo].filter(Boolean).join('\n'));
+      return ok([verbose ? vlog.join('\n') : '', include && !verbose ? `${hdrs.join('\n')}\n` : '', res.body.replace(/\n$/, ''), wo].filter(Boolean).join('\n'));
     }
   },
 };

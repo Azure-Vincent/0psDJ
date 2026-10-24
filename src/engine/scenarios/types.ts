@@ -93,7 +93,33 @@ export interface ScoredSshGoal {
   command?: string;
 }
 
-export type Goal = SshGoal | HttpGoal | ResolveGoal | KerberosGoal | RdpGoal | ScoredSshGoal;
+/**
+ * The scoring engine's web check: one GET with Go's net/http client (redirects
+ * not followed, certificates not verified), then the status code and a
+ * pattern in the page are compared with what the white team expects.
+ */
+export interface ScoredWebGoal {
+  kind: 'scored-web';
+  description: string;
+  fromHost: string;
+  url: string;
+  /** Default 200. */
+  status?: number;
+  /** A regular expression the page must contain. */
+  content?: string;
+}
+
+/** The scoring engine's DNS check: one UDP query to the team's DNS server; the answer must contain the expected address. */
+export interface ScoredDnsGoal {
+  kind: 'scored-dns';
+  description: string;
+  fromHost: string;
+  server: string;
+  name: string;
+  expect: string;
+}
+
+export type Goal = SshGoal | HttpGoal | ResolveGoal | KerberosGoal | RdpGoal | ScoredSshGoal | ScoredWebGoal | ScoredDnsGoal;
 
 export interface ConstraintResult {
   id: string;
