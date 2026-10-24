@@ -67,11 +67,24 @@
     },
     "win": {
       "target": [
+        "nsis",
         "portable",
         "zip"
       ],
       "icon": "build/icon.png",
-      "signAndEditExecutable": false
+      "signAndEditExecutable": true
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Infrastructure Lab",
+      "uninstallDisplayName": "Infrastructure Lab",
+      "artifactName": "InfrastructureLab-Setup-${version}-win-x64.${ext}"
+    },
+    "portable": {
+      "artifactName": "InfrastructureLab-${version}-win-x64-portable.${ext}"
     },
     "mac": {
       "target": [
