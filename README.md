@@ -45,7 +45,7 @@ For every technology it answers the same questions:
   machine configured from the files the design generates. You get terminals
   on each machine and a packet tracer that shows every hop and every firewall
   and NAT decision.
-- **85 troubleshooting tickets**, each injecting a realistic fault into the
+- **92 troubleshooting tickets**, each injecting a realistic fault into the
   lab. You investigate with real commands in terminals, record a diagnosis and
   repair the fault. The app then checks your fix immediately, again after
   rebooting every machine, and against security rules, so "just open the
@@ -57,7 +57,12 @@ For every technology it answers the same questions:
   failures: "connection refused" (sshd stopped, masked with `systemctl mask`,
   or listening on loopback only) and the engine's "check timed out. this is
   most likely due to services timing out" (a firewall drop, no route back to
-  the engine, or a check that went from refused to timed out).
+  the engine, or a check that went from refused to timed out). The engine's
+  web and DNS checks are covered too: a 403 from web files nginx cannot read,
+  a defaced page (200 OK, wrong content), nginx failing to start after a
+  certificate rename, port 80 closed for "HTTPS only", a hijacked DNS record,
+  a zone that answers SERVFAIL after one typo, and a firewall that allows
+  DNS over TCP only.
 - **7 end-to-end case studies**: SSH refused, a server with no Internet, a failed
   domain login, an unreachable Docker app, pfSense blocking traffic, RDP broken
   by a policy change, and several services failing at once.

@@ -200,7 +200,7 @@ Rules added with \`nft add rule …\` live in the kernel only. On Debian, \`nfta
     { message: 'Firewall wide open after a change', layer: 'Persistence', meaning: '"systemctl restart nftables" flushed the ruleset, then failed to load a broken file.', firstCheck: 'systemctl status nftables; journalctl -u nftables; nft -c -f /etc/nftables.conf' },
   ],
 
-  scenarioIds: ['fw-nginx-stopped', 'fw-tcp-reset', 'ssh-firewall-drop', 'ssh-firewall-reject', 'fw-cidr-guest', 'fw-no-established', 'fw-router-forward', 'ssh-monday-reboot'],
+  scenarioIds: ['fw-nginx-stopped', 'fw-tcp-reset', 'ssh-firewall-drop', 'ssh-firewall-reject', 'fw-cidr-guest', 'fw-no-established', 'fw-router-forward', 'ssh-monday-reboot', 'score-web-https-only', 'score-dns-firewall'],
   assessmentId: 'nftables',
   references: [
     { title: 'nft(8) manual page', url: 'https://www.netfilter.org/projects/nftables/manpage.html' },

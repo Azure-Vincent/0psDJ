@@ -371,16 +371,20 @@ const rm: CommandDef = {
   },
 };
 
-function applySymbolic(mode: number, spec: string): number | null {
+/** Symbolic modes; X = execute only for directories or files that already have an execute bit (GNU chmod). */
+function applySymbolic(mode: number, spec: string, isDir = false): number | null {
   let m = mode;
   for (const part of spec.split(',')) {
-    const r = /^([ugoa]*)([+\-=])([rwxt]*)$/.exec(part);
+    const r = /^([ugoa]*)([+\-=])([rwxXt]*)$/.exec(part);
     if (!r) return null;
     const who = r[1] || 'a';
     let bits = 0;
     for (const w of who === 'a' ? 'ugo' : who) {
       const shift = w === 'u' ? 6 : w === 'g' ? 3 : 0;
-      for (const p of r[3]) if (p !== 't') bits |= (p === 'r' ? 4 : p === 'w' ? 2 : 1) << shift;
+      for (const p of r[3]) {
+        if (p === 't' || (p === 'X' && !isDir && (mode & 0o111) === 0)) continue;
+        bits |= (p === 'r' ? 4 : p === 'w' ? 2 : 1) << shift;
+      }
     }
     if (r[2] === '+') m |= bits;
     else if (r[2] === '-') m &= ~bits;
@@ -408,7 +412,7 @@ const chmod: CommandDef = {
       for (const t of targets) {
         const n = ctx.host.fs[t];
         if (ctx.user.uid !== 0 && n.owner !== ctx.user.name) return err(`chmod: changing permissions of '${f}': Operation not permitted`);
-        const next = /^[0-7]{3,4}$/.test(spec) ? parseInt(spec, 8) : applySymbolic(n.mode, spec);
+        const next = /^[0-7]{3,4}$/.test(spec) ? parseInt(spec, 8) : applySymbolic(n.mode, spec, n.type === 'dir');
         if (next === null) return err(`chmod: invalid mode: '${spec}'`);
         n.mode = next;
       }
@@ -458,6 +462,28 @@ const stat: CommandDef = {
         `Access: (${(n.mode & 0o7777).toString(8).padStart(4, '0')}/${modeString(n)})  Uid: (${String(uid).padStart(5)}/${n.owner.padStart(8)})   Gid: (${String(ctx.host.users[n.group]?.gid ?? 0).padStart(5)}/${n.group.padStart(8)})`,
         `Modify: ${new Date(Math.floor(n.mtime)).toISOString().replace('T', ' ').replace('Z', ' +0000')}`,
       );
+    }
+    return ok(out.join('\n'));
+  },
+};
+
+/** namei -l (util-linux): every component of a path with its mode and owner. */
+const namei: CommandDef = {
+  name: 'namei',
+  summary: 'follow a pathname and list the permissions of each component',
+  usage: 'namei -l PATH',
+  run(args, ctx) {
+    const { rest } = parseFlags(args, []);
+    if (!rest[0]) return err('namei: pathname argument is missing\nTry \'namei --help\' for more information.');
+    const p = resolvePath(ctx, rest[0]);
+    const out = [`f: ${rest[0]}`];
+    const parts = p.split('/').filter(Boolean);
+    let cur = '';
+    for (const [i, part] of ['', ...parts].entries()) {
+      cur = i === 0 ? '/' : `${cur === '/' ? '' : cur}/${part}`;
+      const n = ctx.host.fs[cur];
+      if (!n) { out.push(` ${part} - No such file or directory`); return err(out.join('\n'), 1); }
+      out.push(`${modeString(n)} ${n.owner} ${n.group} ${i === 0 ? '/' : part}`);
     }
     return ok(out.join('\n'));
   },
@@ -959,11 +985,13 @@ function copyOrMove(name: 'cp' | 'mv'): CommandDef {
       let dst = resolvePath(ctx, dstArg);
       if (ctx.host.fs[dst]?.type === 'dir') dst = `${dst === '/' ? '' : dst}/${basename(src)}`;
       if (dst === src) return err(`${name}: '${srcArg}' and '${dstArg}' are the same file`);
+      const existing = ctx.host.fs[dst]?.mode;
       const e = writeChecked(ctx, dst, n.content ?? '');
       if (e) return err(`${name}: cannot create regular file '${dstArg}': ${e}`);
       const d = ctx.host.fs[dst];
       const keep = name === 'mv' || flags.has('-a') || flags.has('-p') || flags.has('--preserve');
-      d.mode = n.mode;
+      // cp onto an existing file rewrites its content and keeps its mode (unless -p/-a).
+      d.mode = name === 'cp' && !keep && existing !== undefined ? existing : n.mode;
       if (n.size !== undefined) d.size = n.size;
       if (keep && ctx.user.uid === 0) { d.owner = n.owner; d.group = n.group; }
       if (keep) d.mtime = n.mtime;
@@ -1047,7 +1075,7 @@ const diff: CommandDef = {
   },
 };
 
-export const FILE_COMMANDS: CommandDef[] = [tee, sed, printf, copyOrMove('cp'), copyOrMove('mv'), diff,
+export const FILE_COMMANDS: CommandDef[] = [namei, tee, sed, printf, copyOrMove('cp'), copyOrMove('mv'), diff,
   ls, cat, headTail('head'), headTail('tail'), grep, wc, echo, touch, mkdirCmd, rm, chmod, chown, stat, cd, pwd,
   whoami, id, editor, { ...editor, name: 'vi' }, { ...editor, name: 'vim' }, { ...editor, name: 'editor' }, passwd, chpasswd, chage, faillock, usermod,
 ];

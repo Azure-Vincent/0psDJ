@@ -4,7 +4,7 @@
 // push real full-size segments through the network, so MTU problems show up
 // exactly where they do in practice: small requests work, large responses stall.
 
-import { canAccess, canTraverse } from '../fs';
+import { canAccess, canTraverse, mkdir, readFile, writeFile } from '../fs';
 import type { Host, UserAccount } from '../types';
 import type { NginxLoaded, NginxLoadedServer } from './services';
 import { keyIdFor, makeCert } from './pki';
@@ -126,42 +126,78 @@ function handleIisRequest(host: Host, s: NginxLoadedServer, req: { method: strin
   };
 }
 
+export interface HttpRequestInfo {
+  method: string; path: string; hostHeader: string; plainOnTls: boolean; now: number;
+  /** Client address and User-Agent: when given, nginx writes its access log (and error log on failures). */
+  client?: { ip: string; ua: string };
+}
+
+const pad2 = (n: number) => String(n).padStart(2, '0');
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+function appendLog(host: Host, path: string, line: string, now: number): void {
+  if (!host.fs['/var/log/nginx']) mkdir(host, '/var/log/nginx', now, { mode: 0o755, owner: 'root', group: 'adm' });
+  const prev = readFile(host, path) ?? '';
+  writeFile(host, path, prev + line + '\n', now, host.fs[path] ? undefined : { mode: 0o640, owner: 'www-data', group: 'adm' });
+}
+
+/** nginx's access.log (combined format) and error.log lines for a request. */
+function logRequest(host: Host, req: HttpRequestInfo, r: HttpResponse, error?: string): void {
+  if (!req.client) return;
+  const d = new Date(Math.floor(req.now));
+  const access = `${pad2(d.getUTCDate())}/${MONTHS[d.getUTCMonth()]}/${d.getUTCFullYear()}:${pad2(d.getUTCHours())}:${pad2(d.getUTCMinutes())}:${pad2(d.getUTCSeconds())} +0000`;
+  const bytes = req.method === 'HEAD' ? 0 : r.size;
+  appendLog(host, '/var/log/nginx/access.log', `${req.client.ip} - - [${access}] "${req.method} ${req.path} HTTP/1.1" ${r.status} ${bytes} "-" "${req.client.ua}"`, req.now);
+  if (error) {
+    const stamp = `${d.getUTCFullYear()}/${pad2(d.getUTCMonth() + 1)}/${pad2(d.getUTCDate())} ${pad2(d.getUTCHours())}:${pad2(d.getUTCMinutes())}:${pad2(d.getUTCSeconds())}`;
+    const pid = host.services.nginx?.pid ?? 0;
+    appendLog(host, '/var/log/nginx/error.log', `${stamp} [error] ${pid + 1}#${pid + 1}: *1 ${error}, client: ${req.client.ip}, server: ${''}, request: "${req.method} ${req.path} HTTP/1.1", host: "${req.hostHeader}"`, req.now);
+  }
+}
+
 /** nginx answering one request (GET/HEAD) for `path` on server block `s`. */
-export function handleRequest(host: Host, s: NginxLoadedServer, req: { method: string; path: string; hostHeader: string; plainOnTls: boolean; now: number }): HttpResponse {
+export function handleRequest(host: Host, s: NginxLoadedServer, req: HttpRequestInfo): HttpResponse {
   if (host.kind === 'windows') return handleIisRequest(host, s, req);
+  const out = nginxRequest(host, s, req);
+  logRequest(host, req, out.res, out.error);
+  return out.res;
+}
+
+function nginxRequest(host: Host, s: NginxLoadedServer, req: HttpRequestInfo): { res: HttpResponse; error?: string } {
   const base: [string, string][] = [['Server', NGINX_VERSION], ['Date', httpDate(req.now)]];
   const page = (status: number, body: string, more: [string, string][] = [], close = false): HttpResponse => ({
     status, reason: REASON[status], body, size: body.length, binary: false,
     headers: [...base, ['Content-Type', 'text/html'], ['Content-Length', String(body.length)], ['Connection', close ? 'close' : 'keep-alive'], ...more],
   });
   if (req.plainOnTls) {
-    return page(400, errorPage(400, '400 The plain HTTP request was sent to HTTPS port', '<center>The plain HTTP request was sent to HTTPS port</center>\n'), [], true);
+    return { res: page(400, errorPage(400, '400 The plain HTTP request was sent to HTTPS port', '<center>The plain HTTP request was sent to HTTPS port</center>\n'), [], true) };
   }
   if (s.ret) {
     const target = s.ret.target.replace('$host', req.hostHeader.replace(/:\d+$/, '')).replace('$server_name', s.names[0] ?? '').replace('$request_uri', req.path);
-    return page(s.ret.code, errorPage(s.ret.code), target ? [['Location', target]] : []);
+    return { res: page(s.ret.code, errorPage(s.ret.code), target ? [['Location', target]] : []) };
   }
   const clean = decodeURIComponent(req.path.split('?')[0]).replace(/\/+/g, '/');
   let fsPath = (s.root === '/' ? '' : s.root) + clean;
   let node = host.fs[fsPath.replace(/\/$/, '') || '/'];
   if (node?.type === 'dir') {
-    if (!clean.endsWith('/')) return page(301, errorPage(301), [['Location', `http://${req.hostHeader}${clean}/`]]);
+    if (!clean.endsWith('/')) return { res: page(301, errorPage(301), [['Location', `http://${req.hostHeader}${clean}/`]]) };
     const dir = fsPath.replace(/\/$/, '');
     const idx = s.index.map((i) => `${dir}/${i}`).find((p) => host.fs[p]?.type === 'file');
-    if (!idx) return page(403, errorPage(403));
+    if (!idx) return { res: page(403, errorPage(403)), error: `directory index of "${dir}/" is forbidden` };
     fsPath = idx;
     node = host.fs[idx];
   }
-  if (!node || node.type !== 'file') return page(404, errorPage(404));
-  if (!canTraverse(host, fsPath, WWW_DATA) || !canAccess(node, WWW_DATA, 'r')) return page(403, errorPage(403));
+  if (!node || node.type !== 'file') return { res: page(404, errorPage(404)), error: `open() "${fsPath}" failed (2: No such file or directory)` };
+  if (!canTraverse(host, fsPath, WWW_DATA)) return { res: page(403, errorPage(403)), error: `"${fsPath}" is forbidden (13: Permission denied)` };
+  if (!canAccess(node, WWW_DATA, 'r')) return { res: page(403, errorPage(403)), error: `open() "${fsPath}" failed (13: Permission denied)` };
   const size = node.size ?? node.content.length;
   const ext = /\.([a-z0-9]+)$/i.exec(fsPath)?.[1]?.toLowerCase() ?? '';
   const type = MIME[ext] ?? 'application/octet-stream';
   const etag = `"${Math.floor(node.mtime / 1000).toString(16)}-${size.toString(16)}"`;
-  return {
+  return { res: {
     status: 200, reason: 'OK', body: node.content, size, binary: node.size !== undefined || !/^(text|application\/(json|javascript))/.test(type),
     headers: [...base, ['Content-Type', type], ['Content-Length', String(size)], ['Last-Modified', httpDate(node.mtime)], ['Connection', 'keep-alive'], ['ETag', etag], ['Accept-Ranges', 'bytes']],
-  };
+  } };
 }
 
 /** Size of the response header block on the wire. */

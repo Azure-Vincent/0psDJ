@@ -186,7 +186,7 @@ TLS configuration is mostly about **which files** a server loads and **which roo
     { message: '400 The plain HTTP request was sent to HTTPS port', layer: 'Protocol', meaning: 'Plain HTTP spoken to a TLS port.', firstCheck: 'Use https:// for that port' },
   ],
 
-  scenarioIds: ['tls-expired', 'tls-wrong-cert', 'tls-missing-intermediate', 'tls-untrusted-root', 'tls-key-mismatch'],
+  scenarioIds: ['tls-expired', 'tls-wrong-cert', 'tls-missing-intermediate', 'tls-untrusted-root', 'tls-key-mismatch', 'score-web-cert-renamed'],
   assessmentId: 'tls',
   references: [
     { title: 'RFC 8446: The Transport Layer Security (TLS) Protocol Version 1.3', url: 'https://www.rfc-editor.org/rfc/rfc8446' },

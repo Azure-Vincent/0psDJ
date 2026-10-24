@@ -134,6 +134,23 @@ The transport layer is mostly configured by applications (which address and port
 2. **Does the transport connect?** \`nc -zv -w 5 HOST PORT\`. Succeeded → the problem is in the application protocol. Refused → nothing listening on that address (or a reset by a firewall). Timed out → dropped somewhere.
 3. **Is the service bound where you think?** \`ss -tlnp\` on the server: address AND port.
 4. **What is on the wire?** \`tcpdump -n port PORT\` on either end; look for SYN without SYN-ACK, RST, ICMP.
+
+### Scoring engines: web and DNS checks
+Competition scoring engines (and many monitoring tools) are written in Go. Their web check makes **one GET**, does not follow redirects and usually skips certificate checks, then compares the status code and looks for a word on the page. Their DNS check sends **one UDP query** straight to your DNS server and compares the address. The status wording differs between engines; the **Error** line is Go's own text, and it tells you the layer:
+
+| Engine error | Layer | What it tells you | First check |
+|---|---|---|---|
+| \`Get "http://…": dial tcp IP:80: connect: connection refused\` | Transport | The host answered with a reset: nothing listens on port 80 (nginx stopped or failed to start, bound elsewhere) | \`systemctl status nginx\`, \`nginx -t\`, \`ss -tlnp\` |
+| "check timed out" (web or DNS) | Network / firewall | No answer at all: a drop rule, no route back, host down. For DNS: is **UDP** 53 allowed? | \`nft list ruleset\`, \`ip route\`, \`dig @SERVER NAME\` |
+| \`dial tcp: lookup NAME on NS:53: no such host\` / \`server misbehaving\` | DNS | The engine could not resolve the name: NXDOMAIN / SERVFAIL. The web server was never contacted | \`dig NAME\` (status:) |
+| \`expected status code 200, got 403\` | Application | nginx answered and refused: file permissions (the workers run as www-data) | \`tail /var/log/nginx/error.log\`, \`namei -l FILE\` |
+| \`expected status code 200, got 301\` / \`404\` | Application | A redirect the engine does not follow, or a missing page | \`curl -i URL\` (no -L) |
+| \`expected content "…" not found in the page\` | Content | 200 OK but the wrong page: defaced, default page, wrong server block | \`curl URL\`, \`ls -l\` the web root, diff with a backup |
+| DNS: \`expected 10.0.20.10, got …\` | DNS data | The server answered with the wrong record | the zone file, \`dig @SERVER NAME\` |
+| DNS: \`server answered SERVFAIL\` | DNS server | The zone did not load: one bad line rejects the whole file | \`journalctl -u named\`, \`named-checkzone\` |
+| DNS: \`read udp …->IP:53: read: connection refused\` | DNS server | ICMP port unreachable: nothing listens on UDP 53 there (named stopped) | \`systemctl status named\`, \`ss -ulnp\` |
+
+A check that returns **200 with the wrong content** fails as surely as one that times out: test with the same request the engine makes (\`curl -sS -i URL\`, \`dig @SERVER NAME\`), not only "is the service up". Practise these in the **Scored services** tickets.
 `,
 
   errorMap: [
@@ -142,10 +159,11 @@ The transport layer is mostly configured by applications (which address and port
     { message: 'Connection refused', layer: 'Transport', meaning: 'RST: no socket on that address:port (or bound only to 127.0.0.1), or a reject rule.', firstCheck: 'ss -tlnp on the server' },
     { message: 'Connection timed out', layer: 'Transport / network', meaning: 'No reply to repeated SYNs.', firstCheck: 'tcpdump on both ends; firewalls; return route' },
     { message: 'Works by IP, fails by name', layer: 'DNS', meaning: 'The transport is fine; resolution is wrong or failing.', firstCheck: 'getent hosts NAME vs dig NAME' },
+    { message: 'lookup NAME on IP:53: server misbehaving', layer: 'DNS', meaning: 'Go\'s resolver (scoring engines, many tools) for a SERVFAIL or REFUSED answer: the DNS server answered but could not resolve the name.', firstCheck: 'dig @IP NAME (status:); journalctl -u named on the server' },
     { message: 'Works on the server (localhost), refused remotely', layer: 'Socket binding', meaning: 'Service bound to 127.0.0.1 only.', firstCheck: 'ss -tlnp: Local Address column' },
   ],
 
-  scenarioIds: ['net-dns-resolvconf', 'net-hosts-override', 'net-nginx-loopback', 'ssh-dns-zone-error', 'ssh-config-typo', 'fw-no-established'],
+  scenarioIds: ['net-dns-resolvconf', 'net-hosts-override', 'net-nginx-loopback', 'ssh-dns-zone-error', 'ssh-config-typo', 'fw-no-established', 'score-web-forbidden', 'score-web-defaced', 'score-dns-hijack', 'score-dns-servfail', 'score-dns-firewall'],
   assessmentId: 'transport',
   references: [
     { title: 'RFC 9293: Transmission Control Protocol', url: 'https://www.rfc-editor.org/rfc/rfc9293' },

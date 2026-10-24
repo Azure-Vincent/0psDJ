@@ -35,6 +35,7 @@ export function parseZone(text: string, origin: string, file: string): Zone {
   // Join parenthesised multi-line records; remember whether the record's first
   // line started with whitespace (meaning "same owner name as previous record").
   const joined: { text: string; line: number; blankOwner: boolean }[] = [];
+  const lines = new Map<number, number>();
   let buf = '';
   let startLine = 0;
   let blankOwner = false;
@@ -70,6 +71,7 @@ export function parseZone(text: string, origin: string, file: string): Zone {
     const type = (toks[i++] ?? '').toUpperCase();
     const rdata = toks.slice(i);
     lastName = name;
+    lines.set(records.length, line);
     switch (type) {
       case 'SOA':
         if (rdata.length < 7) throw new ZoneError(`${file}:${line}: SOA record incomplete`);
@@ -77,7 +79,7 @@ export function parseZone(text: string, origin: string, file: string): Zone {
         records.push({ name, ttl: rttl, type: 'SOA', data: rdata.join(' ') });
         break;
       case 'A':
-        if (!/^\d+\.\d+\.\d+\.\d+$/.test(rdata[0] ?? '')) throw new ZoneError(`${file}:${line}: bad dotted quad`);
+        if (!/^\d+\.\d+\.\d+\.\d+$/.test(rdata[0] ?? '') || rdata[0].split('.').some((o) => Number(o) > 255)) throw new ZoneError(`${file}:${line}: bad dotted quad`);
         records.push({ name, ttl: rttl, type: 'A', data: rdata[0] });
         break;
       case 'AAAA': {
@@ -112,6 +114,13 @@ export function parseZone(text: string, origin: string, file: string): Zone {
     }
   }
   if (!records.some((r) => r.type === 'SOA')) throw new ZoneError(`${file}: no SOA record`);
+  // RFC 1034 §3.6.2: a name with a CNAME has no other data.
+  records.forEach((r, k) => {
+    if (r.type === 'CNAME' && records.some((o) => o !== r && o.name === r.name)) {
+      const other = records.findIndex((o, j) => j !== k && o.name === r.name);
+      throw new ZoneError(`${file}:${lines.get(Math.max(k, other))}: ${r.name.replace(/\.$/, '')}: CNAME and other data`);
+    }
+  });
   return { origin: curOrigin, records, serial };
 }
 
