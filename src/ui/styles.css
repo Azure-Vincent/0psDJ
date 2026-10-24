@@ -278,10 +278,17 @@ textarea { width: 100%; font-family: var(--mono); font-size: 12.5px; }
 .callout.warn { border-color: var(--warn); background: var(--warn-soft); }
 .callout.ok { border-color: var(--ok); background: var(--ok-soft); }
 .callout.err { border-color: var(--err); background: var(--err-soft); }
-.tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--border); margin: 12px 0 16px; flex-wrap: wrap; }
-.tabs button { border: none; border-bottom: 2px solid transparent; border-radius: 0; background: none; padding: 8px 12px; color: var(--muted); }
+/* One row of tabs: scrolls sideways instead of wrapping; the edge that hides more tabs fades out. */
+.tabs { position: relative; display: flex; gap: 2px; border-bottom: 1px solid var(--border); margin: 12px 0 16px; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; overscroll-behavior-x: contain; }
+.tabs::-webkit-scrollbar { display: none; }
+.tabs.fade-r { -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 40px), transparent); mask-image: linear-gradient(to right, #000 calc(100% - 40px), transparent); }
+.tabs.fade-l { -webkit-mask-image: linear-gradient(to left, #000 calc(100% - 40px), transparent); mask-image: linear-gradient(to left, #000 calc(100% - 40px), transparent); }
+.tabs.fade-l.fade-r { -webkit-mask-image: linear-gradient(to right, transparent, #000 40px, #000 calc(100% - 40px), transparent); mask-image: linear-gradient(to right, transparent, #000 40px, #000 calc(100% - 40px), transparent); }
+.tabs button { flex: none; white-space: nowrap; border: none; border-bottom: 2px solid transparent; border-radius: 0; background: none; padding: 8px 12px; color: var(--muted); }
+.tabs button:hover:not(:disabled):not(.active) { color: var(--text); border-bottom-color: var(--border); }
 .tabs button.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
-.tabs button .n { font-size: 11px; color: var(--muted); margin-right: 5px; }
+.tabs button:focus-visible { outline: 2px solid var(--accent); outline-offset: -4px; border-radius: 4px; }
+.tabs button .n { font-size: 11px; color: var(--muted); margin-left: 6px; font-weight: 400; }
 .md p { margin: 6px 0 10px; }
 .md ul, .md ol { margin: 4px 0 10px; padding-left: 22px; }
 .md li { margin: 2px 0; }

@@ -13,6 +13,7 @@ import { LabTerminals } from '../components/LabTerminals';
 import { Inline, Markdown } from '../components/Markdown';
 import { PrimerChecks, PrimerIntro, PrimerWalkthrough } from '../components/PrimerView';
 import { SequenceDiagram } from '../components/SequenceDiagram';
+import { TabBar } from '../components/TabBar';
 import { CidrCalculator, HookDiagram, PacketTester } from '../components/FirewallWidgets';
 import { RunVisualizer } from '../components/RunVisualizer';
 import { GuideView } from '../components/GuideView';
@@ -29,13 +30,13 @@ import type { ReactNode } from 'react';
 import { go, routeQuery, useProgress } from '../state';
 
 export const SECTIONS: Section[] = [
-  { id: 'what', title: 'What is it?' },
+  { id: 'what', title: 'What is it?', short: 'Overview' },
   { id: 'internals', title: 'How it works' },
   { id: 'visualize', title: 'Visualize' },
   { id: 'deploy', title: 'Deploy' },
-  { id: 'config', title: 'Configuration' },
-  { id: 'operate', title: 'Operate & recover' },
-  { id: 'troubleshoot', title: 'Troubleshooting' },
+  { id: 'config', title: 'Configuration', short: 'Config' },
+  { id: 'operate', title: 'Operate & recover', short: 'Operate' },
+  { id: 'troubleshoot', title: 'Troubleshooting', short: 'Troubleshoot' },
   { id: 'assess', title: 'Assessment' },
 ];
 
@@ -429,13 +430,12 @@ export function LessonPage({ lessonId, section }: { lessonId: string; section: s
           </div>
         )}
       </div>
-      <div className="tabs" role="tablist">
-        {sections.map((s, i) => (
-          <button key={s.id} role="tab" aria-selected={sec === s.id} className={sec === s.id ? 'active' : ''} onClick={() => go(`lesson/${L.id}/${s.id}`)}>
-            <span className="n">{i + 1}</span>{s.title}
-          </button>
-        ))}
-      </div>
+      <TabBar
+        label="Lesson sections"
+        items={sections.map((s) => ({ id: s.id, label: s.short ?? s.title, title: s.short ? s.title : undefined }))}
+        active={sec}
+        onSelect={(id) => go(`lesson/${L.id}/${id}`)}
+      />
       {sec === 'what' && (
         <>
           {L.primer && <PrimerIntro p={L.primer} />}
