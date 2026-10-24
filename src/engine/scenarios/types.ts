@@ -75,7 +75,25 @@ export interface RdpGoal {
   password: string;
 }
 
-export type Goal = SshGoal | HttpGoal | ResolveGoal | KerberosGoal | RdpGoal;
+/**
+ * A competition scoring engine's SSH check: a Go client logs in once with a
+ * password (no keys, host key ignored) and runs a command. Results use Go's
+ * error text ("ssh: handshake failed: ssh: unable to authenticate, ...").
+ */
+export interface ScoredSshGoal {
+  kind: 'scored-ssh';
+  description: string;
+  /** Where the scoring engine's checks come from in the lab. */
+  fromHost: string;
+  fromUser: string;
+  target: string;
+  user: string;
+  password: string;
+  port?: number;
+  command?: string;
+}
+
+export type Goal = SshGoal | HttpGoal | ResolveGoal | KerberosGoal | RdpGoal | ScoredSshGoal;
 
 export interface ConstraintResult {
   id: string;

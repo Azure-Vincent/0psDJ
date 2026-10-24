@@ -2,6 +2,7 @@
 // troubleshooting: config validation at start, bind() results, reload semantics,
 // enablement at boot, and the sockets each service listens on.
 
+import { faillockClearAll } from './accounts';
 import { effectiveConfig, formatErrors, parseSshdConfig, type SshdEffective } from '../config/sshdConfig';
 import { emptyRuleset, NftError, parseRulesetFile } from '../config/nft';
 import { parseInterfaces, vlanOf } from '../config/netconf';
@@ -1055,6 +1056,7 @@ export function bootHost(world: World, host: Host): void {
   host.pmtu = {};
   host.routes6 = [];
   host.nft = emptyRuleset();
+  faillockClearAll(host);
   for (const rt of Object.values(host.services)) {
     rt.state = 'inactive';
     rt.pid = null;

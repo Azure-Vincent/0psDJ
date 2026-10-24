@@ -411,5 +411,30 @@ export const CAUSES: Record<string, Cause> = Object.fromEntries(
       signature: 'Hosts directly on the interface\'s subnet pass, hosts on networks routed to the firewall through that interface are blocked by the default deny (firewall log: blocked on that interface, source in a routed network). The pass rule\'s source is the "<interface> net" macro.',
       check: 'Firewall log entries (source address, interface, rule); Firewall > Rules > <interface> source; pfctl -sr | grep <interface>.',
     },
+    {
+      id: 'score-password-changed', title: 'The account\'s password was changed (no longer the one the client uses)', category: 'Authentication', concept: 'ssh.userauth',
+      signature: 'Password logins with the expected password fail; the server logs "Failed password for <user>" and "pam_unix(sshd:auth): authentication failure". The journal shows a password change (chpasswd / passwd: "password changed for <user>") around the time the failures started. Go clients: "unable to authenticate, attempted methods [none password]".',
+      check: 'journalctl -u ssh -n 30; journalctl -t chpasswd -t passwd; try the expected password on the console (su - <user>).',
+    },
+    {
+      id: 'pam-faillock-lockout', title: 'Account locked by pam_faillock after repeated failures', category: 'Authentication', concept: 'ssh.userauth',
+      signature: 'Even the correct password fails. The server logs "pam_faillock(sshd:auth): Consecutive login failures for user <user> account temporarily locked" and no pam_unix check. faillock --user <user> lists recent failures (often from one source). With a non-zero unlock_time the failures are intermittent.',
+      check: 'faillock --user <user>; cat /etc/security/faillock.conf (deny, unlock_time); grep pam_faillock /etc/pam.d/common-auth; journalctl -u ssh.',
+    },
+    {
+      id: 'root-login-prohibited', title: 'PermitRootLogin forbids password logins for root (no / prohibit-password)', category: 'Authorization', concept: 'ssh.config',
+      signature: 'Only root fails; password authentication is offered but every password is refused. The log shows "Failed password for root" without a pam_unix line ("ROOT LOGIN REFUSED" with PermitRootLogin no). sshd -T -C user=root,host=..,addr=.. shows permitrootlogin no or prohibit-password.',
+      check: 'sshd -T -C user=root,host=<client>,addr=<ip> | grep -i permitrootlogin; grep -ri permitrootlogin /etc/ssh/sshd_config /etc/ssh/sshd_config.d/.',
+    },
+    {
+      id: 'account-expired', title: 'Account expired (chage -E / /etc/shadow expiry date in the past)', category: 'Authorization', concept: 'ssh.userauth',
+      signature: 'Authentication succeeds, then the server closes the connection: OpenSSH "Your account has expired" / "Connection closed", Go "ssh: handshake failed: EOF". The log shows "pam_unix(sshd:account): account <user> has expired" and "fatal: Access denied for user <user> by PAM account configuration".',
+      check: 'chage -l <user> (Account expires); grep <user> /etc/shadow (8th field); journalctl -u ssh.',
+    },
+    {
+      id: 'account-locked', title: 'Password locked (passwd -l / usermod -L)', category: 'Authentication', concept: 'ssh.userauth',
+      signature: 'Password logins fail with the right password ("Failed password" + pam_unix authentication failure) while key logins may still work. passwd -S <user> shows L and the /etc/shadow hash starts with "!".',
+      check: 'passwd -S <user>; grep <user> /etc/shadow; unlock with passwd -u <user> or usermod -U <user>.',
+    },
   ] as Cause[]).map((c) => [c.id, c]),
 );

@@ -22,6 +22,7 @@ import {
 } from './sshWire';
 import { ERRNO_TEXT, tcpConnect } from './tcp';
 import { activeRecorder } from './trace';
+import { accountExpired, faillockConf, faillockLocked, faillockRecordFailure, faillockReset } from './accounts';
 import { clientConf, getServiceTicket, hostTime, KrbError, readCache, writeCache } from './kerberos';
 import { parseKeytab } from '../config/krb5';
 
@@ -65,6 +66,10 @@ export interface SshClientOptions {
   /** Answers to interactive prompts, consumed in order. */
   answers?: string[];
   remoteCommand?: string;
+  /** NumberOfPasswordPrompts (default 3). Scoring engines and other programs try a password once. */
+  passwordPrompts?: number;
+  /** Do not consult or update known_hosts (like Go's ssh.InsecureIgnoreHostKey in scoring engines). */
+  ignoreKnownHosts?: boolean;
 }
 
 export type SshFailure = 'resolve' | 'connect' | 'banner' | 'kex' | 'hostkey' | 'auth' | 'shell';
@@ -78,6 +83,14 @@ export interface SshResult {
   exitCode: number;
   session?: { hostId: string; user: string; fromIp: string; fromPort: number; pid: number };
   authMethod?: string;
+  /** Authentication methods the server offered (the USERAUTH_FAILURE list). */
+  methodsOffered?: string[];
+  /** Methods the client actually tried, starting with "none". */
+  methodsTried?: string[];
+  /** The server closed the connection after authentication (PAM account check: expired account). */
+  closedAfterAuth?: boolean;
+  /** The server's offer when key exchange negotiation failed. */
+  serverOffer?: string[];
 }
 
 class NeedInput {
@@ -400,7 +413,7 @@ function runSshInner(world: World, o: SshClientOptions, out: string[]): SshResul
     slog('ERROR', `Unable to negotiate with ${cip} port ${cport}: no matching ${what} found. Their offer: ${ours.join(',')} [preauth]`, 'err');
     note(`Negotiation failed: no common ${what}`, `No algorithm in the client's ${what} list appears in the server's list. The connection is closed before any key exchange happens. Typical causes: a hardened server allowing only modern algorithms contacted by an old client, or a legacy server (e.g. network appliance) offering only deprecated ones. Fix by aligning KexAlgorithms/Ciphers/MACs/HostKeyAlgorithms on one side, ideally upgrading the legacy side rather than weakening the modern one.`);
     conn.close('client');
-    return fail('kex');
+    return fail('kex', { serverOffer: theirs });
   };
   if (!kexAlg) return negotiationFail('key exchange method', globalEff.kexAlgorithms, clientKex);
   if (!hkAlg) return negotiationFail('host key type', serverHostKeyAlgs, clientHostKeyAlgs);
@@ -459,7 +472,9 @@ function runSshInner(world: World, o: SshClientOptions, out: string[]): SshResul
   const sameType = known.filter((k) => k.key.type === hostKey.key.type);
   const match = sameType.find((k) => k.key.blobB64 === hostKey.key.blobB64);
   const hostsFile = `${sshDir}/known_hosts`;
-  if (match) {
+  if (o.ignoreKnownHosts) {
+    note('Host key not checked', 'This client ignores known_hosts (as scoring engines usually do with Go\'s ssh.InsecureIgnoreHostKey): it would talk to an impostor just as happily.');
+  } else if (match) {
     dbg(`Host '${khName}' is known and matches the ${label} host key.`);
     dbg(`Found key in ${match.file}:${match.line}`);
     note('known_hosts: key matches', `${match.file} line ${match.line} contains this exact ${label} key for "${khName}". The client is now talking to the same server it trusted before.`);
@@ -598,13 +613,17 @@ function runSshInner(world: World, o: SshClientOptions, out: string[]): SshResul
 
   let failures = 0;
   const maxTries = ctxEff.maxAuthTries;
+  const tried: string[] = ['none'];
+  const authFail = (extra: Partial<SshResult> = {}) => fail('auth', { methodsOffered: methods, methodsTried: tried, ...extra });
+  // pam_faillock (auth): a locked account fails even with the right password.
+  const fl = valid && ctxEff.usePAM ? faillockConf(server) : null;
   const tooMany = (): SshResult => {
     slog('ERROR', `maximum authentication attempts exceeded for ${invalidTag}${user} from ${cip} port ${cport} ssh2 [preauth]`, 'err');
     slog('INFO', `Disconnecting ${valid ? 'authenticating' : 'invalid'} user ${user} ${cip} port ${cport}: Too many authentication failures [preauth]`);
     out.push(`Received disconnect from ${ip} port ${port}:2: Too many authentication failures`);
     out.push(`Disconnected from ${ip} port ${port}`);
     conn.close('server');
-    return fail('auth');
+    return authFail();
   };
 
   let authed: string | null = null;
@@ -691,6 +710,7 @@ function runSshInner(world: World, o: SshClientOptions, out: string[]): SshResul
       const pub = publicFromPrivate(node.content) ?? (pubNode ? parsePublicKey(pubNode.content) : null);
       if (!pub) continue;
       dbg(`Offering public key: ${id} ${KEY_LABEL[pub.type]} ${pub.fingerprint}`);
+      if (!tried.includes('publickey')) tried.push('publickey');
       enc('c2s', 120, `SSH_MSG_USERAUTH_REQUEST method="publickey" (query, no signature) ${pub.alg} ${pub.fingerprint}`, [], 'Public key query',
         `The client asks "would you accept this key?" (${pub.fingerprint}) without proving possession yet. This avoids an expensive signature (or a passphrase prompt) for keys the server would reject.`);
       const check = valid ? checkAuthorizedKey(server, ctxEff, user, pub) : { ok: false as const, logs: [] };
@@ -740,32 +760,39 @@ function runSshInner(world: World, o: SshClientOptions, out: string[]): SshResul
   // password
   if (!authed && methods.includes('password') && o.passwordAuthentication !== false && !o.batchMode) {
     dbg('Next authentication method: password');
-    for (let attempt = 0; attempt < 3; attempt++) {
+    const prompts = o.passwordPrompts ?? 3;
+    tried.push('password');
+    for (let attempt = 0; attempt < prompts; attempt++) {
       const pwText = `${user}@${o.target}'s password: `;
       const given = ask(pwText, true);
       out.push(pwText);
       enc('c2s', 60 + given.length, `SSH_MSG_USERAUTH_REQUEST method="password" (password sent inside the encrypted channel)`, [], 'Password authentication',
         'The password is sent to the server in clear text INSIDE the encrypted transport. This is why host key verification matters: if you accepted an attacker\'s host key, they would receive your password.');
       const rootBlocked = user === 'root' && ctxEff.permitRootLogin !== 'yes';
-      const correct = valid && pw!.password !== null && pw!.password === given && !rootBlocked;
+      const flLocked = !!fl && !rootBlocked && faillockLocked(server, user, world.clock, fl);
+      if (flLocked) log(world, server, 'sshd', `pam_faillock(sshd:auth): Consecutive login failures for user ${user} account temporarily locked`, { pid: childPid, unit: 'ssh.service', priority: 'err' });
+      const correct = valid && pw!.password !== null && pw!.password === given && !rootBlocked && !flLocked;
       if (correct) {
+        if (fl) faillockReset(server, user);
         authed = 'password';
         note('PAM authentication succeeded', ctxEff.usePAM ? 'With UsePAM yes, sshd hands the password to the PAM stack (/etc/pam.d/sshd → common-auth → pam_unix), which compares it with the hash in /etc/shadow.' : 'sshd compared the password with /etc/shadow directly.', server.id);
         break;
       }
       failures++;
-      if (valid && ctxEff.usePAM && !rootBlocked) {
+      if (valid && ctxEff.usePAM && !rootBlocked && !flLocked) {
         log(world, server, 'sshd', `pam_unix(sshd:auth): authentication failure; logname= uid=0 euid=0 tty=ssh ruser= rhost=${cip}  user=${user}`, { pid: childPid, unit: 'ssh.service', priority: 'notice' });
+        if (fl && (user !== 'root' || fl.evenDenyRoot)) faillockRecordFailure(world, server, user, cip);
       }
       if (user === 'root' && ctxEff.permitRootLogin === 'no') slog('INFO', `ROOT LOGIN REFUSED FROM ${cip} port ${cport}`);
       slog('INFO', `Failed password for ${invalidTag}${user} from ${cip} port ${cport} ssh2`);
       note('Password rejected', !valid
         ? 'The account is invalid or not allowed, so even a correct password fails. The client sees exactly the same response as for a wrong password.'
         : rootBlocked ? `PermitRootLogin ${ctxEff.permitRootLogin} forbids password logins for root.`
-          : 'pam_unix compared the password against /etc/shadow and it did not match.', server.id);
+          : flLocked ? `pam_faillock refused the attempt before the password was even checked: ${user} has ${fl!.deny} or more recent failures (faillock --user ${user}).${fl!.unlockTime === 0 ? ' unlock_time = 0: the account stays locked until an administrator resets it.' : ` It unlocks ${fl!.unlockTime} s after the last failure.`}`
+            : 'pam_unix compared the password against /etc/shadow and it did not match.', server.id);
       enc('s2c', 30 + methodList.length, `SSH_MSG_USERAUTH_FAILURE methods="${methodList}"`, [], 'USERAUTH_FAILURE', 'Authentication failed.');
       if (failures >= maxTries) return tooMany();
-      if (attempt < 2) out.push('Permission denied, please try again.');
+      if (attempt < prompts - 1) out.push('Permission denied, please try again.');
     }
   }
 
@@ -774,7 +801,24 @@ function runSshInner(world: World, o: SshClientOptions, out: string[]): SshResul
     slog('INFO', `Connection closed by ${valid ? 'authenticating user ' : invalidTag}${user} ${cip} port ${cport} [preauth]`);
     note('Client gives up: "Permission denied"', `The client has no more methods to try that the server allows (${methodList}). The message lists the methods the SERVER offered, which is evidence about the server configuration: "Permission denied (publickey)" means password authentication is disabled on the server.`);
     conn.close('client');
-    return fail('auth');
+    return authFail();
+  }
+
+  // PAM account management runs after any successful authentication (pam_unix account: expiry).
+  if (pw && ctxEff.usePAM && accountExpired(pw, world.clock)) {
+    log(world, server, 'sshd', `pam_unix(sshd:account): account ${user} has expired (account expired)`, { pid: childPid, unit: 'ssh.service', priority: 'notice' });
+    slog('ERROR', `fatal: Access denied for user ${user} by PAM account configuration [preauth]`, 'err');
+    out.push('Your account has expired; please contact your system administrator.');
+    out.push(`Connection closed by ${ip} port ${port}`);
+    note('PAM account check: account expired', `The ${authed} authentication succeeded, but PAM's account phase (pam_unix) found that ${user}'s account expired (chage -l ${user}: "Account expires"). sshd treats this as fatal and drops the connection before logging "Accepted": clients see the connection closed, not "Permission denied".`, server.id);
+    conn.close('server');
+    return authFail({ closedAfterAuth: true });
+  }
+  if (pw && !ctxEff.usePAM && accountExpired(pw, world.clock)) {
+    slog('INFO', `User ${user} from ${cip} not allowed because account has expired`);
+    out.push(`${user}@${o.target}: Permission denied (${methodList}).`);
+    conn.close('client');
+    return authFail();
   }
 
   if (authed === 'publickey') slog('INFO', `Accepted publickey for ${user} from ${cip} port ${cport} ssh2: ${KEY_LABEL[authKey!.type]} ${authKey!.fingerprint}`);

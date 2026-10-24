@@ -51,7 +51,8 @@ export function Markdown({ text }: { text: string }) {
     if (line.startsWith('|')) {
       const rows: string[][] = [];
       while (i < lines.length && lines[i].startsWith('|')) {
-        const cells = lines[i].split('|').slice(1, -1).map((c) => c.trim());
+        // "\|" is a literal pipe inside a cell (e.g. a shell pipeline).
+        const cells = lines[i].split(/(?<!\\)\|/).slice(1, -1).map((c) => c.trim().replace(/\\\|/g, '|'));
         if (!cells.every((c) => /^-+$/.test(c))) rows.push(cells);
         i++;
       }
