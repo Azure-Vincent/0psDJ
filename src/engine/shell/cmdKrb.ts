@@ -8,6 +8,7 @@ import {
 } from '../sim/kerberos';
 import { log } from '../sim/journal';
 import { serviceDef, startService, stopService } from '../sim/services';
+import { clockSynchronized, type TimesyncLoaded } from '../sim/ntp';
 import { getFile, writeChecked } from './cmdFiles';
 import { tokenizeLine } from './tokenize';
 import { type CmdCtx, type CommandDef, err, ok } from './types';
@@ -303,10 +304,11 @@ function tdcTime(ms: number): string {
 const timedatectl: CommandDef = {
   name: 'timedatectl',
   summary: 'show the clock and NTP synchronization state; set-ntp, set-time',
-  usage: 'timedatectl [status] | timedatectl set-ntp true|false | timedatectl set-time "YYYY-MM-DD HH:MM:SS"',
+  usage: 'timedatectl [status] | timedatectl timesync-status | timedatectl set-ntp true|false | timedatectl set-time "YYYY-MM-DD HH:MM:SS"',
   run(args, ctx) {
     const svc = ctx.host.services['systemd-timesyncd'];
-    const ntpActive = svc?.state === 'active';
+    const chrony = ctx.host.services.chrony;
+    const ntpActive = svc?.state === 'active' || chrony?.state === 'active';
     const now = hostTime(ctx.world, ctx.host);
     const sub = args[0] ?? 'status';
     if (sub === 'status') {
@@ -315,9 +317,38 @@ const timedatectl: CommandDef = {
         `           Universal time: ${tdcTime(now)} UTC`,
         `                 RTC time: ${tdcTime(now)}`,
         '                Time zone: Etc/UTC (UTC, +0000)',
-        `System clock synchronized: ${ntpActive && !ctx.host.clockOffset ? 'yes' : 'no'}`,
-        `              NTP service: ${!svc ? 'n/a' : ntpActive ? 'active' : 'inactive'}`,
+        `System clock synchronized: ${clockSynchronized(ctx.host) ? 'yes' : 'no'}`,
+        `              NTP service: ${!svc && !chrony ? 'n/a' : ntpActive ? 'active' : 'inactive'}`,
         '          RTC in local TZ: no',
+      ].join('\n'));
+    }
+    if (sub === 'timesync-status' || sub === 'show-timesync') {
+      if (svc?.state !== 'active') return err('Failed to query server: Could not activate remote peer: activation request failed: unit is masked or not active.', 1);
+      const l = svc.loaded as TimesyncLoaded;
+      const fmtUs = (ms: number) => {
+        const sign = ms >= 0 ? '+' : '-';
+        const a = Math.abs(ms);
+        return a >= 1000 ? `${sign}${(a / 1000).toFixed(3)}s` : a >= 1 ? `${sign}${a.toFixed(3)}ms` : `${sign}${Math.round(a * 1000)}us`;
+      };
+      const server = l.current ? `${l.current.ip} (${l.current.name})` : 'null';
+      if (!l.last || !l.current) {
+        return ok([`       Server: ${server}`, `Poll interval: ${l.current ? '32s' : '0'} (min: 32s; max 34min 8s)`, ` Packet count: ${l.packets}`].join('\n'));
+      }
+      const r = l.last;
+      return ok([
+        `       Server: ${server}`,
+        `Poll interval: ${l.synced ? '1min 4s' : '32s'} (min: 32s; max 34min 8s)`,
+        `         Leap: ${r.leap === 3 ? 'not synchronized' : 'normal'}`,
+        '      Version: 4',
+        `      Stratum: ${r.stratum}`,
+        `    Reference: ${r.refId}`,
+        '    Precision: 1us (-24)',
+        `Root distance: ${(r.rootDelayMs / 2 + r.rootDispersionMs).toFixed(3)}ms (max: 5s)`,
+        `       Offset: ${fmtUs(l.synced ? 0.312 : r.offsetMs)}`,
+        `        Delay: ${fmtUs(r.delayMs).slice(1)}`,
+        '       Jitter: 0',
+        ` Packet count: ${l.packets}`,
+        '    Frequency: +0.000ppm',
       ].join('\n'));
     }
     if (ctx.user.uid !== 0) return err('Failed to ' + (sub === 'set-ntp' ? 'set ntp' : 'set time') + ': Access denied', 1);

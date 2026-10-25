@@ -6,7 +6,7 @@ export type ConceptId =
   | 'ssh.userauth' | 'ssh.authorized-keys' | 'linux.permissions' | 'ssh.config' | 'ssh.authz' | 'logs.journal'
   | 'net.cidr' | 'fw.path' | 'net.dhcp' | 'net.nat' | 'net.vlan' | 'net.ipv6' | 'net.ndp'
   | 'linux.fs' | 'net.ops' | 'ops.recovery' | 'win.services' | 'win.rdp' | 'ad.dns' | 'ad.kerberos' | 'ad.gpo'
-  | 'docker.lifecycle' | 'docker.networking' | 'pfsense.rules' | 'pfsense.nat' | 'tls.pki' | 'net.mtu' | 'net.interfaces' | 'web.proxy';
+  | 'docker.lifecycle' | 'docker.networking' | 'pfsense.rules' | 'pfsense.nat' | 'tls.pki' | 'net.mtu' | 'net.interfaces' | 'web.proxy' | 'ntp.sync';
 
 export type CauseCategory = 'Name resolution' | 'Network path' | 'Firewall' | 'Service' | 'Configuration' | 'Authentication' | 'Authorization' | 'Permissions' | 'Client' | 'Cryptography' | 'Persistence';
 
@@ -119,7 +119,14 @@ export interface ScoredDnsGoal {
   expect: string;
 }
 
-export type Goal = SshGoal | HttpGoal | ResolveGoal | KerberosGoal | RdpGoal | ScoredSshGoal | ScoredWebGoal | ScoredDnsGoal;
+/** A host's clock must be synchronized by NTP (timedatectl) and within a second of the correct time. */
+export interface TimeGoal {
+  kind: 'time';
+  description: string;
+  host: string;
+}
+
+export type Goal = SshGoal | HttpGoal | ResolveGoal | KerberosGoal | RdpGoal | ScoredSshGoal | ScoredWebGoal | ScoredDnsGoal | TimeGoal;
 
 export interface ConstraintResult {
   id: string;

@@ -80,6 +80,7 @@ function describeIp4Style(p: Packet, isn: { a: number; b: number } | undefined, 
       }
       return `${IP} ${p.src}.${p.udp.sport} > ${p.dst}.${p.udp.dport}: ${idn}+ ${qtype}? ${q}. (${p.udp.len})`;
     }
+    if (p.app?.protocol === 'NTP') return `${IP} ${p.src}.${p.udp.sport} > ${p.dst}.${p.udp.dport}: NTPv4, ${p.app.info.endsWith('server') ? 'Server' : 'Client'}, length ${p.udp.len}`;
     return `${IP} ${p.src}.${p.udp.sport} > ${p.dst}.${p.udp.dport}: UDP, length ${p.udp.len}`;
   }
   if (p.icmp) {

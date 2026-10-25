@@ -113,7 +113,7 @@ export const CURRICULUM: CurriculumModule[] = [
       { title: 'Database servers', level: 'intermediate', status: 'planned' },
       { title: 'Reverse proxies and load balancers (simulated on srv01, 5 tickets)', level: 'intermediate', status: 'partial', link: 'lesson/webproxy/what', note: 'nginx proxy_pass, upstream groups, 502/504 and load-time resolution are simulated; health checks, HAProxy and cloud load balancers are described only.' },
       { title: 'Email infrastructure', level: 'advanced', status: 'planned' },
-      { title: 'NTP and time synchronisation', level: 'intermediate', status: 'planned' },
+      { title: 'NTP and time synchronisation (simulated: chrony on rtr01, timesyncd clients, 4 tickets)', level: 'intermediate', status: 'available', link: 'lesson/ntp/what' },
       { title: 'Backup services', level: 'intermediate', status: 'planned' },
       { title: 'Logging and monitoring infrastructure', level: 'intermediate', status: 'planned' },
     ],

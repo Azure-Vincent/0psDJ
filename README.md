@@ -24,9 +24,10 @@ For every technology it answers the same questions:
 
 ## What's inside
 
-- **20 lessons** on networking, interfaces and virtual switches, TLS, remote
+- **21 lessons** on networking, interfaces and virtual switches, TLS, remote
   access, identity (including Kerberos), firewalls, containers, web servers and
-  reverse proxies, Linux and Windows administration, and safe recovery. Each lesson starts in plain language (the short version,
+  reverse proxies, time synchronisation, Linux and Windows administration, and
+  safe recovery. Each lesson starts in plain language (the short version,
   an everyday analogy, the key ideas each with a concrete example from the lab,
   one case followed step by step, common misconceptions and a quick
   self-check), then explains in depth how the technology works, with
@@ -46,7 +47,7 @@ For every technology it answers the same questions:
   machine configured from the files the design generates. You get terminals
   on each machine and a packet tracer that shows every hop and every firewall
   and NAT decision.
-- **103 troubleshooting tickets**, each injecting a realistic fault into the
+- **107 troubleshooting tickets**, each injecting a realistic fault into the
   lab. You investigate with real commands in terminals, record a diagnosis and
   repair the fault. The app then checks your fix immediately, again after
   rebooting every machine, and against security rules, so "just open the
@@ -70,7 +71,11 @@ For every technology it answers the same questions:
   set breaks the path behind srv01's nginx: 502 from a wrong upstream port,
   404s from the proxy_pass URI rule, every site down after a reboot because an
   upstream name does not resolve, 504 from a backend firewall that only allows
-  the office, and https:// to a plain-HTTP backend.
+  the office, and https:// to a plain-HTTP backend. A **Time synchronisation**
+  set breaks the NTP chain: a router firewall that drops UDP 123 (until
+  Kerberos fails with "Clock skew too great"), a chrony allow list that forgets
+  one network, a time server that lost its own upstream, and chronyd stopped by
+  a typo.
 - **7 end-to-end case studies**: SSH refused, a server with no Internet, a failed
   domain login, an unreachable Docker app, pfSense blocking traffic, RDP broken
   by a policy change, and several services failing at once.
@@ -113,7 +118,11 @@ policies across reboots, `daemon.json` and the docker group. srv01's nginx is
 also a reverse proxy: `location` and `proxy_pass` (with nginx's URI rule),
 `upstream` groups, upstream names resolved when nginx loads, and its own TCP
 connection to the backend, so a refusal becomes a 502 and a dropped SYN a 504,
-with nginx's error.log lines.
+with nginx's error.log lines. Time is real NTP: ext01 is a stratum-1
+server, rtr01 runs chrony and serves the internal networks, and every Debian
+machine runs systemd-timesyncd against it, with request and reply datagrams
+crossing the routers and firewalls, `chronyc`, `timedatectl timesync-status`,
+and clocks that drift when the chain breaks.
 
 ## Installation
 

@@ -33,6 +33,7 @@ import { IPV6_GUIDE } from './guides/ipv6';
 import { NFTABLES_GUIDE } from './guides/nftables';
 import { PFSENSE_ASSESSMENT, PFSENSE_LESSON } from './ops/pfsense';
 import { WEBPROXY_ASSESSMENT, WEBPROXY_LESSON } from './ops/webproxy';
+import { NTP_ASSESSMENT, NTP_LESSON } from './ops/ntp';
 import { PRIMERS } from './primers';
 import type { Assessment, Lesson } from './types';
 
@@ -49,7 +50,7 @@ export const LESSONS: Lesson[] = [
   { ...SSH_LESSON, guide: SSH_GUIDE, caseStudyIds: ['ssh-refused'], objectives: ['N10-009:3.5', 'N10-009:5.3', '200-301:4.8', '200-301:2.8'] },
   { ...NFTABLES_LESSON, guide: NFTABLES_GUIDE, caseStudyIds: ['shared-dependency', 'ssh-refused'], objectives: ['N10-009:4.3', 'N10-009:5.3', '200-301:5.6'] },
   PFSENSE_LESSON, WINDOWS_RDP_LESSON, AD_KERBEROS_LESSON, KERBEROS_LESSON, DOCKER_LESSON,
-  SYSTEMD_LESSON, NETOPS_LESSON, RECOVERY_LESSON, WEBPROXY_LESSON];
+  SYSTEMD_LESSON, NETOPS_LESSON, RECOVERY_LESSON, WEBPROXY_LESSON, NTP_LESSON];
 
 export const ASSESSMENTS: Record<string, Assessment> = {
   [SSH_ASSESSMENT.id]: SSH_ASSESSMENT,
@@ -72,6 +73,7 @@ export const ASSESSMENTS: Record<string, Assessment> = {
   [RECOVERY_ASSESSMENT.id]: RECOVERY_ASSESSMENT,
   [WINDOWS_RDP_ASSESSMENT.id]: WINDOWS_RDP_ASSESSMENT,
   [WEBPROXY_ASSESSMENT.id]: WEBPROXY_ASSESSMENT,
+  [NTP_ASSESSMENT.id]: NTP_ASSESSMENT,
 };
 
 // Attach the beginner primers (plain language and worked examples) to their lessons.
