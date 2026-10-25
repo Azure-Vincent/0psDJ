@@ -5,7 +5,7 @@
 import { basename, dirname, listDir } from '../fs';
 import { hostPort } from '../net/addr';
 import { resolve } from '../sim/dns';
-import { handleRequest, headerBytes, iisLoaded, pfWebLoaded, isTlsPort, selectServer, sendBulk, type HttpResponse } from '../sim/http';
+import { handleRequest, headerBytes, httpBackend, httpHooks, iisLoaded, pfWebLoaded, isTlsPort, selectServer, sendBulk, type HttpResponse } from '../sim/http';
 import {
   asn1Time, CA_BUNDLE, type Cert, cn, type Csr, csrPem, dnCurl, dnOpenssl, fingerprint, keyIdFor, keyPem, makeCert, matchesHost, modulus,
   parseCerts, parseCsr, parseKey, parseSubj, type PrivKey, publicKeyPem, trustStore, VERIFY_TEXT, verifyChain, certPem,
@@ -169,13 +169,16 @@ const curl: CommandDef = {
       const conn = c.conn;
       if (max) conn.deadline = start + Number(max) * 1000;
       vlog.push(`* Connected to ${bare} (${conn.serverIp}) port ${port} (#0)`);
-      const server = conn.server;
-      const listener = allListeners(server).find((l) => l.port === conn.sv.localPort && l.proto === 'tcp');
+      // A published container port: docker-proxy hands the connection to the container.
+      const backend = httpBackend(ctx.world, conn.server, conn.sv.localPort, conn.sv.local);
+      const server = backend.host;
+      const listener = allListeners(server).find((l) => l.port === backend.port && l.proto === 'tcp');
+      const app = listener ? httpHooks.apps[listener.process] : undefined;
       const loaded = server.services.nginx?.state === 'active' ? (server.services.nginx.loaded as NginxLoaded) : iisLoaded(server) ?? pfWebLoaded(server);
-      const sockTls = !!loaded?.servers?.some((s) => isTlsPort(s, conn.sv.localPort));
+      const sockTls = !!loaded?.servers?.some((s) => isTlsPort(s, backend.port));
       const reqInfo = `${head ? 'HEAD' : 'GET'} ${path} HTTP/1.1`;
 
-      if (listener?.process !== 'nginx' && listener?.service !== 'W3SVC') {
+      if (!app && listener?.process !== 'nginx' && listener?.service !== 'W3SVC') {
         conn.send('c2s', 78, { protocol: 'DATA', info: `${reqInfo} Host: ${hostname}`, fields: [] });
         conn.close('server');
         if (listener?.process === 'sshd' && scheme === 'http') return fail(1, 'Received HTTP/0.9 when not allowed', vlog);
@@ -192,7 +195,7 @@ const curl: CommandDef = {
           conn.close('server');
           return fail(35, 'OpenSSL/3.0.11: error:0A00010B:SSL routines::wrong version number', vlog);
         }
-        const srv = selectServer(loaded, conn.sv.local, conn.sv.localPort, /^[\d.]+$|:/.test(sni) ? undefined : sni)!;
+        const srv = selectServer(loaded, backend.local, backend.port, /^[\d.]+$|:/.test(sni) ? undefined : sni)!;
         const tls = tlsHandshake(conn, srv.tls!.chain, sni, trusted);
         if (tls.stalled) {
           if (conn.lastError === 'deadline') return fail(28, 'SSL connection timeout', vlog);
@@ -224,13 +227,13 @@ const curl: CommandDef = {
       } else sni = '';
 
       // HTTP request and response.
-      const srv = selectServer(loaded, conn.sv.local, conn.sv.localPort, scheme === 'https' && !/^[\d.]+$|:/.test(bare) ? bare : hostHeader)!;
+      const srv = selectServer(loaded, backend.local, backend.port, scheme === 'https' && !/^[\d.]+$|:/.test(bare) ? bare : hostHeader)!;
       const proto = scheme === 'https' ? 'TLS' : 'DATA';
       const recorder = activeRecorder();
       if (recorder) recorder.phase = 'HTTP';
       vlog.push(`> ${head ? 'HEAD' : 'GET'} ${path} HTTP/1.1`, `> Host: ${hostHeader}`, '> User-Agent: curl/7.88.1', '> Accept: */*', '>');
       conn.send('c2s', 78 + path.length + hostHeader.length + (proto === 'TLS' ? 22 : 0), { protocol: proto, info: proto === 'TLS' ? 'Application Data' : `${reqInfo} Host: ${hostHeader}`, fields: [], encrypted: proto === 'TLS' });
-      const res: HttpResponse = handleRequest(server, srv, { method: head ? 'HEAD' : 'GET', path, hostHeader, plainOnTls: scheme === 'http' && sockTls, now: ctx.world.clock, client: { ip: conn.sv.peer, ua: 'curl/7.88.1' } });
+      const res: HttpResponse = app ? app(ctx.world, server, { method: head ? 'HEAD' : 'GET', path, hostHeader, plainOnTls: false, now: ctx.world.clock, client: { ip: backend.proxyFrom ?? conn.sv.peer, ua: 'curl/7.88.1' } }) : handleRequest(server, srv, { method: head ? 'HEAD' : 'GET', path, hostHeader, plainOnTls: scheme === 'http' && sockTls, now: ctx.world.clock, client: { ip: backend.proxyFrom ?? conn.sv.peer, ua: 'curl/7.88.1' } });
       const statusLine = `HTTP/1.1 ${res.status} ${res.reason}`;
       const hdrs = [statusLine, ...res.headers.map(([k, v]) => `${k}: ${v}`)];
       const hb = headerBytes(res);

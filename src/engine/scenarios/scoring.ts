@@ -5,7 +5,7 @@
 // module produces the same messages from the simulated connection.
 
 import { dnsQuery, resolve } from '../sim/dns';
-import { handleRequest, iisLoaded, isTlsPort, selectServer } from '../sim/http';
+import { handleRequest, httpBackend, httpHooks, iisLoaded, isTlsPort, selectServer } from '../sim/http';
 import { sourceAddress } from '../sim/network';
 import { allListeners, type NginxLoaded } from '../sim/services';
 import { runSsh, type SshResult } from '../sim/ssh';
@@ -116,19 +116,21 @@ export function scoredWebCheck(world: World, goal: ScoredWebGoal, live = false):
     return fail('Web request failed', `${get}: dial tcp ${res.ip}:${port}: ${connectText[c.errno]}`);
   }
   const conn = c.conn;
-  const server = conn.server;
-  const listener = allListeners(server).find((l) => l.proto === 'tcp' && l.port === conn.sv.localPort);
+  const backend = httpBackend(w, conn.server, conn.sv.localPort, conn.sv.local);
+  const server = backend.host;
+  const listener = allListeners(server).find((l) => l.proto === 'tcp' && l.port === backend.port);
+  const app = listener ? httpHooks.apps[listener.process] : undefined;
   const loaded = server.services.nginx?.state === 'active' ? (server.services.nginx.loaded as NginxLoaded) : iisLoaded(server);
-  if (listener?.process !== 'nginx' && listener?.service !== 'W3SVC') {
+  if (!app && listener?.process !== 'nginx' && listener?.service !== 'W3SVC') {
     conn.close('server');
     return fail('Web request failed', listener?.process === 'sshd' && scheme === 'http'
       ? `${get}: net/http: HTTP/1.x transport connection broken: malformed HTTP response "SSH-2.0-OpenSSH_9.2p1 Debian-2+deb12u3"`
       : `${get}: EOF`);
   }
-  const tlsSock = !!loaded?.servers?.some((s) => isTlsPort(s, conn.sv.localPort));
+  const tlsSock = !!loaded?.servers?.some((s) => isTlsPort(s, backend.port));
   if (scheme === 'https' && !tlsSock) { conn.close('client'); return fail('Web request failed', `${get}: http: server gave HTTP response to HTTPS client`); }
-  const srv = selectServer(loaded, conn.sv.local, conn.sv.localPort, hostname)!;
-  const r = handleRequest(server, srv, { method: 'GET', path, hostHeader: portStr ? `${hostname}:${portStr}` : hostname, plainOnTls: scheme === 'http' && tlsSock, now: w.clock, client: { ip: conn.sv.peer, ua: 'Go-http-client/1.1' } });
+  const req = { method: 'GET', path, hostHeader: portStr ? `${hostname}:${portStr}` : hostname, plainOnTls: scheme === 'http' && tlsSock, now: w.clock, client: { ip: backend.proxyFrom ?? conn.sv.peer, ua: 'Go-http-client/1.1' } };
+  const r = app ? app(w, server, req) : handleRequest(server, selectServer(loaded, backend.local, backend.port, hostname)!, req);
   conn.send('c2s', 90 + path.length, { protocol: 'DATA', info: `GET ${path} HTTP/1.1`, fields: [] });
   conn.send('s2c', 200 + Math.min(r.size, 1200), { protocol: 'DATA', info: `HTTP/1.1 ${r.status} ${r.reason}`, fields: [] });
   conn.close('client');
