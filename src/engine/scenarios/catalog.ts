@@ -456,5 +456,35 @@ export const CAUSES: Record<string, Cause> = Object.fromEntries(
       signature: 'The service is down and cannot be started or enabled: "Failed to start X.service: Unit X.service is masked.", systemctl status shows "Loaded: masked", is-enabled prints "masked". It stays down after reboots. Clients get "connection refused".',
       check: 'systemctl status UNIT; systemctl is-enabled UNIT; ls -l /etc/systemd/system/UNIT; fix with systemctl unmask UNIT && systemctl enable --now UNIT.',
     },
+    {
+      id: 'docker-port-loopback', title: 'Container port published on 127.0.0.1 only', category: 'Configuration', concept: 'docker.networking',
+      signature: 'curl on the Docker host (localhost:PORT) works; from any other machine the connection is refused. docker ps shows 127.0.0.1:PORT->…; ss -tlnp shows docker-proxy on 127.0.0.1:PORT only.',
+      check: 'docker ps (PORTS column); docker port NAME; the ports: entry in compose.yaml ("127.0.0.1:8000:8000" vs "8000:8000").',
+    },
+    {
+      id: 'docker-service-name', title: 'The app looks for a service name that does not exist on its network', category: 'Name resolution', concept: 'docker.networking',
+      signature: 'The container exits at start and keeps restarting ("Restarting (…)"); its log says it cannot resolve the database host ("could not translate host name … to address"). Containers find each other by service/container name only on the same user-defined network.',
+      check: 'docker compose ps -a; docker compose logs app; compare DB_HOST in the environment with the service names in compose.yaml; docker exec <db> getent hosts NAME (embedded DNS 127.0.0.11).',
+    },
+    {
+      id: 'docker-host-forward-drop', title: 'Host firewall drops forwarded traffic to containers', category: 'Firewall', concept: 'docker.networking',
+      signature: 'Published port times out from other machines although docker ps shows it published and the container answers locally. Traffic to a published port is DNATed and FORWARDED to the container (it never reaches INPUT): a forward chain with policy drop in /etc/nftables.conf blocks it. Restarting nftables also removes Docker\'s own rules until dockerd is restarted.',
+      check: 'nft list ruleset (the forward chains of every table); nft list table ip nat (Docker\'s DNAT rules present?); systemctl restart docker after changing nftables.',
+    },
+    {
+      id: 'docker-port-conflict', title: 'Host port already taken by another container', category: 'Service', concept: 'docker.lifecycle',
+      signature: 'docker compose up fails with "Bind for 0.0.0.0:PORT failed: port is already allocated"; the service container stays "Created". Something else answers on the port (often a leftover container started by hand).',
+      check: 'docker ps -a (which container publishes the port); docker compose up -d output; docker rm -f the leftover, then docker compose up -d.',
+    },
+    {
+      id: 'docker-no-restart-policy', title: 'Containers have no restart policy (gone after a reboot)', category: 'Persistence', concept: 'docker.lifecycle',
+      signature: 'Everything worked until the host rebooted (or dockerd restarted); now the containers are "Exited" and nothing listens on the published port. docker inspect shows RestartPolicy "no".',
+      check: "docker ps -a; docker inspect -f '{{.HostConfig.RestartPolicy.Name}}' NAME; add restart: unless-stopped to each service and docker compose up -d.",
+    },
+    {
+      id: 'docker-daemon-config', title: 'dockerd does not start (invalid /etc/docker/daemon.json)', category: 'Configuration', concept: 'docker.lifecycle',
+      signature: 'Every docker command says "Cannot connect to the Docker daemon … Is the docker daemon running?"; systemctl status docker is failed; journalctl -u docker shows "unable to configure the Docker daemon with file /etc/docker/daemon.json: …".',
+      check: 'systemctl status docker; journalctl -u docker -n 20; validate the JSON (dockerd --validate --config-file /etc/docker/daemon.json on a real host).',
+    },
   ] as Cause[]).map((c) => [c.id, c]),
 );

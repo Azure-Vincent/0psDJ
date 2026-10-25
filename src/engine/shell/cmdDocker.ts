@@ -9,6 +9,7 @@ import {
   syncDockerRules, type ContainerConfig, type Mount, type NetworkConfig, type PortBinding, type RestartPolicy,
 } from '../sim/docker';
 import { sha256Hex } from '../util/sha256';
+import { composeConfig, composeDown, composeUp, loadProject, progress, projectContainers } from '../sim/compose';
 import type { Host } from '../types';
 import { type CmdCtx, type CmdResult, type CommandDef, err, ok } from './types';
 
@@ -449,6 +450,74 @@ function infoCmd(docker: Host): CmdResult {
   ].join('\n'));
 }
 
+/** docker compose (v2.27): up, down, ps, logs, config, start/stop/restart, pull, version. */
+function composeCmd(ctx: CmdCtx, docker: Host, args: string[]): CmdResult {
+  let file: string | undefined;
+  let i = 0;
+  for (; i < args.length && args[i].startsWith('-'); i++) {
+    if (args[i] === '-f' || args[i] === '--file') file = args[++i];
+  }
+  const sub = args[i];
+  const rest = args.slice(i + 1);
+  if (sub === 'version') return ok('Docker Compose version v2.27.1');
+  if (!sub) return ok('Usage:  docker compose [OPTIONS] COMMAND\n\nDefine and run multi-container applications with Docker\n\nCommands:\n  config      Parse, resolve and render compose file in canonical format\n  down        Stop and remove containers, networks\n  logs        View output from containers\n  ps          List containers\n  restart     Restart service containers\n  start       Start services\n  stop        Stop services\n  up          Create and start containers');
+  const p = loadProject(docker, ctx.frame.cwd, file);
+  if ('error' in p) return err(p.error, 1);
+  const svcArgs = rest.filter((a) => !a.startsWith('-') && !/^\d+$/.test(a));
+  for (const sname of svcArgs) if (!p.services.some((x) => x.name === sname)) return err(`no such service: ${sname}`, 1);
+  const warn = p.warnings.length ? p.warnings.join('\n') + '\n' : '';
+  const now = ctx.world.clock;
+  switch (sub) {
+    case 'up': {
+      const r = composeUp(ctx.world, docker, p, svcArgs, rest.includes('--remove-orphans'));
+      if (r.code || rest.includes('-d') || rest.includes('--detach')) return { out: r.out, code: r.code };
+      const logs = projectContainers(docker, p.name).flatMap((c) => containerLogs(ctx.world, docker, c).map((l) => `${c.labels['com.docker.compose.service']}-1  | ${l.line}`));
+      return ok([r.out, 'Attaching to ' + projectContainers(docker, p.name).map((c) => `${c.labels['com.docker.compose.service']}-1`).join(', '), ...logs, '', '[Infrastructure Lab: the simulator detaches here; the containers keep running. Use docker compose up -d.]'].join('\n'));
+    }
+    case 'down': return ok(composeDown(ctx.world, docker, p, rest.includes('-v') || rest.includes('--volumes')));
+    case 'ps': {
+      const all = rest.includes('-a') || rest.includes('--all');
+      const list = projectContainers(docker, p.name).filter((c) => all || c.state.status === 'running' || c.state.status === 'restarting');
+      const rows = [['NAME', 'IMAGE', 'COMMAND', 'SERVICE', 'CREATED', 'STATUS', 'PORTS']];
+      for (const c of list) rows.push([c.name, c.image.replace(/:latest$/, ''), findImage(c.image)!.command, c.labels['com.docker.compose.service'], `${humanDuration(now - c.created)} ago`, statusText(c, now), portsText(c)]);
+      return ok(warn + table(rows));
+    }
+    case 'logs': {
+      let tail = Infinity;
+      for (let k = 0; k < rest.length; k++) if (rest[k] === '--tail' || rest[k] === '-n') tail = Number(rest[++k]);
+      const list = projectContainers(docker, p.name).filter((c) => !svcArgs.length || svcArgs.includes(c.labels['com.docker.compose.service']));
+      const w = Math.max(0, ...list.map((c) => c.labels['com.docker.compose.service'].length + 2));
+      const out: string[] = [];
+      for (const c of list) {
+        const lines = containerLogs(ctx.world, docker, c);
+        for (const l of Number.isFinite(tail) ? lines.slice(-tail) : lines) out.push(`${(c.labels['com.docker.compose.service'] + '-1').padEnd(w)}  | ${l.line}`);
+      }
+      return ok(warn + out.join('\n'));
+    }
+    case 'config': return ok(warn + composeConfig(p));
+    case 'stop': case 'start': case 'restart': {
+      const targets = projectContainers(docker, p.name).filter((c) => !svcArgs.length || svcArgs.includes(c.labels['com.docker.compose.service']));
+      const steps: { kind: 'Container'; name: string; verb: string; ok: boolean }[] = [];
+      const errors: string[] = [];
+      for (const c of targets) {
+        if (sub !== 'start') stopContainer(ctx.world, docker, c, sub === 'stop');
+        if (sub !== 'stop') {
+          const e = startContainer(ctx.world, docker, findContainer(docker, c.id)!);
+          if (e) { errors.push(e.message); steps.push({ kind: 'Container', name: c.name, verb: 'Error', ok: false }); continue; }
+        }
+        steps.push({ kind: 'Container', name: c.name, verb: sub === 'stop' ? 'Stopped' : 'Started', ok: true });
+      }
+      return { out: [warn + progress(steps, sub === 'stop' ? 'Stopping' : sub === 'start' ? 'Running' : 'Restarting'), ...errors].filter(Boolean).join('\n'), code: errors.length ? 1 : 0 };
+    }
+    case 'pull': {
+      const steps = p.services.map((s) => ({ kind: 'Container' as const, name: s.name, verb: findImage(s.image) ? 'Pulled' : 'Error', ok: !!findImage(s.image) }));
+      for (const s of p.services) if (findImage(s.image)) addPulledImage(docker, s.image.includes(':') ? s.image : `${s.image}:latest`, ctx.world.clock);
+      return ok(warn + progress(steps, 'Pulling').replace(/ Container /g, ' '));
+    }
+    default: return err(`unknown docker command: "compose ${sub}"`, 1);
+  }
+}
+
 const docker: CommandDef = {
   name: 'docker',
   summary: 'manage containers, images and networks (Docker Engine 26)',
@@ -501,6 +570,7 @@ const docker: CommandDef = {
         return ok(c.ports.flatMap((p) => (p.hostIp === '0.0.0.0' ? [`${p.ctrPort}/${p.proto} -> 0.0.0.0:${p.hostPort}`, `${p.ctrPort}/${p.proto} -> [::]:${p.hostPort}`] : [`${p.ctrPort}/${p.proto} -> ${p.hostIp}:${p.hostPort}`])).join('\n'));
       }
       case 'network': return networkCmd(ctx, host, rest);
+      case 'compose': return composeCmd(ctx, host, rest);
       case 'volume': {
         const vols = [...new Set(listContainers(host).flatMap((c) => c.mounts.filter((m) => m.kind === 'volume').map((m) => m.source)))];
         return ok(table([['DRIVER', 'VOLUME NAME'], ...vols.map((v) => ['local', v])]));

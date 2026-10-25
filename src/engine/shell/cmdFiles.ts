@@ -339,11 +339,15 @@ const mkdirCmd: CommandDef = {
         if (flags.has('-p')) continue;
         return err(`mkdir: cannot create directory '${a}': File exists`);
       }
-      const parent = ctx.host.fs[dirname(p)];
+      // -p creates missing parents too.
+      const chain: string[] = [];
+      for (let d = p; !ctx.host.fs[d] && d !== '/'; d = dirname(d)) chain.unshift(d);
+      if (chain.length > 1 && !flags.has('-p')) return err(`mkdir: cannot create directory '${a}': No such file or directory`);
+      const parent = ctx.host.fs[dirname(chain[0])];
       if (!parent) return err(`mkdir: cannot create directory '${a}': No such file or directory`);
       if (!canAccess(parent, ctx.user, 'w')) return err(`mkdir: cannot create directory '${a}': Permission denied`);
       const mode = flags.get('-m') ? parseInt(flags.get('-m') as string, 8) : 0o755;
-      mkdir(ctx.host, p, ctx.world.clock, { mode, owner: ctx.user.name, group: ctx.user.primaryGroup });
+      for (const d of chain) mkdir(ctx.host, d, ctx.world.clock, { mode: d === p ? mode : 0o755, owner: ctx.user.name, group: ctx.user.primaryGroup });
     }
     return ok('');
   },

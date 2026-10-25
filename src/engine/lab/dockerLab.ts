@@ -27,6 +27,7 @@ export function installDock01(world: World): Host {
   installHostKeys(h, t);
   trustCorpRoot(h, t);
   mkdir(h, '/etc/docker', t);
+  mkdir(h, '/srv', t);
   addUser(h, { name: 'alice', uid: 1000, gid: 1000, primaryGroup: 'alice', groups: ['sudo'], home: '/home/alice', shell: '/bin/bash', gecos: 'Alice Admin', password: DOCK01_ALICE_PASSWORD }, t);
   for (const img of DOCKER_IMAGES) addPulledImage(h, img, t);
   return h;

@@ -97,6 +97,12 @@ const SYMPTOM: Record<string, RegExp> = {
   'score-dns-hijack': /www\.corp\.lab\. A: expected 10\.0\.20\.10, got 10\.0\.30\.66/,
   'score-dns-servfail': /www\.corp\.lab\. A: server answered SERVFAIL/,
   'score-dns-firewall': /check timed out\. this is most likely due to services timing out/,
+  'docker-port-localhost': /curl: \(7\) Failed to connect to inventory\.corp\.lab port 8000 after \d+ ms: Couldn't connect to server/,
+  'docker-renamed-service': /curl: \(7\) Failed to connect to inventory\.corp\.lab port 8000/,
+  'docker-forward-drop': /curl: \(28\) Failed to connect to inventory\.corp\.lab port 8000 after 10000 ms/,
+  'docker-port-taken': /HTTP\/1\.1 404 Not Found\nServer: nginx\/1\.25\.5/,
+  'docker-no-restart': /curl: \(7\) Failed to connect to inventory\.corp\.lab port 8000/,
+  'docker-daemon-json': /curl: \(7\) Failed to connect to inventory\.corp\.lab port 8000/,
   'mtu-uplink-mismatch': /curl: \(28\) Operation timed out after 30000 milliseconds with 0 out of 4718592 bytes received/,
 };
 

@@ -9,6 +9,7 @@ import type { World } from '../types';
 import { CAUSES } from './catalog';
 import { isWindows } from '../win/model';
 import { scoredDnsCheck, scoredSshCheck, scoredWebCheck } from './scoring';
+import { dockerTick } from '../sim/docker';
 import type { Constraint, ConstraintResult, Goal, Scenario } from './types';
 
 /** Run shell commands as root on a host, mutating `world` in place (used to inject faults). */
@@ -47,6 +48,11 @@ export function goalLabel(goal: Goal): string {
 }
 
 export function checkGoal(world: World, goal: Goal): GoalResult {
+  // Docker retries containers in "restarting" in the background; let it catch up before the check.
+  if (Object.values(world.hosts).some((h) => h.services.docker?.state === 'active')) {
+    world = structuredClone(world);
+    for (const h of Object.values(world.hosts)) if (h.services.docker?.state === 'active') dockerTick(world, h);
+  }
   if (goal.kind === 'scored-ssh') return { goal, ...scoredSshCheck(world, goal) };
   if (goal.kind === 'scored-web') return { goal, ...scoredWebCheck(world, goal) };
   if (goal.kind === 'scored-dns') return { goal, ...scoredDnsCheck(world, goal) };
