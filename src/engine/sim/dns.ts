@@ -98,8 +98,17 @@ function ephemeralPort(world: World): number {
   return 32768 + ephemeral;
 }
 
+/**
+ * Resolvers that answer inside a host rather than over the network: Docker's
+ * embedded DNS server (127.0.0.11 in containers on user-defined networks) is
+ * registered here by the Docker engine.
+ */
+export const dnsHooks: { embedded?: (world: World, host: Host, server: string, qname: string, qtype: QType) => DnsExchange | null } = {};
+
 /** Send one DNS query from `host` to `server` and process the reply. */
 export function dnsQuery(world: World, host: Host, server: string, qname: string, timeoutS = 5, qtype: QType = 'A'): DnsExchange {
+  const inside = dnsHooks.embedded?.(world, host, server, qname, qtype);
+  if (inside) return inside;
   const id = (world.counter * 2654435761) & 0xffff;
   const sport = ephemeralPort(world);
   const qbytes = encodeDns(id, qname, undefined, qtype);

@@ -47,7 +47,7 @@ export interface NamedLoaded {
   failedZones: string[];
 }
 
-interface ServiceDef {
+export interface ServiceDef {
   name: string;
   unit: string;
   aliases: string[];
@@ -1037,6 +1037,10 @@ export function bootHost(world: World, host: Host): void {
     bootWindows(world, host);
     return;
   }
+  // Containers are started by their Docker host's daemon, never booted on their own.
+  if (host.kind === 'container') return;
+  // A reboot ends every container this host was running.
+  for (const h of Object.values(world.hosts)) if (h.container?.host === host.id) delete world.hosts[h.id];
   if (host.kind === 'pfsense') {
     bootPfsense(world, host, (on) => {
       const def = serviceDef('ssh')!;

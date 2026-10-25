@@ -5,8 +5,8 @@
 // exactly where they do in practice: small requests work, large responses stall.
 
 import { canAccess, canTraverse, mkdir, readFile, writeFile } from '../fs';
-import type { Host, UserAccount } from '../types';
-import type { NginxLoaded, NginxLoadedServer } from './services';
+import type { Host, UserAccount, World } from '../types';
+import { allListeners, type NginxLoaded, type NginxLoadedServer } from './services';
 import { keyIdFor, makeCert } from './pki';
 import type { TcpConn } from './tcp';
 
@@ -126,6 +126,27 @@ function handleIisRequest(host: Host, s: NginxLoadedServer, req: { method: strin
   };
 }
 
+/**
+ * Extensions registered by other simulators: docker-proxy forwards a published
+ * port to its container, and application servers inside containers (gunicorn)
+ * answer HTTP themselves.
+ */
+export const httpHooks: {
+  proxy?: (world: World, host: Host, port: number) => { host: Host; port: number } | null;
+  apps: Record<string, (world: World, host: Host, req: HttpRequestInfo) => HttpResponse>;
+} = { apps: {} };
+
+/** The server that answers HTTP on host:port: through docker-proxy to the container when the port is a published one. */
+export function httpBackend(world: World, host: Host, port: number, localAddr: string): { host: Host; port: number; local: string; proxyFrom?: string } {
+  const l = allListeners(host).find((x) => x.port === port && x.proto === 'tcp');
+  if (l?.process !== 'docker-proxy') return { host, port, local: localAddr };
+  const b = httpHooks.proxy?.(world, host, port);
+  if (!b) return { host, port, local: localAddr };
+  // docker-proxy opens its own connection: the container sees the bridge gateway as the client.
+  const gw = b.host.routes.find((r) => r.dest === 'default')?.via;
+  return { host: b.host, port: b.port, local: b.host.ifaces.find((i) => i.name === 'eth0')?.address ?? localAddr, proxyFrom: gw };
+}
+
 export interface HttpRequestInfo {
   method: string; path: string; hostHeader: string; plainOnTls: boolean; now: number;
   /** Client address and User-Agent: when given, nginx writes its access log (and error log on failures). */
@@ -164,7 +185,7 @@ export function handleRequest(host: Host, s: NginxLoadedServer, req: HttpRequest
 }
 
 function nginxRequest(host: Host, s: NginxLoadedServer, req: HttpRequestInfo): { res: HttpResponse; error?: string } {
-  const base: [string, string][] = [['Server', NGINX_VERSION], ['Date', httpDate(req.now)]];
+  const base: [string, string][] = [['Server', host.kind === 'container' ? 'nginx/1.25.5' : NGINX_VERSION], ['Date', httpDate(req.now)]];
   const page = (status: number, body: string, more: [string, string][] = [], close = false): HttpResponse => ({
     status, reason: REASON[status], body, size: body.length, binary: false,
     headers: [...base, ['Content-Type', 'text/html'], ['Content-Length', String(body.length)], ['Connection', close ? 'close' : 'keep-alive'], ...more],

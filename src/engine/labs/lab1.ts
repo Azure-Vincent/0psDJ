@@ -275,7 +275,7 @@ const webFromDev: LabCheck = {
 // ---------------------------------------------------------------- the lab
 
 const SW01_SOLUTION = [
-  "sed -i 's/bridge-ports swp1 swp2 swp3 swp4 swp5 swp6 swp7 swp8 swp9$/bridge-ports swp1 swp2 swp3 swp4 swp5 swp6 swp7 swp8 swp9 swp10/' /etc/network/interfaces",
+  "sed -i 's/^\\(    bridge-ports .*\\)$/\\1 swp10/' /etc/network/interfaces",
   "sed -i 's/^auto br0$/auto swp10\\niface swp10\\n    alias srv02\\n    bridge-access 20\\n\\nauto br0/' /etc/network/interfaces",
   'ifreload -a',
   'bridge vlan show dev swp10',

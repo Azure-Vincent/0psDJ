@@ -15,6 +15,7 @@ import { PF_SCENARIOS } from './pfScenarios';
 import { SCORING_REACH_SCENARIOS } from './scoringReachScenarios';
 import { SCORING_WEB_DNS_SCENARIOS } from './scoringWebDnsScenarios';
 import { SCORING_SCENARIOS } from './scoringScenarios';
+import { CONTAINER_SCENARIOS } from './containerScenarios';
 import type { Scenario } from './types';
 
 /** Every troubleshooting scenario, grouped by the lesson that introduces it. */
@@ -32,6 +33,7 @@ export const SCENARIO_SETS: { id: string; title: string; scenarios: Scenario[] }
   { id: 'domain', title: 'Active Directory domain', scenarios: DOMAIN_SCENARIOS },
   { id: 'nftables', title: 'Firewalls (nftables)', scenarios: FIREWALL_SCENARIOS },
   { id: 'pfsense', title: 'Perimeter firewall (pfSense)', scenarios: PF_SCENARIOS },
+  { id: 'containers', title: 'Containers (Docker)', scenarios: CONTAINER_SCENARIOS },
   { id: 'cases', title: 'End-to-end case studies', scenarios: CASE_SCENARIOS },
 ];
 

@@ -88,8 +88,8 @@ export const CURRICULUM: CurriculumModule[] = [
     id: 'E', title: 'Virtualization and Containers', dependsOn: ['A'],
     summary: 'Hypervisors vs containers; namespaces, cgroups, images, volumes and container networking.',
     topics: [
-      { title: 'Docker and container troubleshooting (reference lesson)', level: 'intermediate', status: 'available', link: 'lesson/docker/what' },
-      { title: 'docker run -d -p 8080:80 nginx, step by step', level: 'intermediate', status: 'partial', link: 'lesson/docker/internals' },
+      { title: 'Docker and container troubleshooting (simulated on dock01, 6 tickets)', level: 'intermediate', status: 'available', link: 'lesson/docker/what' },
+      { title: 'docker run -d -p 8080:80 nginx, step by step', level: 'intermediate', status: 'available', link: 'lesson/docker/internals' },
       { title: 'Docker Compose', level: 'intermediate', status: 'available', link: 'lesson/docker/deploy' },
       { title: 'Container networking and port publishing', level: 'intermediate', status: 'available', link: 'lesson/docker/internals' },
       { title: 'Linux namespaces and control groups', level: 'advanced', status: 'planned' },
@@ -124,7 +124,7 @@ export const LABS = [
   { id: 'lab1', title: 'Lab 1: Basic Linux Server', status: 'available' as const, link: 'labs/lab1', note: 'Guided, 9 verified steps: build a fresh Debian server (srv02) from switch port to hardened web server, with DNS, SSH keys, nftables and a reboot test.' },
   { id: 'lab2', title: 'Lab 2: Windows Domain', status: 'available' as const, link: 'labs/lab2', note: 'Guided, 7 verified steps: install AD DS on dc01, promote the first DC of ad.corp.lab with DNS, create accounts and a group, join win01, grant Remote Desktop through a domain group, and a reboot test.' },
   { id: 'lab3', title: 'Lab 3: Perimeter firewall (pfSense)', status: 'available' as const, link: 'labs/lab3', note: 'Guided, 6 verified steps on fw01 (pfSense) from its webConfigurator: bring up the DMZ, define aliases, write the DMZ policy, publish the portal with a port forward, open the DMZ to the office, and a reboot test.' },
-  { id: 'lab4', title: 'Lab 4: Containerized Application', status: 'partial' as const, note: 'Docker lesson with a Compose example, and case study D (unreachable web app). Not simulated.' },
+  { id: 'lab4', title: 'Lab 4: Containerized Application', status: 'available' as const, link: 'labs/lab4', note: 'Guided, 6 verified steps on dock01 (Docker Engine 26): delegate Docker access, configure daemon.json, review and fix the developers\' compose.yaml and .env, deploy and test from the office, harden the host firewall without breaking the published port, and a reboot test.' },
   { id: 'lab5', title: 'Lab 5: Enterprise Infrastructure', status: 'planned' as const },
   { id: 'lab6', title: 'Lab 6: Infrastructure Recovery', status: 'partial' as const, note: 'Safe-recovery lesson plus the multi-fault tickets (Monday reboot, no Internet, DNS outage).' },
 ];

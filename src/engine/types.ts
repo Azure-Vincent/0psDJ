@@ -198,7 +198,9 @@ export interface Host {
   hostname: string;
   domain: string;
   osName: string;
-  kind: 'linux' | 'router' | 'switch' | 'windows' | 'pfsense';
+  kind: 'linux' | 'router' | 'switch' | 'windows' | 'pfsense' | 'container';
+  /** Present on containers: the Docker host that runs it and the container's identity there. */
+  container?: { host: string; id: string; name: string; image: string };
   /** Windows hosts: configuration (registry) and runtime state (services, event logs). */
   win?: WinState;
   /** pfSense runtime: the loaded pf ruleset (configuration is /conf/config.xml). */
