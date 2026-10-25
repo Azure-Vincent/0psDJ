@@ -24,9 +24,9 @@ For every technology it answers the same questions:
 
 ## What's inside
 
-- **19 lessons** on networking, interfaces and virtual switches, TLS, remote
-  access, identity (including Kerberos), firewalls, containers, Linux and Windows administration,
-  and safe recovery. Each lesson starts in plain language (the short version,
+- **20 lessons** on networking, interfaces and virtual switches, TLS, remote
+  access, identity (including Kerberos), firewalls, containers, web servers and
+  reverse proxies, Linux and Windows administration, and safe recovery. Each lesson starts in plain language (the short version,
   an everyday analogy, the key ideas each with a concrete example from the lab,
   one case followed step by step, common misconceptions and a quick
   self-check), then explains in depth how the technology works, with
@@ -46,7 +46,7 @@ For every technology it answers the same questions:
   machine configured from the files the design generates. You get terminals
   on each machine and a packet tracer that shows every hop and every firewall
   and NAT decision.
-- **98 troubleshooting tickets**, each injecting a realistic fault into the
+- **103 troubleshooting tickets**, each injecting a realistic fault into the
   lab. You investigate with real commands in terminals, record a diagnosis and
   repair the fault. The app then checks your fix immediately, again after
   rebooting every machine, and against security rules, so "just open the
@@ -66,7 +66,11 @@ For every technology it answers the same questions:
   DNS over TCP only. A **Containers** set breaks a Docker Compose application
   the way it breaks in production: a port published on loopback, a renamed
   service, a host firewall that drops forwarded traffic, a leftover container
-  on the port, no restart policy, and a daemon.json typo.
+  on the port, no restart policy, and a daemon.json typo. A **Reverse proxy**
+  set breaks the path behind srv01's nginx: 502 from a wrong upstream port,
+  404s from the proxy_pass URI rule, every site down after a reboot because an
+  upstream name does not resolve, 504 from a backend firewall that only allows
+  the office, and https:// to a plain-HTTP backend.
 - **7 end-to-end case studies**: SSH refused, a server with no Internet, a failed
   domain login, an unreachable Docker app, pfSense blocking traffic, RDP broken
   by a policy change, and several services failing at once.
@@ -105,7 +109,11 @@ console. The container host dock01 runs a simulated Docker Engine 26: the
 `docker` CLI and `docker compose`, containers with their own network namespace
 on the default bridge or user-defined networks (with the embedded DNS server),
 published ports through dockerd's nftables rules and docker-proxy, restart
-policies across reboots, `daemon.json` and the docker group.
+policies across reboots, `daemon.json` and the docker group. srv01's nginx is
+also a reverse proxy: `location` and `proxy_pass` (with nginx's URI rule),
+`upstream` groups, upstream names resolved when nginx loads, and its own TCP
+connection to the backend, so a refusal becomes a 502 and a dropped SYN a 504,
+with nginx's error.log lines.
 
 ## Installation
 

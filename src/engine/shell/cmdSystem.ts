@@ -785,7 +785,11 @@ const nginxCmd: CommandDef = {
     if (!def) return err('-bash: nginx: command not found', 127);
     if (args[0] === '-t') {
       const r = parseNginxListens(readFile(ctx.host, '/etc/nginx/nginx.conf') ?? '');
-      if (!r.errors.length) r.errors.push(...loadNginxServers(ctx.host).errors);
+      if (!r.errors.length) {
+        // nginx -t resolves upstream names too; do it on a copy so the test leaves no trace.
+        const w = structuredClone(ctx.world);
+        r.errors.push(...loadNginxServers(w.hosts[ctx.host.id], '/etc/nginx/nginx.conf', w).errors);
+      }
       if (r.errors.length) return err([...r.errors, 'nginx: configuration file /etc/nginx/nginx.conf test failed'].join('\n'), 1);
       return ok('nginx: the configuration file /etc/nginx/nginx.conf syntax is ok\nnginx: configuration file /etc/nginx/nginx.conf test is successful');
     }

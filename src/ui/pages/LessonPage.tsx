@@ -5,6 +5,7 @@ import type { Lesson, Section } from '../../content/types';
 import { DHCP_RUNS, FIREWALL_RUNS, IP_RUNS, IPV6_RUNS, KRB_RUNS, MTU_RUNS, NAT_RUNS, TLS_RUNS, TRANSPORT_RUNS, VLAN_RUNS } from '../../engine/lab/visualRuns';
 import { OUTCOME_LABELS, SSH_DEPENDENCIES, freshLab, runWithFault } from '../../engine/lab/dependencies';
 import { ALL_SCENARIOS } from '../../engine/scenarios';
+import { deployProxy } from '../../engine/scenarios/proxyScenarios';
 import type { World } from '../../engine/types';
 import { AssessmentView } from '../components/Assessment';
 import { ConfigExplorer } from '../components/ConfigExplorer';
@@ -72,15 +73,15 @@ function SshVisualize() {
   );
 }
 
-function Sandbox({ specs }: { specs: TermSpec[] }) {
+function Sandbox({ specs, build = freshLab }: { specs: TermSpec[]; build?: () => World }) {
   const worldRef = useRef<World | null>(null);
   const [key, setKey] = useState(0);
-  if (!worldRef.current) worldRef.current = freshLab();
+  if (!worldRef.current) worldRef.current = build();
   return (
     <div className="card">
       <div className="spread">
         <h3>Sandbox (working baseline lab)</h3>
-        <button onClick={() => { worldRef.current = freshLab(); setKey((k) => k + 1); }}>Reset sandbox</button>
+        <button onClick={() => { worldRef.current = build(); setKey((k) => k + 1); }}>Reset sandbox</button>
       </div>
       <p className="small muted">Try the steps marked "simulated" here. alice's password on ws01 (for sudo) is <code>ws01-alice</code>. Changes only affect this sandbox.</p>
       <LabTerminals key={key} getWorld={() => worldRef.current!} setWorld={(w) => (worldRef.current = w)} height={380}
@@ -89,7 +90,7 @@ function Sandbox({ specs }: { specs: TermSpec[] }) {
   );
 }
 
-function Deploy({ L, specs }: { L: Lesson; specs: TermSpec[] }) {
+function Deploy({ L, specs, build }: { L: Lesson; specs: TermSpec[]; build?: () => World }) {
   const [platform, setPlatform] = useState(L.deployment[0].id);
   const [sandbox, setSandbox] = useState(false);
   const guide = L.deployment.find((d) => d.id === platform)!;
@@ -105,7 +106,7 @@ function Deploy({ L, specs }: { L: Lesson; specs: TermSpec[] }) {
         ))}
         {specs.length > 0 && <button onClick={() => setSandbox((s) => !s)}>{sandbox ? 'Hide sandbox' : 'Open sandbox terminals'}</button>}
       </div>
-      {sandbox && <div style={{ marginTop: 12 }}><Sandbox specs={specs} /></div>}
+      {sandbox && <div style={{ marginTop: 12 }}><Sandbox specs={specs} build={build} /></div>}
       <h2>{guide.platform}</h2>
       <Markdown text={guide.summary} />
       <h3>Prerequisites</h3>
@@ -228,6 +229,8 @@ interface LessonWidgets {
   visualize?: ReactNode;
   configTool?: { title: string; node: ReactNode };
   sandbox: TermSpec[];
+  /** The sandbox's starting world (default: the baseline lab). */
+  sandboxWorld?: () => World;
 }
 
 function widgetsFor(id: string): LessonWidgets {
@@ -372,6 +375,16 @@ function widgetsFor(id: string): LessonWidgets {
       sandbox: [ws01, srv01, rtr01],
     };
   }
+  if (id === 'webproxy') {
+    return {
+      sandbox: [
+        { hostId: 'srv01', user: 'root', label: 'srv01 console (root)', banner: 'Sandbox: srv01, the reverse proxy (nginx 1.22). apps.corp.lab proxies /inventory/ to the API on dock01:8000. Try: grep -n -e location -e proxy_pass /etc/nginx/nginx.conf, nginx -t, tail /var/log/nginx/access.log, curl -sS http://dock01.corp.lab:8000/health.' },
+        { hostId: 'ws01', user: 'alice', label: 'ws01 (alice)', banner: 'Sandbox: ws01. Try: curl -sS -i http://apps.corp.lab/inventory/health, then break proxy_pass on srv01 and look again.' },
+        { hostId: 'dock01', user: 'root', label: 'dock01 console (root)', banner: 'Sandbox: dock01, the backend. Try: cd /srv/inventory && docker compose logs app (the paths the API received).' },
+      ],
+      sandboxWorld: () => { const w = freshLab(); deployProxy(w); return w; },
+    };
+  }
   if (id === 'docker') {
     return {
       sandbox: [
@@ -498,7 +511,7 @@ export function LessonPage({ lessonId, section }: { lessonId: string; section: s
         </>
       )}
       {sec === 'visualize' && <Visualize L={L} sim={w.visualize} />}
-      {sec === 'deploy' && <Deploy L={L} specs={w.sandbox} />}
+      {sec === 'deploy' && <Deploy L={L} specs={w.sandbox} build={w.sandboxWorld} />}
       {sec === 'config' && <Config L={L} tool={w.configTool} />}
       {sec === 'operate' && L.guide && (
         <>

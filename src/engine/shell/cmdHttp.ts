@@ -233,7 +233,12 @@ const curl: CommandDef = {
       if (recorder) recorder.phase = 'HTTP';
       vlog.push(`> ${head ? 'HEAD' : 'GET'} ${path} HTTP/1.1`, `> Host: ${hostHeader}`, '> User-Agent: curl/7.88.1', '> Accept: */*', '>');
       conn.send('c2s', 78 + path.length + hostHeader.length + (proto === 'TLS' ? 22 : 0), { protocol: proto, info: proto === 'TLS' ? 'Application Data' : `${reqInfo} Host: ${hostHeader}`, fields: [], encrypted: proto === 'TLS' });
-      const res: HttpResponse = app ? app(ctx.world, server, { method: head ? 'HEAD' : 'GET', path, hostHeader, plainOnTls: false, now: ctx.world.clock, client: { ip: backend.proxyFrom ?? conn.sv.peer, ua: 'curl/7.88.1' } }) : handleRequest(server, srv, { method: head ? 'HEAD' : 'GET', path, hostHeader, plainOnTls: scheme === 'http' && sockTls, now: ctx.world.clock, client: { ip: backend.proxyFrom ?? conn.sv.peer, ua: 'curl/7.88.1' } });
+      const res: HttpResponse = app ? app(ctx.world, server, { method: head ? 'HEAD' : 'GET', path, hostHeader, plainOnTls: false, now: ctx.world.clock, client: { ip: backend.proxyFrom ?? conn.sv.peer, ua: 'curl/7.88.1' } }) : handleRequest(server, srv, { method: head ? 'HEAD' : 'GET', path, hostHeader, plainOnTls: scheme === 'http' && sockTls, now: ctx.world.clock, client: { ip: backend.proxyFrom ?? conn.sv.peer, ua: 'curl/7.88.1' } }, ctx.world);
+      // A slow server (a reverse proxy waiting for its upstream): curl -m gives up first.
+      if (max && ctx.world.clock - start > Number(max) * 1000) {
+        conn.close('client');
+        return fail(28, `Operation timed out after ${Number(max) * 1000 + 1} milliseconds with 0 bytes received`, vlog);
+      }
       const statusLine = `HTTP/1.1 ${res.status} ${res.reason}`;
       const hdrs = [statusLine, ...res.headers.map(([k, v]) => `${k}: ${v}`)];
       const hb = headerBytes(res);

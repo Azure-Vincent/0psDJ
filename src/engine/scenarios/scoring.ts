@@ -130,7 +130,7 @@ export function scoredWebCheck(world: World, goal: ScoredWebGoal, live = false):
   const tlsSock = !!loaded?.servers?.some((s) => isTlsPort(s, backend.port));
   if (scheme === 'https' && !tlsSock) { conn.close('client'); return fail('Web request failed', `${get}: http: server gave HTTP response to HTTPS client`); }
   const req = { method: 'GET', path, hostHeader: portStr ? `${hostname}:${portStr}` : hostname, plainOnTls: scheme === 'http' && tlsSock, now: w.clock, client: { ip: backend.proxyFrom ?? conn.sv.peer, ua: 'Go-http-client/1.1' } };
-  const r = app ? app(w, server, req) : handleRequest(server, selectServer(loaded, backend.local, backend.port, hostname)!, req);
+  const r = app ? app(w, server, req) : handleRequest(server, selectServer(loaded, backend.local, backend.port, hostname)!, req, w);
   conn.send('c2s', 90 + path.length, { protocol: 'DATA', info: `GET ${path} HTTP/1.1`, fields: [] });
   conn.send('s2c', 200 + Math.min(r.size, 1200), { protocol: 'DATA', info: `HTTP/1.1 ${r.status} ${r.reason}`, fields: [] });
   conn.close('client');

@@ -16,6 +16,7 @@ import { SCORING_REACH_SCENARIOS } from './scoringReachScenarios';
 import { SCORING_WEB_DNS_SCENARIOS } from './scoringWebDnsScenarios';
 import { SCORING_SCENARIOS } from './scoringScenarios';
 import { CONTAINER_SCENARIOS } from './containerScenarios';
+import { PROXY_SCENARIOS } from './proxyScenarios';
 import type { Scenario } from './types';
 
 /** Every troubleshooting scenario, grouped by the lesson that introduces it. */
@@ -34,6 +35,7 @@ export const SCENARIO_SETS: { id: string; title: string; scenarios: Scenario[] }
   { id: 'nftables', title: 'Firewalls (nftables)', scenarios: FIREWALL_SCENARIOS },
   { id: 'pfsense', title: 'Perimeter firewall (pfSense)', scenarios: PF_SCENARIOS },
   { id: 'containers', title: 'Containers (Docker)', scenarios: CONTAINER_SCENARIOS },
+  { id: 'proxy', title: 'Web servers and reverse proxies', scenarios: PROXY_SCENARIOS },
   { id: 'cases', title: 'End-to-end case studies', scenarios: CASE_SCENARIOS },
 ];
 

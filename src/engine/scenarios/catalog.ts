@@ -486,5 +486,30 @@ export const CAUSES: Record<string, Cause> = Object.fromEntries(
       signature: 'Every docker command says "Cannot connect to the Docker daemon … Is the docker daemon running?"; systemctl status docker is failed; journalctl -u docker shows "unable to configure the Docker daemon with file /etc/docker/daemon.json: …".',
       check: 'systemctl status docker; journalctl -u docker -n 20; validate the JSON (dockerd --validate --config-file /etc/docker/daemon.json on a real host).',
     },
+    {
+      id: 'proxy-upstream-port', title: 'proxy_pass points at a port nothing listens on (502 Bad Gateway)', category: 'Configuration', concept: 'web.proxy',
+      signature: 'The proxy answers at once with "502 Bad Gateway"; error.log says "connect() failed (111: Connection refused) while connecting to upstream" and names the upstream address and port. The application answers when you go to it directly on its real port.',
+      check: 'tail /var/log/nginx/error.log on the proxy (upstream: "http://IP:PORT/..."); ss -tlnp on the backend; curl the upstream URL from the proxy host itself.',
+    },
+    {
+      id: 'proxy-uri-rewrite', title: 'proxy_pass URI: the location prefix reaches the backend (404 from the application)', category: 'Configuration', concept: 'web.proxy',
+      signature: 'The proxy works but every page is "404 Not Found"; the body is the application\'s own (JSON, framework error page), not nginx\'s. Without a URI part ("proxy_pass http://app:8000;") nginx passes /prefix/path unchanged; with one ("http://app:8000/") it replaces the matched prefix.',
+      check: 'The backend\'s access log (docker logs, app log) shows which path it received; compare location and proxy_pass in nginx.conf (trailing slash).',
+    },
+    {
+      id: 'proxy-upstream-unresolvable', title: 'Upstream host name does not resolve: nginx refuses to start', category: 'Configuration', concept: 'web.proxy',
+      signature: 'nginx is failed after a restart or reboot, so every site on that server is down (connection refused); journalctl -u nginx and nginx -t show "[emerg] host not found in upstream \"NAME:PORT\"". nginx resolves proxy_pass names once, when it loads the configuration; a failed reload keeps the old configuration running, which hides the error until the next restart.',
+      check: 'nginx -t; journalctl -u nginx -n 20; getent hosts NAME on the proxy.',
+    },
+    {
+      id: 'proxy-backend-acl', title: 'Backend firewall does not allow the proxy (504 Gateway Time-out)', category: 'Firewall', concept: 'web.proxy',
+      signature: 'The proxy answers "504 Gateway Time-out" after its proxy_connect_timeout (60 s by default); error.log says "upstream timed out (110: Connection timed out) while connecting to upstream". The backend works from client machines: its firewall allows them but not the proxy\'s address, which is the source of proxied connections.',
+      check: 'nc -zv -w 3 BACKEND PORT from the proxy host (times out) and from a client (works); nft list ruleset on the backend (which sources are accepted).',
+    },
+    {
+      id: 'proxy-upstream-scheme', title: 'proxy_pass https:// to a backend that speaks plain HTTP (502)', category: 'Configuration', concept: 'web.proxy',
+      signature: '"502 Bad Gateway" at once; error.log says "SSL_do_handshake() failed (SSL: … wrong version number) while SSL handshaking to upstream": nginx started a TLS handshake and got an HTTP answer back.',
+      check: 'error.log on the proxy; curl -v http://BACKEND:PORT/ vs curl -v https://BACKEND:PORT/ from the proxy host.',
+    },
   ] as Cause[]).map((c) => [c.id, c]),
 );

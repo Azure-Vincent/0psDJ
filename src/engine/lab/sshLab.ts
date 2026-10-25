@@ -420,6 +420,7 @@ dmz01   IN A    172.16.50.10
 portal  IN A    172.16.50.10
 dock01  IN A    10.0.20.40
 inventory IN CNAME dock01
+apps    IN CNAME srv01
 www     IN CNAME srv01
 ` + KRB_ZONE_RECORDS;
 
