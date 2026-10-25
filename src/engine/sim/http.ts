@@ -6,9 +6,9 @@
 
 import { canAccess, canTraverse, mkdir, readFile, writeFile } from '../fs';
 import type { Host, UserAccount, World } from '../types';
-import { allListeners, type NginxLoaded, type NginxLoadedServer } from './services';
+import { allListeners, type NginxLoaded, type NginxLoadedLocation, type NginxLoadedServer } from './services';
 import { keyIdFor, makeCert } from './pki';
-import type { TcpConn } from './tcp';
+import { type ConnectErrno, tcpConnect, type TcpConn } from './tcp';
 
 export const NGINX_VERSION = 'nginx/1.22.1';
 
@@ -40,7 +40,7 @@ Commercial support is available at
 
 const WWW_DATA: UserAccount = { name: 'www-data', uid: 33, gid: 33, primaryGroup: 'www-data', groups: [], home: '/var/www', shell: '/usr/sbin/nologin', gecos: 'www-data', password: null };
 
-const REASON: Record<number, string> = { 200: 'OK', 301: 'Moved Permanently', 302: 'Found', 400: 'Bad Request', 403: 'Forbidden', 404: 'Not Found' };
+const REASON: Record<number, string> = { 200: 'OK', 301: 'Moved Permanently', 302: 'Found', 400: 'Bad Request', 403: 'Forbidden', 404: 'Not Found', 500: 'Internal Server Error', 502: 'Bad Gateway', 504: 'Gateway Time-out' };
 
 const MIME: Record<string, string> = {
   html: 'text/html', htm: 'text/html', txt: 'text/plain', css: 'text/css', js: 'application/javascript', json: 'application/json',
@@ -151,6 +151,8 @@ export interface HttpRequestInfo {
   method: string; path: string; hostHeader: string; plainOnTls: boolean; now: number;
   /** Client address and User-Agent: when given, nginx writes its access log (and error log on failures). */
   client?: { ip: string; ua: string };
+  /** Proxies already passed (a proxy_pass loop ends with a 500 instead of recursing forever). */
+  hops?: number;
 }
 
 const pad2 = (n: number) => String(n).padStart(2, '0');
@@ -163,7 +165,7 @@ function appendLog(host: Host, path: string, line: string, now: number): void {
 }
 
 /** nginx's access.log (combined format) and error.log lines for a request. */
-function logRequest(host: Host, req: HttpRequestInfo, r: HttpResponse, error?: string): void {
+function logRequest(host: Host, req: HttpRequestInfo, r: HttpResponse, error?: string, server = '', upstream?: string): void {
   if (!req.client) return;
   const d = new Date(Math.floor(req.now));
   const access = `${pad2(d.getUTCDate())}/${MONTHS[d.getUTCMonth()]}/${d.getUTCFullYear()}:${pad2(d.getUTCHours())}:${pad2(d.getUTCMinutes())}:${pad2(d.getUTCSeconds())} +0000`;
@@ -172,19 +174,81 @@ function logRequest(host: Host, req: HttpRequestInfo, r: HttpResponse, error?: s
   if (error) {
     const stamp = `${d.getUTCFullYear()}/${pad2(d.getUTCMonth() + 1)}/${pad2(d.getUTCDate())} ${pad2(d.getUTCHours())}:${pad2(d.getUTCMinutes())}:${pad2(d.getUTCSeconds())}`;
     const pid = host.services.nginx?.pid ?? 0;
-    appendLog(host, '/var/log/nginx/error.log', `${stamp} [error] ${pid + 1}#${pid + 1}: *1 ${error}, client: ${req.client.ip}, server: ${''}, request: "${req.method} ${req.path} HTTP/1.1", host: "${req.hostHeader}"`, req.now);
+    appendLog(host, '/var/log/nginx/error.log', `${stamp} [error] ${pid + 1}#${pid + 1}: *1 ${error}, client: ${req.client.ip}, server: ${server}, request: "${req.method} ${req.path} HTTP/1.1"${upstream ? `, upstream: "${upstream}"` : ''}, host: "${req.hostHeader}"`, req.now);
   }
 }
 
 /** nginx answering one request (GET/HEAD) for `path` on server block `s`. */
-export function handleRequest(host: Host, s: NginxLoadedServer, req: HttpRequestInfo): HttpResponse {
+export function handleRequest(host: Host, s: NginxLoadedServer, req: HttpRequestInfo, world?: World): HttpResponse {
   if (host.kind === 'windows') return handleIisRequest(host, s, req);
-  const out = nginxRequest(host, s, req);
-  logRequest(host, req, out.res, out.error);
+  const out = nginxRequest(host, s, req, world);
+  logRequest(host, req, out.res, out.error, s.names[0] ?? '', out.upstream);
   return out.res;
 }
 
-function nginxRequest(host: Host, s: NginxLoadedServer, req: HttpRequestInfo): { res: HttpResponse; error?: string } {
+/** nginx's location choice: an exact match, else the longest matching prefix. */
+function matchLocation(locs: NginxLoadedLocation[] | undefined, uri: string): NginxLoadedLocation | undefined {
+  if (!locs) return undefined;
+  return locs.find((l) => l.exact && l.prefix === uri)
+    ?? locs.filter((l) => !l.exact && uri.startsWith(l.prefix)).sort((a, b) => b.prefix.length - a.prefix.length)[0];
+}
+
+const UPSTREAM_ERR: Partial<Record<ConnectErrno, string>> = {
+  ECONNREFUSED: 'connect() failed (111: Connection refused) while connecting to upstream',
+  EHOSTUNREACH: 'connect() failed (113: No route to host) while connecting to upstream',
+  ENETUNREACH: 'connect() failed (101: Network is unreachable) while connecting to upstream',
+  ETIMEDOUT: 'upstream timed out (110: Connection timed out) while connecting to upstream',
+};
+
+/**
+ * proxy_pass: nginx opens its own TCP connection from this host to the upstream
+ * address it resolved at load time, sends the request with the rewritten URI and
+ * Host header, and relays the answer (502/504 and an error.log line when it cannot).
+ */
+function proxyRequest(world: World, host: Host, loc: NginxLoadedLocation, req: HttpRequestInfo, page: (status: number, body: string) => HttpResponse, base: [string, string][]): { res: HttpResponse; error?: string; upstream?: string } {
+  const p = loc.proxy!;
+  if ((req.hops ?? 0) >= 4) return { res: page(500, errorPage(500)), error: 'rewrite or internal redirection cycle while processing proxy_pass' };
+  const [pathOnly, query] = [req.path.split('?')[0], req.path.includes('?') ? req.path.slice(req.path.indexOf('?')) : ''];
+  const upPath = p.uri === undefined ? req.path : (loc.exact ? p.uri : p.uri + pathOnly.slice(loc.prefix.length)) + query;
+  const hostHdr = p.hostTemplate.replace('$proxy_host', p.proxyHost).replace('$http_host', req.hostHeader).replace('$host', req.hostHeader.replace(/:\d+$/, ''));
+  let fail = { status: 502, error: '', upstream: '' };
+  for (const t of p.targets) {
+    const upstream = `${p.scheme}://${t.ip}:${t.port}${upPath}`;
+    const c = tcpConnect(world, host, t.ip, t.port, { timeoutMs: p.connectTimeoutMs });
+    if (!c.ok) {
+      fail = { status: c.errno === 'ETIMEDOUT' ? 504 : 502, error: UPSTREAM_ERR[c.errno] ?? `connect() failed while connecting to upstream`, upstream };
+      continue;
+    }
+    const conn = c.conn;
+    const backend = httpBackend(world, conn.server, conn.sv.localPort, conn.sv.local);
+    const server = backend.host;
+    const listener = allListeners(server).find((l) => l.proto === 'tcp' && l.port === backend.port);
+    const app = listener ? httpHooks.apps[listener.process] : undefined;
+    const loaded = server.services.nginx?.state === 'active' ? (server.services.nginx.loaded as NginxLoaded) : iisLoaded(server);
+    const tlsSock = !!loaded?.servers?.some((x) => isTlsPort(x, backend.port));
+    if (!app && listener?.process !== 'nginx' && listener?.service !== 'W3SVC') {
+      conn.close('server');
+      fail = { status: 502, error: 'upstream prematurely closed connection while reading response header from upstream', upstream };
+      continue;
+    }
+    if (p.scheme === 'https' && !tlsSock) {
+      conn.close('client');
+      fail = { status: 502, error: 'SSL_do_handshake() failed (SSL: error:0A00010B:SSL routines::wrong version number) while SSL handshaking to upstream', upstream };
+      continue;
+    }
+    const ureq: HttpRequestInfo = { method: req.method, path: upPath, hostHeader: hostHdr, plainOnTls: p.scheme === 'http' && tlsSock, now: world.clock, client: { ip: backend.proxyFrom ?? conn.sv.peer, ua: req.client?.ua ?? '' }, hops: (req.hops ?? 0) + 1 };
+    conn.send('c2s', 90 + upPath.length + hostHdr.length, { protocol: p.scheme === 'https' ? 'TLS' : 'DATA', info: `${req.method} ${upPath} HTTP/1.0 Host: ${hostHdr}`, fields: [] });
+    const r = app ? app(world, server, ureq) : handleRequest(server, selectServer(loaded, backend.local, backend.port, hostHdr)!, ureq, world);
+    conn.send('s2c', 200 + Math.min(r.size, 1200), { protocol: p.scheme === 'https' ? 'TLS' : 'DATA', info: `HTTP/1.1 ${r.status} ${r.reason}`, fields: [] });
+    conn.close('client');
+    // nginx sends its own Server, Date and Connection headers and relays the rest.
+    const relayed = r.headers.filter(([k]) => k !== 'Server' && k !== 'Date' && k !== 'Connection');
+    return { res: { ...r, headers: [...base.map(([k, v]): [string, string] => [k, k === 'Date' ? httpDate(world.clock) : v]), ...relayed, ['Connection', 'keep-alive']] } };
+  }
+  return { res: page(fail.status, errorPage(fail.status)), error: fail.error, upstream: fail.upstream };
+}
+
+function nginxRequest(host: Host, s: NginxLoadedServer, req: HttpRequestInfo, world?: World): { res: HttpResponse; error?: string; upstream?: string } {
   const base: [string, string][] = [['Server', host.kind === 'container' ? 'nginx/1.25.5' : NGINX_VERSION], ['Date', httpDate(req.now)]];
   const page = (status: number, body: string, more: [string, string][] = [], close = false): HttpResponse => ({
     status, reason: REASON[status], body, size: body.length, binary: false,
@@ -198,6 +262,8 @@ function nginxRequest(host: Host, s: NginxLoadedServer, req: HttpRequestInfo): {
     return { res: page(s.ret.code, errorPage(s.ret.code), target ? [['Location', target]] : []) };
   }
   const clean = decodeURIComponent(req.path.split('?')[0]).replace(/\/+/g, '/');
+  const loc = matchLocation(s.locations, clean);
+  if (loc?.proxy && world) return proxyRequest(world, host, loc, req, (st, body) => page(st, body), base);
   let fsPath = (s.root === '/' ? '' : s.root) + clean;
   let node = host.fs[fsPath.replace(/\/$/, '') || '/'];
   if (node?.type === 'dir') {

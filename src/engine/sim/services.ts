@@ -13,7 +13,9 @@ import { dhcp6Acquire, duidLlt, LEASES6, type Dhcpd6Loaded } from './dhcp6';
 import { dhcpAcquire, type DhcpdLoaded } from './dhcp';
 import { inCidr, parseCidr, parseIp } from '../net/ip';
 import { readFile, writeFile } from '../fs';
-import { parseNginxServers } from '../config/nginx';
+import { type NginxLocation, parseNginxServers, parseNginxUpstreams } from '../config/nginx';
+import { isIpAddress } from '../net/addr';
+import { resolve } from './dns';
 import { type Cert, parseCerts, parseKey } from './pki';
 import type { Host, ServiceRuntime, World } from '../types';
 import { log } from './journal';
@@ -310,7 +312,23 @@ export interface NginxLoadedServer {
   ret?: { code: number; target: string };
   /** Certificate chain and key id as read at (re)load time: nginx keeps them in memory. */
   tls?: { chain: Cert[]; keyId: string; certPath: string };
+  locations?: NginxLoadedLocation[];
 }
+
+/** A proxy_pass target as nginx holds it after start/reload: names are resolved once, at load time. */
+export interface NginxProxy {
+  url: string;
+  scheme: 'http' | 'https';
+  /** $proxy_host: the upstream name, or host[:port] of the URL (port omitted when it is the scheme's default). */
+  proxyHost: string;
+  targets: { ip: string; port: number }[];
+  /** URI part of the proxy_pass URL: replaces the matched location prefix when present. */
+  uri?: string;
+  hostTemplate: string;
+  connectTimeoutMs: number;
+}
+
+export interface NginxLoadedLocation { prefix: string; exact: boolean; proxy?: NginxProxy }
 
 export interface NginxLoaded {
   binds: { addr: string; port: number }[];
@@ -323,11 +341,54 @@ const NO_FILE = (path: string) => `BIO_new_file() failed (SSL: error:80000002:sy
  * Load the server blocks the way nginx does at start and reload, including the TLS
  * certificate/key checks (missing file, no PEM data, key values mismatch).
  */
-export function loadNginxServers(host: Host, file = '/etc/nginx/nginx.conf'): { servers: NginxLoadedServer[]; errors: string[] } {
+/** Resolve "host[:port]" the way nginx does at load time (system resolver, IPv4 here). */
+function upstreamAddr(world: World | undefined, host: Host, spec: string, defPort: number): { ip: string; port: number } | null {
+  const m = /^([^:]+)(?::(\d+))?$/.exec(spec);
+  if (!m) return null;
+  const port = m[2] ? Number(m[2]) : defPort;
+  if (!world || isIpAddress(m[1])) return { ip: m[1], port };
+  const r = resolve(world, host, m[1], { family: 4 });
+  return r.ok ? { ip: r.ip, port } : null;
+}
+
+function loadProxy(world: World | undefined, host: Host, file: string, text: string, loc: NginxLocation): { proxy?: NginxProxy; error?: string } {
+  const pp = loc.proxyPass!;
+  const m = /^(https?):\/\/([^/:]+)(?::(\d+))?(\/.*)?$/.exec(pp.url);
+  if (!m) return { error: `nginx: [emerg] invalid URL prefix in ${file}:${pp.line}` };
+  const scheme = m[1] as 'http' | 'https';
+  const defPort = scheme === 'https' ? 443 : 80;
+  const hostPart = m[3] ? `${m[2]}:${m[3]}` : m[2];
+  const base = { url: pp.url, scheme, uri: m[4], hostTemplate: loc.hostHeader ?? '$proxy_host', connectTimeoutMs: loc.connectTimeoutMs ?? 60_000 };
+  const up = !m[3] ? parseNginxUpstreams(text).find((u) => u.name === m[2]) : undefined;
+  if (up) {
+    const targets: { ip: string; port: number }[] = [];
+    for (const sv of up.servers) {
+      const a = upstreamAddr(world, host, sv.spec, 80);
+      if (!a) return { error: `nginx: [emerg] host not found in upstream "${sv.spec}" in ${file}:${sv.line}` };
+      targets.push(a);
+    }
+    if (!targets.length) return { error: `nginx: [emerg] no servers are inside upstream in ${file}:${up.line}` };
+    return { proxy: { ...base, proxyHost: up.name, targets } };
+  }
+  const a = upstreamAddr(world, host, hostPart, defPort);
+  if (!a) return { error: `nginx: [emerg] host not found in upstream "${hostPart}" in ${file}:${pp.line}` };
+  return { proxy: { ...base, proxyHost: a.port === defPort ? m[2] : hostPart, targets: [a] } };
+}
+
+export function loadNginxServers(host: Host, file = '/etc/nginx/nginx.conf', world?: World): { servers: NginxLoadedServer[]; errors: string[] } {
   const errors: string[] = [];
   const servers: NginxLoadedServer[] = [];
-  for (const s of parseNginxServers(readFile(host, file) ?? '')) {
+  const text = readFile(host, file) ?? '';
+  for (const s of parseNginxServers(text)) {
     const ls: NginxLoadedServer = { listens: s.listens.map(({ addr, port, ssl, def }) => ({ addr, port, ssl, def })), names: s.names, root: s.root, index: s.index, ret: s.ret };
+    if (s.locations.length) {
+      ls.locations = [];
+      for (const l of s.locations) {
+        const r = l.proxyPass ? loadProxy(world, host, file, text, l) : {};
+        if (r.error) errors.push(r.error);
+        ls.locations.push({ prefix: l.prefix, exact: l.exact, proxy: r.proxy });
+      }
+    }
     const sslListen = s.listens.find((l) => l.ssl);
     if (sslListen) {
       if (!s.cert) {
@@ -382,7 +443,7 @@ export function parseNginxListens(text: string, file = '/etc/nginx/nginx.conf'):
 function nginxLoad(world: World, host: Host, pid: number): NginxLoaded | null {
   const parsed = parseNginxListens(readFile(host, '/etc/nginx/nginx.conf') ?? '');
   const { binds } = parsed;
-  const loaded = parsed.errors.length ? { servers: [], errors: [] } : loadNginxServers(host);
+  const loaded = parsed.errors.length ? { servers: [], errors: [] } : loadNginxServers(host, '/etc/nginx/nginx.conf', world);
   const errors = [...parsed.errors, ...loaded.errors];
   for (const e of errors) log(world, host, 'nginx', e, { pid, unit: 'nginx.service', priority: 'err' });
   if (errors.length) {
