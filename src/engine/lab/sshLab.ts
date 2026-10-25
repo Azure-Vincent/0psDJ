@@ -17,6 +17,7 @@ import { EXT01_NGINX_CONF, installExt01Web, installSrv01Pki, SRV01_NGINX_CONF, t
 import { installKerberos, KRB_ZONE_RECORDS } from './krbLab';
 import { installDc01, installWin01 } from './winLab';
 import { installDmz01, installFw01 } from './pfLab';
+import { installDock01 } from './dockerLab';
 
 export const DEBIAN_SSHD_CONFIG = `
 # This is the sshd server system-wide configuration file.  See
@@ -285,10 +286,15 @@ iface swp9
     alias dev02 (hot desk, dev)
     bridge-access 30
 
+auto swp11
+iface swp11
+    alias dock01 (container host)
+    bridge-access 20
+
 auto br0
 iface br0
     bridge-vlan-aware yes
-    bridge-ports swp1 swp2 swp3 swp4 swp5 swp6 swp7 swp8 swp9
+    bridge-ports swp1 swp2 swp3 swp4 swp5 swp6 swp7 swp8 swp9 swp11
     bridge-vids 10 20 30
     bridge-pvid 1
     bridge-stp yes
@@ -412,6 +418,8 @@ dc01    IN A    10.0.20.5
 fw01    IN A    10.0.20.254
 dmz01   IN A    172.16.50.10
 portal  IN A    172.16.50.10
+dock01  IN A    10.0.20.40
+inventory IN CNAME dock01
 www     IN CNAME srv01
 ` + KRB_ZONE_RECORDS;
 
@@ -462,6 +470,7 @@ export function buildSshLab(): World {
   world.links = [
     ['ws01', 'eth0', 'swp1'], ['ws02', 'eth0', 'swp2'], ['ns1', 'eth0', 'swp3'], ['rtr01', 'eth0', 'swp4'],
     ['rtr01', 'eth1', 'swp5'], ['srv01', 'eth0', 'swp6'], ['rtr01', 'eth3', 'swp7'], ['dev01', 'eth0', 'swp8'], ['dev02', 'eth0', 'swp9'],
+    ['dock01', 'eth0', 'swp11'],
   ].map(([host, iface, port]) => ({ a: { host, iface }, b: { host: 'sw01', iface: port } }));
   const t = world.clock;
 
@@ -471,6 +480,8 @@ export function buildSshLab(): World {
     ifaces: Array.from({ length: 9 }, (_, k) => ({ name: `swp${k + 1}`, mac: `52:54:00:5e:00:${(k + 1).toString(16).padStart(2, '0')}`, segment: null })),
     services: [],
   });
+  // swp10 is left free (Lab 1 cables a new server to it); swp11 is dock01's port.
+  sw.ifaces.push({ name: 'swp11', mac: '52:54:00:5e:00:0b', segment: null, address: null, prefix: null, up: false, staticSegment: null, addrs6: [] });
   writeFile(sw, '/etc/network/interfaces', SW01_INTERFACES, t);
   writeFile(sw, '/etc/resolv.conf', '', t);
 
@@ -599,12 +610,13 @@ export function buildSshLab(): World {
   const dc = installDc01(world, true);
   const fw = installFw01(world);
   const dmz = installDmz01(world);
+  const dock = installDock01(world);
   // On the Internet the portal is reached through fw01's public address.
   writeFile(ext, '/etc/hosts', `${readFile(ext, '/etc/hosts') ?? ''}203.0.113.10\tportal.corp.lab\n`, world.clock);
 
   // Boot everything. Order matters: the switch first (it creates the VLANs),
   // ns1 must serve DHCP before ws02 boots, rtr01 must advertise before dev01.
-  for (const h of [sw, rtr, ns1, srv, ws, ws2, ext, dev, dev2, fw, dmz, dc, win]) bootHost(world, h);
+  for (const h of [sw, rtr, ns1, srv, ws, ws2, ext, dev, dev2, fw, dmz, dc, win, dock]) bootHost(world, h);
 
   // History: alice connected yesterday-style earlier today, accepting the host key.
   world.clock += 60_000;
