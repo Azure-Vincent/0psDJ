@@ -40,10 +40,19 @@ engine/
   sim/dns.ts           glibc-like stub resolver (hosts → resolv.conf servers, search list) + authoritative answers
   sim/services.ts      systemd-like lifecycle: start/stop/reload/enable, ExecStartPre tests, bind(), boot
   sim/ssh.ts           OpenSSH 9.2 client+server behaviour, journal lines, protocol trace
+  sim/http.ts, pki.ts  nginx server blocks and HTTP responses; X.509 chains, trust stores, TLS checks
+  sim/kerberos.ts      MIT KDC (AS/TGS exchanges, keytabs, clock skew)
+  sim/accounts.ts      PAM account state: expiry, pam_faillock
+  sim/docker.ts        dockerd: containers as hosts, bridges, embedded DNS, DNAT + docker-proxy, restart policies
+  sim/compose.ts       Docker Compose v2: YAML subset, .env interpolation, up/down/ps/logs/config
   sim/trace.ts         event recorder shared by the diagram, dependency map and packet lab
-  shell/               simulated bash: tokenizer (quotes, pipes, redirection, && ||), 50+ commands
+  win/                 Windows Server model, Defender Firewall, Active Directory, PowerShell 5.1 interpreter
+  pf/                  pfSense: config.xml model, compilation to pf rules, webConfigurator actions
+  shell/               simulated bash: tokenizer (quotes, pipes, redirection, && ||), Linux, FreeBSD and docker commands
   scenarios/           cause catalogue, scenario definitions, verification, diagnosis grading
-  lab/                 baseline lab, dependency map faults, packet-capture presets
+  lab/                 baseline lab (ws01…dock01, dc01, fw01), dependency map faults, packet-capture presets
+  labs/                guided labs 1–4: steps, engine-evaluated checks, reference solutions, reboot test
+  builder/             Infrastructure Builder: design model, validation, world generation
   pcap.ts, filter.ts   libpcap writer with valid checksums; Wireshark display-filter subset
 ```
 
@@ -54,7 +63,7 @@ a command line with the collected answers on a fresh copy of the world; this is
 only correct because the engine is deterministic, and it is tested.
 
 **Honesty about simulation.** The app never claims to run Debian, Windows,
-pfSense or Docker (win01 is a simulated Windows Server and fw01 a simulated pfSense, labelled as such). Deployment guides target real VMs and are labelled as such;
+pfSense or Docker (win01 is a simulated Windows Server, fw01 a simulated pfSense and dock01 a simulated Docker Engine, labelled as such). Deployment guides target real VMs and are labelled as such;
 the sandbox and scenarios are labelled as simulations, and simplifications are
 stated where they matter (see §5.6).
 
@@ -65,9 +74,9 @@ stated where they matter (see §5.6).
 Modules (✅ / 🟡 / ⏳ per topic are listed in-app under *Curriculum*):
 
 ```
-            ┌──────────────► B Remote access (SSH ✅, RDP ⏳, WinRM ⏳, VPN ⏳ …) ─┐
-A Networking┤──────────────► D Firewalls (nftables 🟡, pfSense 🟡 …) ──────────────┼─► F Enterprise infrastructure
-fundamentals├──────────────► E Virtualization & containers (⏳) ─────────────────────┤      (DNS 🟡, Linux admin 🟡, others ⏳)
+            ┌──────────────► B Remote access (SSH ✅, RDP ✅, WinRM ⏳, VPN ⏳ …) ─┐
+A Networking┤──────────────► D Firewalls (nftables 🟡, pfSense ✅ …) ──────────────┼─► F Enterprise infrastructure
+fundamentals├──────────────► E Virtualization & containers (Docker ✅, VMs ⏳) ──────┤      (DNS 🟡, Linux admin 🟡, others ⏳)
             └─► C Identity & authentication (PAM 🟡, AD/Kerberos/LDAP ⏳) ◄── B ──────┘
 ```
 
@@ -344,7 +353,7 @@ options is implemented and unsupported options say so.
 | 6d | **Scored services: web and DNS**: the engine's web check (`scoredWebCheck`: one GET like Go's net/http, no redirects, no certificate checks; status code and page content compared; Go's errors for refused, lookup "no such host" / "server misbehaving", malformed response, HTTP to an HTTPS client) and DNS check (`scoredDnsCheck`: one UDP query to the team's server; NXDOMAIN, SERVFAIL, wrong answer, `read udp …: connection refused`); nginx access.log/error.log (403/404 reasons), `namei -l`, `chmod` X, `cp` keeping an existing file's mode, zone files rejecting bad addresses and CNAME with other data; 7 tickets (`scenarios/scoringWebDnsScenarios.ts`): 403 from permissions, defaced page, nginx failed after a certificate rename, HTTP closed for "HTTPS only", hijacked record, SERVFAIL after a typo, DNS allowed over TCP only | ✅ |
 | 5 | Windows/AD track (remaining): Group Policy objects, Kerberos for Windows logons, a second DC and replication | ⏳ |
 | 6 | **pfSense and Lab 3**: fw01 (pfSense 2.7.2, FreeBSD shell) between the Internet, the server network and a DMZ with dmz01; `/conf/config.xml` as the only state (`src/engine/pf`: XML parser/printer, typed config model), compiled like pfSense's rules.debug into the packet filter with pf semantics (ingress rules, first match, keep state, anti-lockout, block private networks on WAN, logged default deny, rdr before filtering, automatic/hybrid/manual outbound NAT), filterlog lines in /var/log/filter.log, load errors that keep the previous ruleset, restore of the last good config at boot; console tools (`pfctl -s rules/nat/states/info/tables`, `-vvsr`, `-d/-e`, `-k`, `-F states`, `-t … -T show`, `-nf`, `easyrule`, `viconfig`, `/etc/rc.filter_configure`, `/etc/rc.reload_all`, FreeBSD `ifconfig`, `netstat`, `sockstat`); the webConfigurator (`src/ui/components/PfWebConfigurator.tsx` over `pf/webgui.ts`: login, dashboard, interface assignment, aliases, rules with ordering, port forwards with associated rules, outbound NAT modes, firewall log, states, Apply Changes) reached over HTTPS from a browser on ws01, so a bad rule can lock it out; the pfSense lesson becomes simulated with a sandbox; 5 pfSense tickets; **Lab 3: Perimeter firewall** (6 verified steps, reference solutions done in the webConfigurator) | ✅ |
-| 7 | Containers: image layers, namespaces, bridge networking, port publishing; Docker Compose; Lab 4 | ⏳ |
+| 7 | **Containers and Lab 4**: dock01 (Debian 12, Docker Engine 26) on the server VLAN; containers are hosts of kind `container` with their own network namespace on Linux bridges (`sim/docker.ts`): dockerd state on disk (`/var/lib/docker/containers/<id>/config.v2.json`, json-file logs, networks.json), the default bridge and user-defined networks with the embedded DNS server at 127.0.0.11, published ports as DNAT in dockerd's `ip nat`/`ip filter` tables (forward policy drop, DOCKER-USER) plus docker-proxy listeners, restart policies (always, unless-stopped, on-failure) with a restart loop and back-off, `daemon.json` with Go `encoding/json` errors, the docker group; three images with real behaviour (nginx, postgres needing POSTGRES_PASSWORD, the corp/inventory API that fails with psycopg2's messages); the `docker` CLI (`shell/cmdDocker.ts`: run/ps/logs/inspect -f with Go templates/exec/start/stop/rm/port/network/pull/info) and `docker compose` (`sim/compose.ts`: YAML subset, .env interpolation, project network, config-hash recreation, orphans, up/down/ps/logs/config); the Docker lesson becomes simulated with a sandbox; 6 container tickets (`scenarios/containerScenarios.ts`); **Lab 4: Containerized Application** (6 verified steps) | ✅ |
 | 8 | Enterprise services (web/reverse proxy, SMB/NFS, NTP, logging) and Labs 5–6 (multi-system outages, recovery) | ⏳ |
 
 ### Adding a new service (checklist)

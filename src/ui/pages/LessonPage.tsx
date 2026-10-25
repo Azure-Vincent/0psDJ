@@ -372,6 +372,14 @@ function widgetsFor(id: string): LessonWidgets {
       sandbox: [ws01, srv01, rtr01],
     };
   }
+  if (id === 'docker') {
+    return {
+      sandbox: [
+        { hostId: 'dock01', user: 'root', label: 'dock01 console (root)', banner: 'Sandbox: console on dock01 (Debian 12, Docker Engine 26). Images: nginx:1.25, postgres:16, corp/inventory:1.4. Try: docker run -d --name web -p 8080:80 nginx:1.25, docker ps, docker logs web, nft list table ip nat, ss -tlnp.' },
+        { hostId: 'ws01', user: 'alice', label: 'ws01 (alice)', banner: 'Sandbox: ws01, Debian 12. Test published ports from the office network: curl -sS -i http://dock01.corp.lab:8080/' },
+      ],
+    };
+  }
   if (id === 'ssh') {
     return {
       internals: <><h2>Interactive dependency map</h2><DependencyMap /></>,

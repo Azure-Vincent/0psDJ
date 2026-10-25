@@ -520,7 +520,7 @@ ProductVersion  : OS: 0.0.0 SP: 0.0 Stack: 3.0`,
   },
   // --- Docker -------------------------------------------------------------------
   {
-    id: 'docker-compose', name: 'docker compose', platform: 'Docker', category: 'Containers',
+    id: 'docker-compose', name: 'docker compose', platform: 'Docker', category: 'Containers', simulator: 'docker',
     purpose: 'Manages a multi-container application defined in compose.yaml: create/recreate containers, networks and volumes, show their state and logs.',
     syntax: 'docker compose [-f file] [-p project] up -d | down | ps | logs [-f] [svc] | config | restart svc | pull',
     args: [
@@ -554,7 +554,7 @@ web-db-1    postgres:16   "docker-entrypoint.s…"   db        2 minutes ago   R
     symptoms: ['Container exits immediately', 'Port not reachable', 'Service fails to start'],
   },
   {
-    id: 'docker-inspect', name: 'docker inspect', platform: 'Docker', category: 'Containers',
+    id: 'docker-inspect', name: 'docker inspect', platform: 'Docker', category: 'Containers', simulator: 'docker',
     purpose: 'Prints the full low-level configuration and state of a container (or image, volume, network) as JSON; with --format you extract exactly the field you need.',
     syntax: "docker inspect [--format '{{template}}'] name|id",
     args: [
@@ -582,7 +582,7 @@ web-db-1    postgres:16   "docker-entrypoint.s…"   db        2 minutes ago   R
     symptoms: ['Port not reachable', 'Container exits immediately', 'Connection refused'],
   },
   {
-    id: 'docker-logs', name: 'docker logs', platform: 'Docker', category: 'Logs',
+    id: 'docker-logs', name: 'docker logs', platform: 'Docker', category: 'Logs', simulator: 'docker',
     purpose: 'Shows what a container\'s main process wrote to stdout/stderr: the first place to look when a container exits immediately or keeps restarting.',
     syntax: 'docker logs [-f] [--tail N] [--since 10m] [-t] container   |   docker compose logs [-f] [svc]',
     args: [
@@ -611,7 +611,7 @@ web-db-1    postgres:16   "docker-entrypoint.s…"   db        2 minutes ago   R
     symptoms: ['Container exits immediately', 'Service fails to start'],
   },
   {
-    id: 'docker-network', name: 'docker network', platform: 'Docker', category: 'Networking',
+    id: 'docker-network', name: 'docker network', platform: 'Docker', category: 'Networking', simulator: 'docker',
     purpose: 'Lists, inspects, creates and connects Docker networks. Containers on the same user-defined network can reach each other by name through Docker\'s embedded DNS (127.0.0.11).',
     syntax: 'docker network ls | inspect NET | create [--subnet CIDR] NET | connect NET CONTAINER | disconnect NET CONTAINER | rm NET',
     args: [

@@ -34,10 +34,11 @@ For every technology it answers the same questions:
   Windows, pfSense, Docker), configuration reference, an **Operate & recover**
   guide (files, logs, service management, diagnostic workflow, common
   failures) and a graded assessment.
-- **Three guided labs**: build a freshly installed Debian server into a
+- **Four guided labs**: build a freshly installed Debian server into a
   hardened intranet web server (Lab 1), create an Active Directory domain and
-  join a member server (Lab 2), and turn a fresh pfSense into the perimeter
-  firewall with a DMZ and a published web server (Lab 3). The simulator checks
+  join a member server (Lab 2), turn a fresh pfSense into the perimeter
+  firewall with a DMZ and a published web server (Lab 3), and take over a
+  Docker Compose application and run it as a service on dock01 (Lab 4). The simulator checks
   each step against the running machines, and the last step reboots everything.
 - **An Infrastructure Builder**: draw your own network (workstations, servers,
   routers, VLAN-aware switches), set addresses, gateways, VLANs, firewall
@@ -45,7 +46,7 @@ For every technology it answers the same questions:
   machine configured from the files the design generates. You get terminals
   on each machine and a packet tracer that shows every hop and every firewall
   and NAT decision.
-- **92 troubleshooting tickets**, each injecting a realistic fault into the
+- **98 troubleshooting tickets**, each injecting a realistic fault into the
   lab. You investigate with real commands in terminals, record a diagnosis and
   repair the fault. The app then checks your fix immediately, again after
   rebooting every machine, and against security rules, so "just open the
@@ -62,7 +63,10 @@ For every technology it answers the same questions:
   a defaced page (200 OK, wrong content), nginx failing to start after a
   certificate rename, port 80 closed for "HTTPS only", a hijacked DNS record,
   a zone that answers SERVFAIL after one typo, and a firewall that allows
-  DNS over TCP only.
+  DNS over TCP only. A **Containers** set breaks a Docker Compose application
+  the way it breaks in production: a port published on loopback, a renamed
+  service, a host firewall that drops forwarded traffic, a leftover container
+  on the port, no restart policy, and a daemon.json typo.
 - **7 end-to-end case studies**: SSH refused, a server with no Internet, a failed
   domain login, an unreachable Docker app, pfSense blocking traffic, RDP broken
   by a policy change, and several services failing at once.
@@ -97,8 +101,11 @@ their secure channel. The firewall fw01 is a simulated pfSense 2.7.2: its
 config.xml is compiled into a pf ruleset (interface rules, aliases, port
 forwards, outbound NAT, states and the firewall log), and you manage it from
 its webConfigurator in a browser on ws01 or with `pfctl` and `easyrule` on its
-console. Docker is not simulated; it is taught from documentation and
-representative output.
+console. The container host dock01 runs a simulated Docker Engine 26: the
+`docker` CLI and `docker compose`, containers with their own network namespace
+on the default bridge or user-defined networks (with the embedded DNS server),
+published ports through dockerd's nftables rules and docker-proxy, restart
+policies across reboots, `daemon.json` and the docker group.
 
 ## Installation
 

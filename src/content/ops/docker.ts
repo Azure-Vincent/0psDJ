@@ -1,7 +1,7 @@
-// Docker and container troubleshooting: reference lesson (not simulated).
-// Example output is representative of Docker Engine 27.3 and Docker Compose
-// v2.29 on Ubuntu 24.04 LTS (iptables backend, userland proxy enabled), host
-// docker01 10.0.20.30 in the lab plan. RHEL 9 and Windows differences are noted.
+// Docker and container troubleshooting. Example output is representative of
+// Docker Engine 27.3 and Docker Compose v2.29 on Ubuntu 24.04 LTS (iptables
+// backend, userland proxy enabled); the sandbox and tickets use the simulated
+// dock01 (Debian 12, Docker Engine 26, nftables). RHEL 9 and Windows noted.
 
 import type { Assessment, Lesson, ServiceGuide } from '../types';
 
@@ -79,7 +79,7 @@ export const DOCKER_GUIDE: ServiceGuide = {
     title: 'What "the web app in a container answers" depends on (top needs everything below it)',
     caption: 'Work from the daemon up, or from the client down, but check each layer with its own command: systemctl/journalctl, docker ps/inspect/logs, docker exec, docker network inspect, iptables/ss and curl.',
     rows: [
-      { label: 'Client', nodes: [{ id: 'client', label: 'Office client', sub: 'docker01:8080', kind: 'client' }] },
+      { label: 'Client', nodes: [{ id: 'client', label: 'Office client', sub: 'dock01:8080', kind: 'client' }] },
       { label: 'Host network', nodes: [{ id: 'fw', label: 'Host firewall', sub: 'DOCKER-USER, ufw', kind: 'network' }, { id: 'nat', label: 'Published port', sub: 'DNAT + docker-proxy', kind: 'network' }] },
       { label: 'Container', nodes: [{ id: 'app', label: 'App process', sub: 'listens 0.0.0.0:8000', kind: 'service' }, { id: 'env', label: 'Config + env', sub: 'compose.yaml, .env', kind: 'data' }, { id: 'dep', label: 'db container', sub: 'healthy, port 5432', kind: 'service' }] },
       { label: 'Engine', nodes: [{ id: 'bridge', label: 'Bridge network', sub: 'br-*, veth, 127.0.0.11', kind: 'network' }, { id: 'vol', label: 'Volumes / mounts', sub: 'UID, SELinux label', kind: 'data' }, { id: 'img', label: 'Image', sub: 'pulled from registry', kind: 'data' }] },
@@ -91,11 +91,11 @@ export const DOCKER_GUIDE: ServiceGuide = {
     ],
   },
   sequence: {
-    title: 'ws01 opens http://docker01:8080/ (web container talks to db)',
+    title: 'ws01 opens http://dock01:8080/ (web container talks to db)',
     caption: 'Docker Engine 27 on Ubuntu 24.04, Compose project "inventory" on the user-defined network inventory_default (172.18.0.0/16).',
-    lanes: [{ id: 'c', label: 'ws01', sub: 'browser' }, { id: 'h', label: 'docker01', sub: 'netfilter, 10.0.20.30' }, { id: 'w', label: 'web', sub: '172.18.0.3:8000' }, { id: 'n', label: '127.0.0.11', sub: 'embedded DNS' }, { id: 'd', label: 'db', sub: '172.18.0.2:5432' }],
+    lanes: [{ id: 'c', label: 'ws01', sub: 'browser' }, { id: 'h', label: 'dock01', sub: 'netfilter, 10.0.20.40' }, { id: 'w', label: 'web', sub: '172.18.0.3:8000' }, { id: 'n', label: '127.0.0.11', sub: 'embedded DNS' }, { id: 'd', label: 'db', sub: '172.18.0.2:5432' }],
     steps: [
-      { from: 'c', to: 'h', label: 'TCP SYN 10.0.20.30:8080', note: 'Port not published → no DNAT → host RST → "Connection refused". DROP in DOCKER-USER → timeout.' },
+      { from: 'c', to: 'h', label: 'TCP SYN 10.0.20.40:8080', note: 'Port not published → no DNAT → host RST → "Connection refused". DROP in DOCKER-USER → timeout.' },
       { from: 'h', to: 'w', label: 'DNAT → 172.18.0.3:8000', note: 'App listening on 127.0.0.1 inside the container, or on another port → container RST → refused (from localhost via docker-proxy: "Empty reply").' },
       { from: 'w', to: 'c', label: 'SYN-ACK (reverse NAT)' },
       { from: 'c', to: 'w', label: 'GET / HTTP/1.1' },
@@ -183,7 +183,7 @@ export const DOCKER_GUIDE: ServiceGuide = {
     { question: '3. What did the process say before it stopped?', command: 'docker logs --tail 50 inventory-web-1\ndocker compose logs --tail 50 db', healthy: '[2026-10-21 09:12:03 +0000] [1] [INFO] Listening at: http://0.0.0.0:8000 (1)', broken: '`KeyError: \'DATABASE_URL\'` / "must specify POSTGRES_PASSWORD" → missing environment (step 4). "Permission denied" on a path under a mount → volume ownership/SELinux (step 7). `exec: "gunicorn": executable file not found in $PATH` → wrong image or CMD. A container that runs `bash` or a one-shot script with no foreground process simply exits 0.', next: 'Fix configuration and **recreate** (`docker compose up -d`); restarting would reuse the broken config.' },
     { question: '4. Is the configuration what I think it is?', command: 'docker compose config\ndocker inspect --format \'{{json .Config.Env}}\' inventory-web-1\ndocker inspect --format \'{{json .Config.Cmd}} {{json .HostConfig.PortBindings}}\' inventory-web-1', healthy: '["DATABASE_URL=postgresql://inventory:****@db:5432/inventory", ...]\n["gunicorn","-b","0.0.0.0:8000","app:app"] {"8000/tcp":[{"HostIp":"","HostPort":"8080"}]}', broken: 'An empty value (`DATABASE_URL=postgresql://inventory:@db...`) → the variable was missing from .env. The running container has old values while compose.yaml has new ones → it was restarted, not recreated. Port binding to the wrong container port (`80/tcp` while the app listens on 8000).', next: 'Correct compose.yaml/.env, `docker compose up -d`, re-check.' },
     { question: '5. Does the app answer inside the container, and on which address?', command: 'docker exec inventory-web-1 ss -tlnp\ndocker exec inventory-web-1 curl -sS -o /dev/null -w \'%{http_code}\\n\' http://localhost:8000/healthz', healthy: 'LISTEN 0 2048 0.0.0.0:8000 0.0.0.0:* users:(("gunicorn",pid=1,fd=5))\n200', broken: '`127.0.0.1:8000` → the app accepts only connections from inside the container: published traffic arrives on eth0 and is refused. Nothing listening → app not started. (Minimal images may lack ss/curl: use `docker exec web cat /proc/net/tcp` or a debug container on the same network namespace: `docker run --rm --network container:inventory-web-1 nicolaka/netshoot ss -tlnp`.)', next: 'Listening on 0.0.0.0 and answering → step 6.' },
-    { question: '6. Is the port published, and does the host path work?', command: 'docker port inventory-web-1\nsudo ss -tlnp | grep 8080\nsudo iptables -t nat -L DOCKER -n\ncurl -sS -o /dev/null -w \'%{http_code}\\n\' http://10.0.20.30:8080/', healthy: '8000/tcp -> 0.0.0.0:8080\n8000/tcp -> [::]:8080\nLISTEN 0 4096 0.0.0.0:8080 0.0.0.0:* users:(("docker-proxy",pid=2210,fd=7))\nDNAT       tcp  --  0.0.0.0/0            0.0.0.0/0            tcp dpt:8080 to:172.18.0.3:8000\n200', broken: 'No output from `docker port` → not published (`ports:` missing or `expose:` only). Published as `127.0.0.1:8080` → only local clients. Works locally but not from ws01 → a DROP in **DOCKER-USER** or an upstream firewall (ufw/firewalld rules do not apply to published ports, but DOCKER-USER does). "Bind for 0.0.0.0:8080 failed: port is already allocated" at start → another container or process owns 8080.', next: 'Fix the mapping and recreate; check DOCKER-USER with `sudo iptables -L DOCKER-USER -n -v`.' },
+    { question: '6. Is the port published, and does the host path work?', command: 'docker port inventory-web-1\nsudo ss -tlnp | grep 8080\nsudo iptables -t nat -L DOCKER -n\ncurl -sS -o /dev/null -w \'%{http_code}\\n\' http://10.0.20.40:8080/', healthy: '8000/tcp -> 0.0.0.0:8080\n8000/tcp -> [::]:8080\nLISTEN 0 4096 0.0.0.0:8080 0.0.0.0:* users:(("docker-proxy",pid=2210,fd=7))\nDNAT       tcp  --  0.0.0.0/0            0.0.0.0/0            tcp dpt:8080 to:172.18.0.3:8000\n200', broken: 'No output from `docker port` → not published (`ports:` missing or `expose:` only). Published as `127.0.0.1:8080` → only local clients. Works locally but not from ws01 → a DROP in **DOCKER-USER** or an upstream firewall (ufw/firewalld rules do not apply to published ports, but DOCKER-USER does). "Bind for 0.0.0.0:8080 failed: port is already allocated" at start → another container or process owns 8080.', next: 'Fix the mapping and recreate; check DOCKER-USER with `sudo iptables -L DOCKER-USER -n -v`.' },
     { question: '7. Can the container reach its dependencies (network and DNS)?', command: 'docker network inspect inventory_default --format \'{{range .Containers}}{{.Name}} {{.IPv4Address}}{{"\\n"}}{{end}}\'\ndocker exec inventory-web-1 getent hosts db\ndocker exec inventory-web-1 cat /etc/resolv.conf', healthy: 'inventory-db-1 172.18.0.2/16\ninventory-web-1 172.18.0.3/16\n172.18.0.2      db\nnameserver 127.0.0.11\noptions ndots:0', broken: 'The two containers on different networks (two Compose projects, or one started with `docker run` on the default bridge) → no route/name between them. On the default bridge, `/etc/resolv.conf` is a copy of the host\'s and container names do not resolve. External names failing (`Temporary failure in name resolution`) → the host\'s DNS servers are unusable from containers (loopback-only resolver; Docker then falls back to 8.8.8.8, which cannot resolve internal names) → set `"dns": ["10.0.10.53"]` in daemon.json.', next: 'Attach to the same network (`networks:` in compose, `docker network connect`), fix DNS, recreate.' },
     { question: '8. Are resources, storage and health OK?', command: 'docker stats --no-stream\ndocker system df\ndf -h /var/lib/docker\ndocker inspect --format \'{{json .State.Health}}\' inventory-web-1', healthy: 'inventory-web-1   0.42%   187.3MiB / 512MiB   36.58% ...\n/dev/sda2  60G  21G  37G  37% /\n{"Status":"healthy","FailingStreak":0,"Log":[...]}', broken: 'MEM USAGE at the LIMIT and `OOMKilled: true` → raise the limit or fix the leak. `/var/lib/docker` at 100% → images, build cache or unrotated json logs (`du -sh /var/lib/docker/containers/*/*-json.log`). Health `unhealthy` with the check\'s output in `Log` → the check command fails (wrong URL/port, tool missing in the image).', next: 'Fix the cause, then verify with the full checklist.' },
   ],
@@ -202,7 +202,7 @@ export const DOCKER_GUIDE: ServiceGuide = {
     { check: 'All services up and healthy', command: 'docker compose ps', expect: 'Every service "Up ... (healthy)", none Restarting' },
     { check: 'Configuration is the intended one', command: 'docker compose config | diff - deployed-compose.yaml', expect: 'No unexpected differences; no empty variables' },
     { check: 'Published only where intended', command: 'docker port inventory-web-1; sudo ss -tlnp | grep docker-proxy', expect: '8000/tcp -> 0.0.0.0:8080 (or 127.0.0.1:8080 behind a reverse proxy)' },
-    { check: 'Reachable from a client network', command: 'curl -sS -o /dev/null -w \'%{http_code}\\n\' http://docker01.corp.lab:8080/', expect: '200' },
+    { check: 'Reachable from a client network', command: 'curl -sS -o /dev/null -w \'%{http_code}\\n\' http://dock01.corp.lab:8080/', expect: '200' },
     { check: 'Logs rotated and disk healthy', command: 'docker inspect --format \'{{json .HostConfig.LogConfig}}\' inventory-web-1; docker system df', expect: '{"Type":"json-file","Config":{"max-file":"3","max-size":"10m"}} and reasonable reclaimable space' },
     { check: 'Survives a daemon restart / reboot', command: 'docker inspect --format \'{{.HostConfig.RestartPolicy.Name}}\' inventory-web-1 inventory-db-1', expect: 'unless-stopped (or always) for every long-running service' },
   ],
@@ -216,7 +216,6 @@ export const DOCKER_LESSON: Lesson = {
   moduleId: 'E',
   title: 'Docker and container troubleshooting',
   level: 'intermediate',
-  mode: 'reference',
   summary: 'How the Docker daemon, containerd, images, volumes, bridge networks and published ports fit together, how to find why a container exits or cannot be reached, and when to restart a container, recreate it, or (rarely) restart the daemon.',
   concepts: ['docker.lifecycle', 'docker.networking', 'net.nat', 'fw.path', 'dns.resolution', 'linux.permissions', 'svc.systemd', 'svc.listening', 'logs.journal', 'ops.recovery'],
 
@@ -238,7 +237,9 @@ export const DOCKER_LESSON: Lesson = {
 ### Where you meet it
 Internal web applications, CI runners, monitoring stacks (Prometheus/Grafana), reverse proxies, databases for development, vendor appliances shipped as images. As an infrastructure administrator you often do not own the application, but you own the host, its network and firewall, and you are the one asked why "the container is up but nobody can reach it".
 
-> Output in this lesson is representative of **Docker Engine 27.3** and **Docker Compose v2.29** on **Ubuntu 24.04 LTS** (iptables backend, userland proxy enabled), on the lab plan's host \`docker01\` (10.0.20.30). Docker is not part of the simulator: practise on a VM. Docker Engine 28 changed some firewall chains (it adds a DOCKER-FORWARD chain), but DOCKER-USER and the behaviour described here remain.
+> Output in this lesson is representative of **Docker Engine 27.3** and **Docker Compose v2.29** on **Ubuntu 24.04 LTS** (iptables backend, userland proxy enabled), on the lab's container host \`dock01\` (10.0.20.40). Docker Engine 28 changed some firewall chains (it adds a DOCKER-FORWARD chain), but DOCKER-USER and the behaviour described here remain.
+>
+> The **sandbox and the tickets** use the simulated **dock01**: Debian 12 with Docker Engine 26 and the **nftables** backend (dockerd's rules appear as \`table ip nat\` and \`table ip filter\` in \`nft list ruleset\`, next to your own \`table inet filter\`). Simulated: \`docker run/ps/logs/inspect/exec/start/stop/rm/port/network/pull/info\`, \`docker compose up/down/ps/logs/config\`, published ports (DNAT and docker-proxy), the default bridge and user-defined networks with embedded DNS, restart policies across reboots, \`/etc/docker/daemon.json\` and the docker group. The images are nginx:1.25, postgres:16 and the team's corp/inventory:1.4. Not simulated: building images, healthchecks, resource limits, volumes' contents, ufw and Podman.
 `,
 
   internals: `
@@ -283,7 +284,7 @@ An image is an ordered list of read-only layers (one per Dockerfile instruction 
 - accept rules in the filter table's FORWARD path, after the **DOCKER-USER** chain, which Docker creates empty for **your** rules;
 - a **docker-proxy** process listening on 0.0.0.0:8080 and [::]:8080 (for connections from the host itself and hairpin traffic).
 
-Because DNATed traffic is **forwarded**, not delivered to the host, it never passes the INPUT chain where **ufw** and many hand-written rules live: **published ports bypass ufw** (and firewalld's zone rules). To restrict: publish to a specific address (\`127.0.0.1:8080:8000\` for a local reverse proxy, \`10.0.20.30:8080:8000\` for one interface), or add rules in DOCKER-USER (matching the original port with \`-m conntrack --ctorigdstport 8080\`, because by then the destination port is already 8000).
+Because DNATed traffic is **forwarded**, not delivered to the host, it never passes the INPUT chain where **ufw** and many hand-written rules live: **published ports bypass ufw** (and firewalld's zone rules). To restrict: publish to a specific address (\`127.0.0.1:8080:8000\` for a local reverse proxy, \`10.0.20.40:8080:8000\` for one interface), or add rules in DOCKER-USER (matching the original port with \`-m conntrack --ctorigdstport 8080\`, because by then the destination port is already 8000).
 
 The application must listen on **0.0.0.0 inside the container**. If it listens on 127.0.0.1, it works with \`docker exec ... curl localhost\` and its HEALTHCHECK passes, but published traffic arriving on the container's eth0 is refused.
 
@@ -455,7 +456,7 @@ Running the container with \`--network host\`, as root, with \`chmod 777\` on a 
     { message: 'no space left on device', layer: 'Storage', meaning: '/var/lib/docker (or a volume\'s filesystem) is full.', firstCheck: 'df -h /var/lib/docker; docker system df' },
   ],
 
-  scenarioIds: [],
+  scenarioIds: ['docker-port-localhost', 'docker-renamed-service', 'docker-forward-drop', 'docker-port-taken', 'docker-no-restart', 'docker-daemon-json'],
   assessmentId: 'docker',
   references: [
     { title: 'Docker Docs: Docker Engine overview', url: 'https://docs.docker.com/engine/' },
@@ -606,7 +607,7 @@ export const DOCKER_ASSESSMENT: Assessment = {
       id: 'docker-q-daemon-restart',
       kind: 'single',
       level: 'intermediate',
-      prompt: 'One of six application containers on docker01 is unhealthy. A colleague proposes `sudo systemctl restart docker`. What is the main objection?',
+      prompt: 'One of six application containers on dock01 is unhealthy. A colleague proposes `sudo systemctl restart docker`. What is the main objection?',
       options: [
         { text: 'It stops every container on the host (unless live-restore is enabled), causing an outage of all six services to fix one', correct: true },
         { text: 'It deletes all volumes', misconception: 'Restarting the daemon does not delete volumes or containers.' },

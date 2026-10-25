@@ -6,6 +6,8 @@ import { GUIDED_LABS } from '../src/engine/labs';
 import { LAB1 } from '../src/engine/labs/lab1';
 import { LAB2 } from '../src/engine/labs/lab2';
 import { LAB3 } from '../src/engine/labs/lab3';
+import { LAB4 } from '../src/engine/labs/lab4';
+import { findScenario } from '../src/engine/scenarios';
 import type { World } from '../src/engine/types';
 import { Lab } from './helpers';
 
@@ -16,6 +18,8 @@ function linkResolves(link: string): boolean {
   if (ref) return !!getRef(ref[1]);
   const lesson = /^lesson\/([^/]+)\/([^/]+)$/.exec(link);
   if (lesson) return !!getLesson(lesson[1]) && LESSON_SECTIONS.includes(lesson[2]);
+  const ticket = /^troubleshoot\/(.+)$/.exec(link);
+  if (ticket) return !!findScenario(ticket[1]);
   return false;
 }
 
@@ -44,6 +48,31 @@ describe('guided labs', () => {
     }
     const final = checkStep(world, LAB3, LAB3.steps.at(-1)!);
     expect(final.results.filter((r) => !r.ok).map((r) => `${r.step} / ${r.id}: ${r.detail}`)).toEqual([]);
+  });
+
+  it('Lab 4: each step fails before its solution and passes after it; the reboot test passes at the end', () => {
+    let world: World = LAB4.build();
+    for (const step of LAB4.steps.filter((s) => !s.afterReboot)) {
+      const before = checkStep(world, LAB4, step);
+      expect(before.passed, `${step.id} should not pass before its solution`).toBe(false);
+      world = applySolution(world, step);
+      const after = checkStep(world, LAB4, step);
+      expect(after.results.filter((r) => !r.ok).map((r) => `${r.id}: ${r.detail}`), step.id).toEqual([]);
+    }
+    const final = checkStep(world, LAB4, LAB4.steps.at(-1)!);
+    expect(final.results.filter((r) => !r.ok).map((r) => `${r.step} / ${r.id}: ${r.detail}`)).toEqual([]);
+  });
+
+  it('Lab 4: reloading nftables removes Docker\'s tables until dockerd is restarted', () => {
+    let world: World = LAB4.build();
+    for (const step of LAB4.steps.slice(0, 4)) world = applySolution(world, step);
+    const fw = LAB4.steps.find((s) => s.id === 'firewall')!;
+    const l = new Lab(world);
+    l.run('dock01', 'root', fw.solution[0].commands[0]);
+    l.run('dock01', 'root', 'systemctl restart nftables');
+    expect(l.run('ws01', 'alice', 'curl -sS -m 5 http://inventory.corp.lab:8000/health').output).toMatch(/curl: \(28\)/);
+    l.run('dock01', 'root', 'systemctl restart docker');
+    expect(l.run('ws01', 'alice', 'curl -sS -m 5 http://inventory.corp.lab:8000/health').output).toBe('{"status":"ok","database":"ok"}');
   });
 
   it.each(GUIDED_LABS.map((l) => l.id))('%s: links, terminals and solutions are well-formed', (id) => {
