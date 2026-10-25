@@ -22,17 +22,17 @@ function CommandBody({ c }: { c: CommandRef }) {
   return (
     <div style={{ marginTop: 8 }}>
       <div className="small muted">Syntax</div><pre>{c.syntax}</pre>
-      <table><tbody>{c.args.map((a) => <tr key={a.arg}><td className="mono" style={{ whiteSpace: 'nowrap' }}>{a.arg}</td><td>{a.meaning}</td></tr>)}</tbody></table>
+      <div className="table-scroll"><table><tbody>{c.args.map((a) => <tr key={a.arg}><td className="mono" style={{ whiteSpace: 'nowrap' }}>{a.arg}</td><td>{a.meaning}</td></tr>)}</tbody></table></div>
       <div className="small muted">Example ({c.simulator ? 'output from the simulator or a real system of the stated version' : 'representative output of the stated platform'})</div>
       <pre><span style={{ color: 'var(--accent)' }}>$ {c.example.command}</span>{'\n'}{c.example.output}</pre>
       <p><strong>Interpreting it.</strong> <Inline text={c.interpretation} /></p>
       {c.errors && c.errors.length > 0 && (
         <>
           <div className="small muted">Common errors</div>
-          <table><tbody>{c.errors.map((e) => <tr key={e.message}><td className="mono small">{e.message}</td><td className="small"><Inline text={e.meaning} /></td></tr>)}</tbody></table>
+          <div className="table-scroll"><table><tbody>{c.errors.map((e) => <tr key={e.message}><td className="mono small">{e.message}</td><td className="small"><Inline text={e.meaning} /></td></tr>)}</tbody></table></div>
         </>
       )}
-      <table className="small">
+      <div className="table-scroll"><table className="small">
         <tbody>
           {c.permissions && <tr><th style={{ width: 140 }}>Permissions</th><td><Inline text={c.permissions} /></td></tr>}
           {c.risks && <tr><th>Risks</th><td><Inline text={c.risks} /></td></tr>}
@@ -40,7 +40,7 @@ function CommandBody({ c }: { c: CommandRef }) {
           <tr><th>Limitations</th><td><Inline text={c.limitations} /></td></tr>
           {c.services && c.services.length > 0 && <tr><th>Related services</th><td>{c.services.join(', ')}</td></tr>}
         </tbody>
-      </table>
+      </table></div>
     </div>
   );
 }
@@ -48,7 +48,7 @@ function CommandBody({ c }: { c: CommandRef }) {
 function FileBody({ f }: { f: FileRef }) {
   return (
     <div style={{ marginTop: 8 }}>
-      <table className="small">
+      <div className="table-scroll"><table className="small">
         <tbody>
           <tr><th style={{ width: 140 }}>Platform</th><td>{f.platform}</td></tr>
           <tr><th>Purpose</th><td><Inline text={f.purpose} /></td></tr>
@@ -58,7 +58,7 @@ function FileBody({ f }: { f: FileRef }) {
           <tr><th>Problems</th><td><Inline text={f.problems} /></td></tr>
           <tr><th>Related services</th><td>{f.services.join(', ')}</td></tr>
         </tbody>
-      </table>
+      </table></div>
       {f.example && <><div className="small muted">Example</div><pre>{f.example}</pre></>}
       {f.relatedCommands && f.relatedCommands.length > 0 && (
         <div className="row small" style={{ gap: 4 }}><span className="muted">Commands:</span>{f.relatedCommands.map((id) => <RefBadge key={id} id={id} />)}</div>

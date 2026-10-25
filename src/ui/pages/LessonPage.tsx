@@ -145,7 +145,7 @@ function Config({ L, tool }: { L: Lesson; tool?: { title: string; node: ReactNod
       <h2>Files, directories and logs</h2>
       <FileCatalogue files={catalogue(L)} />
       <h2>Important directives</h2>
-      <table>
+      <div className="table-scroll"><table className="wide">
         <thead><tr><th>Directive</th><th>Default</th><th>Recommended</th><th>What it does</th><th>Security implications</th></tr></thead>
         <tbody>
           {L.directives.map((d) => (
@@ -158,7 +158,7 @@ function Config({ L, tool }: { L: Lesson; tool?: { title: string; node: ReactNod
             </tr>
           ))}
         </tbody>
-      </table>
+      </table></div>
     </div>
   );
 }
@@ -170,14 +170,14 @@ function Troubleshoot({ L }: { L: Lesson }) {
       <Markdown text={L.troubleshootingIntro} />
       {L.guide && <GuideWorkflow g={L.guide} simulated={L.mode !== 'reference'} />}
       <h2>From error message to layer</h2>
-      <table>
+      <div className="table-scroll"><table className="wide">
         <thead><tr><th>Client message</th><th>Layer</th><th>Meaning</th><th>First check</th></tr></thead>
         <tbody>
           {L.errorMap.map((e) => (
             <tr key={e.message}><td className="mono small">{e.message}</td><td>{e.layer}</td><td>{e.meaning}</td><td className="mono small">{e.firstCheck}</td></tr>
           ))}
         </tbody>
-      </table>
+      </table></div>
       {L.guide && <GuideFailures g={L.guide} />}
       {(L.caseStudyIds ?? []).length > 0 && (
         <>
@@ -421,13 +421,13 @@ function LessonMap({ L, sections }: { L: Lesson; sections: Section[] }) {
   return (
     <>
       <h2>In this lesson</h2>
-      <table className="lesson-map">
+      <div className="table-scroll"><table className="lesson-map">
         <tbody>
           {sections.filter((s) => s.id !== 'what').map((s) => (
             <tr key={s.id}><th><a href={`#/lesson/${L.id}/${s.id}`}>{s.title}</a></th><td>{TAB_QUESTIONS[s.id]}</td></tr>
           ))}
         </tbody>
-      </table>
+      </table></div>
     </>
   );
 }

@@ -58,10 +58,10 @@ export function Markdown({ text }: { text: string }) {
       }
       const [head, ...body] = rows;
       blocks.push(
-        <table key={k++}>
+        <div key={k++} className="table-scroll"><table>
           <thead><tr>{head.map((c, j) => <th key={j}>{inline(c, `th${j}`)}</th>)}</tr></thead>
           <tbody>{body.map((r, ri) => <tr key={ri}>{r.map((c, j) => <td key={j}>{inline(c, `td${ri}${j}`)}</td>)}</tr>)}</tbody>
-        </table>,
+        </table></div>,
       );
       continue;
     }

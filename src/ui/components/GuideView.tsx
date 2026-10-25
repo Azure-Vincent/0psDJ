@@ -20,24 +20,24 @@ export function GuideArchitecture({ g }: { g: ServiceGuide }) {
   return (
     <>
       <h2>Architecture at a glance</h2>
-      <table>
+      <div className="table-scroll"><table>
         <tbody>
           {g.architecture.map((a) => (
             <tr key={a.q}><th style={{ width: '26%' }}>{a.q}</th><td><Markdown text={a.a} /></td></tr>
           ))}
         </tbody>
-      </table>
+      </table></div>
       <div className="grid2">
         <div>
           <h3>Ports and transport</h3>
           {g.ports.length ? (
-            <table><thead><tr><th>Port</th><th>Transport</th><th>Purpose</th></tr></thead>
-              <tbody>{g.ports.map((p) => <tr key={p.port + p.proto}><td className="mono">{p.port}</td><td>{p.proto}</td><td>{p.purpose}</td></tr>)}</tbody></table>
+            <div className="table-scroll"><table><thead><tr><th>Port</th><th>Transport</th><th>Purpose</th></tr></thead>
+              <tbody>{g.ports.map((p) => <tr key={p.port + p.proto}><td className="mono">{p.port}</td><td>{p.proto}</td><td>{p.purpose}</td></tr>)}</tbody></table></div>
           ) : <p className="small muted">No network ports of its own.</p>}
         </div>
         <div>
           <h3>Processes and OS components</h3>
-          <table><tbody>{g.processes.map((p) => <tr key={p.name + p.platform}><td className="mono">{p.name}</td><td className="small muted">{p.platform}</td><td><Inline text={p.role} /></td></tr>)}</tbody></table>
+          <div className="table-scroll"><table><tbody>{g.processes.map((p) => <tr key={p.name + p.platform}><td className="mono">{p.name}</td><td className="small muted">{p.platform}</td><td><Inline text={p.role} /></td></tr>)}</tbody></table></div>
         </div>
       </div>
     </>
@@ -83,7 +83,7 @@ export function FileCatalogue({ files }: { files: CatalogueFile[] }) {
           {present.map((n) => <button key={n} className={fam === n ? 'primary' : ''} onClick={() => setFam(n)}>{n}</button>)}
         </div>
       )}
-      <table>
+      <div className="table-scroll"><table className="wide">
         <thead><tr><th style={{ minWidth: 190 }}>Path</th><th>Type</th><th>Contains</th><th>Read / written</th><th>Problems from bad values or permissions</th></tr></thead>
         <tbody>
           {shown.map((f) => (
@@ -96,7 +96,7 @@ export function FileCatalogue({ files }: { files: CatalogueFile[] }) {
             </tr>
           ))}
         </tbody>
-      </table>
+      </table></div>
     </>
   );
 }
@@ -113,7 +113,7 @@ export function GuideOperate({ g, simulated }: { g: ServiceGuide; simulated: boo
         </div>
       )}
       {g.management[mgmt] && (
-        <table>
+        <div className="table-scroll"><table className="wide">
           <thead><tr><th>Task</th><th>Command</th><th>What it does / how to read it</th><th>Risk</th></tr></thead>
           <tbody>
             {g.management[mgmt].tasks.map((t) => (
@@ -125,27 +125,27 @@ export function GuideOperate({ g, simulated }: { g: ServiceGuide; simulated: boo
               </tr>
             ))}
           </tbody>
-        </table>
+        </table></div>
       )}
 
       <h2>Reload, restart, interface restart or reboot?</h2>
-      <table>
+      <div className="table-scroll"><table className="wide">
         <thead><tr><th>Action</th><th>When it is appropriate</th><th>What it does</th><th>Risk</th></tr></thead>
         <tbody>{g.actions.map((a) => <tr key={a.action}><td className="mono small">{a.action}</td><td className="small"><Inline text={a.when} /></td><td className="small"><Inline text={a.effect} /></td><td className="small"><Inline text={a.risk} /></td></tr>)}</tbody>
-      </table>
+      </table></div>
 
       <h2>Verify it is healthy</h2>
       <p className="small muted">After any change or recovery, check every line, not only the one you fixed.</p>
-      <table>
+      <div className="table-scroll"><table>
         <thead><tr><th>Check</th><th>Command</th><th>Expected</th></tr></thead>
         <tbody>{g.verification.map((v) => <tr key={v.check}><td>{v.check}</td><td className="mono small">{v.command}</td><td className="mono small" style={{ whiteSpace: 'pre-wrap' }}>{v.expect}</td></tr>)}</tbody>
-      </table>
+      </table></div>
 
       {g.refIds.length > 0 && (
         <>
           <h2>Reference library</h2>
           <div className="row" style={{ gap: 6 }}>
-            {g.refIds.map((id) => <a key={id} className="badge accent" href={`#/${refLink(id)}`}>{refTitle(id)}</a>)}
+            {g.refIds.map((id) => <a key={id} className="badge accent" href={`#/${refLink(id)}`} title={refTitle(id)}>{refTitle(id)}</a>)}
           </div>
         </>
       )}
@@ -179,7 +179,7 @@ export function GuideFailures({ g }: { g: ServiceGuide }) {
   return (
     <>
       <h2>Common failures</h2>
-      <table>
+      <div className="table-scroll"><table className="wide">
         <thead><tr><th>Symptom</th><th>Likely causes</th><th>Commands that tell them apart</th><th>Fix</th><th>Verify</th></tr></thead>
         <tbody>
           {g.failures.map((f) => (
@@ -192,7 +192,7 @@ export function GuideFailures({ g }: { g: ServiceGuide }) {
             </tr>
           ))}
         </tbody>
-      </table>
+      </table></div>
     </>
   );
 }
