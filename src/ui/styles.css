@@ -217,7 +217,7 @@ html, body, #root { height: 100%; margin: 0; }
 body { background: var(--bg); color: var(--text); font: 14px/1.55 var(--font); }
 a { color: var(--accent); }
 code, pre, .mono { font-family: var(--mono); font-size: 12.5px; }
-code { background: var(--code-bg); color: var(--code-fg); padding: 1px 4px; border-radius: 4px; }
+code { background: var(--code-bg); color: var(--code-fg); padding: 1px 4px; border-radius: 4px; overflow-wrap: anywhere; }
 pre code { color: inherit; }
 pre { background: var(--code-bg); padding: 10px 12px; border-radius: 6px; overflow: auto; margin: 8px 0; white-space: pre; }
 h1 { font-size: 22px; margin: 0 0 6px; color: var(--h1); }
@@ -225,6 +225,22 @@ h2 { font-size: 18px; margin: 18px 0 8px; color: var(--h2); }
 h3 { font-size: 15px; margin: 16px 0 6px; color: var(--h3); }
 table { border-collapse: collapse; width: 100%; margin: 8px 0; }
 th, td { border: 1px solid var(--border); padding: 6px 8px; text-align: left; vertical-align: top; }
+/* Tables must fit their box: prose breaks between words; paths, commands and
+   registry keys (mono cells, inline code, code blocks) may break anywhere, so a
+   long unbreakable string no longer forces the table wider than its container. */
+td.mono, th.mono, td .mono, td code, th code, td pre { overflow-wrap: anywhere; }
+td pre { white-space: pre-wrap; }
+/* In cards and callouts a single word longer than the box (a path written as
+   text) is split rather than spilling out. Table cells keep whole words: in a
+   table, Chrome would use the break to squeeze prose columns mid-word, so a
+   table that cannot fit scrolls inside .table-scroll instead. */
+.card, .callout { overflow-wrap: break-word; }
+/* A table that still cannot fit (five columns on a narrow screen) scrolls
+   sideways inside its own box instead of overflowing the page. */
+.table-scroll { overflow-x: auto; margin: 8px 0; max-width: 100%; }
+.table-scroll > table { margin: 0; }
+/* Data tables with four or five text columns keep readable columns and scroll on narrow screens. */
+.table-scroll > table.wide { min-width: 760px; }
 th { background: var(--panel-2); font-weight: 600; }
 button, select, input, textarea { font: inherit; color: inherit; }
 button {
@@ -269,7 +285,7 @@ textarea { width: 100%; font-family: var(--mono); font-size: 12.5px; }
 .grid3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
 .card { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 14px 16px; }
 .card h3:first-child, .card h2:first-child { margin-top: 0; }
-.badge { display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 10px; border: 1px solid var(--border); background: var(--panel-2); color: var(--muted); white-space: nowrap; }
+.badge { display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 10px; border: 1px solid var(--border); background: var(--panel-2); color: var(--muted); white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; vertical-align: middle; }
 .badge.ok { background: var(--ok-soft); color: var(--ok); border-color: transparent; }
 .badge.warn { background: var(--warn-soft); color: var(--warn); border-color: transparent; }
 .badge.err { background: var(--err-soft); color: var(--err); border-color: transparent; }
