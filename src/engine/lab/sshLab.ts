@@ -9,6 +9,8 @@
 
 import { mkdir, readFile, writeFile } from '../fs';
 import { bootHost } from '../sim/services';
+import { ntpSettle } from '../sim/ntp';
+import { installNtp } from './ntpLab';
 import { endSession, runSsh } from '../sim/ssh';
 import { makeKeyPair, type KeyType } from '../sim/keys';
 import type { Host, World } from '../types';
@@ -184,6 +186,8 @@ table inet filter {
 		iifname "eth0" tcp dport 22 accept
 		# DHCPv6 server (dhcpd -6) for VLAN 30: ordinary UDP socket, so this rule is needed
 		iifname "eth3.30" udp dport 547 accept
+		# NTP for the internal networks (chrony, CHG-0912)
+		iifname != "eth2" udp dport 123 accept
 	}
 	chain forward {
 		type filter hook forward priority filter; policy accept;
@@ -495,7 +499,7 @@ export function buildSshLab(): World {
       { name: 'eth2', mac: '52:54:00:a1:00:03', segment: 'wan' },
       { name: 'eth3', mac: '52:54:00:a1:00:04', segment: null },
     ],
-    services: ['systemd-timesyncd', 'nftables', 'radvd', 'dhcrelay', 'dhcpd'],
+    services: ['chrony', 'nftables', 'radvd', 'dhcrelay', 'dhcpd'],
   });
   writeFile(rtr, '/etc/network/interfaces', RTR01_INTERFACES, t);
   writeFile(rtr, '/etc/default/isc-dhcp-server', '# Defaults for isc-dhcp-server (sourced by /etc/init.d/isc-dhcp-server)\n\n# Path to dhcpd\'s config file (default: /etc/dhcp/dhcpd.conf).\n#DHCPDv4_CONF=/etc/dhcp/dhcpd.conf\n#DHCPDv6_CONF=/etc/dhcp/dhcpd6.conf\n\n# On what interfaces should the DHCP server (dhcpd) serve DHCP requests?\n# IPv4 for VLAN 30 is served by ns1 through the relay (isc-dhcp-relay); this\n# router only runs the DHCPv6 server for VLAN 30 (NET-77).\nINTERFACESv4=""\nINTERFACESv6="eth3.30"\n', t);
@@ -574,7 +578,7 @@ export function buildSshLab(): World {
   const ext = createHost(world, {
     id: 'ext01', hostname: 'ext01', domain: 'example.net', role: 'Internet host (stands in for any server or client on the Internet)',
     ifaces: [{ name: 'eth0', mac: '52:54:00:f0:00:50', segment: 'wan' }],
-    services: ['nftables', 'nginx'],
+    services: ['nftables', 'nginx', 'chrony'],
   });
   writeFile(ext, '/etc/network/interfaces', staticInterfaces([{ name: 'eth0', address: '203.0.113.80/24', gateway: '203.0.113.1' }]), t);
   writeFile(ext, '/etc/resolv.conf', '', t);
@@ -617,7 +621,10 @@ export function buildSshLab(): World {
 
   // Boot everything. Order matters: the switch first (it creates the VLANs),
   // ns1 must serve DHCP before ws02 boots, rtr01 must advertise before dev01.
+  installNtp(world);
   for (const h of [sw, rtr, ns1, srv, ws, ws2, ext, dev, dev2, fw, dmz, dc, win, dock]) bootHost(world, h);
+  // NTP converges in the minutes after boot (rtr01 needs ext01, the clients need rtr01).
+  ntpSettle(world);
 
   // History: alice connected yesterday-style earlier today, accepting the host key.
   world.clock += 60_000;

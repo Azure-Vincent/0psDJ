@@ -375,6 +375,15 @@ function widgetsFor(id: string): LessonWidgets {
       sandbox: [ws01, srv01, rtr01],
     };
   }
+  if (id === 'ntp') {
+    return {
+      sandbox: [
+        { hostId: 'rtr01', user: 'root', label: 'rtr01 console (root)', banner: 'Sandbox: rtr01, the time server (chrony 4.3). Try: chronyc tracking, chronyc sources -v, chronyc clients, cat /etc/chrony/chrony.conf, tcpdump -n -i eth0 udp port 123.' },
+        { hostId: 'ws01', user: 'alice', label: 'ws01 (alice)', banner: 'Sandbox: ws01, a client (systemd-timesyncd; sudo password ws01-alice). Try: timedatectl, timedatectl timesync-status, sudo systemctl restart systemd-timesyncd.' },
+        { hostId: 'ext01', user: 'guest', label: 'ext01 (Internet)', banner: 'Sandbox: ext01, the provider\'s stratum-1 server (GPS reference). Try: chronyc tracking, chronyc sources.' },
+      ],
+    };
+  }
   if (id === 'webproxy') {
     return {
       sandbox: [

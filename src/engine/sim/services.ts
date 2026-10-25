@@ -16,6 +16,7 @@ import { readFile, writeFile } from '../fs';
 import { type NginxLocation, parseNginxServers, parseNginxUpstreams } from '../config/nginx';
 import { isIpAddress } from '../net/addr';
 import { resolve } from './dns';
+import { type ChronyLoaded, chronyLoad, type TimesyncLoaded, timesyncLoad } from './ntp';
 import { type Cert, parseCerts, parseKey } from './pki';
 import type { Host, ServiceRuntime, World } from '../types';
 import { log } from './journal';
@@ -856,8 +857,8 @@ const kadmind: ServiceDef = {
 };
 
 // ---------------------------------------------------------------------------
-// systemd-timesyncd: NTP client. Simplified: NTP packets are not modelled; when
-// the service starts it sets the clock from the time server named in timesyncd.conf.
+// Time synchronisation: systemd-timesyncd (client) and chronyd (client and
+// server). The NTP exchanges and clock discipline live in ntp.ts.
 // ---------------------------------------------------------------------------
 
 const timesyncd: ServiceDef = {
@@ -867,17 +868,40 @@ const timesyncd: ServiceDef = {
   description: 'Network Time Synchronization',
   configFiles: ['/etc/systemd/timesyncd.conf'],
   start(world, host, rt) {
-    const pid = allocPid(host);
-    rt.pid = pid;
-    rt.loaded = {};
-    const server = /^NTP=(\S+)/m.exec(readFile(host, '/etc/systemd/timesyncd.conf') ?? '')?.[1] ?? '0.debian.pool.ntp.org';
-    const off = host.clockOffset ?? 0;
-    host.clockOffset = 0;
-    log(world, host, 'systemd-timesyncd', `Contacted time server ${server}:123.`, { pid, unit: 'systemd-timesyncd.service' });
-    log(world, host, 'systemd-timesyncd', `Initial clock synchronization to ${new Date(world.clock).toUTCString().slice(0, 3)} ${new Date(world.clock).toISOString().replace('T', ' ').replace('Z', '')} UTC${Math.abs(off) >= 1000 ? ` (clock was ${Math.round(Math.abs(off) / 1000)} s ${off > 0 ? 'ahead' : 'behind'})` : ''}.`, { pid, unit: 'systemd-timesyncd.service' });
+    rt.pid = allocPid(host);
+    timesyncLoad(world, host, rt);
     return true;
   },
   listeners: () => [],
+  statusLines(_host, rt) {
+    const l = rt.loaded as TimesyncLoaded | null;
+    if (!l) return [];
+    return [`     Status: "${l.synced && l.current ? `Contacted time server ${l.current.ip}:123 (${l.current.name}).` : l.current ? `Connecting to time server ${l.current.ip}:123 (${l.current.name}).` : 'Idle.'}"`];
+  },
+};
+
+const chrony: ServiceDef = {
+  name: 'chrony',
+  unit: 'chrony.service',
+  aliases: ['chrony', 'chrony.service', 'chronyd', 'chronyd.service'],
+  description: 'chrony, an NTP client/server',
+  configFiles: ['/etc/chrony/chrony.conf'],
+  start(world, host, rt) {
+    const pid = allocPid(host);
+    rt.pid = pid;
+    return chronyLoad(world, host, rt, pid);
+  },
+  listeners(_host, rt) {
+    const pid = rt.pid!;
+    const l = rt.loaded as ChronyLoaded | null;
+    const out: Listener[] = [
+      { proto: 'udp', addr: '127.0.0.1', port: 323, process: 'chronyd', pid, service: 'chrony' },
+      { proto: 'udp', addr: '::1', port: 323, process: 'chronyd', pid, service: 'chrony' },
+    ];
+    // chronyd opens the NTP server port only when the configuration allows some clients.
+    if (l?.allow.some((a) => !a.deny)) out.push({ proto: 'udp', addr: '0.0.0.0', port: 123, process: 'chronyd', pid, service: 'chrony' }, { proto: 'udp', addr: '::', port: 123, process: 'chronyd', pid, service: 'chrony' });
+    return out;
+  },
 };
 
 // ---------------------------------------------------------------------------
@@ -994,7 +1018,7 @@ const networking: ServiceDef = {
   listeners: () => [],
 };
 
-export const SERVICE_DEFS: ServiceDef[] = [networking, timesyncd, nftables, named, krb5kdc, kadmind, dhcpd, dhcrelay, radvd, sshd, nginx];
+export const SERVICE_DEFS: ServiceDef[] = [networking, timesyncd, chrony, nftables, named, krb5kdc, kadmind, dhcpd, dhcrelay, radvd, sshd, nginx];
 
 export function findService(host: Host, name: string): ServiceDef | undefined {
   const n = name.replace(/\.service$/, '');

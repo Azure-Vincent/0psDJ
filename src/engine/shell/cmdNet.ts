@@ -306,8 +306,9 @@ function primitive(f: CapturedFrame, t: string[]): boolean {
     case 'arp': return !!f.arp;
     case 'ip': return !!p && !v6;
     case 'ip6': return v6;
-    case 'tcp': return p?.proto === 'tcp';
-    case 'udp': return p?.proto === 'udp';
+    // "tcp port 22", "udp dst port 123": the protocol qualifies the rest of the primitive.
+    case 'tcp': return p?.proto === 'tcp' && (b === undefined || primitive(f, t.slice(1)));
+    case 'udp': return p?.proto === 'udp' && (b === undefined || primitive(f, t.slice(1)));
     case 'icmp': return p?.proto === 'icmp' && !v6;
     case 'icmp6': return p?.proto === 'icmp' && v6;
     case 'vlan': return f.vlan !== undefined && (b === undefined || f.vlan === Number(b));

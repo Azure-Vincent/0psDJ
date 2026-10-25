@@ -511,5 +511,25 @@ export const CAUSES: Record<string, Cause> = Object.fromEntries(
       signature: '"502 Bad Gateway" at once; error.log says "SSL_do_handshake() failed (SSL: … wrong version number) while SSL handshaking to upstream": nginx started a TLS handshake and got an HTTP answer back.',
       check: 'error.log on the proxy; curl -v http://BACKEND:PORT/ vs curl -v https://BACKEND:PORT/ from the proxy host.',
     },
+    {
+      id: 'ntp-server-firewall', title: 'Firewall drops NTP (UDP 123) to the time server', category: 'Firewall', concept: 'ntp.sync',
+      signature: 'Clients log "Timed out waiting for reply from IP:123" (systemd-timesyncd) or show "^?" with Reach 0 (chronyc sources); timedatectl says "System clock synchronized: no" while the NTP service is active. On the server, tcpdump shows the requests arriving and no replies, chronyd does not count them (chronyc clients), and the input chain has no accept rule for udp dport 123.',
+      check: 'journalctl -u systemd-timesyncd on a client; tcpdump -n udp port 123 and nft list ruleset on the server; chronyc clients.',
+    },
+    {
+      id: 'ntp-allow-missing', title: 'chrony does not serve the client\'s network (no allow line)', category: 'Authorization', concept: 'ntp.sync',
+      signature: 'Clients of one network time out while other networks are synchronized by the same server. The requests reach chronyd (tcpdump on the server, the firewall accepts them), but chronyd drops them silently: chronyc clients lists the client with a growing Drop count, and chrony.conf has no allow line covering it.',
+      check: 'chronyc clients (root) and the allow/deny lines in /etc/chrony/chrony.conf on the server; tcpdump -n udp port 123.',
+    },
+    {
+      id: 'ntp-upstream-unreachable', title: 'The time server itself is not synchronized (no usable upstream)', category: 'Network path', concept: 'ntp.sync',
+      signature: 'Clients receive replies but stay unsynchronized and log no error: timedatectl timesync-status shows "Leap: not synchronized" and stratum 16 from the server. On the server, chronyc tracking shows Reference ID 00000000 / Leap status Not synchronised, chronyc sources shows the upstream as "^?" with Reach 0, and the journal says "Can\'t synchronise: no selectable sources".',
+      check: 'timedatectl timesync-status on a client; chronyc tracking, chronyc sources and journalctl -u chrony on the server; the server/pool lines in chrony.conf.',
+    },
+    {
+      id: 'ntp-server-down', title: 'chronyd is not running on the time server', category: 'Service', concept: 'ntp.sync',
+      signature: 'No client synchronizes; the server\'s kernel answers requests with ICMP port unreachable (nothing on UDP 123 in ss -ulnp). systemctl status chrony shows failed, and journalctl -u chrony gives the reason (for example "Fatal error : Invalid directive at line N").',
+      check: 'systemctl status chrony; journalctl -u chrony -n 20; ss -ulnp on the server.',
+    },
   ] as Cause[]).map((c) => [c.id, c]),
 );

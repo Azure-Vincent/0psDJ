@@ -217,6 +217,33 @@ CapabilityBoundingSet=CAP_NET_BIND_SERVICE
 WantedBy=multi-user.target
 `,
   },
+  chrony: {
+    path: '/lib/systemd/system/chrony.service',
+    wantedBy: 'multi-user.target',
+    text: `[Unit]
+Description=chrony, an NTP client/server
+Documentation=man:chronyd(8) man:chronyc(1) man:chrony.conf(5)
+Conflicts=openntpd.service ntp.service ntpsec.service
+Wants=time-sync.target
+Before=time-sync.target
+After=network.target
+ConditionCapability=CAP_SYS_TIME
+
+[Service]
+Type=forking
+PIDFile=/run/chrony/chronyd.pid
+EnvironmentFile=-/etc/default/chrony
+ExecStart=!/usr/sbin/chronyd $DAEMON_OPTS
+ExecStartPost=-/usr/lib/chrony/chrony-helper update-daemon
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=full
+
+[Install]
+Alias=chronyd.service
+WantedBy=multi-user.target
+`,
+  },
   'systemd-timesyncd': {
     path: '/lib/systemd/system/systemd-timesyncd.service',
     wantedBy: 'sysinit.target',

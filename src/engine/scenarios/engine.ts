@@ -10,6 +10,7 @@ import { CAUSES } from './catalog';
 import { isWindows } from '../win/model';
 import { scoredDnsCheck, scoredSshCheck, scoredWebCheck } from './scoring';
 import { dockerTick } from '../sim/docker';
+import { clockSynchronized, ntpSettle } from '../sim/ntp';
 import type { Constraint, ConstraintResult, Goal, Scenario } from './types';
 
 /** Run shell commands as root on a host, mutating `world` in place (used to inject faults). */
@@ -43,20 +44,32 @@ export function goalLabel(goal: Goal): string {
   if (goal.kind === 'scored-ssh') return `scoring engine: SSH ${goal.user}@${goal.target} (password)`;
   if (goal.kind === 'scored-web') return `scoring engine: web ${goal.url}`;
   if (goal.kind === 'scored-dns') return `scoring engine: DNS ${goal.name} A @${goal.server}`;
+  if (goal.kind === 'time') return `${goal.host}: timedatectl (clock synchronized and correct)`;
   if (goal.kind === 'kerberos') return `${goal.fromHost}: kinit ${goal.localUser}${goal.sshTarget ? ` + ssh ${goal.sshTarget} (Kerberos)` : ''}`;
   return `${goal.user}@${goal.target}`;
 }
 
 export function checkGoal(world: World, goal: Goal): GoalResult {
-  // Docker retries containers in "restarting" in the background; let it catch up before the check.
-  if (Object.values(world.hosts).some((h) => h.services.docker?.state === 'active')) {
-    world = structuredClone(world);
-    for (const h of Object.values(world.hosts)) if (h.services.docker?.state === 'active') dockerTick(world, h);
-  }
+  // Daemons keep working in the background while the user is away: NTP clients poll
+  // again, and Docker retries containers in "restarting". Let them catch up before the check.
+  world = structuredClone(world);
+  ntpSettle(world);
+  for (const h of Object.values(world.hosts)) if (h.services.docker?.state === 'active') dockerTick(world, h);
   if (goal.kind === 'scored-ssh') return { goal, ...scoredSshCheck(world, goal) };
   if (goal.kind === 'scored-web') return { goal, ...scoredWebCheck(world, goal) };
   if (goal.kind === 'scored-dns') return { goal, ...scoredDnsCheck(world, goal) };
   const w = structuredClone(world);
+  if (goal.kind === 'time') {
+    let cur = w;
+    const sh = new Shell(() => cur, (n) => (cur = n), { hostId: goal.host, user: 'root', cwd: '/root' });
+    const r = sh.execute('timedatectl');
+    const h = cur.hosts[goal.host];
+    const offMs = h.clockOffset ?? 0;
+    const synced = clockSynchronized(h);
+    const lines = [`$ timedatectl`, ...r.output.split('\n')];
+    if (Math.abs(offMs) >= 1000) lines.push(`(the correct time is ${new Date(Math.floor(cur.clock)).toISOString().slice(11, 19)} UTC: this clock is ${Math.round(Math.abs(offMs) / 1000)} s ${offMs > 0 ? 'fast' : 'slow'})`);
+    return { goal, ok: synced && Math.abs(offMs) < 1000, lines };
+  }
   if (goal.kind === 'kerberos') {
     let cur = w;
     const home = cur.hosts[goal.fromHost].users[goal.localUser].home;
@@ -113,6 +126,7 @@ export function rebootAll(world: World): World {
   // Domain controllers before members (members look for a DC while they boot).
   const order = ['sw01', 'rtr01', 'fw01', 'ns1', 'dc01', 'srv01', 'ws01', 'ws02', 'ext01', 'dev01', 'dev02'];
   for (const id of [...order, ...Object.keys(w.hosts).filter((h) => !order.includes(h))]) if (w.hosts[id]) bootHost(w, w.hosts[id]);
+  ntpSettle(w);
   w.clock += 30_000;
   return w;
 }
