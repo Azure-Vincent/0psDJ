@@ -10,6 +10,7 @@ import { CURRICULUM } from '../src/content/curriculum';
 import { ASSESSMENTS, LESSONS, getLesson } from '../src/content/lessons';
 import { FILE_REFS, PROCEDURES, REF_ENTRIES, getRef } from '../src/content/reference';
 import { ALL_SCENARIOS } from '../src/engine/scenarios';
+import { GUIDED_LABS } from '../src/engine/labs';
 import { PF_COMMANDS } from '../src/engine/shell/cmdPf';
 import { COMMANDS } from '../src/engine/shell/shell';
 import { resolveCommand } from '../src/engine/win/ps/runtime';
@@ -158,5 +159,17 @@ describe('certification map', () => {
 describe('curriculum', () => {
   it('links resolve', () => {
     for (const m of CURRICULUM) for (const t of m.topics) if (t.link) expect(routeOk(t.link), `${m.id}: ${t.title}`).toBeNull();
+  });
+});
+
+describe('in-text links', () => {
+  it('every [label](#/route) in lessons, tickets, labs and case studies points to an existing page', () => {
+    const text = JSON.stringify([LESSONS, ALL_SCENARIOS, GUIDED_LABS.map(({ build: _b, ...l }) => ({ ...l, steps: l.steps.map((s) => ({ ...s, check: undefined, solution: undefined })) })), CASE_STUDIES]);
+    const links = [...text.matchAll(/\]\(#\/([^)\s]+)\)/g)].map((m) => m[1]);
+    for (const l of links) {
+      const route = l.replace(/^(labs)\/.*/, '$1');
+      if (route === 'labs') expect(GUIDED_LABS.some((g) => l === `labs/${g.id}` || l === 'labs'), l).toBe(true);
+      else expect(routeOk(l), l).toBeNull();
+    }
   });
 });

@@ -9,26 +9,30 @@ export const VLAN_LESSON: Lesson = {
   concepts: ['net.vlan', 'net.arp', 'net.routing'],
 
   what: `
-A **VLAN** (virtual LAN) splits one physical switch into several independent **broadcast domains**. Hosts in VLAN 10 and VLAN 20 may be plugged into the same switch, but an ARP broadcast from VLAN 10 never reaches VLAN 20: at layer 2 they are separate networks. Traffic between VLANs must be **routed** (a router or layer-3 switch), which is exactly where firewall rules can be applied.
+A **switch** connects the computers of a local network. Normally, every port on a switch belongs to the same network: a broadcast sent by one computer, such as an ARP request ("who has 10.0.10.1?"), reaches every other port. All the devices a broadcast can reach together form one **broadcast domain**.
 
-### Why
-- **Segmentation and security**: servers, office PCs, guests, phones and management interfaces in separate subnets with policy between them.
-- **Smaller broadcast domains**: less ARP/DHCP noise, smaller failure domains.
-- **Flexibility**: the VLAN of a port is configuration, not cabling. Moving a desk means reconfiguring one port.
+A **VLAN** (virtual LAN) splits one physical switch into several separate broadcast domains. Computers in VLAN 10 and VLAN 20 can be plugged into the same switch, yet an ARP broadcast from VLAN 10 never reaches VLAN 20. At layer 2 they behave like two separate switches. To get from one VLAN to another, traffic has to be **routed**, by a router or a layer-3 switch, exactly like traffic between any two networks in the [IP networking lesson](#/lesson/ipnet/what). That router is also the natural place to put firewall rules between the VLANs.
 
-### Two kinds of ports
-- **Access port**: belongs to one VLAN; frames are sent and received **untagged**. The connected host knows nothing about VLANs. Used for PCs, printers, servers.
-- **Trunk port**: carries several VLANs over one link; frames carry an **802.1Q tag** (VLAN ID) so the receiver can tell them apart. Used between switches, and to routers or hypervisors that serve several VLANs. One VLAN per trunk may be **untagged** (the *native VLAN* / PVID).
+Think of an office building with one big open floor. VLANs are like putting up glass walls: everyone still sits on the same floor (the same switch), but each team only hears its own conversations, and to talk to another team you have to go through a door (the router).
+
+### Why VLANs are used
+- **Separation and security**: servers, office PCs, guests, phones and management interfaces each get their own VLAN and subnet, with firewall rules controlling what may pass between them.
+- **Smaller broadcast domains**: less broadcast noise (ARP, DHCP), and a problem in one VLAN, such as a broadcast storm, stays in that VLAN.
+- **Flexibility**: which VLAN a port belongs to is configuration, not cabling. Moving a desk to another department means changing one port setting.
+
+### Two kinds of switch ports
+- **Access port**: belongs to one VLAN. Frames go in and out **untagged** (unchanged), so the connected computer does not need to know VLANs exist. Used for PCs, printers and most servers.
+- **Trunk port**: carries several VLANs over one cable. Each frame carries an **802.1Q tag**, a small label with the VLAN number, so the device at the other end can tell the VLANs apart. Used between switches, and towards routers or hypervisors that serve several VLANs. One VLAN per trunk may travel **untagged**; it is called the *native VLAN* (or PVID on Linux).
 
 ### In the lab
-**sw01** is a Debian switch running a **VLAN-aware Linux bridge** (br0), configured with ifupdown2 like Cumulus Linux or Debian: VLAN 10 office (ws01, ws02, ns1), VLAN 20 servers (srv01), VLAN 30 development (dev01). rtr01 connects to VLAN 10 and 20 with two access ports and to VLAN 30 through a **trunk** (eth3, tagged 30) using the sub-interface **eth3.30**: *router-on-a-stick*.
+**sw01** is a Debian machine acting as a switch, using a **VLAN-aware Linux bridge** called br0, configured with ifupdown2 (the same way as Cumulus Linux or Debian). It has three VLANs: VLAN 10 for the office (ws01, ws02, ns1), VLAN 20 for servers (srv01) and VLAN 30 for development (dev01). rtr01 connects to VLANs 10 and 20 through two access ports, and to VLAN 30 through a **trunk** (its port eth3, tagged with VLAN 30), using the sub-interface **eth3.30**. A router serving VLANs over a trunk like this is called *router-on-a-stick*.
 
-> The simulator models access and trunk ports (bridge-access, bridge-vids, bridge-pvid), untagged vs tagged membership, VLAN sub-interfaces on hosts (eth3.30, ip link add … type vlan), MAC learning per VLAN (bridge fdb), 802.1Q tags in tcpdump -e and PCAP export, and runtime vs persistent switch configuration. Spanning tree, Q-in-Q, LACP and VLAN-unaware bridges are not modelled; membership is treated as symmetric.
+> What the simulator models: access and trunk ports (bridge-access, bridge-vids, bridge-pvid), untagged and tagged membership, VLAN sub-interfaces on hosts (eth3.30, \`ip link add … type vlan\`), MAC learning per VLAN (bridge fdb), 802.1Q tags in \`tcpdump -e\` and in PCAP export, and the difference between runtime and saved switch configuration. Spanning tree, Q-in-Q, LACP and VLAN-unaware bridges are not modelled, and membership is treated as symmetric.
 `,
 
   internals: `
 ### The 802.1Q tag
-A tagged Ethernet frame inserts 4 bytes after the source MAC address:
+To mark which VLAN a frame belongs to, the switch inserts 4 extra bytes into the Ethernet frame, right after the source MAC address. This is the **802.1Q tag**:
 
 \`\`\`
 | dst MAC (6) | src MAC (6) | 0x8100 (TPID) | PCP(3) DEI(1) VID(12) | EtherType (e.g. 0x0800) | payload ... |
@@ -36,9 +40,10 @@ A tagged Ethernet frame inserts 4 bytes after the source MAC address:
 - **TPID 0x8100** marks the frame as tagged.
 - **VID** (12 bits): VLAN 1–4094 (0 and 4095 reserved).
 - **PCP**: priority for QoS (voice), **DEI**: drop eligibility.
-The tag adds 4 bytes, so trunks must allow frames of 1522 bytes.
+Because the tag adds 4 bytes, trunk ports must accept frames of up to 1522 bytes instead of the usual 1518.
 
-### What the switch does with a frame (VLAN-aware Linux bridge)
+### What the switch does with each frame (VLAN-aware Linux bridge)
+Follow a frame through the switch in three stages: when it arrives (ingress), when the switch decides where to send it (forwarding), and when it leaves (egress).
 **Ingress** (frame arrives on a port):
 1. Untagged frame → assigned to the port's **PVID**. A port without a PVID drops untagged frames.
 2. Tagged frame → kept in its VLAN **if the port is a member of that VLAN**, otherwise dropped (ingress filtering).
@@ -58,10 +63,10 @@ The tag adds 4 bytes, so trunks must allow frames of 1522 bytes.
 On Cisco IOS the same ideas are \`switchport mode access\` + \`switchport access vlan 10\`, and \`switchport mode trunk\` + \`switchport trunk allowed vlan 30\` + \`switchport trunk native vlan 1\`.
 
 ### Hosts on trunks: VLAN sub-interfaces
-A Linux host (router, hypervisor) receives tagged frames on the physical NIC and delivers each VLAN to a **sub-interface**: \`eth3.30\` = VLAN 30 on eth3 (\`ip link add link eth3 name eth3.30 type vlan id 30\`, or an \`iface eth3.30\` stanza; Debian derives the VLAN ID from the name). Untagged frames on the trunk go to eth3 itself.
+A Linux host connected to a trunk (a router or a hypervisor) receives tagged frames on its physical network card, and hands each VLAN to its own virtual interface, a **sub-interface**. To the rest of the system, each sub-interface looks like a separate network card in that VLAN. For example, \`eth3.30\` = VLAN 30 on eth3 (\`ip link add link eth3 name eth3.30 type vlan id 30\`, or an \`iface eth3.30\` stanza; Debian derives the VLAN ID from the name). Untagged frames on the trunk go to eth3 itself.
 
 ### Router-on-a-stick
-rtr01 has one sub-interface per VLAN on the trunk, each with an address that is that VLAN's **default gateway** (10.0.30.1 on eth3.30). A packet from dev01 (VLAN 30) to srv01 (VLAN 20): dev01 → switch (untagged in, tagged 30 out on swp7) → rtr01 eth3.30 → routing decision, TTL−1, forward filter → eth1 (VLAN 20) → srv01. Between VLANs the rules of routing apply: different subnets, gateways, firewall.
+rtr01 has one sub-interface per VLAN on the trunk, each with an address that serves as that VLAN's **default gateway** (10.0.30.1 on eth3.30). Here is the path of a packet from dev01 (VLAN 30) to srv01 (VLAN 20): dev01 → switch (untagged in, tagged 30 out on swp7) → rtr01 eth3.30 → routing decision, TTL−1, forward filter → eth1 (VLAN 20) → srv01. Between VLANs the rules of routing apply: different subnets, gateways, firewall.
 
 `,
 
@@ -103,8 +108,9 @@ rtr01 has one sub-interface per VLAN on the trunk, each with an address that is 
   ],
 
   configIntro: `
-The switch configuration decides which broadcast domain every port belongs to. The VLAN explorer below edits a copy of sw01's port table, recomputes the broadcast domains with the simulator's own layer-2 code, and shows the ifupdown2 stanza for each port.
+The switch configuration decides which broadcast domain every port belongs to: get one port wrong and the computer behind it is effectively on a different network. The VLAN explorer below lets you edit a copy of sw01's port table. It recomputes the broadcast domains with the simulator's own layer-2 code and shows the ifupdown2 stanza you would write for each port.
 `,
+
 
   configFiles: [
     {
@@ -134,27 +140,29 @@ The switch configuration decides which broadcast domain every port belongs to. T
   ],
 
   troubleshootingIntro: `
-### Layer 2 first, then routing
-1. **Is the gateway in my broadcast domain?** Ping it and look at \`ip neigh\`: FAILED = nobody answered ARP/NDP → layer 2 (VLAN) or the gateway itself.
-2. **Which VLAN is the host really in?** On the switch: \`bridge fdb show\` (the VLAN its MAC was learned in) and \`bridge vlan show\` (the port's PVID). Compare with the plan.
-3. **Is the VLAN carried towards the router?** \`bridge vlan show\` on the trunk port; \`tcpdump -e -n -i eth3\` on the router: tagged frames out, anything in?
-4. **Does the router tag correctly?** \`ip -d link show\` on the router: "vlan protocol 802.1Q id 30".
-5. **Persistent?** Compare \`bridge vlan show\` with /etc/network/interfaces; ifreload -a or a reboot will apply the file.
+### Check layer 2 first, then routing
+A VLAN problem usually looks like this: the cable is plugged in, the link is up, the computer has the right address, and yet nothing works. That is because the computer is effectively on the wrong network. So check layer 2 (which VLAN is this port really in?) before you look at routing.
+
+1. **Is the gateway in my broadcast domain?** Ping the gateway and look at \`ip neigh\`. FAILED means nobody answered the ARP (or, for IPv6, NDP) request: either the VLAN is wrong or the gateway itself is down.
+2. **Which VLAN is the host really in?** On the switch, \`bridge fdb show\` shows which VLAN the host's MAC address was learned in, and \`bridge vlan show\` shows the port's PVID. Compare both with the network plan.
+3. **Is the VLAN carried towards the router?** Check the trunk port with \`bridge vlan show\` on the switch, and run \`tcpdump -e -n -i eth3\` on the router. \`-e\` prints the Ethernet header, including the VLAN tag. Do tagged frames go out, and does anything come in?
+4. **Does the router tag with the right VLAN number?** \`ip -d link show\` on the router should say "vlan protocol 802.1Q id 30" for eth3.30.
+5. **Is the fix saved?** Compare \`bridge vlan show\` (what runs now) with /etc/network/interfaces (what is saved). \`ifreload -a\` or a reboot applies the file, so make sure the file is right.
 
 ### Typical mistakes
-- **Access port in the wrong VLAN**: link up, host correctly configured, but ARP for the gateway goes unanswered (the host may even get an address from another VLAN's DHCP server).
-- **VLAN missing on a trunk** ("pruned"): a whole VLAN loses its gateway while hosts inside it still talk to each other.
-- **Native VLAN mismatch**: two ends disagree on which VLAN is untagged; traffic leaks between VLANs or disappears.
-- **Wrong sub-interface ID**: router tags with VLAN 3 instead of 30; looks healthy on the router.
-- **Forgetting the runtime/persistent split**: \`bridge vlan add\` fixes it now, the file is what survives a reboot.
+- **Access port in the wrong VLAN**: the link is up and the host is configured correctly, but nobody answers its ARP request for the gateway. The host may even get an address from another VLAN's DHCP server.
+- **VLAN missing from a trunk** (sometimes called "pruned"): a whole VLAN loses its gateway, while the hosts inside it can still talk to each other.
+- **Native VLAN mismatch**: the two ends of a trunk disagree about which VLAN travels untagged, so traffic leaks into the wrong VLAN or disappears.
+- **Wrong sub-interface ID**: the router tags with VLAN 3 instead of 30. Everything looks fine on the router itself, which makes this one hard to spot.
+- **Forgetting runtime versus saved configuration**: \`bridge vlan add\` fixes it now, but only the file survives a reboot.
 
 `,
 
   errorMap: [
     { message: 'Destination Host Unreachable (from the host itself) for its own gateway', layer: 'Layer 2 / VLAN', meaning: 'ARP for the gateway got no reply: wrong VLAN on the access port, VLAN not on the trunk, or wrong sub-interface ID.', firstCheck: 'bridge fdb show / bridge vlan show on the switch' },
-    { message: 'Host gets an address from the wrong subnet via DHCP', layer: 'Layer 2 / VLAN', meaning: 'Its port is in another VLAN whose DHCP server answered.', firstCheck: 'The port\'s PVID on the switch' },
+    { message: 'Host gets an address from the wrong subnet via DHCP', layer: 'Layer 2 / VLAN', meaning: 'Its switch port is in another VLAN, and that VLAN\'s DHCP server answered.', firstCheck: 'The port\'s PVID on the switch' },
     { message: 'Hosts in one VLAN reach each other but not the gateway', layer: 'Trunk', meaning: 'The VLAN is not carried (or wrongly tagged) towards the router.', firstCheck: 'bridge vlan show on the trunk port; ip -d link on the router' },
-    { message: 'Link up, interface UP, address correct, nothing works', layer: 'Layer 2', meaning: 'Physical layer is fine; VLAN membership is not.', firstCheck: 'tcpdump on the host: do broadcasts from expected neighbours arrive?' },
+    { message: 'Link up, interface UP, address correct, nothing works', layer: 'Layer 2', meaning: 'The physical connection is fine, but the port is in the wrong VLAN, so the host is effectively on a different network.', firstCheck: 'tcpdump on the host: do broadcasts from expected neighbours arrive?' },
     { message: 'Works until the switch reboots', layer: 'Configuration', meaning: 'Fixed at runtime (bridge vlan add) but not in the configuration file.', firstCheck: 'Compare bridge vlan show with /etc/network/interfaces' },
   ],
 

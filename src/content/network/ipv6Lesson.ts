@@ -9,7 +9,11 @@ export const IPV6_LESSON: Lesson = {
   concepts: ['net.ipv6', 'net.ndp', 'net.routing', 'fw.stateful'],
 
   what: `
-**IPv6** is the successor of IPv4 with **128-bit addresses** (3.4 × 10³⁸ of them). Every subnet is normally a **/64**, so there is no address shortage and no need for NAT. Most networks today run **dual stack**: IPv4 and IPv6 side by side, with applications preferring IPv6 when both work.
+**IPv6** is the newer version of the Internet Protocol, designed to replace IPv4. Its main change is the address size: **128 bits** instead of 32, which gives about 3.4 × 10³⁸ addresses. That is enough that every local network normally gets a whole **/64** (2⁶⁴ addresses), so there is no address shortage and no need for [NAT](#/lesson/nat/what).
+
+Most networks today run **dual stack**: IPv4 and IPv6 side by side on the same hosts. When a destination has both kinds of address, applications usually try IPv6 first. That is why an IPv6 problem can show up as "this one service is slow or broken", even though IPv4 works fine.
+
+The good news is that the ideas from the [IP networking lesson](#/lesson/ipnet/what) still apply: addresses with a prefix, a routing table with longest prefix match, a default gateway, and finding the next hop's MAC address. What changes are the details: how addresses are written, how hosts configure themselves, and how they find their neighbours.
 
 ### What changes compared to IPv4
 | | IPv4 | IPv6 |
@@ -32,9 +36,9 @@ The **IPv6 pilot** runs in the development VLAN 30: rtr01 advertises **2001:db8:
 
   internals: `
 ### Writing addresses
-128 bits as 8 groups of 4 hex digits: \`2001:0db8:0020:0000:0000:0000:0000:0010\`. Shorten by
+An IPv6 address is written as 8 groups of 4 hexadecimal digits (0–9 and a–f), separated by colons: \`2001:0db8:0020:0000:0000:0000:0000:0010\`. Shorten by
 1. dropping leading zeros in each group: \`2001:db8:20:0:0:0:0:10\`
-2. replacing **one** run of zero groups with \`::\`: \`2001:db8:20::10\`.
+2. replacing **one** run of zero groups with \`::\`: \`2001:db8:20::10\`. Only one \`::\` is allowed per address, otherwise it would be impossible to tell how many zeros each one stands for.
 RFC 5952 canonical form: lower case, the longest run compressed (leftmost if tied), never a single group. In URLs and with ports: \`http://[2001:db8:20::10]:80/\`.
 
 ### Address types
@@ -48,9 +52,9 @@ RFC 5952 canonical form: lower case, the longest run compressed (leftmost if tie
 | 2001:db8::/32 | documentation (never routed) | 2001:db8:20::10 |
 
 ### Interface identifier and SLAAC
-A /64 leaves 64 bits for the host. With **EUI-64** they come from the MAC: 52:54:00:e7:00:1e → split in half, insert **ff:fe**, flip the "universal/local" bit (7th bit of the first byte): **5054:00ff:fee7:001e**. Hence dev01's link-local fe80::5054:ff:fee7:1e and its global 2001:db8:30::5054:ff:fee7:1e. (Desktops normally add random *privacy addresses* for outgoing connections; servers often use static addresses.)
+A /64 prefix leaves 64 bits to identify the host, called the **interface identifier**. With the **EUI-64** method, these bits are built from the network card's MAC address: 52:54:00:e7:00:1e → split in half, insert **ff:fe**, flip the "universal/local" bit (7th bit of the first byte): **5054:00ff:fee7:001e**. Hence dev01's link-local fe80::5054:ff:fee7:1e and its global 2001:db8:30::5054:ff:fee7:1e. (Desktops normally add random *privacy addresses* for outgoing connections; servers often use static addresses.)
 
-**SLAAC** (RFC 4862):
+**SLAAC** (stateless address autoconfiguration, RFC 4862) lets a host configure its own address without any server, using information the router announces:
 1. Interface up → link-local address (fe80:: + identifier).
 2. Host sends a **Router Solicitation** (ICMPv6 133) to ff02::2.
 3. Routers answer with a **Router Advertisement** (134) to ff02::1: prefix(es) with flags *on-link* and *autonomous*, the router lifetime, optional DNS servers (RDNSS), and the M/O flags pointing to DHCPv6.
@@ -198,13 +202,16 @@ IPv6 configuration is mostly about prefixes, router advertisements and not break
 
   troubleshootingIntro: `
 ### Test IPv6 on its own
-1. **Does the host have a global address and a default route?** \`ip -6 addr\`, \`ip -6 route\`. Only fe80:: → no RA received (router, radvd, VLAN, firewall dropping RA).
-2. **Is the router reachable?** \`ping -6 <gateway>\`, \`ip -6 neigh\`, \`rdisc6 eth0\`.
-3. **Where does it stop?** \`traceroute -6\` / ping each hop. *Address unreachable* = the last router could not resolve the destination (ND failing: host down, wrong address, ICMPv6 blocked). *Silence* = forwarding disabled, a firewall drop, or no route back.
-4. **Name resolution**: \`dig AAAA name\`, \`getent ahosts name\` (order of addresses).
-4b. **DHCPv6 hosts without an address** (only fe80::): \`journalctl -t dhclient\` on the client (Solicit only? Advertise received?), \`journalctl -u isc-dhcp-server\` on the server (Solicit logged? Advertise sent?), \`tcpdump -n port 546 or port 547\` on both ends, and both firewalls. Server silent although tcpdump sees the Solicit → its input chain (UDP 547). Server sends Advertise but the client never logs it → the client's input chain (UDP 546). Service failed → \`systemctl status isc-dhcp-server\` ("No subnet6 declaration").
-5. **Compare families**: \`curl -4\` vs \`curl -6\`, \`ssh -4\` vs \`ssh -6\`.
+On a dual-stack network, IPv4 can hide IPv6 problems (and the other way round), so test each one separately. Work through the same layers as for IPv4: address, gateway, path, names.
+
+1. **Does the host have a global address and a default route?** Run \`ip -6 addr\` and \`ip -6 route\`. If the only address starts with fe80::, the host never received a router advertisement: check the router, radvd, the VLAN, or a firewall dropping RAs.
+2. **Can it reach the router?** \`ping -6 <gateway>\` and \`ip -6 neigh\` test Neighbor Discovery, the IPv6 equivalent of ARP. \`rdisc6 eth0\` asks the routers on the link to announce themselves.
+3. **Where does traffic stop?** Use \`traceroute -6\`, or ping each hop. *Address unreachable* means the last router could not find the destination with Neighbor Discovery (the host is down, the address is wrong, or ICMPv6 is blocked). *Silence* means forwarding is switched off, a firewall drops the traffic, or there is no route back.
+4. **Do names resolve to IPv6 addresses?** \`dig AAAA name\` shows the IPv6 record; \`getent ahosts name\` shows all addresses in the order applications will try them.
+5. **Host using DHCPv6 has no address (only fe80::)?** Follow the four messages. On the client, \`journalctl -t dhclient\` shows whether it only sends Solicit or also receives an Advertise. On the server, \`journalctl -u isc-dhcp-server\` shows whether the Solicit arrived and an Advertise was sent. \`tcpdump -n port 546 or port 547\` on both ends shows the packets. If tcpdump sees the Solicit but the server stays silent, its firewall input chain blocks UDP 547. If the server sends an Advertise but the client never logs it, the client's input chain blocks UDP 546. If the service has failed, \`systemctl status isc-dhcp-server\` explains why (for example "No subnet6 declaration").
+6. **Compare the two families directly:** \`curl -4\` versus \`curl -6\`, \`ssh -4\` versus \`ssh -6\`. If only one fails, you know which half to look at.
 `,
+
 
   errorMap: [
     { message: 'Destination unreachable: Address unreachable (From <router>)', layer: 'Neighbor Discovery', meaning: 'The last router\'s Neighbor Solicitations for the target got no answer.', firstCheck: 'Is the host up with that address? Does its firewall accept ipv6-icmp? ip -6 neigh on the router' },
