@@ -158,7 +158,16 @@ export const LAB2: GuidedLab = {
   level: 'intermediate',
   duration: '60–90 min',
   summary: 'Create the Active Directory domain ad.corp.lab on a fresh Windows Server: install AD DS, promote the first domain controller with DNS, create accounts and a group, join the member server win01, grant Remote Desktop through a domain group, and prove it survives a restart.',
-  brief: `The systems team wants central accounts for the Windows servers (CHG-1650). The virtualisation team delivered **dc01** (${DC01_IP}), a fresh Windows Server 2022 with a static address and no roles. Build the domain **ad.corp.lab** (NetBIOS name **CORP**) on it, with its own DNS forwarding everything else to ns1. Create **CORP\\alice** (password ${AD_ALICE_PASSWORD}) and a global group **RDP-Users** for Remote Desktop access. Then make **win01** a domain member and let RDP-Users log on to it with Remote Desktop. The change is only done when everything still works after a restart of every machine.`,
+  brief: `The systems team wants central user accounts for the Windows servers (change CHG-1650), instead of separate local accounts on every machine. The virtualisation team has delivered **dc01** (${DC01_IP}): a fresh Windows Server 2022 with a fixed address and no server roles installed yet.
+
+Your job:
+
+- build the Active Directory domain **ad.corp.lab** (NetBIOS name **CORP**) on dc01, with its own DNS server that forwards every other name to ns1;
+- create the user **CORP\\alice** (password ${AD_ALICE_PASSWORD}) and a global group **RDP-Users** for Remote Desktop access;
+- make **win01** a member of the domain;
+- let members of RDP-Users log on to win01 with Remote Desktop.
+
+The change is only finished when everything still works after every machine has restarted.`,
   objectives: [
     'Install a server role with Install-WindowsFeature and promote the first domain controller of a new forest.',
     'Understand AD-integrated DNS: the SRV records members use to find a DC, and forwarding to the corporate DNS.',

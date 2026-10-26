@@ -273,7 +273,19 @@ export const LAB5: GuidedLab = {
   level: 'advanced',
   duration: '90–120 min',
   summary: 'Integrate a new server into every enterprise service: a DNS record, NTP from the internal time source, central logging, shared storage over NFS (with matching UIDs) that finance reads over SMB, publication through the reverse proxy, a default-deny firewall that keeps all of it working, and a reboot test.',
-  brief: `Finance's new reporting server **app01** (${APP01_IP}, Debian 12) was delivered by the platform team from the standard template: address, switch port (sw01 swp14, VLAN 20), nginx serving the reports page, and the application's service account **reports** (uid ${REPORTS_UID}). Nothing else is done (CHG-2330). Make it a full member of corp.lab: it needs the name **app01.corp.lab**; synchronized time from rtr01 (Kerberos and log correlation depend on it); its logs on **log01**; a **/srv/reports** directory on **fs01**, mounted on app01 at **/mnt/reports** over NFS for the reports account, and shared read-only over SMB as **\\\\fs01\\reports** to the **finance** group (dana is in finance; her Samba password is ${DANA}); its page published as **http://apps.corp.lab/reports/** through the reverse proxy on srv01; and a firewall that lets HTTP in **only from srv01**. Everything must survive a reboot.`,
+  brief: `The finance department has a new reporting server, **app01** (${APP01_IP}, Debian 12). The platform team built it from the standard server template (change CHG-2330): it has its network address, it is connected to switch sw01 (port swp14, VLAN 20), nginx serves the reports page, and the application's service account **reports** (uid ${REPORTS_UID}) exists. Nothing else has been done.
+
+Your job is to make app01 a full member of the corp.lab network, like every other server. The finance team needs the following:
+
+- **A name.** Everyone should reach it as **app01.corp.lab**.
+- **Correct time**, from the internal time server rtr01. Kerberos logons and the ability to line up logs from different servers both depend on it.
+- **Central logs.** Its log messages must also arrive on the log server, **log01**.
+- **Shared storage.** A directory **/srv/reports** on the file server **fs01**, mounted on app01 at **/mnt/reports** over NFS so that the reports account can write there.
+- **Access for finance staff.** The same directory, shared read-only over SMB as **\\\\fs01\\reports** to the **finance** group. dana is in finance; her Samba password is ${DANA}.
+- **Publication.** The reports page must be reachable as **http://apps.corp.lab/reports/**, through the existing reverse proxy on srv01.
+- **Protection.** A firewall on app01 that lets web traffic in **only from srv01** (the proxy).
+
+Everything must still work after every machine restarts. Each step below tells you what to achieve and why; hints and a reference solution are there if you get stuck.`,
   objectives: [
     'Add a host to an authoritative zone safely: increase the serial, check, reload, test from the clients.',
     'Point a client at the internal NTP server and verify synchronization, not just the configuration.',
@@ -305,7 +317,7 @@ export const LAB5: GuidedLab = {
     {
       id: 'dns', title: 'Give app01 its name',
       objective: `Add **app01.corp.lab → ${APP01_IP}** to the corp.lab zone on ns1, without breaking the rest of the zone.`,
-      background: 'Every later step refers to app01 by name: fstab on app01 names fs01, the proxy names app01, logs are filed by host name. The zone file is the single source; BIND only uses it after `rndc reload`, and secondaries (and caches of the SOA) only notice a change when the **serial** increases. A syntax error makes BIND refuse the whole zone: check with `named-checkzone` before reloading.',
+      background: 'Every later step refers to app01 by name: the mount on app01 names fs01, the proxy names app01, and log01 files messages by host name. So the name comes first.\n\nThe zone file on ns1 is the single source of truth for corp.lab names, but BIND only uses a changed file after `rndc reload`. Other DNS servers (secondaries) and caches only notice a change when the zone\'s **serial number** goes up, so always increase it. One syntax error makes BIND refuse the **whole** zone, which would break every corp.lab name at once, so check the file with `named-checkzone` before reloading.',
       tasks: [
         `On ns1, edit /etc/bind/db.corp.lab: add \`app01   IN A    ${APP01_IP}\` and increase the serial (2026101901 → 2026101902).`,
         '`named-checkzone corp.lab /etc/bind/db.corp.lab` (OK, with the new serial), then `rndc reload`.',
@@ -320,7 +332,7 @@ export const LAB5: GuidedLab = {
     {
       id: 'time', title: 'Synchronize its clock',
       objective: 'Make app01 synchronize with **rtr01** (the internal time server) and verify that the clock is correct.',
-      background: 'The template ships Debian\'s timesyncd.conf: no `NTP=` and only the public pool as fallback, which the server network cannot reach. app01\'s clock is 7 minutes fast, enough to break Kerberos (300 s skew) and to put its log lines in the wrong place on log01. systemd-timesyncd reads its servers at start; `timedatectl` shows whether the clock is synchronized and `timedatectl timesync-status` which server it uses.',
+      background: 'The template ships Debian\'s default timesyncd.conf: it names no time server (`NTP=` is empty) and only falls back to the public NTP pool, which the server network cannot reach. As a result, app01\'s clock is 7 minutes fast. That is enough to break Kerberos (which allows at most 300 seconds of difference) and to put app01\'s log lines in the wrong place on log01.\n\nsystemd-timesyncd, the small time client on Debian, reads its servers when it starts. `timedatectl` shows whether the clock is synchronized, and `timedatectl timesync-status` shows which server it uses. Check the result, not just the configuration file.',
       tasks: [
         'On app01: `timedatectl` (synchronized: no) and `cat /etc/systemd/timesyncd.conf`.',
         'Set `NTP=rtr01.corp.lab` in the [Time] section, then `systemctl restart systemd-timesyncd`.',
@@ -335,7 +347,7 @@ export const LAB5: GuidedLab = {
     {
       id: 'logs', title: 'Send its logs to log01',
       objective: 'Forward everything app01 logs to **log01** over TCP with a queue, the same way the other servers do.',
-      background: 'The other servers carry **/etc/rsyslog.d/50-central.conf** (CHG-2270): `*.*` to log01.corp.lab:514 over TCP with a LinkedList queue, so an outage of log01 does not lose messages. log01 files what it receives under /var/log/remote/HOST/PROGRAM.log. Test the facility that matters most, authpriv (sudo, PAM, sshd), not only a plain message.',
+      background: 'The other servers already forward their logs with the file **/etc/rsyslog.d/50-central.conf** (change CHG-2270). It sends every message (`*.*`) to log01.corp.lab on port 514 over TCP, with a queue in memory (LinkedList), so that messages wait instead of being lost while log01 is unavailable. log01 files what it receives under /var/log/remote/HOST/PROGRAM.log.\n\nWhen you test, use the facility that matters most for security, **authpriv** (logins, sudo, sshd), not only a plain test message: some forwarding rules leave it out.',
       tasks: [
         'Copy the forwarding file from another server (e.g. `cat /etc/rsyslog.d/50-central.conf` on srv01) to app01.',
         '`rsyslogd -N1`, `systemctl restart rsyslog`.',
@@ -350,7 +362,7 @@ export const LAB5: GuidedLab = {
     {
       id: 'nfs', title: 'Shared storage for the reports (NFS)',
       objective: 'Create **/srv/reports** on fs01 owned by the **reports** account, export it to **app01 only**, and mount it on app01 at **/mnt/reports** from /etc/fstab, so that reports (uid 1500) can write there.',
-      background: `NFS (sec=sys) identifies users by number: files written by reports on app01 arrive as uid ${REPORTS_UID}. fs01 must have the same account with the **same uid** (\`useradd -u ${REPORTS_UID}\`), or the files belong to a number nobody owns. Export to the one client that writes (narrowest client list), keep root_squash, run \`exportfs -ra\`. On app01, a line in /etc/fstab (with \`_netdev\`) brings the mount back at boot; \`mount -a\` tests it now.`,
+      background: `NFS (with the default security, sec=sys) identifies users by **number**, not by name: files written by reports on app01 arrive as uid ${REPORTS_UID}. fs01 must have the same account with the **same uid** (\`useradd -u ${REPORTS_UID}\`), or the files belong to a number nobody owns. Export to the one client that writes (narrowest client list), keep root_squash, run \`exportfs -ra\`. On app01, a line in /etc/fstab (with \`_netdev\`) brings the mount back at boot; \`mount -a\` tests it now.`,
       tasks: [
         `On fs01: \`useradd -u ${REPORTS_UID} -s /usr/sbin/nologin reports\`, \`mkdir /srv/reports\`, \`chown reports:reports /srv/reports\`.`,
         `Add \`${LAB5_EXPORT}\` to /etc/exports, then \`exportfs -ra\` and \`exportfs -v\`.`,
@@ -369,7 +381,7 @@ export const LAB5: GuidedLab = {
     {
       id: 'smb', title: 'Finance reads the reports (SMB)',
       objective: 'Share **/srv/reports** over SMB as **\\\\fs01\\reports**: read-only, for the **finance** group, with **dana** in finance.',
-      background: 'The same directory can be offered over both protocols: NFS for app01, SMB for the Windows desktops. Samba checks the share first (valid users, read only), then the Unix permissions of the account dana maps to: /srv/reports is rwxr-xr-x, so others may read. Shares are read-only by default; say so explicitly anyway, so nobody "fixes" it later. Group membership is read at logon.',
+      background: 'The same directory can be offered over both protocols at once: NFS for app01, SMB for the Windows desktops. Samba checks access in two stages: first the share\'s own settings (valid users, read only), then the Linux permissions of the account dana maps to. /srv/reports is rwxr-xr-x, so other users may read it.\n\nSamba shares are read-only by default, but write `read only = yes` explicitly anyway, so that nobody "fixes" it later. Samba reads a user\'s groups when they log on.',
       tasks: [
         `On fs01: \`usermod -aG finance dana\` (keep her other groups) and append to /etc/samba/smb.conf:\n\n\`\`\`${LAB5_SHARE}\`\`\``,
         '`testparm -s` (the [reports] section, no unknown parameters).',
@@ -399,7 +411,7 @@ export const LAB5: GuidedLab = {
     {
       id: 'firewall', title: 'Close app01 behind its proxy',
       objective: 'Give app01 a persistent default-deny firewall: HTTP **only from srv01**, SSH from the internal networks. Every earlier step must keep working.',
-      background: 'With the proxy in front, nobody needs to reach app01:80 directly; allowing only srv01 enforces the published path (and its logging). Everything app01 starts itself (NTP to rtr01, syslog to log01, NFS to fs01, DNS to ns1) is outgoing: the replies are accepted by `ct state established,related accept`. The Debian template ships nftables **disabled**: enable it, or the rules are gone after the next boot.',
+      background: 'With the proxy in front, nobody needs to reach app01\'s web server directly. Allowing port 80 only from srv01 forces everyone through the published path, where requests are logged.\n\nEverything app01 starts itself is **outgoing**: NTP to rtr01, syslog to log01, NFS to fs01, DNS to ns1. A default-deny input chain still has to let the **replies** back in; that is the job of the rule `ct state established,related accept`. Without it, every one of those services breaks.\n\nThe Debian template ships nftables **disabled**. Enable it, or your rules are gone after the next boot.',
       tasks: [
         `Write /etc/nftables.conf on app01:\n\n\`\`\`\n${LAB5_NFT}\`\`\``,
         '`systemctl enable --now nftables` and `nft list ruleset`.',
@@ -414,7 +426,7 @@ export const LAB5: GuidedLab = {
     {
       id: 'reboot', title: 'Reboot test',
       objective: 'Restart every machine and confirm everything above still holds.',
-      background: 'At boot ns1 loads the zone from its file, fs01 exports from /etc/exports, app01 mounts from /etc/fstab (after the network, `_netdev`), timesyncd and rsyslog start with their files, nftables loads /etc/nftables.conf if enabled, and srv01\'s nginx resolves app01.corp.lab when it starts. Anything done only at runtime is gone.',
+      background: 'A restart rebuilds everything from the saved configuration: ns1 loads the zone from its file, fs01 exports what /etc/exports lists, app01 mounts what /etc/fstab lists (after the network is up, because of `_netdev`), timesyncd and rsyslog start with their files, nftables loads /etc/nftables.conf if the service is enabled, and srv01\'s nginx looks up app01.corp.lab when it starts.\n\nAnything you changed only in the running system, and not in a file, is gone after the restart. This step proves that every earlier step was saved.',
       tasks: ['Run "Check" on this step: it restarts every machine on a copy of the lab and re-runs all checks.'],
       hints: ['If only the reboot test fails: an export not in /etc/exports, a mount not in fstab, nftables not enabled, or dana\'s group changed only in memory?'],
       checks: [],

@@ -189,7 +189,15 @@ export const LAB4: GuidedLab = {
   level: 'intermediate',
   duration: '45–75 min',
   summary: 'Take over a Docker Compose application from its developers and run it as a service: delegate Docker access, configure the daemon, review and fix the project (published database, missing restart policy, the secret), deploy it, harden the host firewall without breaking the published port, and prove it survives a reboot.',
-  brief: `The development team hands over the **inventory** application (DEV-881): a Compose project in **${INVENTORY_DIR}** with two services, **app** (corp/inventory:1.4, a gunicorn API on port 8000) and **db** (postgres:16). It must be available to the office at **http://inventory.corp.lab:8000/** (a CNAME for dock01). The change record CHG-2214 gives the database password, **${DB_PASSWORD}**, and the rules: alice administers Docker on dock01 without sudo; containers use the internal DNS server and rotated logs; the database is never reachable from the network; dock01 keeps a default-deny host firewall; and everything comes back by itself after a reboot.`,
+  brief: `The development team is handing over its **inventory** application (DEV-881) for you to run as a service. It is a Docker Compose project in **${INVENTORY_DIR}** with two services: **app** (corp/inventory:1.4, a gunicorn web API on port 8000) and **db** (a postgres:16 database). The office must be able to use it at **http://inventory.corp.lab:8000/** (inventory.corp.lab is an alias for dock01).
+
+Change record CHG-2214 gives the database password, **${DB_PASSWORD}**, and sets these rules:
+
+- alice administers Docker on dock01 without sudo;
+- containers use the internal DNS server, and their logs are rotated;
+- the database is never reachable from the network;
+- dock01 keeps a default-deny host firewall;
+- everything comes back by itself after a reboot.`,
   objectives: [
     'Delegate Docker access with the docker group, knowing that it is root-equivalent.',
     'Configure dockerd through /etc/docker/daemon.json before deploying workloads, and validate it.',
