@@ -6,6 +6,7 @@
 import { tcpConnect } from '../../../sim/tcp';
 import type { Host } from '../../../types';
 import { adUser, domainDn, isDc, joinDomain, locateDc, principalGroups, promoteForest, resetMachinePassword, secureChannel } from '../../ad';
+import { computerDn, gpData, normDn } from '../../gpo';
 import { winEvent, type AdGroup, type AdState, type AdUser } from '../../model';
 import { registerView } from '../format';
 import { cmdlet, type Call, type ParamDef, type PsCtx } from '../runtime';
@@ -84,7 +85,7 @@ cmdlet({
 // ---------------------------------------------------------------------------
 
 /** The DC this console reaches: itself on a DC, otherwise one located through DNS. */
-function directory(c: Call): { dc: Host; ad: AdState } | null {
+export function directory(c: Call): { dc: Host; ad: AdState } | null {
   const host = c.ctx.host;
   if (isDc(host)) return { dc: host, ad: host.win!.ad! };
   const m = host.win?.domain;
@@ -94,7 +95,7 @@ function directory(c: Call): { dc: Host; ad: AdState } | null {
   return null;
 }
 
-function guid(seed: string): string {
+export function guid(seed: string): string {
   let h = 2166136261;
   for (const ch of seed) h = Math.imul(h ^ ch.charCodeAt(0), 16777619) >>> 0;
   const hex = (n: number, l: number) => ((n * 2654435761) >>> 0).toString(16).padStart(8, '0').slice(0, l);
@@ -136,8 +137,7 @@ function groupObj(ad: AdState, g: AdGroup): PSObject {
 
 function computerObj(ad: AdState, key: string, props: string[] = []): PSObject {
   const cpt = ad.computers[key];
-  const ou = cpt.dc ? 'OU=Domain Controllers' : 'CN=Computers';
-  const o: Record<string, PSValue> = { DistinguishedName: `CN=${cpt.name},${ou},${domainDn(ad.domain)}`, DNSHostName: cpt.dnsHostName, Enabled: cpt.enabled, Name: cpt.name, ObjectClass: 'computer', ObjectGUID: guid(`${ad.domain}:c:${cpt.name}`), SamAccountName: `${cpt.name}$`, SID: `${ad.domainSid}-${cpt.rid}`, UserPrincipalName: null };
+  const o: Record<string, PSValue> = { DistinguishedName: computerDn(ad, key), DNSHostName: cpt.dnsHostName, Enabled: cpt.enabled, Name: cpt.name, ObjectClass: 'computer', ObjectGUID: guid(`${ad.domain}:c:${cpt.name}`), SamAccountName: `${cpt.name}$`, SID: `${ad.domainSid}-${cpt.rid}`, UserPrincipalName: null };
   if (props.length) o.OperatingSystem = cpt.os;
   return obj('Microsoft.ActiveDirectory.Management.ADComputer', o);
 }
@@ -190,11 +190,11 @@ function filterFn(c: Call): ((o: PSObject) => boolean) | null {
   };
 }
 
-function adCmdlet(name: string, synopsis: string, params: ParamDef[], run: (c: Call) => PSValue[] | void): void {
+export function adCmdlet(name: string, synopsis: string, params: ParamDef[], run: (c: Call) => PSValue[] | void): void {
   cmdlet({ name, module: AD, synopsis, params, run, cls: `Microsoft.ActiveDirectory.Management.Commands.${name.replace('-', '')}`, available: (ctx) => hasFeature(ctx, 'RSAT-AD-PowerShell') });
 }
 
-const ID: ParamDef = { name: 'Identity', type: 'any', position: 0 };
+export const ID: ParamDef = { name: 'Identity', type: 'any', position: 0 };
 
 function plain(v: PSValue): string | null {
   return isObj(v) && v.__t === 'System.Security.SecureString' ? toStr((v as unknown as PSSecure).plain) : null;
@@ -374,7 +374,7 @@ function memberObj(ad: AdState, m: string): PSObject {
   const g = !u ? findGroup(ad, m) : undefined;
   const cKey = m.replace(/\$$/, '').toLowerCase();
   const cpt = !u && !g ? ad.computers[cKey] : undefined;
-  const dn = u ? userDn(ad, u) : g ? groupDn(ad, g) : `CN=${cpt?.name ?? m},CN=Computers,${domainDn(ad.domain)}`;
+  const dn = u ? userDn(ad, u) : g ? groupDn(ad, g) : cpt ? computerDn(ad, cKey) : `CN=${m},CN=Computers,${domainDn(ad.domain)}`;
   return obj('Microsoft.ActiveDirectory.Management.ADPrincipal', { distinguishedName: dn, name: u?.name ?? g?.name ?? cpt?.name ?? m, objectClass: u ? 'user' : g ? 'group' : 'computer', objectGUID: guid(`${ad.domain}:${m}`), SamAccountName: u?.sam ?? g?.name ?? m, SID: `${ad.domainSid}-${u?.rid ?? g?.rid ?? cpt?.rid ?? 0}` });
 }
 
@@ -761,8 +761,10 @@ cmdlet({
     if (!loc.ok) { joinError(c, domain, 'The specified domain either does not exist or could not be contacted.'); return []; }
     const bad = checkDomainCred(c, loc.dc, cred);
     if (bad) { joinError(c, domain, bad); return []; }
+    const ouPath = c.str('OUPath');
+    if (ouPath && !gpData(loc.dc.win!.ad!).ous[normDn(ouPath)]) { joinError(c, domain, 'The system cannot find the file specified.'); return []; }
     if (c.whatIf('Add-Computer', host.hostname.toUpperCase())) return [];
-    joinDomain(c.ctx.world, host, loc.dc);
+    joinDomain(c.ctx.world, host, loc.dc, ouPath);
     winEvent(c.ctx.world, host, 'System', 4097, 'NetSetup', `The machine ${host.hostname.toUpperCase()} attempted to join the domain ${domain} and succeeded.`);
     if (c.has('Restart')) { c.ctx.reboot = true; return []; }
     c.warn(`The changes will take effect after you restart the computer ${host.hostname.toUpperCase()}.`);

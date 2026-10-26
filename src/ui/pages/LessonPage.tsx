@@ -332,6 +332,15 @@ function widgetsFor(id: string): LessonWidgets {
       ],
     };
   }
+  if (id === 'gpo') {
+    return {
+      sandbox: [
+        { hostId: 'dc01', user: 'Administrator', label: 'dc01 console (PowerShell)', banner: 'Windows PowerShell\nCopyright (C) Microsoft Corporation. All rights reserved.\n\nSandbox: dc01, domain controller of ad.corp.lab with Group Policy Management. Try: Get-GPO -All, New-ADOrganizationalUnit -Name Servers -Path "DC=ad,DC=corp,DC=lab", New-GPO -Name "Server Baseline", New-GPLink -Name "Server Baseline" -Target "OU=Servers,DC=ad,DC=corp,DC=lab", Get-GPInheritance -Target "OU=Servers,DC=ad,DC=corp,DC=lab".' },
+        { hostId: 'win01', user: 'Administrator', label: 'win01 console (PowerShell)', banner: 'Windows PowerShell\nCopyright (C) Microsoft Corporation. All rights reserved.\n\nSandbox: win01, in a workgroup. Join it into the OU (after creating OU=Servers on dc01): Set-DnsClientServerAddress -InterfaceAlias Ethernet0 -ServerAddresses 10.0.20.5, then Add-Computer -DomainName ad.corp.lab -OUPath "OU=Servers,DC=ad,DC=corp,DC=lab" -Credential CORP\\Administrator -Restart (password Dc-Adm1n-2026). Then: gpupdate /force, gpresult /r, Get-NetFirewallRule -PolicyStore RSOP.' },
+        { hostId: 'ws01', user: 'alice', label: 'ws01 (alice)', banner: 'Sandbox: ws01, the monitoring view. Try: ping -c 1 win01.corp.lab (blocked by win01\'s firewall until a GPO allows it).' },
+      ],
+    };
+  }
   if (id === 'ad-kerberos') {
     return {
       sandbox: [

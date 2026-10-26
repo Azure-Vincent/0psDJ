@@ -24,8 +24,8 @@ For every technology it answers the same questions:
 
 ## What's inside
 
-- **24 lessons** on networking, interfaces and virtual switches, TLS, remote
-  access, identity (including Kerberos), firewalls, containers, web servers and
+- **25 lessons** on networking, interfaces and virtual switches, TLS, remote
+  access, identity (including Kerberos and Group Policy), firewalls, containers, web servers and
   reverse proxies, time synchronisation, central logging, NFS and SMB file sharing, Linux and Windows
   administration, and safe recovery. Each lesson starts in plain language (the short version,
   an everyday analogy, the key ideas each with a concrete example from the lab,
@@ -51,7 +51,7 @@ For every technology it answers the same questions:
   machine configured from the files the design generates. You get terminals
   on each machine and a packet tracer that shows every hop and every firewall
   and NAT decision.
-- **119 troubleshooting tickets**, each injecting a realistic fault into the
+- **123 troubleshooting tickets**, each injecting a realistic fault into the
   lab. You investigate with real commands in terminals, record a diagnosis and
   repair the fault. The app then checks your fix immediately, again after
   rebooting every machine, and against security rules, so "just open the
@@ -88,6 +88,11 @@ For every technology it answers the same questions:
   and a user whose UID differs between hosts; over SMB, a new user without a
   Samba password, a group change that locks someone out of a share, a share
   path with the wrong case, and a scanner share that is read-only by default.
+  A **Group Policy** set breaks a firewall GPO on the way to a member server:
+  a computer account left in the default Computers container, a security
+  group added after the last restart (the computer's token), an OU that
+  blocks inheritance, and a DC firewall that closes SMB so SYSVOL cannot be
+  read (event 1058).
 - **7 end-to-end case studies**: SSH refused, a server with no Internet, a failed
   domain login, an unreachable Docker app, pfSense blocking traffic, RDP broken
   by a policy change, and several services failing at once.
@@ -143,6 +148,11 @@ software directories from /etc/exports, ws01 and srv01 mount them from
 squashing and read-only exports as on a real server. The same server runs
 Samba: shares in smb.conf, its own password database, `smbclient` on Linux and
 `net use` on Windows, with SMB's logon, share and file steps and their errors.
+Group Policy runs on the domain: GPOs with registry and firewall settings,
+links to the domain and to OUs, Block Inheritance and Enforced, security
+filtering against the computer's token, SYSVOL read over SMB at startup and
+on `gpupdate`, and `gpresult` showing what applied and why the rest was
+filtered.
 
 ## Installation
 
@@ -282,8 +292,10 @@ rather than a live capture.
 
 The Windows server follows Windows Server 2022 and Windows PowerShell 5.1
 (output formats, error records, event IDs). The domain has one DC; domain
-logons use NTLM pass-through, and Kerberos for Windows logons, Group Policy
-objects and replication are not modelled. PowerShell covers the cmdlets and
+logons use NTLM pass-through, and Kerberos for Windows logons and replication
+are not modelled. Group Policy covers computer settings (registry policies and
+firewall rules); user settings, WMI filters, loopback and preferences are not
+modelled. PowerShell covers the cmdlets and
 parameters the lessons, tickets and labs use. The pfSense firewall covers
 interfaces, aliases, filter rules, port forwards, outbound NAT, states and the
 firewall log; its DHCP and DNS services, VLANs, VPNs, gateway monitoring,

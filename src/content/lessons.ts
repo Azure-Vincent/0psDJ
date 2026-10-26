@@ -37,6 +37,7 @@ import { NTP_ASSESSMENT, NTP_LESSON } from './ops/ntp';
 import { LOGGING_ASSESSMENT, LOGGING_LESSON } from './ops/logging';
 import { NFS_ASSESSMENT, NFS_LESSON } from './ops/nfs';
 import { SMB_ASSESSMENT, SMB_LESSON } from './ops/smb';
+import { GPO_ASSESSMENT, GPO_LESSON } from './ops/gpo';
 import { PRIMERS } from './primers';
 import type { Assessment, Lesson } from './types';
 
@@ -53,7 +54,7 @@ export const LESSONS: Lesson[] = [
   { ...SSH_LESSON, guide: SSH_GUIDE, caseStudyIds: ['ssh-refused'], objectives: ['N10-009:3.5', 'N10-009:5.3', '200-301:4.8', '200-301:2.8'] },
   { ...NFTABLES_LESSON, guide: NFTABLES_GUIDE, caseStudyIds: ['shared-dependency', 'ssh-refused'], objectives: ['N10-009:4.3', 'N10-009:5.3', '200-301:5.6'] },
   PFSENSE_LESSON, WINDOWS_RDP_LESSON, AD_KERBEROS_LESSON, KERBEROS_LESSON, DOCKER_LESSON,
-  SYSTEMD_LESSON, NETOPS_LESSON, RECOVERY_LESSON, WEBPROXY_LESSON, NTP_LESSON, LOGGING_LESSON, NFS_LESSON, SMB_LESSON];
+  SYSTEMD_LESSON, NETOPS_LESSON, RECOVERY_LESSON, WEBPROXY_LESSON, NTP_LESSON, LOGGING_LESSON, NFS_LESSON, SMB_LESSON, GPO_LESSON];
 
 export const ASSESSMENTS: Record<string, Assessment> = {
   [SSH_ASSESSMENT.id]: SSH_ASSESSMENT,
@@ -80,6 +81,7 @@ export const ASSESSMENTS: Record<string, Assessment> = {
   [LOGGING_ASSESSMENT.id]: LOGGING_ASSESSMENT,
   [NFS_ASSESSMENT.id]: NFS_ASSESSMENT,
   [SMB_ASSESSMENT.id]: SMB_ASSESSMENT,
+  [GPO_ASSESSMENT.id]: GPO_ASSESSMENT,
 };
 
 // Attach the beginner primers (plain language and worked examples) to their lessons.

@@ -596,5 +596,30 @@ export const CAUSES: Record<string, Cause> = Object.fromEntries(
       signature: 'Users connect and can list and read, but every write fails with "NT_STATUS_ACCESS_DENIED opening remote file" although the Unix permissions of the directory allow that user to write. testparm -s shows no "read only = No" (or writable = yes) for the share.',
       check: 'testparm -s for the share; ls -ld of its path on the server.',
     },
+    {
+      id: 'gpo-wrong-ou', title: 'The computer object is not in the OU the GPO is linked to', category: 'Configuration', concept: 'ad.gpo',
+      signature: 'gpupdate succeeds but the setting never arrives; gpresult /r lists only Default Domain Policy, and the computer\'s DN under COMPUTER SETTINGS is CN=...,CN=Computers,... while the GPO is linked to an OU (Get-GPInheritance on that OU lists it). Joining without -OUPath puts computers in the Computers container, where no GPO can be linked.',
+      check: 'gpresult /r on the member (its DN and applied GPOs); Get-ADComputer NAME; Get-GPInheritance -Target "OU=...".',
+    },
+    {
+      id: 'gpo-filter-token', title: 'Security filtering: the computer\'s new group membership is not in its token yet (restart needed)', category: 'Authorization', concept: 'ad.gpo',
+      signature: 'The GPO is filtered to a group (Authenticated Users only has GpoRead) and the computer was added to that group, yet gpresult /r keeps listing the GPO as "Filtering: Denied (Security)" and the group is missing from "The computer is a part of the following security groups". A computer\'s groups come from its Kerberos ticket, obtained at startup: gpupdate /force does not refresh them.',
+      check: 'Get-GPPermission -All on the GPO; Get-ADGroupMember on the filter group; the security groups at the end of gpresult /r; when the computer last started.',
+    },
+    {
+      id: 'gpo-blocked-inheritance', title: 'Block Inheritance on the OU stops a domain-level GPO', category: 'Configuration', concept: 'ad.gpo',
+      signature: 'A GPO linked to the domain root no longer applies to computers in one OU: gpresult /r there lists neither it nor the other domain GPOs (only Default Domain Policy if enforced, or nothing from the domain). Get-GPInheritance on the OU shows GpoInheritanceBlocked: Yes; the GPO is missing from InheritedGpoLinks.',
+      check: 'Get-GPInheritance -Target "OU=..." (GpoInheritanceBlocked, InheritedGpoLinks); the domain\'s links; whether the link is enforced.',
+    },
+    {
+      id: 'gpo-sysvol-unreachable', title: 'Members cannot read SYSVOL on the DC (SMB 445 blocked)', category: 'Firewall', concept: 'ad.gpo',
+      signature: 'gpupdate /force: "Computer policy could not be updated successfully ... Windows attempted to read the file \\\\ad.corp.lab\\sysvol\\...\\gpt.ini from a domain controller and was not successful"; event 1058 in the System log. Logons and DC location work (LDAP, Kerberos), but TCP 445 to the DC is dropped: the DC\'s File and Printer Sharing (SMB-In) rule was disabled.',
+      check: 'gpupdate /force and Get-WinEvent -LogName System on the member; Test-NetConnection DC -Port 445; Get-NetFirewallRule -Name FPS-SMB-In-TCP on the DC.',
+    },
+    {
+      id: 'gpo-link-disabled', title: 'The GPO link is disabled', category: 'Configuration', concept: 'ad.gpo',
+      signature: 'The GPO is linked to the right OU but Get-GPInheritance / Get-GPO shows the link with Enabled: False; gpresult does not list the GPO at all.',
+      check: 'Get-GPInheritance -Target "OU=..."; Set-GPLink -LinkEnabled Yes.',
+    },
   ] as Cause[]).map((c) => [c.id, c]),
 );
