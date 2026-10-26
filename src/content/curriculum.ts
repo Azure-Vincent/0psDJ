@@ -59,7 +59,7 @@ export const CURRICULUM: CurriculumModule[] = [
       { title: 'NTLM', level: 'intermediate', status: 'planned' },
       { title: 'LDAP and LDAPS', level: 'intermediate', status: 'planned' },
       { title: 'DNS in Active Directory', level: 'intermediate', status: 'available', link: 'lesson/ad-kerberos/internals' },
-      { title: 'Group Policy', level: 'intermediate', status: 'partial', link: 'lesson/ad-kerberos/operate', note: 'Processing, gpresult/gpupdate and failure diagnosis; GPO design not covered.' },
+      { title: 'Group Policy (simulated: GPOs, links, OUs, security filtering, SYSVOL, 4 tickets)', level: 'intermediate', status: 'available', link: 'lesson/gpo/what' },
       { title: 'SSSD', level: 'advanced', status: 'partial', link: 'lesson/ad-kerberos/deploy', note: 'Joining Linux to AD with realmd/SSSD.' },
       { title: 'RADIUS', level: 'advanced', status: 'planned' },
       { title: 'Certificate-based authentication and PKI', level: 'advanced', status: 'partial', link: 'lesson/tls/internals', note: 'Certificates, CAs, chains, trust stores, CSRs and issuance are in the TLS lesson; client-certificate authentication, smart cards and AD CS are not covered.' },

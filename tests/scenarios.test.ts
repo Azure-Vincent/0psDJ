@@ -124,6 +124,10 @@ const SYMPTOM: Record<string, RegExp> = {
   'smb-valid-users': /System error 5 has occurred\.\n\nAccess is denied\./,
   'smb-share-path': /System error 67 has occurred\.\n\nThe network name cannot be found\./,
   'smb-read-only': /NT_STATUS_ACCESS_DENIED opening remote file \\scan-0001\.pdf/,
+  'gpo-wrong-ou': /1 packets transmitted, 0 received, 100% packet loss/,
+  'gpo-filter-token': /1 packets transmitted, 0 received, 100% packet loss/,
+  'gpo-blocked-inheritance': /1 packets transmitted, 0 received, 100% packet loss/,
+  'gpo-sysvol-blocked': /1 packets transmitted, 0 received, 100% packet loss/,
   'mtu-uplink-mismatch': /curl: \(28\) Operation timed out after 30000 milliseconds with 0 out of 4718592 bytes received/,
 };
 

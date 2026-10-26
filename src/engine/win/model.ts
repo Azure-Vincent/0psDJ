@@ -39,6 +39,8 @@ export interface WinFwRule {
   program?: string;
   /** Rules created by an administrator (PolicyStoreSourceType Local) vs. shipped defaults. */
   builtIn?: boolean;
+  /** Set on rules that came from Group Policy: "ad.corp.lab\\GPO name" (PolicyStoreSource). */
+  gpo?: string;
 }
 
 export type StartType = 'Automatic' | 'AutomaticDelayedStart' | 'Manual' | 'Disabled';
@@ -110,8 +112,29 @@ export interface WinState {
   localDomainMembers?: Record<string, string[]>;
   /** Runtime: a domain controller was reachable at boot, so the Domain firewall profile applies. */
   domainNetwork?: boolean;
+  /** Group Policy state of this computer (what the last processing applied). */
+  gp?: GpState;
   /** Mapped network drives (net use), per session of the console user. */
   smbMappings?: { local: string; remote: string; user: string; server: string; share: string }[];
+}
+
+/** What Group Policy processing left on a computer (for gpresult and to undo it next time). */
+export interface GpState {
+  /** When policy was last processed, and from which DC. */
+  appliedAt?: number;
+  fromDc?: string;
+  /** Applied GPOs, lowest precedence first. */
+  applied: string[];
+  /** GPOs in scope that did not apply, with gpresult's reason. */
+  filtered: { name: string; reason: string }[];
+  /** Registry values written from policy (removed again when the GPO no longer applies). */
+  registry: { key: string; valueName: string }[];
+  /** Firewall rules delivered by policy. */
+  rules: WinFwRule[];
+  /** The computer's security groups as of its last start (its Kerberos ticket): security filtering uses these. */
+  token?: string[];
+  /** The last processing error (gpupdate / event 1058, 1006, 1129). */
+  lastError?: string;
 }
 
 export interface AdUser {
@@ -145,7 +168,43 @@ export interface AdComputer {
   os: string;
   dc?: boolean;
   rid: number;
+  /** Container DN (an OU); default CN=Computers, or OU=Domain Controllers for a DC. */
+  ou?: string;
 }
+
+/** An organizational unit (DN as created, e.g. "OU=Servers,DC=ad,DC=corp,DC=lab"). */
+export interface AdOu {
+  dn: string;
+  name: string;
+  description: string;
+  /** Block Inheritance: links of parent containers do not apply (unless enforced). */
+  blockInheritance: boolean;
+  protected: boolean;
+}
+
+export type GpPermission = 'GpoRead' | 'GpoApply' | 'GpoEdit' | 'GpoEditDeleteModifySecurity';
+
+/** A Group Policy Object: the container in AD plus its files in SYSVOL (computer configuration only). */
+export interface Gpo {
+  /** GUID without braces, upper case. */
+  id: string;
+  name: string;
+  status: 'AllSettingsEnabled' | 'UserSettingsDisabled' | 'ComputerSettingsDisabled' | 'AllSettingsDisabled';
+  description: string;
+  /** Administrative-template (registry policy) values: Set-GPRegistryValue. Keys are "HKLM\\Software\\Policies\\...". */
+  registry: { key: string; valueName: string; type: 'DWord' | 'String' | 'ExpandString' | 'QWord'; value: string | number }[];
+  /** Windows Defender Firewall rules in the GPO (New-NetFirewallRule -PolicyStore DOMAIN\\GPO). */
+  firewallRules: WinFwRule[];
+  /** Security settings (password and lockout policy) that only the default GPOs carry here. */
+  securitySettings?: boolean;
+  /** Security filtering and delegation: trustee → permission. */
+  permissions: Record<string, GpPermission>;
+  computerVersion: number;
+  created: number;
+  modified: number;
+}
+
+export interface GpLink { gpoId: string; enabled: boolean; enforced: boolean }
 
 export interface AdState {
   domain: string;
@@ -156,6 +215,12 @@ export interface AdState {
   computers: Record<string, AdComputer>;
   lockoutThreshold: number;
   nextRid: number;
+  /** Organizational units by lower-case DN. */
+  ous?: Record<string, AdOu>;
+  /** Group Policy Objects by id. */
+  gpos?: Record<string, Gpo>;
+  /** gPLink of each container (domain or OU), by lower-case DN, in link order (1 = highest). */
+  gpLinks?: Record<string, GpLink[]>;
 }
 
 export interface DnsServerState {
@@ -196,8 +261,14 @@ export function winEvent(world: World, host: Host, log: string, id: number, prov
   if (w.events.length > 3000) w.events.splice(0, w.events.length - 3000);
 }
 
+/** Group Policy's Terminal Services key: when it sets fDenyTSConnections, it wins over the local setting. */
+export const TS_POLICY_KEY = 'HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Terminal Services';
+
 export function rdpEnabled(host: Host): boolean {
-  return Number(host.win!.registry[TS_KEY]?.fDenyTSConnections ?? 1) === 0;
+  const reg = host.win!.registry;
+  const policyKey = Object.keys(reg).find((k) => k.toLowerCase() === TS_POLICY_KEY.toLowerCase());
+  const policy = policyKey ? reg[policyKey]?.fDenyTSConnections : undefined;
+  return Number(policy ?? reg[TS_KEY]?.fDenyTSConnections ?? 1) === 0;
 }
 
 /** Listening sockets of running Windows services. */
@@ -278,7 +349,8 @@ export function compileFirewall(host: Host): Ruleset {
     if (p.enabled) {
       rules.push(mk('ct state established,related accept', 'Stateful: replies to allowed connections'));
       rules.push(mk('iif "lo" accept', 'Loopback'));
-      const applicable = w.firewall.rules.filter((r) => r.direction === dir && ruleApplies(r, profile));
+      // Local rules and the rules Group Policy delivered (both are in the active store).
+      const applicable = [...w.firewall.rules, ...(w.gp?.rules ?? [])].filter((r) => r.direction === dir && ruleApplies(r, profile));
       for (const r of [...applicable.filter((x) => x.action === 'Block'), ...applicable.filter((x) => x.action === 'Allow')]) {
         const m = ruleMatchText(host, r);
         if (m === null) continue;

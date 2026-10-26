@@ -1,8 +1,9 @@
 // NetSecurity: Windows Defender Firewall profiles and rules. Every change is
 // recompiled into the host's packet filter, so it takes effect at once.
 
+import { gpoForStore, touchGpo } from './gpo';
 import type { Host, World } from '../../../types';
-import { applyFirewall, FW_PROFILES, winEvent, type FwProfile, type WinFwRule } from '../../model';
+import { applyFirewall, FW_PROFILES, winEvent, type FwProfile, type Gpo, type WinFwRule } from '../../model';
 import { registerView } from '../format';
 import { cmdlet, type Call, type ParamDef } from '../runtime';
 import { flatten, getProp, hasWildcard, isObj, obj, toStr, wildcard, type PSObject, type PSValue } from '../values';
@@ -25,11 +26,11 @@ export function profileText(r: WinFwRule): string {
   return r.profiles === 'Any' ? 'Any' : r.profiles.join(', ');
 }
 
-function ruleObj(r: WinFwRule): PSObject {
+function ruleObj(r: WinFwRule, store = ''): PSObject {
   return obj('MSFT_NetFirewallRule', {
     Name: r.name, DisplayName: r.displayName, Description: r.description ?? '', DisplayGroup: r.group, Group: r.group, Enabled: r.enabled ? 'True' : 'False', Profile: profileText(r), Platform: '{}',
     Direction: r.direction, Action: r.action, EdgeTraversalPolicy: 'Block', LooseSourceMapping: false, LocalOnlyMapping: false, Owner: '', PrimaryStatus: 'OK', Status: 'The rule was parsed successfully from the store. (65536)',
-    EnforcementStatus: 'NotApplicable', PolicyStoreSource: 'PersistentStore', PolicyStoreSourceType: 'Local', __rule: r.name, __str: r.name,
+    EnforcementStatus: 'NotApplicable', PolicyStoreSource: r.gpo ?? 'PersistentStore', PolicyStoreSourceType: r.gpo ? 'GroupPolicy' : 'Local', __rule: r.name, __store: store, __str: r.name,
   });
 }
 
@@ -56,9 +57,44 @@ const SELECT_PARAMS: ParamDef[] = [
   { name: 'InputObject', type: 'any' }, { name: 'All', type: 'switch' }, { name: 'PolicyStore', type: 'string' },
 ];
 
-/** Rules selected by -Name / -DisplayName / -DisplayGroup / -Group / pipeline input (rules or their filters). */
-function selectRules(c: Call): WinFwRule[] {
-  const rules = c.ctx.host.win!.firewall.rules;
+interface Store { rules: WinFwRule[]; gpo?: Gpo; name?: string; readOnly?: boolean }
+
+/**
+ * The rules a -PolicyStore names: PersistentStore (local, the default for
+ * changes), ActiveStore (local plus Group Policy, the default for Get; changes
+ * go to the local rules), RSOP (from Group Policy only, read-only), or
+ * "DOMAIN\\GPO name" (the rules in that GPO).
+ */
+function storeRules(c: Call, forChange: boolean, name = c.str('PolicyStore')): Store | null {
+  const w = c.ctx.host.win!;
+  if (name && name.includes('\\')) {
+    const r = gpoForStore(c, name);
+    return r ? { rules: r.gpo.firewallRules, gpo: r.gpo, name } : null;
+  }
+  const s = (name ?? (forChange ? 'PersistentStore' : 'ActiveStore')).toLowerCase();
+  if (s === 'rsop') return { rules: w.gp?.rules ?? [], readOnly: true };
+  if (s === 'activestore' && !forChange) return { rules: [...w.firewall.rules, ...(w.gp?.rules ?? [])] };
+  return { rules: w.firewall.rules };
+}
+
+/** Changes cannot be written to RSOP: Group Policy rules change in their GPO. */
+function readOnly(c: Call, store: Store): boolean {
+  if (!store.readOnly) return false;
+  c.error('The request is not supported.', { category: 'NotImplemented', target: 'MSFT_NetFirewallRule:root/standardcimv2/MSFT_NetFirewallRule', exception: 'CimException', id: `Windows System Error 50,${c.name}` });
+  return true;
+}
+
+/**
+ * Rules selected by -Name / -DisplayName / -DisplayGroup / -Group / pipeline
+ * input (rules or their filters), from -PolicyStore or, for piped rules, the
+ * GPO store they were read from.
+ */
+function selectRules(c: Call, forChange = true): { rules: WinFwRule[]; store: Store | null } {
+  const piped = [...flatten(c.p.InputObject ?? null), ...c.input].filter(isObj);
+  const fromPipe = piped.map((o) => toStr(o.__store ?? '')).find(Boolean);
+  const store = storeRules(c, forChange, c.str('PolicyStore') ?? (fromPipe || undefined));
+  if (!store || (forChange && readOnly(c, store))) return { rules: [], store: null };
+  const rules = store.rules;
   const byProp = (prop: 'Name' | 'DisplayName' | 'DisplayGroup' | 'Group', get: (r: WinFwRule) => string): WinFwRule[] => {
     const out: WinFwRule[] = [];
     for (const v of c.strs(prop)!) {
@@ -68,16 +104,18 @@ function selectRules(c: Call): WinFwRule[] {
     }
     return out;
   };
-  if (c.has('Name')) return byProp('Name', (r) => r.name);
-  if (c.has('DisplayName')) return byProp('DisplayName', (r) => r.displayName);
-  if (c.has('DisplayGroup')) return byProp('DisplayGroup', (r) => r.group);
-  if (c.has('Group')) return byProp('Group', (r) => r.group);
-  const piped = [...flatten(c.p.InputObject ?? null), ...c.input].filter(isObj);
-  if (piped.length) {
-    const names = piped.map((o) => toStr(o.__rule ?? getProp(o, 'Name')));
-    return rules.filter((r) => names.includes(r.name));
-  }
-  return rules;
+  const pick = (): WinFwRule[] => {
+    if (c.has('Name')) return byProp('Name', (r) => r.name);
+    if (c.has('DisplayName')) return byProp('DisplayName', (r) => r.displayName);
+    if (c.has('DisplayGroup')) return byProp('DisplayGroup', (r) => r.group);
+    if (c.has('Group')) return byProp('Group', (r) => r.group);
+    if (piped.length) {
+      const names = piped.map((o) => toStr(o.__rule ?? getProp(o, 'Name')));
+      return rules.filter((r) => names.includes(r.name));
+    }
+    return rules;
+  };
+  return { rules: pick(), store };
 }
 
 function changed(world: World, host: Host, id: number, verb: string, r: WinFwRule): void {
@@ -89,26 +127,30 @@ function fwCmdlet(name: string, synopsis: string, params: ParamDef[], run: (c: C
 }
 
 fwCmdlet('Get-NetFirewallRule', 'Retrieves firewall rules from the target computer.', [...SELECT_PARAMS, { name: 'Enabled', type: 'string' }, { name: 'Direction', type: 'string' }, { name: 'Action', type: 'string' }], (c) => {
-  let out = selectRules(c);
+  const sel = selectRules(c, false);
+  let out = sel.rules;
   if (c.has('Enabled')) out = out.filter((r) => String(r.enabled).toLowerCase() === c.str('Enabled')!.toLowerCase());
   if (c.has('Direction')) out = out.filter((r) => r.direction.toLowerCase() === c.str('Direction')!.toLowerCase());
   if (c.has('Action')) out = out.filter((r) => r.action.toLowerCase() === c.str('Action')!.toLowerCase());
-  return out.map(ruleObj);
+  return out.map((r) => ruleObj(r, sel.store?.name));
 });
 
 for (const [verb, enable] of [['Enable', true], ['Disable', false]] as const) {
   fwCmdlet(`${verb}-NetFirewallRule`, `${verb}s a previously ${enable ? 'disabled' : 'enabled'} firewall rule.`, [...SELECT_PARAMS, { name: 'PassThru', type: 'switch' }], (c) => {
-    const rules = selectRules(c);
+    const { rules, store } = selectRules(c);
     if (!rules.length || denied(c)) return;
     const out: PSValue[] = [];
+    let did = false;
     for (const r of rules) {
       if (c.whatIf(`${verb}`, `${r.name}: ${r.displayName}`)) continue;
       if (r.enabled !== enable) {
         r.enabled = enable;
-        changed(c.ctx.world, c.ctx.host, 2005, 'modified', r);
+        did = true;
+        if (!store?.gpo) changed(c.ctx.world, c.ctx.host, 2005, 'modified', r);
       }
-      if (c.has('PassThru')) out.push(ruleObj(r));
+      if (c.has('PassThru')) out.push(ruleObj(r, store?.name));
     }
+    if (did && store?.gpo) touchGpo(c, store.gpo);
     applyFirewall(c.ctx.host);
     return out;
   });
@@ -204,7 +246,7 @@ function guid(world: World): string {
 }
 
 fwCmdlet('New-NetFirewallRule', 'Creates a new inbound or outbound firewall rule and adds the rule to the target computer.', [
-  { name: 'DisplayName', type: 'string', position: 0 }, { name: 'Name', aliases: ['ID'], type: 'string' }, { name: 'Group', type: 'string' }, ...RULE_PARAMS,
+  { name: 'DisplayName', type: 'string', position: 0 }, { name: 'Name', aliases: ['ID'], type: 'string' }, { name: 'Group', type: 'string' }, { name: 'PolicyStore', type: 'string' }, ...RULE_PARAMS,
 ], (c) => {
   if (!c.has('DisplayName')) {
     c.error('Cannot process command because of one or more missing mandatory parameters: DisplayName.', { category: 'InvalidArgument', target: '', exception: 'ParameterBindingException', id: 'MissingMandatoryParameter,New-NetFirewallRule' });
@@ -212,14 +254,22 @@ fwCmdlet('New-NetFirewallRule', 'Creates a new inbound or outbound firewall rule
   }
   if (denied(c)) return;
   const w = c.ctx.host.win!;
+  const store = storeRules(c, true);
+  if (!store || readOnly(c, store)) return;
   const name = c.str('Name') ?? guid(c.ctx.world);
-  if (w.firewall.rules.some((r) => r.name.toLowerCase() === name.toLowerCase())) {
+  if (store.rules.some((r) => r.name.toLowerCase() === name.toLowerCase())) {
     c.error('Cannot create a file when that file already exists.', { category: 'ResourceExists', target: 'MSFT_NetFirewallRule:root/standardcimv2/MSFT_NetFirewallRule', exception: 'CimException', id: 'Windows System Error 183,New-NetFirewallRule' });
     return;
   }
   const r: WinFwRule = { name, displayName: c.str('DisplayName')!, group: c.str('Group') ?? '', direction: 'Inbound', action: 'Allow', enabled: true, profiles: 'Any', protocol: 'Any', localPort: 'Any', remoteAddress: 'Any' };
   if (!applySettings(c, r)) return;
   if (c.whatIf('New-NetFirewallRule', r.displayName)) return;
+  if (store.gpo) {
+    // Stored in the GPO (SYSVOL); members receive it at their next policy processing.
+    store.gpo.firewallRules.push(r);
+    touchGpo(c, store.gpo);
+    return [ruleObj({ ...r, gpo: c.str('PolicyStore') })];
+  }
   w.firewall.rules.push(r);
   winEvent(c.ctx.world, c.ctx.host, FW_LOG, 2004, FW_PROVIDER, `A rule has been added to the Windows Defender Firewall exception list.\n\nAdded Rule:\n\tRule ID:\t${r.name}\n\tRule Name:\t${r.displayName}\n\tDirection:\t${r.direction}\n\tProfiles:\t${profileText(r)}\n\tAction:\t${r.action}\n\tProtocol:\t${r.protocol}\n\tLocal Port:\t${r.localPort === 'Any' ? '*' : r.localPort.join(',')}`);
   applyFirewall(c.ctx.host);
@@ -227,18 +277,21 @@ fwCmdlet('New-NetFirewallRule', 'Creates a new inbound or outbound firewall rule
 });
 
 fwCmdlet('Set-NetFirewallRule', 'Modifies existing firewall rules.', [...SELECT_PARAMS, ...RULE_PARAMS, { name: 'NewDisplayName', type: 'string' }, { name: 'PassThru', type: 'switch' }], (c) => {
-  const rules = selectRules(c);
+  const { rules, store } = selectRules(c);
   if (!rules.length || denied(c)) return;
   const out: PSValue[] = [];
+  let did = false;
   for (const r of rules) {
     if (c.whatIf('Set', `${r.name}: ${r.displayName}`)) continue;
     const copy = { ...r };
-    if (!applySettings(c, copy)) return;
+    if (!applySettings(c, copy)) break;
     if (c.has('NewDisplayName')) copy.displayName = c.str('NewDisplayName')!;
     Object.assign(r, copy);
-    changed(c.ctx.world, c.ctx.host, 2005, 'modified', r);
-    if (c.has('PassThru')) out.push(ruleObj(r));
+    did = true;
+    if (!store?.gpo) changed(c.ctx.world, c.ctx.host, 2005, 'modified', r);
+    if (c.has('PassThru')) out.push(ruleObj(r, store?.name));
   }
+  if (did && store?.gpo) touchGpo(c, store.gpo);
   applyFirewall(c.ctx.host);
   return out;
 });
@@ -248,11 +301,16 @@ fwCmdlet('Remove-NetFirewallRule', 'Deletes one or more firewall rules that matc
     c.error('Cannot process command because of one or more missing mandatory parameters: Name.', { category: 'InvalidArgument', target: '', exception: 'ParameterBindingException', id: 'MissingMandatoryParameter,Remove-NetFirewallRule' });
     return;
   }
-  const rules = selectRules(c);
+  const { rules, store } = selectRules(c);
   if (!rules.length || denied(c)) return;
   const w = c.ctx.host.win!;
   for (const r of rules) {
     if (c.whatIf('Delete', `${r.name}: ${r.displayName}`)) continue;
+    if (store?.gpo) {
+      store.gpo.firewallRules = store.gpo.firewallRules.filter((x) => x !== r);
+      touchGpo(c, store.gpo);
+      continue;
+    }
     w.firewall.rules = w.firewall.rules.filter((x) => x !== r);
     winEvent(c.ctx.world, c.ctx.host, FW_LOG, 2006, FW_PROVIDER, `A rule has been deleted in the Windows Defender Firewall exception list.\n\nDeleted Rule:\n\tRule ID:\t${r.name}\n\tRule Name:\t${r.displayName}`);
   }

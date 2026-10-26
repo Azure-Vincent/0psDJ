@@ -12,6 +12,7 @@ import { findHostByIp } from '../sim/network';
 import { tcpConnect } from '../sim/tcp';
 import type { Host, World } from '../types';
 import { seededInt } from '../util/sha256';
+import { clearGroupPolicy, gpData, normDn, startupGroupPolicy } from './gpo';
 import {
   applyFirewall, startWinService, winEvent, winResolver,
   type AdState, type DomainMembership, type WinFwRule, type WinService,
@@ -242,6 +243,7 @@ export function promoteForest(world: World, host: Host, domain: string, netbios:
       [dcName]: { name: host.hostname.toUpperCase(), dnsHostName: `${dcName}.${domain}`, password: 'dc', enabled: true, os: w.productName, dc: true, rid: 1000 },
     },
   };
+  gpData(w.ad);
   const forwarders = w.adapters.flatMap((a) => a.dns).filter((d) => d !== ip && !d.startsWith('127.'));
   w.dnsServer = { zones: [{ origin: `${domain}.`, records: dcRecords(domain, dcName, ip), serial: 1, dsIntegrated: true }], forwarders };
   for (const a of w.adapters) a.dns = ['127.0.0.1'];
@@ -270,12 +272,13 @@ export function promoteForest(world: World, host: Host, domain: string, netbios:
 }
 
 /** Create (or reset) the computer account and record the join for the next restart. */
-export function joinDomain(world: World, member: Host, dc: Host): DomainMembership {
+export function joinDomain(world: World, member: Host, dc: Host, ouPath?: string): DomainMembership {
   const ad = dc.win!.ad!;
   const key = member.hostname.toLowerCase();
   const password = `mpw-${seededInt(`${member.id}:${world.counter}:${world.clock}`, 100000, 999999)}`;
   const existed = !!ad.computers[key];
-  ad.computers[key] = { name: member.hostname.toUpperCase(), dnsHostName: `${key}.${ad.domain}`, password, enabled: true, os: member.win!.productName, rid: ad.computers[key]?.rid ?? ad.nextRid++ };
+  const ou = ouPath ? gpData(ad).ous[normDn(ouPath)]?.dn : ad.computers[key]?.ou;
+  ad.computers[key] = { name: member.hostname.toUpperCase(), dnsHostName: `${key}.${ad.domain}`, password, enabled: true, os: member.win!.productName, rid: ad.computers[key]?.rid ?? ad.nextRid++, ...(ou ? { ou } : {}) };
   const dcomp = ad.groups['domain computers'];
   if (!dcomp.members.includes(`${member.hostname.toUpperCase()}$`)) dcomp.members.push(`${member.hostname.toUpperCase()}$`);
   if (!existed) winEvent(world, dc, 'Security', 4741, 'Microsoft-Windows-Security-Auditing', `A computer account was created.\n\nNew Computer Account:\n\tAccount Name:\t\t${member.hostname.toUpperCase()}$\n\tAccount Domain:\t\t${ad.netbios}`);
@@ -314,6 +317,7 @@ export function domainBoot(world: World, host: Host): void {
     if (w.pendingDomain === null) {
       delete w.domain;
       delete w.localDomainMembers;
+      clearGroupPolicy(host);
       if (w.services.Netlogon) w.services.Netlogon.startType = 'Manual';
     } else {
       w.domain = w.pendingDomain;
@@ -335,4 +339,6 @@ export function domainBoot(world: World, host: Host): void {
   w.domainNetwork = true;
   applyFirewall(host);
   registerDns(world, host, loc.dc);
+  // Computer startup policy (the trust must work: the computer binds with its account).
+  if (ch.state === 'ok') startupGroupPolicy(world, host);
 }

@@ -13,6 +13,7 @@ import { GROUPS, setDisabled, userDisabled } from './system';
 import { readFile, writeFile } from '../../../fs';
 import { RDP_TCP_KEY } from '../../model';
 import { domainDn, locateDc, secureChannel } from '../../ad';
+import { computerDn, processGroupPolicy } from '../../gpo';
 import { smbConnect, type SmbError } from '../../../sim/smb';
 
 const ok = (out: string, code = 0) => ({ out, code });
@@ -808,33 +809,42 @@ native({
 });
 
 native({
-  name: 'gpupdate', synopsis: 'Refreshes Group Policy (/force) from a domain controller (local policy only on a workgroup server).',
+  name: 'gpupdate', synopsis: 'Refreshes Group Policy (/force: reapply all settings) from a domain controller (local policy only on a workgroup server).',
   run(_args, ctx) {
-    const m = ctx.host.win!.domain;
-    if (m && !locateDc(ctx.world, ctx.host, m.domain).ok) {
-      return ok('Updating policy...\n\nComputer policy could not be updated successfully. The following errors were encountered:\n\nThe processing of Group Policy failed. Windows could not resolve the computer name. This could be caused by one of more of the following: \na) Name Resolution failure on the current domain controller. \nb) Active Directory Replication Latency (an account created on another domain controller has not replicated to the current domain controller).\nUser Policy could not be updated successfully. The following errors were encountered:\n\nThe processing of Group Policy failed. Windows could not resolve the user name.\n\nTo diagnose the failure, review the event log or run GPRESULT /H GPReport.html from the command line to access information about Group Policy results.', 1);
+    const w = ctx.host.win!;
+    if (!w.domain) return ok('Updating policy...\n\nComputer Policy update has completed successfully.\nUser Policy update has completed successfully.\n');
+    const r = processGroupPolicy(ctx.world, ctx.host);
+    if (!r.ok) {
+      return ok(`Updating policy...\n\nComputer policy could not be updated successfully. The following errors were encountered:\n\n${r.error}\nUser Policy update has completed successfully.\n\nTo diagnose the failure, review the event log or run GPRESULT /H GPReport.html from the command line to access information about Group Policy results.`, 1);
     }
     return ok('Updating policy...\n\nComputer Policy update has completed successfully.\nUser Policy update has completed successfully.\n');
   },
 });
 
 native({
-  name: 'gpresult', synopsis: 'Displays the Resultant Set of Policy (/r).',
+  name: 'gpresult', synopsis: 'Displays the Resultant Set of Policy (/r, /scope computer).',
   run(args, ctx) {
-    if (!args.some((a) => /^[/-]r$/i.test(a))) return ok('ERROR: Invalid syntax.\nType "GPRESULT /?" for usage.', 1);
+    if (!args.some((a) => /^[/-](r|z|v)$/i.test(a))) return ok('ERROR: Invalid syntax.\nType "GPRESULT /?" for usage.', 1);
     const h = ctx.host;
     const w = h.win!;
     const m = w.domain;
     const loc = m ? locateDc(ctx.world, h, m.domain) : null;
+    const ad = loc?.ok ? loc.dc.win!.ad! : undefined;
     const name = h.hostname.toUpperCase();
-    const dn = m ? `CN=${name},${w.ad ? 'OU=Domain Controllers' : 'CN=Computers'},${domainDn(m.domain)}` : name;
+    const dn = m && ad ? computerDn(ad, h.hostname) : m ? `CN=${name},${w.ad ? 'OU=Domain Controllers' : 'CN=Computers'},${domainDn(m.domain)}` : name;
+    const gp = w.gp;
+    const applied = m ? [...(gp?.applied ?? [])].reverse() : ['Local Group Policy'];
+    const filtered = gp?.filtered ?? [];
+    const when = gp?.appliedAt ?? h.bootTime;
+    const groups = m ? (gp?.token ?? []).filter((g) => !g.endsWith('$') && !['Authenticated Users', 'Everyone', 'ENTERPRISE DOMAIN CONTROLLERS'].includes(g)).map((g) => `${m.netbios}\\${g}`) : [];
     return ok(['', 'Microsoft (R) Windows (R) Operating System Group Policy Result tool v2.0', '\u00a9 Microsoft Corporation. All rights reserved.', '', `Created on ${new Date(ctx.world.clock).toLocaleDateString('en-US', { timeZone: 'UTC' })} at ${new Date(ctx.world.clock).toLocaleTimeString('en-US', { timeZone: 'UTC' })}`, '', '',
       `RSOP data for ${name}\\${ctx.user.name} on ${name} : Logging Mode`, '-'.repeat(58), '', `OS Configuration:            ${w.ad ? 'Primary Domain Controller' : m ? 'Member Server' : 'Standalone Server'}`, `OS Version:                  10.0.${w.build}`,
       `Site Name:                   ${m ? 'Default-First-Site-Name' : 'N/A'}`, 'Roaming Profile:             N/A', `Local Profile:               ${ctx.user.home}`, 'Connected over a slow link?: No', '', '',
-      'COMPUTER SETTINGS', '------------------', `    ${dn}`, `    Last time Group Policy was applied: ${new Date(h.bootTime).toLocaleString('en-US', { timeZone: 'UTC' })}`,
-      `    Group Policy was applied from:      ${loc?.ok ? loc.name : 'N/A'}`, '    Group Policy slow link threshold:   500 kbps', `    Domain Name:                        ${m?.netbios ?? name}`, `    Domain Type:                        ${m ? 'Windows 2008 or later' : '<Local Computer>'}`, '',
-      '    Applied Group Policy Objects', '    -----------------------------', ...(m ? ['        Default Domain Policy', ...(w.ad ? ['        Default Domain Controllers Policy'] : [])] : ['        Local Group Policy']), '',
-      '    The computer is a part of the following security groups', '    ---------------------------------------------------', '        BUILTIN\\Administrators', '        Everyone', '        Authenticated Users', ...(m ? ['        Domain Computers'] : []), ''].join('\n'));
+      'COMPUTER SETTINGS', '------------------', `    ${dn}`, `    Last time Group Policy was applied: ${new Date(when).toLocaleDateString('en-US', { timeZone: 'UTC' })} at ${new Date(when).toLocaleTimeString('en-US', { timeZone: 'UTC' })}`,
+      `    Group Policy was applied from:      ${m ? gp?.fromDc ?? 'N/A' : 'N/A'}`, '    Group Policy slow link threshold:   500 kbps', `    Domain Name:                        ${m?.netbios ?? name}`, `    Domain Type:                        ${m ? 'Windows 2008 or later' : '<Local Computer>'}`, '',
+      '    Applied Group Policy Objects', '    -----------------------------', ...(applied.length ? applied.map((g) => `        ${g}`) : ['        N/A']), '',
+      ...(filtered.length ? ['    The following GPOs were not applied because they were filtered out', '    -------------------------------------------------------------------', ...filtered.flatMap((f) => [`        ${f.name}`, `            Filtering:  ${f.reason}`, '']), ''] : []),
+      '    The computer is a part of the following security groups', '    ---------------------------------------------------', '        BUILTIN\\Administrators', '        Everyone', '        Authenticated Users', ...groups.map((g) => `        ${g}`), ''].join('\n'));
   },
 });
 
