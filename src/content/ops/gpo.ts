@@ -20,7 +20,7 @@ export const GPO_GUIDE: ServiceGuide = {
     { q: 'How do requests travel?', a: 'win01 starts → finds dc01 via _ldap._tcp.dc._msdcs.ad.corp.lab → binds with WIN01$ (Kerberos) → reads its DN (CN=WIN01,OU=Servers,DC=ad,DC=corp,DC=lab) and the gPLinks of DC=ad,DC=corp,DC=lab and OU=Servers → keeps the GPOs it may read and apply → reads each gpt.ini and Registry.pol from \\\\ad.corp.lab\\SYSVOL over SMB → applies the settings in order (domain first, OU last, so the OU wins), enforced links last.' },
     { q: 'How do authentication and authorisation work?', a: 'The computer processes Computer Configuration as itself (its account and groups, from its Kerberos ticket obtained at startup). **Security filtering** is the GPO\'s permissions: a principal needs **Read and Apply** (GpoApply). Since MS16-072, user policy is also read with the computer\'s credentials, so every GPO must stay readable by the computers (Authenticated Users or Domain Computers: GpoRead).' },
     { q: 'How does it start at boot?', a: 'Computer policy runs during startup (before logon), user policy at logon; then both refresh in the background every 90 minutes plus a random offset (DCs every 5 minutes). Some settings (software installation, folder redirection) apply only at startup/logon.' },
-    { q: 'What happens if it terminates unexpectedly?', a: 'The last applied settings stay in place (they are written into the registry and the firewall store). Processing errors are logged (System log, GroupPolicy events 1058, 1129, 1006) and retried at the next refresh.' },
+    { q: 'What happens if it terminates unexpectedly?', a: 'The last applied settings stay in place (they are written into the registry and the firewall store). Processing errors are logged (System log, GroupPolicy events 1058, 1129, 1055, 1006) and retried at the next refresh.' },
   ],
   ports: [
     { port: '389', proto: 'TCP/UDP', purpose: 'LDAP: GPO containers, links and the computer\'s DN' },
@@ -51,7 +51,7 @@ export const GPO_GUIDE: ServiceGuide = {
     caption: 'One DC (dc01); where each ticket breaks the processing is noted.',
     lanes: [{ id: 'm', label: 'win01', sub: 'Group Policy Client' }, { id: 'd', label: 'dc01', sub: 'AD DS + SYSVOL' }],
     steps: [
-      { from: 'm', to: 'd', label: 'DNS SRV + LDAP bind as WIN01$ (Kerberos)', note: 'No DC: event 1129. Broken trust: LDAP bind fails, event 1006.' },
+      { from: 'm', to: 'd', label: 'DNS SRV + LDAP bind as WIN01$ (Kerberos)', note: 'No DC: event 1129. No KDC (port 88): event 1055. Broken trust or clock skew: LDAP bind fails, event 1006.' },
       { from: 'm', to: 'd', label: 'LDAP: my DN? gPLink of the domain and of each OU above me', note: 'WIN01 in CN=Computers: OU links never apply. Block Inheritance drops the domain\'s non-enforced links.' },
       { from: 'd', to: 'm', label: 'GPO containers: status, version, permissions', note: 'No Apply for WIN01$\'s groups (as of its last startup): "Denied (Security)". No Read at all: "Inaccessible".' },
       { from: 'm', to: 'd', label: 'SMB: \\\\ad.corp.lab\\SYSVOL\\...\\{GUID}\\gpt.ini, Registry.pol', note: '445 blocked: event 1058 "Windows attempted to read the file ... gpt.ini ... not successful"; nothing changes.' },
@@ -61,7 +61,7 @@ export const GPO_GUIDE: ServiceGuide = {
   files: [
     { path: '\\\\ad.corp.lab\\SYSVOL\\ad.corp.lab\\Policies\\{GUID}\\', platform: 'Domain controllers (SYSVOL)', kind: 'config', perms: 'Authenticated Users: read', contains: 'gpt.ini (version), Machine\\Registry.pol (registry policies), Machine\\Microsoft\\Windows NT\\SecEdit\\GptTmpl.inf (security settings).', accessed: 'By every member at each processing.', problems: 'Unreachable (445 blocked, DNS) or not replicated between DCs: version mismatch, event 1058.' },
     { path: 'HKLM\\SOFTWARE\\Policies\\...', platform: 'Windows members', kind: 'config', contains: 'Registry-based policies written by Group Policy (they override the matching local settings).', accessed: 'Written at each processing; read by the components (Terminal Services, firewall, Windows Update...).', problems: 'Local edits are overwritten at the next refresh; a GPO that stops applying removes its values.' },
-    { path: 'System log: Microsoft-Windows-GroupPolicy (1500-1503, 1058, 1129, 1006, 1030)', platform: 'Windows members', kind: 'log', contains: 'Success and failure of each processing, with the reason.', accessed: 'At each processing.', problems: 'Look here first when gpupdate prints an error.' },
+    { path: 'System log: Microsoft-Windows-GroupPolicy (1500-1503, 1058, 1129, 1055, 1006, 1030)', platform: 'Windows members', kind: 'log', contains: 'Success and failure of each processing, with the reason.', accessed: 'At each processing.', problems: 'Look here first when gpupdate prints an error.' },
   ],
   management: [
     {
@@ -80,7 +80,7 @@ export const GPO_GUIDE: ServiceGuide = {
         { task: 'Apply now', command: 'gpupdate /force', explain: 'Processes Computer and User Configuration; errors name the failing step.', sim: true },
         { task: 'What applied and why not?', command: 'gpresult /r /scope computer', explain: 'The computer\'s DN, applied GPOs, filtered GPOs with the reason, and its security groups.', sim: true },
         { task: 'Rules from policy', command: 'Get-NetFirewallRule -PolicyStore RSOP', explain: 'Firewall rules that came from GPOs (PolicyStoreSourceType GroupPolicy).', sim: true },
-        { task: 'Why did processing fail?', command: 'Get-WinEvent -LogName System -MaxEvents 10', explain: 'GroupPolicy events 1058 (SYSVOL), 1129 (no DC), 1006 (LDAP bind).', sim: true },
+        { task: 'Why did processing fail?', command: 'Get-WinEvent -LogName System -MaxEvents 10', explain: 'GroupPolicy events 1058 (SYSVOL), 1129 (no DC), 1055 (no Kerberos ticket), 1006 (LDAP bind).', sim: true },
       ],
     },
   ],
@@ -90,7 +90,7 @@ export const GPO_GUIDE: ServiceGuide = {
     { action: 'Set-GPLink -Enforced Yes', when: 'A baseline must reach every OU, including those that block inheritance.', effect: 'The link passes Block Inheritance and wins conflicts.', risk: 'OU owners can no longer override it.' },
   ],
   workflow: [
-    { question: '1. Does processing work at all?', command: 'gpupdate /force', healthy: 'Computer Policy update has completed successfully.', broken: '"could not resolve the computer name" / event 1129: DC location (DNS). "LDAP Bind function call failed" / 1006: trust or Kerberos. "attempted to read the file ... gpt.ini" / 1058: SYSVOL (SMB 445, replication).', next: 'If it works, check scope.', sim: true },
+    { question: '1. Does processing work at all?', command: 'gpupdate /force', healthy: 'Computer Policy update has completed successfully.', broken: '"lack of network connectivity to a domain controller" / event 1129: DC location (DNS, LDAP). "could not resolve the computer name" / 1055: no Kerberos ticket (KDC, port 88). "LDAP Bind function call failed" / 1006: trust or clock skew. "attempted to read the file ... gpt.ini" / 1058: SYSVOL (SMB 445, replication).', next: 'If it works, check scope.', sim: true },
     { question: '2. Is the GPO in scope?', command: 'gpresult /r /scope computer\nGet-GPInheritance -Target "OU=Servers,DC=ad,DC=corp,DC=lab"', healthy: 'The computer\'s DN is in the OU the GPO is linked to (or below), and the GPO is in InheritedGpoLinks.', broken: 'DN in CN=Computers; link on another OU; link disabled; Block Inheritance above a non-enforced link.', next: 'If in scope, check filtering.', sim: true },
     { question: '3. Is it filtered out?', command: 'gpresult /r (The following GPOs were not applied...)\nGet-GPPermission -Name "..." -All', healthy: 'Listed under Applied Group Policy Objects.', broken: 'Denied (Security): no Apply for the computer\'s groups (new group membership needs a restart). Inaccessible: no Read for the computer. Disabled (GPO): computer settings disabled. Not Applied (Empty): no computer settings.', next: 'If applied, check the setting itself.', sim: true },
     { question: '4. Did the setting land?', command: 'Get-NetFirewallRule -PolicyStore RSOP\nGet-ItemProperty "HKLM:\\SOFTWARE\\Policies\\..."', healthy: 'The rule / value from the GPO.', broken: 'Another GPO with higher precedence sets the opposite value, or a local setting is shadowed by policy.', next: 'Compare precedence in gpresult.', sim: true },
@@ -133,7 +133,7 @@ export const GPO_LESSON: Lesson = {
 - **Security filtering**: who may read and apply a GPO.
 - **The client**: every member processes its policy at startup, every 90 minutes and on \`gpupdate\`; \`gpresult\` shows the result.
 
-> In the lab, **dc01** is the DC of ad.corp.lab and has the Group Policy Management tools (GroupPolicy module); **win01** becomes a member. The tickets add OU=Servers and GPOs such as "Server Baseline" (a firewall rule allowing monitoring pings). Simulated: OUs and Move-ADObject, Add-Computer -OUPath, GPOs with registry policies (Set-GPRegistryValue) and firewall rules (New-NetFirewallRule -PolicyStore), links (enabled, enforced, order), Block Inheritance, security filtering (Get-/Set-GPPermission) evaluated with the computer's groups from its last startup, processing at startup and on gpupdate (DC location, LDAP bind, SYSVOL over SMB 445, events 1500/1502/1058/1129/1006), removal of settings when a GPO stops applying, gpresult /r, Get-NetFirewallRule -PolicyStore RSOP. Not simulated: User Configuration, WMI filters, sites, loopback processing, security templates, software installation, GPMC's GUI.
+> In the lab, **dc01** is the DC of ad.corp.lab and has the Group Policy Management tools (GroupPolicy module); **win01** becomes a member. The tickets add OU=Servers and GPOs such as "Server Baseline" (a firewall rule allowing monitoring pings). Simulated: OUs and Move-ADObject, Add-Computer -OUPath, GPOs with registry policies (Set-GPRegistryValue) and firewall rules (New-NetFirewallRule -PolicyStore), links (enabled, enforced, order), Block Inheritance, security filtering (Get-/Set-GPPermission) evaluated with the computer's groups from its last startup, processing at startup and on gpupdate (DC location, LDAP bind, SYSVOL over SMB 445, events 1500/1502/1058/1129/1055/1006), removal of settings when a GPO stops applying, gpresult /r, Get-NetFirewallRule -PolicyStore RSOP. Not simulated: User Configuration, WMI filters, sites, loopback processing, security templates, software installation, GPMC's GUI.
 `,
 
   internals: `
@@ -164,7 +164,7 @@ The computer's groups are taken from its **Kerberos ticket**, obtained when it s
 At startup, every ~90 minutes and on \`gpupdate\`:
 | Step | Failure | Shows as |
 |---|---|---|
-| Find a DC (DNS SRV), bind (Kerberos) | DNS, network, trust | event 1129, 1006; "could not resolve", "LDAP Bind" |
+| Find a DC (DNS SRV), bind (Kerberos) | DNS, network, KDC, clock, trust | event 1129, 1055, 1006; "lack of network connectivity", "could not resolve", "LDAP Bind" |
 | Read the computer's DN and the gPLinks | wrong OU, disabled link, Block Inheritance | GPO not listed at all |
 | Filtering | no Apply / no Read / disabled / empty | "Denied (Security)", "Inaccessible", "Disabled (GPO)", "Not Applied (Empty)" |
 | Read gpt.ini, Registry.pol from SYSVOL | SMB 445 blocked, replication | event 1058 "attempted to read the file ... gpt.ini" |
@@ -235,7 +235,7 @@ Group Policy is configured on the DC (or any host with GPMC / the GroupPolicy mo
 `,
   troubleshootingIntro: `
 ### Processing, scope, filtering, setting
-1. **Processing**: \`gpupdate /force\` and the System log (1058 SYSVOL, 1129 no DC, 1006 bind).
+1. **Processing**: \`gpupdate /force\` and the System log (1058 SYSVOL, 1129 no DC, 1055 no Kerberos, 1006 bind).
 2. **Scope**: the computer's DN in \`gpresult /r\`; \`Get-GPInheritance\` for the OU (links, Block Inheritance, Enforced).
 3. **Filtering**: "The following GPOs were not applied because they were filtered out" with the reason; \`Get-GPPermission -All\`; the computer's groups (as of its last restart).
 4. **Setting**: \`Get-NetFirewallRule -PolicyStore RSOP\`, the HKLM\\SOFTWARE\\Policies values, precedence.
@@ -243,7 +243,8 @@ Group Policy is configured on the DC (or any host with GPMC / the GroupPolicy mo
 
   errorMap: [
     { message: 'Windows attempted to read the file \\\\ad.corp.lab\\sysvol\\ad.corp.lab\\Policies\\{...}\\gpt.ini from a domain controller and was not successful.', layer: 'SYSVOL (SMB)', meaning: 'The GPO\'s files could not be read: 445 blocked, replication, DNS for the domain name.', firstCheck: 'Test-NetConnection DC -Port 445; event 1058' },
-    { message: 'The processing of Group Policy failed. Windows could not resolve the computer name.', layer: 'DC location', meaning: 'No DC found or reachable (event 1129).', firstCheck: 'nltest /dsgetdc:ad.corp.lab; DNS settings' },
+    { message: 'The processing of Group Policy failed because of lack of network connectivity to a domain controller.', layer: 'DC location', meaning: 'No DC found or reachable (event 1129).', firstCheck: 'nltest /dsgetdc:ad.corp.lab; DNS settings' },
+    { message: 'The processing of Group Policy failed. Windows could not resolve the computer name.', layer: 'Kerberos', meaning: 'The computer could not get a Kerberos ticket for LDAP on the DC (event 1055): the KDC (port 88, service Kdc) is not reachable.', firstCheck: 'klist -li 0x3e7 get krbtgt; Test-NetConnection dc01 -Port 88' },
     { message: 'Windows could not authenticate to the Active Directory service on a domain controller. (LDAP Bind function call failed)', layer: 'Secure channel / Kerberos', meaning: 'The computer account cannot bind (event 1006).', firstCheck: 'Test-ComputerSecureChannel; time skew' },
     { message: 'Filtering:  Denied (Security)', layer: 'Security filtering', meaning: 'The computer\'s groups have no Apply on the GPO (new memberships need a restart).', firstCheck: 'Get-GPPermission -All; gpresult security groups' },
     { message: 'Filtering:  Inaccessible', layer: 'Security filtering', meaning: 'The computer cannot even read the GPO.', firstCheck: 'Give Authenticated Users or Domain Computers GpoRead' },

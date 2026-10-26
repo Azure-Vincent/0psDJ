@@ -13,6 +13,7 @@ import { tcpConnect } from '../sim/tcp';
 import type { Host, World } from '../types';
 import { seededInt } from '../util/sha256';
 import { clearGroupPolicy, gpData, normDn, startupGroupPolicy } from './gpo';
+import { timeSync } from './kerberos';
 import {
   applyFirewall, startWinService, winEvent, winResolver,
   type AdState, type DomainMembership, type WinFwRule, type WinService,
@@ -262,6 +263,7 @@ export function promoteForest(world: World, host: Host, domain: string, netbios:
     fwRule('KDC-TCP-In', 'Kerberos Key Distribution Center (TCP-In)', 'Kerberos Key Distribution Center', 'TCP', '88'),
     fwRule('KDC-UDP-In', 'Kerberos Key Distribution Center (UDP-In)', 'Kerberos Key Distribution Center', 'UDP', '88'),
     fwRule('KPWD-TCP-In', 'Kerberos Key Distribution Center - PCR (TCP-In)', 'Kerberos Key Distribution Center', 'TCP', '464'),
+    fwRule('ADDS-W32Time-NTP-UDP-In', 'Active Directory Domain Controller - W32Time (NTP-UDP-In)', 'Active Directory Domain Services', 'UDP', '123'),
     fwRule('DNSSrv-TCP-In', 'DNS (TCP, Incoming)', 'DNS Service', 'TCP', '53'),
     fwRule('DNSSrv-UDP-In', 'DNS (UDP, Incoming)', 'DNS Service', 'UDP', '53'),
     fwRule('ADWS-TCP-In', 'Active Directory Web Services (TCP-In)', 'Active Directory Web Services', 'TCP', '9389'),
@@ -313,6 +315,8 @@ function registerDns(world: World, host: Host, dc: Host): void {
 /** Boot-time domain work: apply a pending join, start Netlogon, locate a DC. */
 export function domainBoot(world: World, host: Host): void {
   const w = host.win!;
+  // Ticket caches live in LSA's memory.
+  delete w.krb;
   if (w.pendingDomain !== undefined) {
     if (w.pendingDomain === null) {
       delete w.domain;
@@ -339,6 +343,8 @@ export function domainBoot(world: World, host: Host): void {
   w.domainNetwork = true;
   applyFirewall(host);
   registerDns(world, host, loc.dc);
+  // W32Time tried the DC when it started; if the DC was not reachable yet, it tries again now.
+  if (w.services.W32Time?.status === 'Running' && !w.timeSync?.ok) timeSync(world, host);
   // Computer startup policy (the trust must work: the computer binds with its account).
   if (ch.state === 'ok') startupGroupPolicy(world, host);
 }

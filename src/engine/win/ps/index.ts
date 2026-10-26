@@ -8,5 +8,6 @@ import './cmdlets/firewall';
 import './cmdlets/native';
 import './cmdlets/ad';
 import './cmdlets/gpo';
+import './cmdlets/kerberos';
 
 export { newSession, renderOutput, runLine, type PsCtx, type PsSession } from './runtime';

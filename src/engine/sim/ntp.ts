@@ -111,7 +111,9 @@ export function ntpExchange(world: World, host: Host, serverIp: string): NtpOutc
       const e = sendIcmpError(world, srv, fq, 'port-unreachable');
       return e?.delivered ? { kind: 'port-unreachable' } : { kind: 'timeout' };
     }
-    const reply = listener.process === 'chronyd' ? chronyServe(world, srv, fq.src) : null;
+    // A Windows DC answers as the domain's time source (the forest root PDC: its local clock, stratum 1).
+    const reply = listener.process === 'chronyd' ? chronyServe(world, srv, fq.src)
+      : srv.win?.ad && listener.service === 'W32Time' ? { leap: 0 as const, stratum: 1, refId: '4C4F434C', refName: 'LOCL', serverTime: hostClock(world, srv), rootDelayMs: 0, rootDispersionMs: 10 } : null;
     if (!reply) return { kind: 'timeout' };
     world.clock += 0.2;
     const r: Packet = {

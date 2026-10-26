@@ -22,6 +22,7 @@ import { LOG_SCENARIOS } from './logScenarios';
 import { NFS_SCENARIOS } from './nfsScenarios';
 import { SMB_SCENARIOS } from './smbScenarios';
 import { GPO_SCENARIOS } from './gpoScenarios';
+import { WIN_KRB_SCENARIOS } from './winKrbScenarios';
 import type { Scenario } from './types';
 
 /** Every troubleshooting scenario, grouped by the lesson that introduces it. */
@@ -38,6 +39,7 @@ export const SCENARIO_SETS: { id: string; title: string; scenarios: Scenario[] }
   { id: 'windows', title: 'Windows Server and Remote Desktop', scenarios: WIN_SCENARIOS },
   { id: 'domain', title: 'Active Directory domain', scenarios: DOMAIN_SCENARIOS },
   { id: 'gpo', title: 'Group Policy', scenarios: GPO_SCENARIOS },
+  { id: 'win-kerberos', title: 'Kerberos for Windows logons', scenarios: WIN_KRB_SCENARIOS },
   { id: 'nftables', title: 'Firewalls (nftables)', scenarios: FIREWALL_SCENARIOS },
   { id: 'pfsense', title: 'Perimeter firewall (pfSense)', scenarios: PF_SCENARIOS },
   { id: 'containers', title: 'Containers (Docker)', scenarios: CONTAINER_SCENARIOS },

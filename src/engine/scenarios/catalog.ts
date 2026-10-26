@@ -621,5 +621,25 @@ export const CAUSES: Record<string, Cause> = Object.fromEntries(
       signature: 'The GPO is linked to the right OU but Get-GPInheritance / Get-GPO shows the link with Enabled: False; gpresult does not list the GPO at all.',
       check: 'Get-GPInheritance -Target "OU=..."; Set-GPLink -LinkEnabled Yes.',
     },
+    {
+      id: 'krb-w32time-disabled', title: 'The Windows Time service is disabled on the member: its clock drifted beyond Kerberos\'s 5 minutes', category: 'Service', concept: 'ad.kerberos',
+      signature: 'NLA succeeds (+auth-only works, NTLM does not care about time), but the logon itself fails with "There is a time and/or date difference between the client and server."; gpupdate fails with "LDAP Bind function call failed" (1006); LsaSrv 40960 names 0xc0000133. Get-Date on the member is minutes off the DC, w32tm /query reports "The service has not been started", and Get-Service W32Time shows Stopped/Disabled.',
+      check: 'Get-Date on both; w32tm /stripchart /computer:dc01 /samples:1 /dataonly; Get-Service W32Time; Get-WinEvent -LogName System (40960, 1006).',
+    },
+    {
+      id: 'krb-dc-ntp-blocked', title: 'The DC\'s firewall drops NTP (UDP 123): members cannot synchronise their clocks', category: 'Firewall', concept: 'ad.kerberos',
+      signature: 'The member\'s W32Time runs, but w32tm /resync says "The computer did not resync because no time data was available." and the System log has Time-Service 47 (no valid response from the DC). w32tm /stripchart to the DC shows error 0x800705B4 (timeout). Its clock drifted past 5 minutes, so Kerberos fails with clock skew (0xc0000133). On the DC the rule "Active Directory Domain Controller - W32Time (NTP-UDP-In)" is disabled.',
+      check: 'w32tm /resync and w32tm /stripchart /computer:dc01 on the member; Get-NetFirewallRule -DisplayName "*W32Time*" on the DC.',
+    },
+    {
+      id: 'krb-dc-kdc-blocked', title: 'The DC\'s firewall drops Kerberos (TCP/UDP 88)', category: 'Firewall', concept: 'ad.kerberos',
+      signature: 'DC location works (DNS, LDAP 389), logons still succeed because Negotiate falls back to NTLM (4624 shows Package Name NTLM V2), but nothing Kerberos-only works: gpupdate fails with "Windows could not resolve the computer name" (1055), klist -li 0x3e7 get krbtgt fails with 0xc000005e (no logon servers), Test-NetConnection DC -Port 88 fails. On the DC the Kerberos Key Distribution Center firewall rules are disabled while the Kdc service runs.',
+      check: 'klist -li 0x3e7 get krbtgt and Test-NetConnection dc01 -Port 88 on the member; Get-NetFirewallRule -DisplayGroup "Kerberos Key Distribution Center" and Get-Service Kdc on the DC.',
+    },
+    {
+      id: 'krb-kdc-stopped', title: 'The KDC service (Kerberos Key Distribution Center) is stopped on the DC', category: 'Service', concept: 'ad.kerberos',
+      signature: 'Same symptoms as a blocked port 88 (logons fall back to NTLM, Group Policy fails with 1055, klist get fails with 0xc000005e), but Test-NetConnection DC -Port 88 is refused at once rather than timing out, the firewall rules are enabled, and on the DC Get-Service Kdc shows Stopped (Disabled).',
+      check: 'Get-Service Kdc on the DC (StartType too); Test-NetConnection dc01 -Port 88 on the member; netstat -ano on the DC (nothing on :88).',
+    },
   ] as Cause[]).map((c) => [c.id, c]),
 );
