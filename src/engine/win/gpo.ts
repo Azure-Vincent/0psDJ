@@ -16,6 +16,7 @@
 // rules); user policy, WMI filters, loopback and sites are not.
 
 import { tcpConnect } from '../sim/tcp';
+import { gpKerberos, hasMachineTgt } from './kerberos';
 import type { Host, World } from '../types';
 import { domainDn, isDc, principalGroups, secureChannel, type DcLocation } from './ad';
 import { applyFirewall, rdpEnabled, startWinService, stopWinService, winEvent, type AdState, type Gpo, type GpLink, type GpState } from './model';
@@ -131,6 +132,7 @@ export interface GpResult {
 }
 
 const SYSVOL_ERROR = (domain: string, id: string) => `The processing of Group Policy failed. Windows attempted to read the file \\\\${domain}\\sysvol\\${domain}\\Policies\\{${id}}\\gpt.ini from a domain controller and was not successful. Group Policy settings may not be applied until this event is resolved. This issue may be transient and could be caused by one or more of the following: \na) Name Resolution/Network Connectivity to the current domain controller. \nb) File Replication Service Latency (a file created on another domain controller has not replicated to the current domain controller). \nc) The Distributed File System (DFS) client has been disabled.`;
+const NO_NETWORK_ERROR = 'The processing of Group Policy failed because of lack of network connectivity to a domain controller. This may be a transient condition. A success message would be generated once the machine gets connected to the domain controller and Group Policy has successfully processed. If you do not see a success message for several hours, then contact your administrator.';
 const NO_DC_ERROR = 'The processing of Group Policy failed. Windows could not resolve the computer name. This could be caused by one of more of the following: \na) Name Resolution failure on the current domain controller. \nb) Active Directory Replication Latency (an account created on another domain controller has not replicated to the current domain controller).';
 const BIND_ERROR = 'The processing of Group Policy failed. Windows could not authenticate to the Active Directory service on a domain controller. (LDAP Bind function call failed). Look in the details tab for error code and description.';
 
@@ -152,13 +154,20 @@ export function processGroupPolicy(world: World, host: Host, refreshToken = fals
     return { ok: false, error, applied: [], filtered: [] };
   };
   const ch = secureChannel(world, host);
-  if (ch.state === 'no-dc') return fail(NO_DC_ERROR, 1129);
+  if (ch.state === 'no-dc') return fail(NO_NETWORK_ERROR, 1129);
   if (ch.state === 'denied') return fail(BIND_ERROR, 1006);
   const loc = ch.dc as Extract<DcLocation, { ok: true }>;
   const ad = loc.dc.win!.ad!;
   const self = ad.computers[host.hostname.toLowerCase()];
-  if (!self) return fail(NO_DC_ERROR, 1129);
-  const token = (refreshToken ? undefined : prev.token) ?? computerToken(ad, host);
+  if (!self) return fail(NO_DC_ERROR, 1055);
+  // The computer binds to LDAP with Kerberos (a ticket for ldap/<dc>), without NTLM fallback:
+  // no KDC → "could not resolve the computer name" (1055); a refused request (clock skew) → bind failed (1006).
+  const hadTgt = hasMachineTgt(world, host);
+  const k = gpKerberos(world, host, loc.name);
+  const newTgt = !hadTgt && hasMachineTgt(world, host);
+  if (!k.ok) return 'noKdc' in k ? fail(NO_DC_ERROR, 1055) : fail(BIND_ERROR, 1006);
+  // The computer's groups travel in its TGT: a new TGT (startup, or after klist -li 0x3e7 purge) brings the current ones.
+  const token = (refreshToken || newTgt ? undefined : prev.token) ?? computerToken(ad, host);
   prev.token = token;
   const { normal, enforced } = linkedGpos(ad, computerDn(ad, host.hostname));
   const applied: Gpo[] = [];

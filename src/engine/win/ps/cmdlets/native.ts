@@ -1,6 +1,6 @@
 // Console programs a Windows administrator runs from PowerShell: ipconfig,
 // ping, tracert, netstat, nslookup, netsh advfirewall, sc.exe, net, route,
-// arp, w32tm, whoami, hostname, systeminfo and shutdown. They take string
+// arp, whoami, hostname, systeminfo and shutdown. They take string
 // arguments and print text, exactly like their real counterparts.
 
 import { isIp } from '../../../net/ip';
@@ -18,11 +18,11 @@ import { smbConnect, type SmbError } from '../../../sim/smb';
 
 const ok = (out: string, code = 0) => ({ out, code });
 
-function admin(ctx: PsCtx): boolean {
+export function admin(ctx: PsCtx): boolean {
   return ctx.user.uid === 500 || ctx.user.groups.includes('Administrators');
 }
 
-const has = (args: string[], ...flags: string[]) => args.some((a) => flags.includes(a.toLowerCase().replace(/^-/, '/')));
+export const has = (args: string[], ...flags: string[]) => args.some((a) => flags.includes(a.toLowerCase().replace(/^-/, '/')));
 
 native({
   name: 'findstr', synopsis: 'Searches for strings in piped text or files (/i ignore case, /c:"literal").',
@@ -348,21 +348,6 @@ native({
   },
 });
 
-native({
-  name: 'w32tm', synopsis: 'Windows Time service tool (/query /status, /resync).',
-  run(args, ctx) {
-    const w = ctx.host.win!;
-    const running = w.services.W32Time?.status === 'Running';
-    if (!running) return ok('The following error occurred: The service has not been started. (0x80070426)', 1);
-    if (has(args, '/resync')) {
-      if (!admin(ctx)) return ok('The following error occurred: Access is denied. (0x80070005)', 1);
-      ctx.host.clockOffset = 0;
-      return ok('Sending resync command to local computer\nThe command completed successfully.');
-    }
-    if (has(args, '/query')) return ok(['Leap Indicator: 0(no warning)', 'Stratum: 3 (secondary reference - syncd by (S)NTP)', 'Precision: -23 (119.209ns per tick)', 'Root Delay: 0.0010000s', 'Root Dispersion: 7.7766000s', `ReferenceId: 0x0A000A35 (source IP:  ${w.adapters[0]?.dns[0] ?? '10.0.10.53'})`, `Source: ${w.adapters[0]?.dns[0] ?? '10.0.10.53'}`, 'Poll Interval: 10 (1024s)'].join('\n'));
-    return ok('w32tm [/? | /register | /unregister ]\n  /query [/computer:<target>] {/source | /configuration | /peers | /status}\n  /resync [/computer:<computer>] [/nowait] [/rediscover] [/soft]', 1);
-  },
-});
 
 // ---------------------------------------------------------------------------
 // sc.exe

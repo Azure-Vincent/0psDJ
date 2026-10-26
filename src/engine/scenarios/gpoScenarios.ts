@@ -17,7 +17,7 @@ import type { Constraint, Goal, Scenario } from './types';
 const DN = 'DC=ad,DC=corp,DC=lab';
 const SERVERS = `OU=Servers,${DN}`;
 
-const PING: Goal = {
+export const GPO_PING: Goal = {
   kind: 'command',
   description: 'The monitoring system pings win01: from ws01, ping win01.corp.lab gets a reply.',
   steps: [{ host: 'ws01', user: 'alice', command: 'ping -c 1 -W 1 win01.corp.lab' }],
@@ -45,7 +45,7 @@ const TERMINALS = [
 const CANDIDATES = ['gpo-wrong-ou', 'gpo-filter-token', 'gpo-blocked-inheritance', 'gpo-sysvol-unreachable', 'gpo-link-disabled', 'dom-member-dns'];
 
 /** win01 joined; OU=Servers and the Server Baseline GPO with the monitoring rule. */
-function baseline(world: World, link = SERVERS): void {
+export function gpoBaseline(world: World, link = SERVERS): void {
   joinWin01(world);
   script(world, 'dc01', [
     `New-ADOrganizationalUnit -Name Servers -Path "${DN}" -Description "Member servers (CHG-2400)"`,
@@ -55,12 +55,12 @@ function baseline(world: World, link = SERVERS): void {
   ], 30_000);
 }
 
-const moveWin01 = `Move-ADObject -Identity "CN=WIN01,CN=Computers,${DN}" -TargetPath "${SERVERS}"`;
+export const moveWin01 = `Move-ADObject -Identity "CN=WIN01,CN=Computers,${DN}" -TargetPath "${SERVERS}"`;
 
 /** A local (not policy) rule that lets ping in: an enabled inbound allow for ICMPv4 echo requests (type 8). */
 const localPingRule = (r: WinFwRule) => r.enabled && r.action === 'Allow' && r.direction === 'Inbound' && (r.protocol === 'ICMPv4' || r.protocol === 'Any') && (r.icmpType === undefined || r.icmpType === 'Any' || r.icmpType.split(',').some((t) => t.split(':')[0] === '8'));
 
-function policyManaged(): Constraint {
+export function policyManaged(): Constraint {
   return {
     id: 'gpo-managed-firewall', required: true,
     description: 'Firewalls stay on (win01, dc01); win01 has no local rule allowing ping (it must come from "Server Baseline"), and the GPO\'s rule stays limited to 10.0.0.0/16.',
@@ -116,10 +116,10 @@ export const GPO_SCENARIOS: Scenario[] = [
     difficulty: 'beginner',
     ticket: 'Monitoring: "win01 shows DOWN since it was joined to the domain, but it is up and people use it. All the other servers answer our ping. The Server Baseline GPO (CHG-2401) should open ping for us; we ran gpupdate /force on win01 twice."',
     briefing: BRIEFING,
-    goals: [PING],
+    goals: [GPO_PING],
     terminals: TERMINALS,
     setup(world) {
-      baseline(world);
+      gpoBaseline(world);
       script(world, 'win01', ['gpupdate /force', 'gpupdate /force']);
     },
     rootCauses: ['gpo-wrong-ou'],
@@ -153,10 +153,10 @@ export const GPO_SCENARIOS: Scenario[] = [
     difficulty: 'intermediate',
     ticket: 'Windows team: "Since CHG-2402 Server Baseline only applies to the group Baseline Servers (some appliances must not get it). We added WIN01 to the group yesterday, and gpupdate /force runs without error, but gpresult still says Denied (Security) and monitoring still cannot ping it."',
     briefing: [...BRIEFING, 'CHG-2402: Server Baseline is filtered to the AD group "Baseline Servers": Authenticated Users keeps GpoRead (computers must be able to read every GPO), Baseline Servers has GpoApply.'],
-    goals: [PING],
+    goals: [GPO_PING],
     terminals: TERMINALS,
     setup(world) {
-      baseline(world);
+      gpoBaseline(world);
       script(world, 'dc01', [
         moveWin01,
         'New-ADGroup -Name "Baseline Servers" -GroupScope Global -Description "Computers that get the Server Baseline GPO (CHG-2402)"',
@@ -199,7 +199,7 @@ export const GPO_SCENARIOS: Scenario[] = [
     difficulty: 'intermediate',
     ticket: 'Monitoring: "win01 stopped answering ping after last night\'s patch reboot." Windows team: "Yesterday we blocked inheritance on OU=Servers so that Workstation Lockdown (it disables Remote Desktop) stops hitting the servers (CHG-2405). That was the only change, and Remote Desktop to win01 works again."',
     briefing: [...BRIEFING.slice(0, 1), 'The monitoring rule is in the GPO "Corp Security Baseline", linked to the domain root so that every computer gets it. "Workstation Lockdown" (Remote Desktop off) is also linked to the domain root, because the workstations still live in CN=Computers.', ...BRIEFING.slice(2)],
-    goals: [PING, RDP],
+    goals: [GPO_PING, RDP],
     terminals: TERMINALS,
     setup(world) {
       joinWin01(world);
@@ -256,7 +256,7 @@ export const GPO_SCENARIOS: Scenario[] = [
     difficulty: 'advanced',
     ticket: 'Windows team: "We added the monitoring rule to Server Baseline this morning (CHG-2406), but win01 does not get it. gpupdate /force on win01 now prints an error about gpt.ini. Logons with domain accounts work fine. Last week dc01 was hardened (SEC-152: domain controllers host no file shares)."',
     briefing: BRIEFING,
-    goals: [PING],
+    goals: [GPO_PING],
     terminals: TERMINALS,
     setup(world) {
       joinWin01(world);

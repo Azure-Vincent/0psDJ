@@ -51,7 +51,7 @@ For every technology it answers the same questions:
   machine configured from the files the design generates. You get terminals
   on each machine and a packet tracer that shows every hop and every firewall
   and NAT decision.
-- **123 troubleshooting tickets**, each injecting a realistic fault into the
+- **127 troubleshooting tickets**, each injecting a realistic fault into the
   lab. You investigate with real commands in terminals, record a diagnosis and
   repair the fault. The app then checks your fix immediately, again after
   rebooting every machine, and against security rules, so "just open the
@@ -92,7 +92,11 @@ For every technology it answers the same questions:
   a computer account left in the default Computers container, a security
   group added after the last restart (the computer's token), an OU that
   blocks inheritance, and a DC firewall that closes SMB so SYSVOL cannot be
-  read (event 1058).
+  read (event 1058). A **Kerberos for Windows logons** set breaks the KDC and
+  time on the domain: a member whose time service was disabled, a DC firewall
+  that drops NTP (both end in "There is a time and/or date difference between
+  the client and server" after NLA succeeds), and a KDC blocked or stopped,
+  where logons quietly fall back to NTLM and only Group Policy fails.
 - **7 end-to-end case studies**: SSH refused, a server with no Internet, a failed
   domain login, an unreachable Docker app, pfSense blocking traffic, RDP broken
   by a policy change, and several services failing at once.
@@ -292,8 +296,8 @@ rather than a live capture.
 
 The Windows server follows Windows Server 2022 and Windows PowerShell 5.1
 (output formats, error records, event IDs). The domain has one DC; domain
-logons use NTLM pass-through, and Kerberos for Windows logons and replication
-are not modelled. Group Policy covers computer settings (registry policies and
+logons use NLA with NTLM pass-through, then Kerberos tickets from the DC's KDC
+(with the 5-minute skew limit and NTLM fallback); replication is not modelled. Group Policy covers computer settings (registry policies and
 firewall rules); user settings, WMI filters, loopback and preferences are not
 modelled. PowerShell covers the cmdlets and
 parameters the lessons, tickets and labs use. The pfSense firewall covers

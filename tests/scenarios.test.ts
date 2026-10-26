@@ -128,6 +128,10 @@ const SYMPTOM: Record<string, RegExp> = {
   'gpo-filter-token': /1 packets transmitted, 0 received, 100% packet loss/,
   'gpo-blocked-inheritance': /1 packets transmitted, 0 received, 100% packet loss/,
   'gpo-sysvol-blocked': /1 packets transmitted, 0 received, 100% packet loss/,
+  'krb-w32time-disabled': /There is a time and\/or date difference between the client and server/,
+  'krb-dc-ntp-blocked': /There is a time and\/or date difference between the client and server/,
+  'krb-dc-kdc-blocked': /1 packets transmitted, 0 received, 100% packet loss/,
+  'krb-kdc-stopped': /1 packets transmitted, 0 received, 100% packet loss/,
   'mtu-uplink-mismatch': /curl: \(28\) Operation timed out after 30000 milliseconds with 0 out of 4718592 bytes received/,
 };
 

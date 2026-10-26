@@ -13,6 +13,7 @@ import { sha256Hex } from '../util/sha256';
 import { isWindows, winEvent } from './model';
 import { userDisabled } from './ps/cmdlets/system';
 import { domainAuth, domainRdpAllowed } from './ad';
+import { interactiveLogon } from './kerberos';
 
 export type RdpStage = 'dns' | 'connect' | 'transport' | 'nla' | 'logon' | 'ok';
 
@@ -22,6 +23,8 @@ export interface RdpResult {
   error?: string;
   server?: Host;
   serverIp?: string;
+  /** The logon screen's message when the logon itself failed (after NLA). */
+  message?: string;
   /** Who logged on, as Windows names it (WIN01\alice). */
   account?: string;
   elapsedMs: number;
@@ -93,6 +96,19 @@ export function rdpConnect(world: World, client: Host, target: string, port: num
     conn.close('client');
     return { stage: 'ok', server, serverIp: r.ip, account: qualified, elapsedMs: elapsed() };
   }
+  // The logon itself: for a domain account, LSA on the server gets Kerberos tickets with the
+  // delegated password (NLA above was NTLM); NTLM only when no KDC can be reached.
+  let pkg: 'Kerberos' | 'NTLM' = 'NTLM';
+  if (domainLogon) {
+    const l = interactiveLogon(world, server, key, password);
+    if (!l.ok) {
+      winEvent(world, server, 'Security', 4625, 'Microsoft-Windows-Security-Auditing', `An account failed to log on.\n\nLogon Type:\t\t\t10\n\nAccount For Which Logon Failed:\n\tAccount Name:\t\t${key}\n\tAccount Domain:\t\t${authority}\n\nFailure Information:\n\tFailure Reason:\t\tAn Error occured during Logon.\n\tStatus:\t\t\t${l.status.toUpperCase().replace('0X', '0x')}\n\nNetwork Information:\n\tSource Network Address:\t${conn.sv.peer}\n\nDetailed Authentication Information:\n\tLogon Process:\t\tUser32\n\tAuthentication Package:\tNegotiate`, 'Information');
+      conn.send('s2c', 30, { protocol: 'TLS', info: 'Logon screen message, then logoff', fields: [], encrypted: true });
+      conn.close('server');
+      return { stage: 'logon', error: 'ERRINFO_LOGOFF_BY_USER', message: l.message, server, serverIp: r.ip, elapsedMs: elapsed() };
+    }
+    pkg = l.pkg;
+  }
   // Logon: SeRemoteInteractiveLogonRight (Administrators, Remote Desktop Users; on a DC, administrators only).
   if (!allowed) {
     winEvent(world, server, 'Security', 4625, 'Microsoft-Windows-Security-Auditing', `An account failed to log on.\n\nLogon Type:\t\t\t10\n\nAccount For Which Logon Failed:\n\tAccount Name:\t\t${key}\n\tAccount Domain:\t\t${authority}\n\nFailure Information:\n\tFailure Reason:\t\tThe user has not been granted the requested logon type at this machine.\n\tStatus:\t\t\t0xC000015B\n\nNetwork Information:\n\tSource Network Address:\t${conn.sv.peer}`, 'Information');
@@ -100,7 +116,7 @@ export function rdpConnect(world: World, client: Host, target: string, port: num
     conn.close('server');
     return { stage: 'logon', error: 'ERRINFO_SERVER_INSUFFICIENT_PRIVILEGES', server, serverIp: r.ip, elapsedMs: elapsed() };
   }
-  winEvent(world, server, 'Security', 4624, 'Microsoft-Windows-Security-Auditing', `An account was successfully logged on.\n\nLogon Information:\n\tLogon Type:\t\t10\n\nNew Logon:\n\tAccount Name:\t\t${key}\n\tAccount Domain:\t\t${authority}\n\nNetwork Information:\n\tSource Network Address:\t${conn.sv.peer}`);
+  winEvent(world, server, 'Security', 4624, 'Microsoft-Windows-Security-Auditing', `An account was successfully logged on.\n\nLogon Information:\n\tLogon Type:\t\t10\n\nNew Logon:\n\tAccount Name:\t\t${key}\n\tAccount Domain:\t\t${authority}\n\nNetwork Information:\n\tSource Network Address:\t${conn.sv.peer}\n\nDetailed Authentication Information:\n\tLogon Process:\t\tUser32\n\tAuthentication Package:\tNegotiate\n\tPackage Name (NTLM only):\t${pkg === 'NTLM' ? 'NTLM V2' : '-'}`);
   winEvent(world, server, 'Microsoft-Windows-TerminalServices-LocalSessionManager/Operational', 21, 'Microsoft-Windows-TerminalServices-LocalSessionManager', `Remote Desktop Services: Session logon succeeded:\n\nUser: ${qualified}\nSession ID: 2\nSource Network Address: ${conn.sv.peer}`);
   conn.send('s2c', 1200, { protocol: 'TLS', info: 'Desktop graphics updates', fields: [], encrypted: true });
   conn.close('client');

@@ -79,6 +79,11 @@ const xfreerdp: CommandDef = {
       }
       out.length = 0;
     }
+    if (r.stage === 'logon' && r.message) {
+      out.push(`[Infrastructure Lab: the session opened, but ${r.server!.hostname.toUpperCase()}'s logon screen shows "${r.message}" and logs the user off.]`,
+        log('INFO', 'com.freerdp.core', 'freerdp_disconnect: ERRINFO_LOGOFF_BY_USER (0x0000000C):The disconnection was initiated by the user logging off their session on the server.'));
+      return err(out.join('\n'), 12);
+    }
     if (r.stage !== 'ok') return fail(out, r);
     if (authOnly) {
       out.push(log('INFO', 'com.freerdp.client.x11', 'Authentication only, exit status 0'));

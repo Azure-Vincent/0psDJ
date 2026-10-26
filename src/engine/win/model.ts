@@ -12,7 +12,9 @@ import { networkOf } from '../net/ip';
 import { linkLocalFromMac } from '../net/ip6';
 import type { Host, World } from '../types';
 import type { ZoneRecord } from '../config/zone';
+import type { CachedTicket } from '../config/krb5';
 import { domainBoot } from './ad';
+import { timeSync } from './kerberos';
 import { recomputeL2 } from '../sim/l2';
 
 export type FwProfile = 'Domain' | 'Private' | 'Public';
@@ -114,6 +116,10 @@ export interface WinState {
   domainNetwork?: boolean;
   /** Group Policy state of this computer (what the last processing applied). */
   gp?: GpState;
+  /** Kerberos ticket caches of the logon sessions (LSA), by logon id; runtime only. */
+  krb?: Record<string, WinKrbSession>;
+  /** The Windows Time service's last synchronisation. */
+  timeSync?: { ok: boolean; at: number; source: string };
   /** Mapped network drives (net use), per session of the console user. */
   smbMappings?: { local: string; remote: string; user: string; server: string; share: string }[];
 }
@@ -133,7 +139,7 @@ export interface GpState {
   rules: WinFwRule[];
   /** The computer's security groups as of its last start (its Kerberos ticket): security filtering uses these. */
   token?: string[];
-  /** The last processing error (gpupdate / event 1058, 1006, 1129). */
+  /** The last processing error (gpupdate / event 1058, 1006, 1055, 1129). */
   lastError?: string;
 }
 
@@ -147,6 +153,8 @@ export interface AdUser {
   description: string;
   rid: number;
   lastLogon?: number;
+  /** servicePrincipalName (service accounts). */
+  spns?: string[];
 }
 
 export interface AdGroup {
@@ -170,6 +178,8 @@ export interface AdComputer {
   rid: number;
   /** Container DN (an OU); default CN=Computers, or OU=Domain Controllers for a DC. */
   ou?: string;
+  /** servicePrincipalName; unset means the defaults Windows registers at join or promotion. */
+  spns?: string[];
 }
 
 /** An organizational unit (DN as created, e.g. "OU=Servers,DC=ad,DC=corp,DC=lab"). */
@@ -250,6 +260,14 @@ const SERVICE_PORTS: Record<string, { proto: 'tcp' | 'udp'; port: number | 'rdp'
   Kdc: [{ proto: 'udp', port: 88 }, { proto: 'tcp', port: 88 }, { proto: 'tcp', port: 464 }, { proto: 'udp', port: 464 }],
   ADWS: [{ proto: 'tcp', port: 9389 }],
 };
+
+/** A logon session's Kerberos tickets, as klist shows them. */
+export interface WinKrbSession {
+  logonId: string;
+  /** Client principal (alice@AD.CORP.LAB, WIN01$@AD.CORP.LAB). */
+  client: string;
+  tickets: (CachedTicket & { kdc: string })[];
+}
 
 export function isWindows(host: Host | undefined): boolean {
   return host?.kind === 'windows' && !!host.win;
@@ -400,7 +418,7 @@ export function startWinService(world: World, host: Host, name: string, chain: s
   s.pid = allocPid(host);
   if (name === 'TermService') w.rdpPort = Number(w.registry[RDP_TCP_KEY]?.PortNumber ?? 3389);
   if (name === 'MpsSvc') applyFirewall(host);
-  if (name === 'W32Time') host.clockOffset = 0;
+  if (name === 'W32Time') timeSync(world, host);
   winEvent(world, host, 'System', 7036, 'Service Control Manager', `The ${s.displayName} service entered the running state.`);
   return { ok: true };
 }

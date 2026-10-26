@@ -19,6 +19,7 @@ import { icmpMeaning, nextId, sendIcmpError, sourceAddress, transmit } from './n
 import { findListener } from './services';
 import { tcpConnect } from './tcp';
 import { activeRecorder } from './trace';
+import { adKdcProcess } from '../win/kerberos';
 
 export const KDC_SERVICE = 'krb5-kdc';
 export const KADMIN_SERVICE = 'krb5-admin-server';
@@ -35,6 +36,7 @@ export interface KadmindLoaded { conf: KdcConf; acl: AclEntry[]; aclFile: string
 export const KRB_ERRORS = {
   6: { name: 'KDC_ERR_C_PRINCIPAL_UNKNOWN', text: 'Client not found in Kerberos database' },
   7: { name: 'KDC_ERR_S_PRINCIPAL_UNKNOWN', text: 'Server not found in Kerberos database' },
+  8: { name: 'KDC_ERR_PRINCIPAL_NOT_UNIQUE', text: 'Principal has multiple entries in Kerberos database' },
   18: { name: 'KDC_ERR_CLIENT_REVOKED', text: "Client's credentials have been revoked" },
   24: { name: 'KDC_ERR_PREAUTH_FAILED', text: 'Preauthentication failed' },
   25: { name: 'KDC_ERR_PREAUTH_REQUIRED', text: 'Additional pre-authentication required' },
@@ -42,6 +44,7 @@ export const KRB_ERRORS = {
   31: { name: 'KRB_AP_ERR_BAD_INTEGRITY', text: 'Decrypt integrity check failed' },
   32: { name: 'KRB_AP_ERR_TKT_EXPIRED', text: 'Ticket expired' },
   37: { name: 'KRB_AP_ERR_SKEW', text: 'Clock skew too great' },
+  41: { name: 'KRB_AP_ERR_MODIFIED', text: 'Message stream modified' },
 } as const;
 export type KrbCode = keyof typeof KRB_ERRORS;
 
@@ -78,6 +81,8 @@ function kdcLog(world: World, kdc: Host, msg: string, priority: 'info' | 'err' =
 
 /** What the KDC does with one request (reads the database live, like krb5kdc). */
 export function kdcProcess(world: World, kdc: Host, req: KdcRequest, from: string): KdcReply {
+  // A Windows domain controller: the Active Directory KDC answers from the directory.
+  if (kdc.win?.ad) return adKdcProcess(world, kdc, req, from);
   const loaded = kdc.services[KDC_SERVICE]?.loaded as KdcLoaded | undefined;
   const realmConf = loaded?.conf.realms[req.realm];
   const now = hostTime(world, kdc);
@@ -228,6 +233,8 @@ function describeReply(r: KdcReply, req: KdcRequest): [string, string] {
     29: 'The KDC cannot read its database.',
     31: 'The ticket was not encrypted with the key the KDC has now (the krbtgt key changed).',
     32: 'The TGT has expired. Run kinit again.',
+    8: 'More than one account holds this service principal name, so the KDC cannot tell whose key to use (setspn -X lists duplicates).',
+    41: 'The ticket was encrypted with a key the server does not have: the SPN belongs to another account, or the account\'s password changed.',
     37: 'The client\'s timestamp differs from the KDC\'s clock by more than 5 minutes (clockskew = 300 s). Kerberos rejects such requests to stop replayed messages. Fix the time (NTP), not the tolerance.',
   };
   return [`Kerberos error: ${e.name}`, `${e.text}. ${why[r.code] ?? ''}`];
@@ -286,7 +293,7 @@ function exchange(world: World, client: Host, t: KdcTarget, req: KdcRequest): Ex
 }
 
 /** Try each KDC in turn (UDP ones up to three times) until one answers. */
-function sendToKdcs(world: World, client: Host, targets: KdcTarget[], req: KdcRequest): KdcReply | null {
+export function sendToKdcs(world: World, client: Host, targets: KdcTarget[], req: KdcRequest): KdcReply | null {
   for (const t of targets) {
     const tries = t.transport === 'udp' ? 3 : 1;
     for (let i = 0; i < tries; i++) {
