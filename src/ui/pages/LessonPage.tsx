@@ -375,6 +375,15 @@ function widgetsFor(id: string): LessonWidgets {
       sandbox: [ws01, srv01, rtr01],
     };
   }
+  if (id === 'logging') {
+    return {
+      sandbox: [
+        { hostId: 'log01', user: 'root', label: 'log01 console (root)', banner: 'Sandbox: log01, the central log server (rsyslog, TCP/UDP 514). Try: ls /var/log/remote/, ls -l /var/log/remote/srv01/, cat /etc/rsyslog.d/10-remote.conf, ss -tulnp, rsyslogd -N1.' },
+        { hostId: 'srv01', user: 'root', label: 'srv01 console (root)', banner: 'Sandbox: srv01, a sender. Try: logger -p authpriv.notice -t test "hello", tail /var/log/auth.log, cat /etc/rsyslog.d/50-central.conf, journalctl -u rsyslog.' },
+        { hostId: 'ws01', user: 'alice', label: 'ws01 (alice)', banner: 'Sandbox: ws01 has no rsyslog. Send straight to log01 over UDP: logger -n log01.corp.lab "hello from ws01".' },
+      ],
+    };
+  }
   if (id === 'ntp') {
     return {
       sandbox: [

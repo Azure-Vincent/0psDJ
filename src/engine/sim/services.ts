@@ -17,6 +17,7 @@ import { type NginxLocation, parseNginxServers, parseNginxUpstreams } from '../c
 import { isIpAddress } from '../net/addr';
 import { resolve } from './dns';
 import { type ChronyLoaded, chronyLoad, type TimesyncLoaded, timesyncLoad } from './ntp';
+import { rsyslogListeners, rsyslogStart } from './syslog';
 import { type Cert, parseCerts, parseKey } from './pki';
 import type { Host, ServiceRuntime, World } from '../types';
 import { log } from './journal';
@@ -905,6 +906,29 @@ const chrony: ServiceDef = {
 };
 
 // ---------------------------------------------------------------------------
+// rsyslog: rules, files and forwarding live in syslog.ts.
+// ---------------------------------------------------------------------------
+
+const rsyslog: ServiceDef = {
+  name: 'rsyslog',
+  unit: 'rsyslog.service',
+  aliases: ['rsyslog', 'rsyslog.service', 'rsyslogd', 'syslog', 'syslog.service'],
+  description: 'System Logging Service',
+  configFiles: ['/etc/rsyslog.conf'],
+  start(world, host, rt) {
+    const pid = allocPid(host);
+    rt.pid = pid;
+    return rsyslogStart(world, host, rt, pid);
+  },
+  listeners(_host, rt) {
+    return rsyslogListeners(rt).flatMap((l) => [
+      { proto: l.proto, addr: '0.0.0.0', port: l.port, process: 'rsyslogd', pid: rt.pid!, service: 'rsyslog' },
+      { proto: l.proto, addr: '::', port: l.port, process: 'rsyslogd', pid: rt.pid!, service: 'rsyslog' },
+    ]);
+  },
+};
+
+// ---------------------------------------------------------------------------
 // networking (ifupdown)
 // ---------------------------------------------------------------------------
 
@@ -1018,7 +1042,7 @@ const networking: ServiceDef = {
   listeners: () => [],
 };
 
-export const SERVICE_DEFS: ServiceDef[] = [networking, timesyncd, chrony, nftables, named, krb5kdc, kadmind, dhcpd, dhcrelay, radvd, sshd, nginx];
+export const SERVICE_DEFS: ServiceDef[] = [networking, rsyslog, timesyncd, chrony, nftables, named, krb5kdc, kadmind, dhcpd, dhcrelay, radvd, sshd, nginx];
 
 export function findService(host: Host, name: string): ServiceDef | undefined {
   const n = name.replace(/\.service$/, '');

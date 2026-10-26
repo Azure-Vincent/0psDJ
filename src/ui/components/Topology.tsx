@@ -10,7 +10,7 @@ export function Topology() {
     </g>
   );
   return (
-    <svg viewBox="0 0 340 676" width="100%" style={{ maxWidth: 480 }} role="img" aria-label="Lab topology">
+    <svg viewBox="0 0 340 750" width="100%" style={{ maxWidth: 480 }} role="img" aria-label="Lab topology">
       <text x={8} y={14} fontSize={11} style={{ fill: 'var(--muted)' }}>VLAN 10 office · 10.0.10.0/24</text>
       <line x1={10} y1={22} x2={330} y2={22} stroke="var(--accent)" strokeWidth={3} />
       {box(4, 34, 'ws01', ['10.0.10.25', 'static (alice)'], 98)}
@@ -52,8 +52,10 @@ export function Topology() {
       <text x={214} y={552} style={{ fill: 'var(--muted)', fontSize: 9.5 }}>portal published</text>
       <path d="M24 510 V596 H40" fill="none" stroke="var(--ok)" />
       {box(40, 574, 'dock01', ['10.0.20.40', 'Docker Engine 26', 'containers on docker0 / br-*'], 150)}
-      <text x={8} y={656} style={{ fill: 'var(--muted)', fontSize: 9.5 }}>All LAN ports are on sw01 (VLAN-aware Linux bridge): access ports for</text>
-      <text x={8} y={668} style={{ fill: 'var(--muted)', fontSize: 9.5 }}>VLAN 10/20/30, trunk swp7 to rtr01 eth3. Console: sw01.</text>
+      <path d="M24 596 V670 H40" fill="none" stroke="var(--ok)" />
+      {box(40, 648, 'log01', ['10.0.20.50', 'rsyslog: TCP/UDP 514', 'central logs per host'], 150)}
+      <text x={8} y={730} style={{ fill: 'var(--muted)', fontSize: 9.5 }}>All LAN ports are on sw01 (VLAN-aware Linux bridge): access ports for</text>
+      <text x={8} y={742} style={{ fill: 'var(--muted)', fontSize: 9.5 }}>VLAN 10/20/30, trunk swp7 to rtr01 eth3. Console: sw01.</text>
     </svg>
   );
 }

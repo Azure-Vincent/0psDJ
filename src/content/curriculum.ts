@@ -115,7 +115,8 @@ export const CURRICULUM: CurriculumModule[] = [
       { title: 'Email infrastructure', level: 'advanced', status: 'planned' },
       { title: 'NTP and time synchronisation (simulated: chrony on rtr01, timesyncd clients, 4 tickets)', level: 'intermediate', status: 'available', link: 'lesson/ntp/what' },
       { title: 'Backup services', level: 'intermediate', status: 'planned' },
-      { title: 'Logging and monitoring infrastructure', level: 'intermediate', status: 'planned' },
+      { title: 'Central logging (simulated: rsyslog senders and log01, 4 tickets)', level: 'intermediate', status: 'available', link: 'lesson/logging/what' },
+      { title: 'Monitoring and alerting (metrics, SNMP, dashboards)', level: 'intermediate', status: 'planned' },
     ],
   },
 ];

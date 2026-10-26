@@ -24,10 +24,10 @@ For every technology it answers the same questions:
 
 ## What's inside
 
-- **21 lessons** on networking, interfaces and virtual switches, TLS, remote
+- **22 lessons** on networking, interfaces and virtual switches, TLS, remote
   access, identity (including Kerberos), firewalls, containers, web servers and
-  reverse proxies, time synchronisation, Linux and Windows administration, and
-  safe recovery. Each lesson starts in plain language (the short version,
+  reverse proxies, time synchronisation, central logging, Linux and Windows
+  administration, and safe recovery. Each lesson starts in plain language (the short version,
   an everyday analogy, the key ideas each with a concrete example from the lab,
   one case followed step by step, common misconceptions and a quick
   self-check), then explains in depth how the technology works, with
@@ -47,7 +47,7 @@ For every technology it answers the same questions:
   machine configured from the files the design generates. You get terminals
   on each machine and a packet tracer that shows every hop and every firewall
   and NAT decision.
-- **107 troubleshooting tickets**, each injecting a realistic fault into the
+- **111 troubleshooting tickets**, each injecting a realistic fault into the
   lab. You investigate with real commands in terminals, record a diagnosis and
   repair the fault. The app then checks your fix immediately, again after
   rebooting every machine, and against security rules, so "just open the
@@ -75,7 +75,10 @@ For every technology it answers the same questions:
   set breaks the NTP chain: a router firewall that drops UDP 123 (until
   Kerberos fails with "Clock skew too great"), a chrony allow list that forgets
   one network, a time server that lost its own upstream, and chronyd stopped by
-  a typo.
+  a typo. A **Central logging** set makes logs go missing on their way to
+  log01: a firewall that drops syslog, one server still forwarding over UDP to
+  a TCP-only receiver, a selector that leaves out the SSH and sudo logs, and a
+  receiver input without its module.
 - **7 end-to-end case studies**: SSH refused, a server with no Internet, a failed
   domain login, an unreachable Docker app, pfSense blocking traffic, RDP broken
   by a policy change, and several services failing at once.
@@ -122,7 +125,10 @@ with nginx's error.log lines. Time is real NTP: ext01 is a stratum-1
 server, rtr01 runs chrony and serves the internal networks, and every Debian
 machine runs systemd-timesyncd against it, with request and reply datagrams
 crossing the routers and firewalls, `chronyc`, `timedatectl timesync-status`,
-and clocks that drift when the chain breaks.
+and clocks that drift when the chain breaks. Logs are central too: rsyslog on the
+servers applies real rules (facilities, priorities, files, forwarding) and
+sends syslog over TCP to log01, which files it per host and program; `logger`
+tests the path end to end.
 
 ## Installation
 

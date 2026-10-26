@@ -5,6 +5,7 @@ import { DHCP_PRIMER, IPNET_PRIMER, IPV6_PRIMER, MTU_PRIMER, NAT_PRIMER, NETIF_P
 import { AD_KERBEROS_PRIMER, DOCKER_PRIMER, KERBEROS_PRIMER, WINDOWS_RDP_PRIMER } from './platforms';
 import { WEBPROXY_PRIMER } from '../ops/webproxy';
 import { NTP_PRIMER } from '../ops/ntp';
+import { LOGGING_PRIMER } from '../ops/logging';
 import { NETOPS_PRIMER, NFTABLES_PRIMER, PFSENSE_PRIMER, RECOVERY_PRIMER, SSH_PRIMER, SYSTEMD_PRIMER } from './services';
 
 export const PRIMERS: Record<string, Primer> = {
@@ -29,4 +30,5 @@ export const PRIMERS: Record<string, Primer> = {
   docker: DOCKER_PRIMER,
   webproxy: WEBPROXY_PRIMER,
   ntp: NTP_PRIMER,
+  logging: LOGGING_PRIMER,
 };
