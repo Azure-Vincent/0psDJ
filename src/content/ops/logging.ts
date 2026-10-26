@@ -111,10 +111,10 @@ export const LOGGING_GUIDE: ServiceGuide = {
     { action: 'Fix the receiver\'s firewall / input', when: 'Senders are suspended (timeout / refused).', effect: 'Senders with a queue deliver their backlog when they reconnect; others resume with new messages only.', risk: 'Opening 514 wider than the sender networks lets anyone write fake log lines.' },
   ],
   workflow: [
-    { question: '1. Does the message reach the local log?', command: 'logger -t test "probe 1"\njournalctl -t test -n 1\ntail -n 1 /var/log/syslog', healthy: 'Oct 19 08:33:31 srv01 test: probe 1', broken: 'Not in the journal: logger or journald problem (rare). In the journal but not in /var/log/syslog: rsyslog is not running or its rules do not match.', next: 'Then check that it leaves the host.', sim: true },
-    { question: '2. Is the forwarding action healthy?', command: 'journalctl -u rsyslog\ncat /etc/rsyslog.d/50-central.conf', healthy: '[origin software="rsyslogd" …] start (and no "suspended")', broken: '"cannot connect to log01.corp.lab:514: Connection timed out" → firewall/path. "Connection refused" → nothing listens on the server. "could not get addrinfo" → DNS. No error at all but nothing arrives → UDP (@) or a selector that excludes the message.', next: 'Look at the server side.', sim: true },
-    { question: '3. Is the server listening and reachable?', command: 'ss -tulnp\nnft list ruleset\nrsyslogd -N1', healthy: 'LISTEN 0 511 0.0.0.0:514 … rsyslogd', broken: 'Nothing on 514: input or module missing (rsyslogd -N1 says which). Listening but no accept rule for 514 in a policy-drop input chain: the firewall.', next: 'Fix, restart, test with logger again.', sim: true },
-    { question: '4. Where did it end up?', command: 'ls -l /var/log/remote/srv01/\ngrep "probe 1" /var/log/remote/srv01/test.log', healthy: 'Oct 19 08:33:31 srv01 test: probe 1', broken: 'In log01\'s own /var/log/syslog instead: the remote rule (template + stop) does not match or comes too late. Under a different host directory: the sender\'s hostname.', next: 'Done when a fresh test message appears where the SOC looks.', sim: true },
+    { question: 'Does the message reach the local log?', why: 'If the message does not even reach the local log, nothing can forward it. A test message made with logger shows exactly where it goes.', command: 'logger -t test "probe 1"\njournalctl -t test -n 1\ntail -n 1 /var/log/syslog', healthy: 'Oct 19 08:33:31 srv01 test: probe 1', broken: 'Not in the journal: logger or journald problem (rare). In the journal but not in /var/log/syslog: rsyslog is not running or its rules do not match.', next: 'Then check that it leaves the host.', sim: true },
+    { question: 'Is the forwarding action healthy?', why: 'rsyslog logs its own problems with the forwarding action, and the selector decides which messages are forwarded at all.', command: 'journalctl -u rsyslog\ncat /etc/rsyslog.d/50-central.conf', healthy: '[origin software="rsyslogd" …] start (and no "suspended")', broken: '"cannot connect to log01.corp.lab:514: Connection timed out" → firewall/path. "Connection refused" → nothing listens on the server. "could not get addrinfo" → DNS. No error at all but nothing arrives → UDP (@) or a selector that excludes the message.', next: 'Look at the server side.', sim: true },
+    { question: 'Is the server listening and reachable?', why: 'The receiver must listen on the right protocol and port, and its firewall must let the messages in. A capture proves whether they arrive.', command: 'ss -tulnp\nnft list ruleset\nrsyslogd -N1', healthy: 'LISTEN 0 511 0.0.0.0:514 … rsyslogd', broken: 'Nothing on 514: input or module missing (rsyslogd -N1 says which). Listening but no accept rule for 514 in a policy-drop input chain: the firewall.', next: 'Fix, restart, test with logger again.', sim: true },
+    { question: 'Where did it end up?', why: 'A message can arrive and still land in an unexpected file, because the receiver files messages by host name and program.', command: 'ls -l /var/log/remote/srv01/\ngrep "probe 1" /var/log/remote/srv01/test.log', healthy: 'Oct 19 08:33:31 srv01 test: probe 1', broken: 'In log01\'s own /var/log/syslog instead: the remote rule (template + stop) does not match or comes too late. Under a different host directory: the sender\'s hostname.', next: 'Done when a fresh test message appears where the SOC looks.', sim: true },
   ],
   failures: [
     { symptom: 'Nothing arrives from any sender', causes: ['Receiver firewall drops 514', 'Receiver has no input (module not loaded, input removed)', 'Receiver rsyslog stopped'], diagnose: ['journalctl -u rsyslog on a sender (timeout vs refused)', 'ss -tulnp and rsyslogd -N1 on the receiver', 'nft list ruleset on the receiver'], fix: 'Allow 514 from the sender networks; load the module before the input; restart rsyslog.', verify: 'logger on a sender appears under /var/log/remote/HOST/.' },
@@ -144,6 +144,8 @@ export const LOGGING_LESSON: Lesson = {
 
   what: `
 **Central logging** sends a copy of every server's log messages to a dedicated **log server** as they are written.
+
+Each server already keeps its own logs (in the systemd journal and in files under /var/log, see the [systemd lesson](#/lesson/systemd/what)). Central logging adds a copy elsewhere, sent over the network with the **syslog** protocol on port 514. So it depends on the same things as any network service: a route, open firewalls and a listening receiver ([Transport and DNS](#/lesson/transport/what)), and on synchronized [clocks](#/lesson/ntp/what) so that timestamps from different machines can be compared.
 
 ### Problems it solves
 - **Evidence survives.** A crashed, rebuilt or compromised server loses or alters its local logs; the copy on the log server stays.
@@ -279,13 +281,15 @@ Validate with \`rsyslogd -N1\` before every restart: rsyslog skips what it canno
 
 `,
   troubleshootingIntro: `
-### Follow one message
-1. **Local**: \`logger -t test probe\` on the sender; is it in the journal and in /var/log/syslog?
-2. **Sender's action**: \`journalctl -u rsyslog\` (suspended? timeout or refused?) and the forwarding rule (UDP or TCP? selector?).
-3. **Server**: \`ss -tulnp\` (listening?), \`rsyslogd -N1\` (inputs loaded?), \`nft list ruleset\` (514 allowed?), \`tcpdump -n port 514\` (arriving?).
-4. **Filing**: \`ls -l /var/log/remote/HOST/\` (where did it land?).
+### Follow one message from start to finish
+The easiest way to troubleshoot logging is to create a test message yourself and follow it: into the local log, out of the sender, across the network, into the receiver, and into a file.
 
-Silence is the usual symptom: UDP, selectors and skipped configuration lines lose messages **without any error**. Monitor for hosts that stop sending.
+1. **Local.** Run \`logger -t test probe\` on the sending server. Does the message appear in the journal and in /var/log/syslog? If not, the problem is on the sender itself.
+2. **The sender's forwarding.** \`journalctl -u rsyslog\` shows whether rsyslog suspended the forwarding action, and why (a timeout, or connection refused). Check the forwarding rule too: UDP or TCP? Does its selector include this kind of message?
+3. **The receiver.** \`ss -tulnp\` (is rsyslog listening on 514?), \`rsyslogd -N1\` (are the input modules loaded and the configuration valid?), \`nft list ruleset\` (is port 514 allowed?), \`tcpdump -n port 514\` (do the messages arrive?).
+4. **Filing.** \`ls -l /var/log/remote/HOST/\` shows where the message was written. It may have arrived and simply been filed under another name.
+
+The usual symptom is **silence**, not an error: UDP gives no feedback, a selector can leave messages out, and rsyslog can skip a configuration line it does not understand. Messages can go missing **without any error anywhere**, so monitor for hosts that stop sending.
 `,
 
   errorMap: [

@@ -10,13 +10,20 @@ export const TLS_LESSON: Lesson = {
   mode: 'simulated',
 
   what: `
-**TLS (Transport Layer Security)** puts an encrypted, authenticated channel on top of a TCP connection. It is the "S" in HTTPS, and it also protects SMTP/IMAP (STARTTLS), LDAPS, database connections, VPNs and APIs. TLS gives you three things:
+**TLS (Transport Layer Security)** adds encryption and identity checks on top of an ordinary [TCP connection](#/lesson/transport/what). It is the "S" in HTTPS (the padlock in your browser), and it also protects mail (SMTP and IMAP with STARTTLS), directory lookups (LDAPS), database connections, VPNs and APIs. TLS gives you three things:
 - **Confidentiality**: nobody on the path can read the data.
 - **Integrity**: nobody can change it unnoticed.
 - **Server authentication**: the client knows it talks to the real www.corp.lab and not to an impostor. This part is done with **certificates**, and it is where almost every operational problem comes from.
 
-### Certificates in one paragraph
-A **certificate** (X.509) binds a **public key** to **names** (the subjectAltName list: www.corp.lab, srv01.corp.lab) for a **period** (notBefore to notAfter). It is signed by a **certificate authority (CA)**. Clients carry a **trust store** of root CA certificates; a server certificate is accepted when the client can build a **chain** from it, through one or more **intermediate CAs**, to a root in that store, every certificate in the chain is within its validity period, and the name the client asked for appears in the server certificate.
+### Certificates, step by step
+Encryption alone is not enough: you also need to know **who** you are encrypting for. That is the job of a **certificate**.
+
+- A certificate (format X.509) is a small file that ties a **public key** to one or more **names** (listed in its *subjectAltName*, for example www.corp.lab and srv01.corp.lab), for a limited **period** (from *notBefore* to *notAfter*).
+- It is signed by a **certificate authority (CA)**, an organisation (or an internal server) whose job is to vouch that the key really belongs to that name. Think of a passport: it is only trusted because a government you trust issued it.
+- Every client keeps a **trust store**: a list of root CA certificates it trusts. Your operating system and browser ship with one.
+- Root CAs usually sign through one or more **intermediate CAs**, so a server sends its own certificate plus the intermediates. Together they form a **chain** up to a root.
+
+A server certificate is accepted only when all of these are true: the client can build a chain from it, through the intermediates, to a root in its trust store; every certificate in the chain is within its validity period; and the name the client asked for appears in the server's certificate.
 
 ### The four questions a client asks
 | Question | Fails as (curl / OpenSSL) |
@@ -160,19 +167,24 @@ TLS configuration is mostly about **which files** a server loads and **which roo
   ],
 
   troubleshootingIntro: `
-### Read the error, then look at what is served
-1. **Reproduce with a verifying client**: \`curl -v -I https://NAME/\`. The last lines name the failure; the error number tells you which of the four checks failed.
-2. **See what the server actually sends**: \`openssl s_client -connect NAME:443 -servername NAME </dev/null\`. Count the certificates under "Certificate chain", read the depth of the error and the Verify return code. Pipe into \`openssl x509 -noout -subject -dates -ext subjectAltName\` for the served leaf.
-3. **Compare with the files on the server**: \`openssl x509 -noout -subject -enddate -in /etc/ssl/certs/...\`. If they differ, nginx has not loaded the files: \`nginx -t\`, \`journalctl -u nginx\`.
-4. **Only some clients fail?** Compare trust stores and clocks: the server is probably fine.
-5. **Nothing TLS at all** (refused, timeout)? That is TCP: listener (\`ss -tlnp\`), firewall, routing. A handshake that stalls after the ClientHello on one path only can be an MTU problem.
+### Read the error, then look at what the server actually sends
+TLS errors are precise: the error number tells you which of the four checks failed. The method is to reproduce the error with a client that shows details, then compare what the server sends with what you expected.
+
+1. **Reproduce with a client that verifies.** Run \`curl -v -I https://NAME/\`. The last lines name the failure, and the error number tells you which check failed (see the table in "What is it").
+2. **See what the server actually sends.** Run \`openssl s_client -connect NAME:443 -servername NAME </dev/null\`. Count the certificates under "Certificate chain", and read the "depth" of the error and the "Verify return code". To inspect the server's own certificate, pipe the output into \`openssl x509 -noout -subject -dates -ext subjectAltName\`.
+3. **Compare with the files on the server.** \`openssl x509 -noout -subject -enddate -in /etc/ssl/certs/...\` shows what is on disk. If the served certificate differs, nginx has not loaded the new files yet: check \`nginx -t\` and \`journalctl -u nginx\`, then reload.
+4. **Only some clients fail?** Then the server is probably fine. Compare the clients' trust stores and their clocks (a wrong clock makes valid certificates look expired or not yet valid).
+5. **No TLS at all** (connection refused, timeout)? That is a TCP problem, not TLS: check the listener (\`ss -tlnp\`), the firewall and routing. A handshake that stalls right after the ClientHello, on one network path only, can be an [MTU](#/lesson/mtu/what) problem, because the server's certificate message fills full-size packets.
+
+How to read the depth of an OpenSSL error (depth 0 is the server's own certificate, higher numbers go up the chain):
 
 | depth of the error | usually means |
 |---|---|
-| 0, error 20 + 21 | server does not send the intermediate |
-| 1 (or the top of the chain), error 20 | client does not trust the root |
-| 0, error 10 | leaf expired; any depth: that CA expired |
-| 0, error 18 | self-signed server certificate |
+| 0, error 20 + 21 | the server does not send the intermediate certificate |
+| 1 (or the top of the chain), error 20 | the client does not trust the root |
+| 0, error 10 | the server certificate has expired; at another depth, that CA's certificate expired |
+| 0, error 18 | the server uses a self-signed certificate |
+
 `,
 
   errorMap: [

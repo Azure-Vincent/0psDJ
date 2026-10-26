@@ -115,10 +115,10 @@ export const NTP_GUIDE: ServiceGuide = {
     { action: 'date -s / timedatectl set-time', when: 'Only to recover a machine with no reachable NTP at all, with NTP turned off.', effect: 'Sets the clock by hand.', risk: 'It drifts again; Kerberos and TLS break when it does. Fix NTP instead.' },
   ],
   workflow: [
-    { question: '1. Is the client synchronized at all?', command: 'timedatectl', healthy: 'System clock synchronized: yes\n              NTP service: active', broken: '"synchronized: no" with "NTP service: inactive" → NTP is turned off (timedatectl set-ntp true). With "active" → the client gets no usable answer: step 2.', next: 'Ask the client what it heard.', sim: true },
-    { question: '2. Did it get a reply, and what did the reply say?', command: 'timedatectl timesync-status\njournalctl -u systemd-timesyncd', healthy: '         Leap: normal\n      Stratum: 2\n Packet count: 3', broken: '"Timed out waiting for reply" → no answer (step 3). Replies with "Leap: not synchronized" / "Stratum: 16" → the server has no good time itself (step 4).', next: 'Follow the request to the server.', sim: true },
-    { question: '3. Does the request reach the server, and does it answer?', command: 'tcpdump -n -i eth0 udp port 123\nnft list ruleset\nchronyc clients', healthy: 'IP 10.0.10.25.35375 > 10.0.10.1.123: NTPv4, Client, length 48\nIP 10.0.10.1.123 > 10.0.10.25.35375: NTPv4, Server, length 48', broken: 'Requests without replies and chronyc clients does not count them → the firewall drops them before chronyd. chronyc clients shows them under Drop → chronyd\'s allow list. Nothing arrives → routing/path. ICMP port unreachable → chronyd not running.', next: 'Fix the server side, then restart the client (or wait for its next poll).', sim: true },
-    { question: '4. Is the server itself synchronized?', command: 'chronyc tracking\nchronyc sources', healthy: 'Leap status     : Normal\n^* 203.0.113.80                  1   6   377', broken: '"Not synchronised" and "^?" with Reach 0 → its upstream is unreachable or wrong (address, DNS, outbound firewall). Do not paper over it with "local stratum".', next: 'Fix the upstream; clients recover at their next poll.', sim: true },
+    { question: 'Is the client synchronized at all?', why: 'Start with the machine that has the wrong time: is it trying to synchronize at all, and does it think it succeeded?', command: 'timedatectl', healthy: 'System clock synchronized: yes\n              NTP service: active', broken: '"synchronized: no" with "NTP service: inactive" → NTP is turned off (timedatectl set-ntp true). With "active" → the client gets no usable answer: step 2.', next: 'Ask the client what it heard.', sim: true },
+    { question: 'Did it get a reply, and what did the reply say?', why: 'A reply that arrives but says "not synchronized" is a different problem from no reply at all.', command: 'timedatectl timesync-status\njournalctl -u systemd-timesyncd', healthy: '         Leap: normal\n      Stratum: 2\n Packet count: 3', broken: '"Timed out waiting for reply" → no answer (step 3). Replies with "Leap: not synchronized" / "Stratum: 16" → the server has no good time itself (step 4).', next: 'Follow the request to the server.', sim: true },
+    { question: 'Does the request reach the server, and does it answer?', why: 'If no reply comes back, the request is lost on the way, dropped by the server\'s firewall, or refused by chrony\'s allow list.', command: 'tcpdump -n -i eth0 udp port 123\nnft list ruleset\nchronyc clients', healthy: 'IP 10.0.10.25.35375 > 10.0.10.1.123: NTPv4, Client, length 48\nIP 10.0.10.1.123 > 10.0.10.25.35375: NTPv4, Server, length 48', broken: 'Requests without replies and chronyc clients does not count them → the firewall drops them before chronyd. chronyc clients shows them under Drop → chronyd\'s allow list. Nothing arrives → routing/path. ICMP port unreachable → chronyd not running.', next: 'Fix the server side, then restart the client (or wait for its next poll).', sim: true },
+    { question: 'Is the server itself synchronized?', why: 'A server can only hand out good time if it has good time itself. If its own upstream is unreachable, all its clients go wrong with it.', command: 'chronyc tracking\nchronyc sources', healthy: 'Leap status     : Normal\n^* 203.0.113.80                  1   6   377', broken: '"Not synchronised" and "^?" with Reach 0 → its upstream is unreachable or wrong (address, DNS, outbound firewall). Do not paper over it with "local stratum".', next: 'Fix the upstream; clients recover at their next poll.', sim: true },
   ],
   failures: [
     { symptom: 'Clients time out ("Timed out waiting for reply from …:123")', causes: ['Firewall on the server (or on the path) drops UDP 123', 'chronyd has no allow line for the client\'s network (silent drop)', 'Server address/name wrong in timesyncd.conf'], diagnose: ['tcpdump -n udp port 123 on the server', 'nft list ruleset', 'chronyc clients (Drop column)'], fix: 'Allow UDP 123 from the internal networks in the input chain, or add the missing allow line to chrony.conf and restart chrony.', verify: 'timedatectl on the client: System clock synchronized: yes' },
@@ -147,7 +147,9 @@ export const NTP_LESSON: Lesson = {
   concepts: ['ntp.sync', 'fw.path', 'svc.systemd', 'ad.kerberos'],
 
   what: `
-**NTP** (Network Time Protocol) keeps computer clocks correct. Every computer has a clock that drifts (a few milliseconds to seconds per day, worse in virtual machines); NTP clients regularly ask a time server for the time and correct their clock.
+**NTP** (Network Time Protocol) keeps computer clocks correct. Every computer has a clock that drifts: a few milliseconds to a few seconds per day, and often worse in virtual machines. NTP clients regularly ask a time server for the time and gently correct their own clock.
+
+It may seem like a small thing, but many other services silently depend on correct time: [Kerberos](#/lesson/kerberos/what) refuses logons when clocks differ by more than 5 minutes, [TLS](#/lesson/tls/what) certificates are only valid between two dates, and logs from different machines are useless if their timestamps disagree. NTP itself is a simple UDP exchange on port 123, so it needs a route and open firewalls like any other service.
 
 ### Problems it solves
 - **Authentication works.** Kerberos (and Active Directory logons) refuse clocks more than 5 minutes apart.
@@ -283,12 +285,14 @@ Plus the firewall on the server (UDP 123 in) and the path between them.
 `,
   troubleshootingIntro: `
 ### Follow the time chain
-1. **Client**: \`timedatectl\` (synchronized? NTP service active?), \`timedatectl timesync-status\`, \`journalctl -u systemd-timesyncd\`.
-2. **Path**: do requests reach the server (\`tcpdump -n udp port 123\` on it), does its firewall accept them (\`nft list ruleset\`)?
-3. **Server**: is chronyd running (\`systemctl status chrony\`), does it serve this client (\`chronyc clients\`), is it synchronized itself (\`chronyc tracking\`, \`chronyc sources\`)?
-4. **Upstream**: does the server reach its sources (Reach, "Can't synchronise")?
+Time flows down a chain: the reference clock, the upstream server, your local time server, then each client. A client can only be right if every link above it works. Start at the client that is wrong and walk up the chain.
 
-A timeout points at steps 2–3; replies that say "not synchronized" point at step 4.
+1. **The client.** \`timedatectl\` shows whether the clock is synchronized and whether the NTP service is active. \`timedatectl timesync-status\` shows which server it uses and the last result; \`journalctl -u systemd-timesyncd\` shows its log.
+2. **The path.** Do the client's requests reach the server? Run \`tcpdump -n udp port 123\` on the server. Does the server's firewall accept them (\`nft list ruleset\`)?
+3. **The server.** Is chronyd running (\`systemctl status chrony\`)? Does it agree to serve this client (\`chronyc clients\` lists who asked; an \`allow\` line must cover the client's network)? Is it synchronized itself (\`chronyc tracking\`, \`chronyc sources\`)?
+4. **Upstream.** Can the server reach its own time sources? Look at the Reach column in \`chronyc sources\`, and for "Can't synchronise" in its log.
+
+How to read the result: a **timeout** (no answer at all) points to steps 2 and 3. **Replies that say "not synchronized"** mean the path works but the server has no good time to give, which points to step 4.
 `,
 
   errorMap: [
