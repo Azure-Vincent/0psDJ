@@ -1,8 +1,8 @@
 // File server: fs01 (10.0.20.60, Debian 12, switch port swp13) runs the kernel
 // NFS server and Samba. Samba shares /srv/office (read-write for the staff
 // group) and /srv/software (read-only) over SMB on TCP 445; alice and dana have
-// Samba passwords (smbpasswd). The NFS server It exports /srv/projects (read-write, office and server networks)
-// and /srv/software (read-only, all internal networks). ws01 mounts the project
+// Samba passwords (smbpasswd). The NFS server exports /srv/projects (read-write,
+// office and server networks) and /srv/software (read-only, all internal networks). ws01 mounts the project
 // share on /mnt/projects and srv01 the software share on /opt/software, both
 // from /etc/fstab at boot.
 

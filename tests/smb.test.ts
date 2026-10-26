@@ -132,3 +132,61 @@ describe('SMB tickets: wrong fixes are rejected', () => {
     expect(verifyScenario(l.world, s).passed).toBe(false);
   });
 });
+
+describe('Samba: review fixes', () => {
+  it('IPC$ connects without crashing and has no files', () => {
+    const l = lab();
+    const r = l.run('ws01', 'alice', `smbclient //fs01/IPC$ -U alice%${A} -c 'pwd; ls'`);
+    expect(r.output).toBe('Current directory is \\\\fs01\\IPC$\\\nNT_STATUS_INVALID_INFO_CLASS listing \\*');
+    expect(l.run('win01', 'Administrator', `net use \\\\fs01\\IPC$ /user:dana ${D}`).output).toMatch(/The command completed successfully\./);
+  });
+
+  it('a closed subdirectory inside a share stays closed', () => {
+    const l = lab();
+    l.run('fs01', 'root', 'chmod 700 /srv/office/minutes');
+    expect(l.run('ws01', 'alice', `smbclient //fs01/office -U dana%${D} -c 'get minutes/2024-10-14.txt /tmp/m.txt'`).output).toBe('NT_STATUS_ACCESS_DENIED opening remote file \\minutes\\2024-10-14.txt');
+    expect(l.run('ws01', 'alice', `smbclient //fs01/office -U dana%${D} -c 'put /etc/hostname minutes/x.txt'`).output).toBe('NT_STATUS_ACCESS_DENIED opening remote file \\minutes\\x.txt');
+    expect(l.run('ws01', 'alice', `smbclient //fs01/office -U alice%${A} -c 'get minutes/2024-10-14.txt /tmp/m.txt'`).code).toBe(0);
+  });
+
+  it('guests are checked against valid users', () => {
+    const l = lab();
+    l.run('fs01', 'root', "echo '   guest ok = yes' >> /etc/samba/smb.conf");
+    expect(l.run('ws01', 'alice', 'smbclient //fs01/software -N -c ls').output).toBe('tree connect failed: NT_STATUS_ACCESS_DENIED');
+  });
+
+  it('hosts allow (global and per share), read list and force user are enforced', () => {
+    const l = lab();
+    l.run('fs01', 'root', "sed -i 's/^   load printers = no$/   load printers = no\\n   hosts allow = 10.0.20.10 127./' /etc/samba/smb.conf");
+    expect(l.run('ws01', 'alice', `smbclient -L fs01 -U alice%${A}`).output).toBe('protocol negotiation failed: NT_STATUS_CONNECTION_DISCONNECTED');
+    expect(l.run('win01', 'Administrator', `net use O: \\\\fs01\\office /user:dana ${D}`).output).toMatch(/System error 64 has occurred\.\n\nThe specified network name is no longer available\./);
+    expect(l.run('fs01', 'root', 'cat /var/log/samba/log.smbd').output).toMatch(/Denied connection from 10\.0\.10\.25 \(10\.0\.10\.25\)/);
+    const l2 = lab();
+    l2.run('fs01', 'root', "echo '   hosts deny = 10.0.10.0/24' >> /etc/samba/smb.conf");
+    expect(l2.run('ws01', 'alice', `smbclient //fs01/software -U alice%${A} -c ls`).output).toBe('tree connect failed: NT_STATUS_ACCESS_DENIED');
+    const l3 = lab();
+    l3.run('fs01', 'root', "sed -i 's/^   force group = staff$/   force group = staff\\n   read list = dana\\n   force user = alice/' /etc/samba/smb.conf");
+    expect(l3.run('ws01', 'alice', `smbclient //fs01/office -U dana%${D} -c 'put /etc/hostname d.txt'`).output).toBe('NT_STATUS_ACCESS_DENIED opening remote file \\d.txt');
+    l3.run('fs01', 'root', "sed -i '/read list = dana/d' /etc/samba/smb.conf");
+    l3.run('ws01', 'alice', `smbclient //fs01/office -U dana%${D} -c 'put /etc/hostname d.txt'`);
+    expect(l3.run('fs01', 'root', 'ls -l /srv/office/d.txt').output).toMatch(/^-rw-rw---- 1 alice +staff /);
+  });
+
+  it('overwriting a file keeps its group despite force group', () => {
+    const l = lab();
+    l.run('fs01', 'root', 'chown dana:dana /srv/office/budget-2025.txt');
+    l.run('ws01', 'alice', `smbclient //fs01/office -U dana%${D} -c 'put /etc/hostname budget-2025.txt'`);
+    expect(l.run('fs01', 'root', 'ls -l /srv/office/budget-2025.txt').output).toMatch(/ dana +dana /);
+  });
+
+  it('net use *, duplicates and mixed credentials behave like Windows', () => {
+    const l = lab();
+    expect(l.run('win01', 'Administrator', `net use * \\\\fs01\\office /user:dana ${D}`).output).toMatch(/^Drive Z: is now connected to \\\\fs01\\office\.\n\nThe command completed successfully\./);
+    expect(l.run('win01', 'Administrator', `net use \\\\fs01\\software /user:dana ${D}`).output).toMatch(/completed successfully/);
+    l.run('win01', 'Administrator', `net use \\\\fs01\\software /user:dana ${D}`);
+    expect(l.run('win01', 'Administrator', 'net use').output.match(/\\\\fs01\\software/g)?.length).toBe(1);
+    expect(l.run('win01', 'Administrator', `net use Y: \\\\fs01\\office /user:alice ${A}`).output).toMatch(/System error 1219 has occurred\./);
+    expect(l.run('win01', 'Administrator', 'net use * /delete /y').output).toMatch(/completed successfully/);
+    expect(l.run('win01', 'Administrator', 'net use').output).toMatch(/There are no entries in the list\./);
+  });
+});

@@ -13,7 +13,7 @@
 // so share changes apply to new connections without a restart; the model loads
 // the file at each connection.
 
-import { canAccess, dirname, listDir, readFile, writeFile } from '../fs';
+import { canAccess, canTraverse, dirname, listDir, mkdir, readFile, writeFile } from '../fs';
 import type { Host, UserAccount, World } from '../types';
 import { resolve } from './dns';
 import { allListeners } from './services';
@@ -126,7 +126,8 @@ export function smbLog(world: World, server: Host, client: string, level: number
 
 export type SmbError =
   | 'NT_STATUS_UNSUCCESSFUL' | 'NT_STATUS_IO_TIMEOUT' | 'NT_STATUS_CONNECTION_REFUSED' | 'NT_STATUS_HOST_UNREACHABLE'
-  | 'NT_STATUS_LOGON_FAILURE' | 'NT_STATUS_ACCOUNT_DISABLED' | 'NT_STATUS_ACCESS_DENIED' | 'NT_STATUS_BAD_NETWORK_NAME';
+  | 'NT_STATUS_LOGON_FAILURE' | 'NT_STATUS_ACCOUNT_DISABLED' | 'NT_STATUS_ACCESS_DENIED' | 'NT_STATUS_BAD_NETWORK_NAME'
+  | 'NT_STATUS_CONNECTION_DISCONNECTED' | 'NT_STATUS_NO_SUCH_USER';
 
 export interface SmbSession {
   server: Host;
@@ -135,14 +136,51 @@ export interface SmbSession {
   /** The Unix account on the server; null for an anonymous (guest) session. */
   user: UserAccount | null;
   share?: SmbShare;
+  /** Connected to IPC$ (the inter-process share: no files). */
+  ipc?: boolean;
   /** Share root on the server (path parameter). */
   root?: string;
   writable?: boolean;
+  /** The account file operations run as ("force user"), when it differs from user. */
+  fileUser?: UserAccount;
 }
 
 export type SmbResult = { ok: true; session: SmbSession } | { ok: false; stage: 'connect' | 'session' | 'tree'; error: SmbError; serverIp?: string };
 
 const GUEST: UserAccount = { name: 'nobody', uid: 65534, gid: 65534, primaryGroup: 'nogroup', groups: [], home: '/nonexistent', shell: '/usr/sbin/nologin', gecos: 'nobody', password: null };
+
+/**
+ * hosts allow / hosts deny: allow wins when it matches; otherwise a deny match,
+ * or an allow list that does not match, refuses the client. Entries: ALL, an
+ * address, a prefix ending in "." ("10.0.10."), ADDR/BITS or ADDR/MASK, a host
+ * name, "EXCEPT" lists.
+ */
+export function hostsAllowed(allow: string | undefined, deny: string | undefined, ip: string, names: string[]): boolean {
+  const toInt = (a: string) => a.split('.').reduce((n, o) => (n << 8) + Number(o), 0) >>> 0;
+  const one = (e: string): boolean => {
+    const x = e.toLowerCase();
+    if (x === 'all') return true;
+    if (x === 'localhost' || x === 'local') return ip.startsWith('127.');
+    if (x.endsWith('.') && /^[\d.]+$/.test(x)) return ip.startsWith(x);
+    const m = /^([\d.]+)\/([\d.]+)$/.exec(x);
+    if (m) {
+      const mask = m[2].includes('.') ? toInt(m[2]) : (Number(m[2]) === 0 ? 0 : (0xffffffff << (32 - Number(m[2]))) >>> 0);
+      return ((toInt(ip) & mask) >>> 0) === ((toInt(m[1]) & mask) >>> 0);
+    }
+    if (/^[\d.]+$/.test(x)) return x === ip;
+    return names.some((n) => n.toLowerCase() === x || n.toLowerCase().split('.')[0] === x);
+  };
+  const matches = (v: string) => {
+    const parts = v.split(/[\s,]+/).filter(Boolean);
+    const ex = parts.findIndex((p) => p.toUpperCase() === 'EXCEPT');
+    const inc = ex < 0 ? parts : parts.slice(0, ex);
+    const exc = ex < 0 ? [] : parts.slice(ex + 1);
+    return inc.some(one) && !exc.some(one);
+  };
+  if (allow && matches(allow)) return true;
+  if (deny && matches(deny)) return false;
+  return !allow;
+}
 
 /**
  * Connect to SERVER:445, authenticate (user null: anonymous) and, when share is
@@ -162,8 +200,14 @@ export function smbConnect(world: World, client: Host, target: string, user: str
   conn.send('c2s', 220, { protocol: 'SMB2', info: 'Negotiate Protocol Request', fields: [{ name: 'Dialects', value: '0x0202, 0x0210, 0x0300, 0x0302, 0x0311' }] });
   const listener = allListeners(server).find((l) => l.proto === 'tcp' && l.port === 445);
   if (listener?.service !== 'smbd') return done({ ok: false, stage: 'connect', error: 'NT_STATUS_CONNECTION_REFUSED', serverIp: ip });
-  conn.send('s2c', 300, { protocol: 'SMB2', info: 'Negotiate Protocol Response', fields: [{ name: 'Dialect', value: '0x0311 (SMB 3.1.1)' }] });
   const conf = loadSmbConf(server);
+  const clientNames = [client.hostname, `${client.hostname}.${client.domain}`];
+  // [global] hosts allow/deny: smbd closes the connection before answering.
+  if (!hostsAllowed(conf.global['hosts allow'], conf.global['hosts deny'], clientIp, clientNames)) {
+    smbLog(world, server, 'smbd', 0, '../../source3/lib/access.c:338(check_access)', `Denied connection from ${clientIp} (${clientIp})`);
+    return done({ ok: false, stage: 'connect', error: 'NT_STATUS_CONNECTION_DISCONNECTED', serverIp: ip });
+  }
+  conn.send('s2c', 300, { protocol: 'SMB2', info: 'Negotiate Protocol Response', fields: [{ name: 'Dialect', value: '0x0311 (SMB 3.1.1)' }] });
   const workgroup = (conf.global.workgroup ?? 'WORKGROUP').toUpperCase();
 
   // Session setup (NTLMv2): Samba's passdb, then the Unix account behind it.
@@ -180,6 +224,9 @@ export function smbConnect(world: World, client: Host, target: string, user: str
       return done({ ok: false, stage: 'session', error: status === 'NT_STATUS_ACCOUNT_DISABLED' ? 'NT_STATUS_ACCOUNT_DISABLED' : 'NT_STATUS_LOGON_FAILURE', serverIp: ip });
     }
     account = unix!;
+  } else if (conf.global['restrict anonymous'] === '2') {
+    conn.send('s2c', 70, { protocol: 'SMB2', info: 'Session Setup Response, Error: STATUS_ACCESS_DENIED', fields: [] });
+    return done({ ok: false, stage: 'session', error: 'NT_STATUS_ACCESS_DENIED', serverIp: ip });
   }
   conn.send('s2c', 300, { protocol: 'SMB2', info: 'Session Setup Response', fields: [] });
   const session: SmbSession = { server, serverIp: ip, conf, user: account };
@@ -191,29 +238,41 @@ export function smbConnect(world: World, client: Host, target: string, user: str
     conn.send('s2c', 70, { protocol: 'SMB2', info: `Tree Connect Response, Error: ${status}`, fields: [] });
     return done({ ok: false, stage: 'tree', error, serverIp: ip });
   };
-  if (share.toUpperCase() === 'IPC$') { conn.send('s2c', 80, { protocol: 'SMB2', info: 'Tree Connect Response', fields: [] }); return done({ ok: true, session }); }
+  if (share.toUpperCase() === 'IPC$') { conn.send('s2c', 80, { protocol: 'SMB2', info: 'Tree Connect Response', fields: [{ name: 'Share Type', value: 'Named pipe' }] }); return done({ ok: true, session: { ...session, ipc: true } }); }
   const s = findShare(conf, share);
   if (!s || boolValue(s.params.available ?? 'yes') === false) return fail('NT_STATUS_BAD_NETWORK_NAME', 'STATUS_BAD_NETWORK_NAME');
   const who = account ?? GUEST;
   if (!account && !boolValue(s.params['guest ok'])) return fail('NT_STATUS_ACCESS_DENIED', 'STATUS_ACCESS_DENIED');
+  if (!hostsAllowed(s.params['hosts allow'], s.params['hosts deny'], clientIp, clientNames)) {
+    smbLog(world, server, clientName, 0, '../../source3/lib/access.c:338(check_access)', `Denied connection from ${clientIp} (${clientIp})`);
+    return fail('NT_STATUS_ACCESS_DENIED', 'STATUS_ACCESS_DENIED');
+  }
+  // valid users / invalid users apply to guests too (as the guest account, nobody).
   const valid = list(s.params['valid users']);
   const invalid = list(s.params['invalid users']);
-  if (account && ((valid.length && !listMatches(valid, account)) || listMatches(invalid, account))) {
-    smbLog(world, server, clientName, 2, '../../source3/smbd/service.c:614(make_connection_snum)', `user '${account.name}' (from session setup) not permitted to access this share (${s.name})`);
+  if ((valid.length && !listMatches(valid, who)) || listMatches(invalid, who)) {
+    smbLog(world, server, clientName, 2, '../../source3/smbd/service.c:614(make_connection_snum)', `user '${who.name}' (from session setup) not permitted to access this share (${s.name})`);
     return fail('NT_STATUS_ACCESS_DENIED', 'STATUS_ACCESS_DENIED');
+  }
+  // force user: file operations run as that account (the logon still decides who may connect).
+  const forced = s.params['force user'] ? server.users[s.params['force user']] : undefined;
+  if (s.params['force user'] && !forced) {
+    smbLog(world, server, clientName, 0, '../../source3/smbd/service.c:390(set_conn_force_user_group)', `Couldn't find user ${s.params['force user']}`);
+    return fail('NT_STATUS_NO_SUCH_USER', 'STATUS_NO_SUCH_USER');
   }
   const root = (s.params.path ?? '').replace(/\/+$/, '') || '/';
   if (server.fs[root]?.type !== 'dir') {
     smbLog(world, server, clientName, 0, '../../source3/smbd/service.c:770(make_connection_snum)', `make_connection_snum: canonicalize_connect_path failed for service ${s.name}, path ${root}`);
     return fail('NT_STATUS_BAD_NETWORK_NAME', 'STATUS_BAD_NETWORK_NAME');
   }
-  if (!canAccess(server.fs[root], who, 'x')) return fail('NT_STATUS_ACCESS_DENIED', 'STATUS_ACCESS_DENIED');
-  const writeList = list(s.params['write list']);
-  const writable = !shareReadOnly(s) || (!!account && listMatches(writeList, account));
+  const actor = forced ?? who;
+  if (!canTraverse(server, root + '/x', actor) || !canAccess(server.fs[root], actor, 'x')) return fail('NT_STATUS_ACCESS_DENIED', 'STATUS_ACCESS_DENIED');
+  // read list makes the share read-only for those users; write list makes it writable.
+  const writable = listMatches(list(s.params['read list']), who) ? false : !shareReadOnly(s) || (!!account && listMatches(list(s.params['write list']), account));
   smbLog(world, server, clientName, 2, '../../source3/smbd/service.c:1124(make_connection_snum)',
     `${clientName} (ipv4:${clientIp}:${conn.sv.peerPort}) connect to service ${s.name} initially as user ${who.name} (uid=${who.uid}, gid=${who.gid}) (pid ${server.nextPid})`);
   conn.send('s2c', 80, { protocol: 'SMB2', info: 'Tree Connect Response', fields: [{ name: 'Share Type', value: 'Disk' }] });
-  return done({ ok: true, session: { ...session, share: s, root, writable } });
+  return done({ ok: true, session: { ...session, share: s, root, writable, fileUser: forced } });
 }
 
 /** The share list a client sees (browseable shares plus IPC$). */
@@ -242,12 +301,15 @@ export function serverPath(session: SmbSession, rel: string): string | null {
   return parts.length ? `${session.root === '/' ? '' : session.root}/${parts.join('/')}` : session.root!;
 }
 
-const who = (s: SmbSession) => s.user ?? GUEST;
+const who = (s: SmbSession) => s.fileUser ?? s.user ?? GUEST;
+/** The user may enter every directory above path (inside the share as on any Unix system). */
+const reachable = (s: SmbSession, p: string) => canTraverse(s.server, p, who(s));
 
 export function smbList(session: SmbSession, dir: string): { status: FileStatus; entries?: { name: string; dir: boolean; size: number; mtime: number }[] } {
   const p = serverPath(session, dir);
   const h = session.server;
   if (!p || !h.fs[p]) return { status: 'NT_STATUS_NO_SUCH_FILE' };
+  if (!reachable(session, p)) return { status: 'NT_STATUS_ACCESS_DENIED' };
   if (h.fs[p].type !== 'dir') return { status: 'NT_STATUS_OK', entries: [{ name: p.split('/').pop()!, dir: false, size: (h.fs[p].size ?? h.fs[p].content.length), mtime: h.fs[p].mtime }] };
   if (!canAccess(h.fs[p], who(session), 'r')) return { status: 'NT_STATUS_ACCESS_DENIED' };
   const entries = [{ name: '.', dir: true, size: 0, mtime: h.fs[p].mtime }, { name: '..', dir: true, size: 0, mtime: h.fs[p].mtime },
@@ -262,6 +324,7 @@ export function smbRead(session: SmbSession, rel: string): { status: FileStatus;
   const p = serverPath(session, rel);
   const h = session.server;
   if (!p || !h.fs[p]) return { status: 'NT_STATUS_OBJECT_NAME_NOT_FOUND' };
+  if (!reachable(session, p)) return { status: 'NT_STATUS_ACCESS_DENIED' };
   if (h.fs[p].type === 'dir') return { status: 'NT_STATUS_FILE_IS_A_DIRECTORY' };
   if (!canAccess(h.fs[p], who(session), 'r')) return { status: 'NT_STATUS_ACCESS_DENIED' };
   return { status: 'NT_STATUS_OK', content: h.fs[p].content };
@@ -276,13 +339,14 @@ export function smbWrite(world: World, session: SmbSession, rel: string, content
   if (!p || p === session.root) return 'NT_STATUS_ACCESS_DENIED';
   const parent = h.fs[dirname(p)];
   if (!parent || parent.type !== 'dir') return 'NT_STATUS_OBJECT_PATH_NOT_FOUND';
-  if (!session.writable) return 'NT_STATUS_ACCESS_DENIED';
+  if (!session.writable || !reachable(session, p)) return 'NT_STATUS_ACCESS_DENIED';
   const u = who(session);
   const existing = h.fs[p];
   if (existing?.type === 'dir') return 'NT_STATUS_FILE_IS_A_DIRECTORY';
   if (existing ? !canAccess(existing, u, 'w') : !canAccess(parent, u, 'w')) return 'NT_STATUS_ACCESS_DENIED';
   const s = session.share!;
-  const group = s.params['force group']?.replace(/^\+/, '') || existing?.group || u.primaryGroup;
+  // force group applies to new files; an overwritten file keeps its owner and group.
+  const group = existing?.group ?? (s.params['force group']?.replace(/^\+/, '') || u.primaryGroup);
   // Samba starts from 0666 for a writable file, then applies create mask (default 0744) and force create mode.
   const mode = existing?.mode ?? ((0o666 & octalParam(s.params['create mask'], 0o744)) | octalParam(s.params['force create mode'], 0));
   writeFile(h, p, content, world.clock, { mode, owner: existing?.owner ?? u.name, group });
@@ -297,10 +361,10 @@ export function smbMkdir(world: World, session: SmbSession, rel: string): FileSt
   if (!parent || parent.type !== 'dir') return 'NT_STATUS_OBJECT_PATH_NOT_FOUND';
   if (h.fs[p]) return 'NT_STATUS_OBJECT_NAME_COLLISION';
   const u = who(session);
-  if (!session.writable || !canAccess(parent, u, 'w')) return 'NT_STATUS_ACCESS_DENIED';
+  if (!session.writable || !reachable(session, p) || !canAccess(parent, u, 'w')) return 'NT_STATUS_ACCESS_DENIED';
   const s = session.share!;
   const mode = (0o777 & octalParam(s.params['directory mask'], 0o755)) | octalParam(s.params['force directory mode'], 0);
-  h.fs[p] = { type: 'dir', mode, owner: u.name, group: s.params['force group']?.replace(/^\+/, '') || u.primaryGroup, content: '', mtime: world.clock };
+  mkdir(h, p, world.clock, { mode, owner: u.name, group: s.params['force group']?.replace(/^\+/, '') || u.primaryGroup });
   return 'NT_STATUS_OK';
 }
 
@@ -309,7 +373,7 @@ export function smbDelete(session: SmbSession, rel: string, dir: boolean): FileS
   const h = session.server;
   if (!p || !h.fs[p] || p === session.root) return 'NT_STATUS_OBJECT_NAME_NOT_FOUND';
   if (dir !== (h.fs[p].type === 'dir')) return dir ? 'NT_STATUS_NOT_A_DIRECTORY' : 'NT_STATUS_FILE_IS_A_DIRECTORY';
-  if (!session.writable || !canAccess(h.fs[dirname(p)], who(session), 'w')) return 'NT_STATUS_ACCESS_DENIED';
+  if (!session.writable || !reachable(session, p) || !canAccess(h.fs[dirname(p)], who(session), 'w')) return 'NT_STATUS_ACCESS_DENIED';
   if (dir && listDir(h, p).length) return 'NT_STATUS_DIRECTORY_NOT_EMPTY';
   delete h.fs[p];
   return 'NT_STATUS_OK';

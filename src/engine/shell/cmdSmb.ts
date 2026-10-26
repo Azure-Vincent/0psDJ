@@ -28,7 +28,7 @@ function words(s: string): string[] {
   return out;
 }
 
-const connectError = (target: string, e: SmbError) => `do_connect: Connection to ${target} failed (Error ${e})`;
+const connectError = (target: string, e: SmbError) => (e === 'NT_STATUS_CONNECTION_DISCONNECTED' ? `protocol negotiation failed: ${e}` : `do_connect: Connection to ${target} failed (Error ${e})`);
 
 /** Run smbclient's -c commands in a connected share. */
 function runCommands(ctx: CmdCtx, session: SmbSession, script: string): { out: string[]; code: number } {
@@ -40,6 +40,12 @@ function runCommands(ctx: CmdCtx, session: SmbSession, script: string): { out: s
   for (const cmd of script.split(';').map((x) => x.trim()).filter(Boolean)) {
     const [name, ...args] = words(cmd);
     const op = name.toLowerCase();
+    // IPC$ is the server's inter-process share: it has no files.
+    if (session.ipc && !['pwd', 'exit', 'quit', 'q'].includes(op)) {
+      out.push(op === 'ls' || op === 'dir' ? 'NT_STATUS_INVALID_INFO_CLASS listing \\*' : `NT_STATUS_ACCESS_DENIED ${op === 'get' || op === 'put' ? `opening remote file \\${args[op === 'put' ? 1 : 0] ?? args[0] ?? ''}` : `on \\${args[0] ?? ''}`}`);
+      code = 1;
+      continue;
+    }
     if (op === 'ls' || op === 'dir') {
       const r = smbList(session, args[0] ? rel(args[0]) : cwd || '\\');
       if (r.status !== 'NT_STATUS_OK') { out.push(`${r.status} listing ${show(args[0] ?? '')}${args[0] ? '' : '*'}`); code = 1; continue; }
@@ -51,7 +57,7 @@ function runCommands(ctx: CmdCtx, session: SmbSession, script: string): { out: s
       if (r.status !== 'NT_STATUS_OK' || !r.entries?.some((e) => e.name === '.')) { out.push(`cd ${show(args[0] ?? '')}: NT_STATUS_OBJECT_NAME_NOT_FOUND`); code = 1; continue; }
       cwd = target === '\\' ? '' : target;
     } else if (op === 'pwd') {
-      out.push(`Current directory is \\\\${session.server.hostname}\\${session.share!.name}${cwd || '\\'}${cwd ? '\\' : ''}`);
+      out.push(`Current directory is \\\\${session.server.hostname}\\${session.share?.name ?? 'IPC$'}${cwd || '\\'}${cwd ? '\\' : ''}`);
     } else if (op === 'get') {
       if (!args[0]) { out.push('get <filename> [localname]'); code = 1; continue; }
       const r = smbRead(session, rel(args[0]));
