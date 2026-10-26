@@ -308,7 +308,16 @@ export const LAB1: GuidedLab = {
   level: 'beginner',
   duration: '60–90 min',
   summary: 'Take a freshly installed Debian server from "plugged in, no network" to a hardened intranet web server: switch port, static addressing, DNS (client and zone), SSH keys and hardening, a default-deny firewall, a web page, and a reboot test.',
-  brief: 'The status page of the operations team needs its own server. The virtualization team has installed Debian 12 on **srv02** and cabled it to port **swp10** of the access switch sw01; the installer was left at its defaults (DHCP, password logins, no firewall). Your change ticket (CHG-1500): put srv02 on the **server VLAN 20** as **10.0.20.20**, publish it in DNS as **srv02.corp.lab**, allow administration only with SSH keys from the office network, and serve the status page to everyone on the intranet. The change is only done when everything still works after a reboot.',
+  brief: `The operations team needs its own server for its status page. The virtualisation team has installed Debian 12 on **srv02** and connected it to port **swp10** of the access switch sw01. The installer was left at its defaults: the address comes from DHCP, password logins are allowed, and there is no firewall.
+
+Your change ticket (CHG-1500) asks you to:
+
+- put srv02 on the **server network, VLAN 20**, with the fixed address **10.0.20.20**;
+- publish it in DNS as **srv02.corp.lab**;
+- allow administration only with **SSH keys**, and only from the office network;
+- serve the status page to everyone on the intranet.
+
+The change is only finished when everything still works after every machine has restarted. Each step tells you what to achieve and why; hints and a reference solution are there if you get stuck.`,
   objectives: [
     'Configure an access port on a Linux bridge (ifupdown2) and verify layer 2 from both ends.',
     'Replace installer DHCP with a persistent static configuration (ifupdown).',

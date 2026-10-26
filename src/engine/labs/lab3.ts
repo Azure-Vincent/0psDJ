@@ -169,7 +169,16 @@ export const LAB3: GuidedLab = {
   level: 'intermediate',
   duration: '60–90 min',
   summary: 'Turn a freshly installed pfSense into the perimeter firewall: bring up a DMZ, define aliases, write a DMZ policy (DNS only to the inside, Internet allowed, everything else blocked and logged), publish the web server with a port forward, open the DMZ to the office, and prove it survives a restart.',
-  brief: `The web team needs the customer portal online (CHG-1580). **dmz01** (${DMZ01_IP}) is installed and cabled to fw01's third port; **fw01** is a fresh pfSense ${PF_VERSION} with only the setup wizard done: WAN (203.0.113.10) and LAN (${FW01_LAN_IP}, on the server network). Build the DMZ on vtnet2 (172.16.50.1/24, named DMZ). The DMZ may ask ns1 for DNS and go to the Internet, but must not reach anything else inside, and attempts must be logged. Publish the portal on fw01's WAN address (HTTP and HTTPS only), and let the office reach it too. Administer fw01 from the webConfigurator in ws01's browser (admin / ${FW01_ADMIN_PASSWORD}); the console shell has pfctl and the logs. The change is only done when everything still works after a restart of every machine.`,
+  brief: `The web team needs the customer portal online (change CHG-1580). The portal server **dmz01** (${DMZ01_IP}) is installed and connected to fw01's third network port. **fw01** is a fresh pfSense ${PF_VERSION}; only the setup wizard has been run, giving it a WAN address (203.0.113.10, the Internet side) and a LAN address (${FW01_LAN_IP}, on the server network).
+
+Your job is to build a **DMZ**: a separate network for servers that the Internet can reach, kept apart from the internal networks. Specifically:
+
+- bring up the DMZ on vtnet2, as 172.16.50.1/24, named DMZ;
+- let the DMZ ask ns1 for DNS and reach the Internet, but **nothing else** inside, and log every blocked attempt;
+- publish the portal on fw01's WAN address, for HTTP and HTTPS only;
+- let the office reach the portal too.
+
+You administer fw01 from the webConfigurator in ws01's browser (admin / ${FW01_ADMIN_PASSWORD}); its console shell has pfctl and the logs. The change is only finished when everything still works after every machine has restarted.`,
   objectives: [
     'Assign and address a new interface on pfSense and apply the change.',
     'Use aliases to keep rules readable and to change addresses in one place.',

@@ -108,10 +108,10 @@ export const SMB_GUIDE: ServiceGuide = {
     { action: 'systemctl restart smbd', when: 'After [global] changes such as interfaces or protocol versions.', effect: 'Restarts the service.', risk: 'Every client loses its open files.' },
   ],
   workflow: [
-    { question: '1. Can the client reach port 445?', command: 'smbclient -L fs01 -U alice\nTest-NetConnection fs01 -Port 445', healthy: 'The share list, or TcpTestSucceeded : True', broken: 'NT_STATUS_IO_TIMEOUT (dropped), NT_STATUS_CONNECTION_REFUSED (smbd down), system error 53.', next: 'Then the logon.', sim: true },
-    { question: '2. Does the logon work?', command: 'smbclient -L fs01 -U carol\ntail /var/log/samba/log.ws01', healthy: 'The share list', broken: 'session setup failed: NT_STATUS_LOGON_FAILURE; the log says NO_SUCH_USER (smbpasswd -a missing) or WRONG_PASSWORD.', next: 'Then the share.', sim: true },
-    { question: '3. Does the share let this user in?', command: 'smbclient //fs01/office -U dana -c ls\ntestparm -s\nid dana', healthy: 'The directory listing', broken: 'NT_STATUS_ACCESS_DENIED (valid users / group), NT_STATUS_BAD_NETWORK_NAME (no such share, or its path is missing).', next: 'Then writing.', sim: true },
-    { question: '4. Can the user write?', command: 'smbclient //fs01/office -U dana -c "put /etc/hostname t.txt"\nls -ld /srv/office', healthy: 'putting file /etc/hostname as \\t.txt', broken: 'NT_STATUS_ACCESS_DENIED opening remote file: read only share (default!) or Unix permissions.', next: 'Fix the layer that refuses, test again as the real user.', sim: true },
+    { question: 'Can the client reach port 445?', why: 'Nothing else can work if TCP 445 is not reachable. A timeout and "refused" point to different causes (firewall versus smbd).', command: 'smbclient -L fs01 -U alice\nTest-NetConnection fs01 -Port 445', healthy: 'The share list, or TcpTestSucceeded : True', broken: 'NT_STATUS_IO_TIMEOUT (dropped), NT_STATUS_CONNECTION_REFUSED (smbd down), system error 53.', next: 'Then the logon.', sim: true },
+    { question: 'Does the logon work?', why: 'Samba keeps its own password database. A Unix account without a Samba password, or a disabled entry, fails at logon.', command: 'smbclient -L fs01 -U carol\ntail /var/log/samba/log.ws01', healthy: 'The share list', broken: 'session setup failed: NT_STATUS_LOGON_FAILURE; the log says NO_SUCH_USER (smbpasswd -a missing) or WRONG_PASSWORD.', next: 'Then the share.', sim: true },
+    { question: 'Does the share let this user in?', why: 'After logon, the share\'s own rules (valid users, path) decide whether this user may open it.', command: 'smbclient //fs01/office -U dana -c ls\ntestparm -s\nid dana', healthy: 'The directory listing', broken: 'NT_STATUS_ACCESS_DENIED (valid users / group), NT_STATUS_BAD_NETWORK_NAME (no such share, or its path is missing).', next: 'Then writing.', sim: true },
+    { question: 'Can the user write?', why: 'Writing needs both a writable share (read only is the default) and Unix permissions that let the account write.', command: 'smbclient //fs01/office -U dana -c "put /etc/hostname t.txt"\nls -ld /srv/office', healthy: 'putting file /etc/hostname as \\t.txt', broken: 'NT_STATUS_ACCESS_DENIED opening remote file: read only share (default!) or Unix permissions.', next: 'Fix the layer that refuses, test again as the real user.', sim: true },
   ],
   failures: [
     { symptom: 'NT_STATUS_LOGON_FAILURE / System error 1326 for one user', causes: ['No Samba password (smbpasswd -a never run)', 'Wrong password', 'Account disabled (smbpasswd -d)'], diagnose: ['pdbedit -L', 'The Auth: line in /var/log/samba/log.CLIENT'], fix: 'smbpasswd -a USER (or -e to enable).', verify: 'smbclient -L SERVER -U USER lists the shares.' },
@@ -139,7 +139,9 @@ export const SMB_LESSON: Lesson = {
   concepts: ['files.smb', 'linux.permissions', 'fw.path'],
 
   what: `
-**SMB** is the file-sharing protocol of Windows; **Samba** implements it on Linux. A server offers **shares** (named folders such as \\\\fs01\\office); a client logs on with a user name and password and then works with the files, often through a mapped drive letter.
+**SMB** (Server Message Block) is the file-sharing protocol of Windows; **Samba** implements it on Linux. A server offers **shares** (named folders such as \\\\fs01\\office); a client logs on with a user name and password and then works with the files, often through a mapped drive letter such as O:.
+
+Unlike [NFS](#/lesson/nfs/what), which trusts the user numbers a client sends, SMB makes each user **log on** with a password. After that, Samba checks access twice: once against the share's own settings in smb.conf, and once against the normal Linux file permissions of the account. It all runs over TCP port 445, so the network and firewall rules from earlier lessons apply.
 
 ### Problems it solves
 - **Shared folders for every desktop.** Windows maps \\\\fs01\\office as O:; macOS and Linux connect too.
@@ -278,13 +280,15 @@ Check with \`testparm -s\` after every edit.
 
 `,
   troubleshootingIntro: `
-### Connect, logon, share, file
-1. **Connect**: \`smbclient -L fs01\` or \`Test-NetConnection fs01 -Port 445\` (timeout = firewall, refused = smbd).
-2. **Logon**: "session setup failed" / 1326: \`pdbedit -L\` and the Auth: line in /var/log/samba/log.CLIENT.
-3. **Share**: "tree connect failed" / 5 or 67: \`testparm -s\` (valid users, path), \`id USER\`, \`ls -ld PATH\`.
-4. **File**: "ACCESS_DENIED opening remote file": read only (default!) or Unix permissions.
+### Connect, log on, open the share, use the file
+Every SMB access goes through four steps, in this order, and each one fails in its own way. Find the first step that fails.
 
-Windows only gives a number: 53, 1326, 5, 67. The server's log says why.
+1. **Connect.** Can the client reach TCP port 445? Try \`smbclient -L fs01\` or \`Test-NetConnection fs01 -Port 445\`. A timeout means a firewall drops the connection; "refused" means smbd is not running.
+2. **Log on.** "session setup failed" (Windows error 1326) means the user name or password was rejected. \`pdbedit -L\` lists the users Samba knows (a Unix account alone is not enough), and the "Auth:" line in /var/log/samba/log.CLIENT says why the logon failed.
+3. **Open the share.** "tree connect failed" (Windows error 5 or 67) means the logon worked but this user may not use this share, or the share's folder does not exist. \`testparm -s\` shows the effective settings (valid users, path), \`id USER\` shows the user's groups, and \`ls -ld PATH\` shows whether the folder exists.
+4. **Use the file.** "ACCESS_DENIED opening remote file" means the share is read-only (Samba's default!) or the Linux permissions do not allow this account to write.
+
+Windows only shows a number (53, 1326, 5, 67). The server's log tells you why, so read it.
 `,
 
   errorMap: [

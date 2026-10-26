@@ -9,53 +9,61 @@ export const SSH_LESSON: Lesson = {
   concepts: ['dns.resolution', 'net.routing', 'net.arp', 'tcp.handshake', 'fw.stateful', 'svc.systemd', 'svc.listening', 'ssh.kex', 'ssh.hostkeys', 'ssh.userauth', 'ssh.authorized-keys', 'linux.permissions', 'ssh.config', 'ssh.authz', 'logs.journal'],
 
   what: `
-SSH (Secure Shell, RFC 4251–4254) gives you an **encrypted, authenticated channel to another computer** over an untrusted network. It is the standard way to administer Linux/Unix servers, network devices and, increasingly, Windows servers, and it is the transport underneath tools like \`scp\`, \`sftp\`, \`rsync\`, Git over SSH and Ansible.
+**SSH** (Secure Shell, RFC 4251–4254) lets you open a terminal on another computer over a network, as if you were sitting at its keyboard. Everything you type and everything it prints travels **encrypted**, and both sides prove who they are before anything else happens. It is the standard way to administer Linux and Unix servers, network devices and, more and more, Windows servers. It is also the transport underneath tools such as \`scp\`, \`sftp\`, \`rsync\`, Git over SSH and Ansible.
+
+On the server, a background program called **sshd** (the SSH daemon) listens for incoming connections on **TCP port 22**. A "daemon" is simply a program that runs in the background without a user attached, waiting to do its job. On the client, you run the \`ssh\` command.
+
+### What SSH builds on
+An SSH connection uses almost everything from module A: the server's name has to resolve ([Transport and DNS](#/lesson/transport/what)), packets need a route there and back ([IP networking](#/lesson/ipnet/what)), a TCP connection to port 22 has to succeed, and every firewall on the way has to allow it. Only then does SSH itself start. That is why SSH problems are often not SSH problems at all, and why this lesson teaches you to read the exact error message to find the layer that failed.
 
 ### Problems it solves
-- **Confidentiality and integrity.** Telnet, rlogin and rsh sent passwords and keystrokes in clear text. Everything SSH sends after the key exchange is encrypted and integrity-protected.
-- **Server authentication.** The client verifies a cryptographic *host key*, so it can detect that it is talking to a different machine than last time (a rebuilt server, a wrong DNS record, or an attacker in the path).
-- **User authentication.** Passwords are only ever sent inside the encrypted channel, and public-key authentication avoids sending a reusable secret at all.
-- **Multiplexing.** One connection carries interactive shells, remote commands, file transfer (SFTP subsystem) and port forwarding as separate *channels*.
+- **Privacy and integrity.** Older tools (Telnet, rlogin, rsh) sent passwords and keystrokes as plain text that anyone on the path could read. Everything SSH sends after its key exchange is encrypted and protected against tampering.
+- **Proving the server's identity.** The client checks a cryptographic **host key** that belongs to the server. If the key changes, the client notices: you may be talking to a rebuilt server, the wrong machine because of a bad DNS record, or an attacker in the middle.
+- **Proving the user's identity.** Passwords are only ever sent inside the encrypted channel, and **public-key authentication** avoids sending a reusable secret at all.
+- **Several things over one connection.** A single connection can carry an interactive shell, remote commands, file transfer (the SFTP subsystem) and port forwarding, each as a separate **channel**.
 
 ### Where you meet it
-- Administrators connecting from a workstation or a **bastion / jump host** to servers (\`ssh -J bastion srv01\`).
-- Automation (Ansible, CI/CD deploy jobs, backups) using non-interactive key-based logins.
+- Administrators connecting from a workstation, or through a **bastion** (jump host), to servers: \`ssh -J bastion srv01\`.
+- Automation (Ansible, CI/CD deployment jobs, backups) using key-based logins that need no human.
 - Network devices (switches, routers, firewalls such as pfSense) and hypervisors.
-- Windows Server 2019/2022 ships an optional **OpenSSH Server** feature.
+- Windows Server 2019/2022, which includes an optional **OpenSSH Server** feature.
 
 ### The pieces
-- \`ssh\` (client), \`sshd\` (server daemon), \`ssh-keygen\`, \`ssh-agent\`, \`ssh-copy-id\`, \`ssh-keyscan\`.
-- Server identity: **host key pairs** in \`/etc/ssh/ssh_host_*_key\`.
-- User identity: **user key pairs** in \`~/.ssh/id_*\` on the client; the public halves are authorised in \`~/.ssh/authorized_keys\` on the server.
-- Client trust store: \`~/.ssh/known_hosts\`.
+- Programs: \`ssh\` (the client), \`sshd\` (the server), \`ssh-keygen\` (creates keys), \`ssh-agent\` (holds your unlocked keys in memory), \`ssh-copy-id\` (installs your public key on a server), \`ssh-keyscan\` (fetches a server's host key).
+- The server's identity: **host key pairs** in \`/etc/ssh/ssh_host_*_key\`.
+- Your identity: **user key pairs** in \`~/.ssh/id_*\` on your computer. The public half of each is authorised on the server in \`~/.ssh/authorized_keys\`.
+- Your client's record of known servers: \`~/.ssh/known_hosts\`.
 
-> This lesson uses OpenSSH 9.2 on Debian 12 for the server and the client. The simulator reproduces this version's messages and log lines; other versions differ in details (for example, Ubuntu 22.10+ starts sshd through systemd socket activation).
+> This lesson uses OpenSSH 9.2 on Debian 12, both as server and client. The simulator reproduces this version's messages and log lines; other versions differ in details (for example, Ubuntu 22.10 and later start sshd through systemd socket activation).
 `,
-
   internals: `
 ### Three protocol layers (RFC 4251)
+SSH itself is built in three layers, each running inside the one before it:
 - **Transport layer (RFC 4253)**: version exchange, algorithm negotiation, key exchange, server authentication by host key, then encryption + integrity for everything that follows.
 - **User authentication protocol (RFC 4252)**: runs *inside* the encrypted transport; the client proves who the user is (publickey, password, keyboard-interactive, GSSAPI/Kerberos, hostbased).
 - **Connection protocol (RFC 4254)**: multiplexes channels (session/shell, exec, subsystem sftp, direct-tcpip and forwarded-tcpip for port forwarding) over the single transport.
 
 ### Everything that happens for \`ssh srv01.corp.lab\`
+Here is the whole journey of one connection, in order. Each step depends on the previous one, so when SSH fails, the error message tells you which step it reached.
+
 1. **Configuration.** The client merges command-line options, \`~/.ssh/config\` and \`/etc/ssh/ssh_config\`. The first value obtained for each option wins.
 2. **Name resolution.** \`getaddrinfo()\` consults NSS: \`/etc/hosts\` first, then DNS servers in \`/etc/resolv.conf\` (with search domains for short names). No answer → "Could not resolve hostname".
 3. **Routing and ARP.** The kernel looks up the destination in the routing table (longest prefix match), chooses the source address and next hop (the default gateway for remote networks), and resolves the next hop's MAC address with ARP.
 4. **TCP three-way handshake** to port 22: SYN, SYN-ACK, ACK. The server's kernel completes this *before* sshd is involved, as long as a socket is listening. Firewalls along the way (and on the server) must allow the SYN and the replies (stateful rules track the connection).
 5. **Identification strings.** Both sides send \`SSH-2.0-<software>\` in clear text.
-6. **KEXINIT.** Each side lists supported algorithms in preference order. For each category the result is the first client algorithm the server also supports.
-7. **Key exchange** (e.g. \`sntrup761x25519-sha512@openssh.com\` or \`curve25519-sha256\`). Ephemeral public values are exchanged; both derive a shared secret *K* and an exchange hash *H*. The server signs *H* with its **host key**.
-8. **Host key verification.** The client checks the signature, then compares the host key with \`known_hosts\`: match → continue; unknown → ask (trust on first use); different → abort with "REMOTE HOST IDENTIFICATION HAS CHANGED".
+6. **KEXINIT (key exchange initialisation).** Each side lists the encryption and signing algorithms it supports, in order of preference. For each category, they use the first algorithm on the client's list that the server also supports. If there is none, the connection stops here.
+7. **Key exchange** (for example \`sntrup761x25519-sha512@openssh.com\` or \`curve25519-sha256\`). Both sides send each other temporary ("ephemeral") public values. From them, each side calculates the same shared secret *K* and a fingerprint of the conversation so far, the exchange hash *H*, without the secret ever crossing the network. The server signs *H* with its **host key** to prove its identity.
+8. **Host key verification.** The client checks the signature, then compares the host key with its \`known_hosts\` file. If it matches, it continues. If the server is unknown, it asks you whether to trust it ("trust on first use"). If the key is different from last time, it refuses with "REMOTE HOST IDENTIFICATION HAS CHANGED".
 9. **NEWKEYS.** From now on every packet is encrypted and authenticated with keys derived from *K* and *H*.
-10. **ssh-userauth.** The client asks which methods are allowed (method "none"), then tries them. For **publickey** it first asks whether a key would be acceptable, then signs a blob containing the session identifier with the private key. The private key never leaves the client.
+10. **User authentication (ssh-userauth).** The client asks which login methods are allowed (by trying the method "none"), then tries them. For **publickey**, it first asks whether a particular key would be accepted, then proves it holds the private key by signing data that includes this session's identifier. The private key itself never leaves the client.
 11. **Authorization and account checks** on the server: account exists, not excluded by \`AllowUsers\`/\`DenyUsers\`/\`AllowGroups\`, valid shell, PAM account rules, \`PermitRootLogin\`.
 12. **Session.** sshd opens a PAM session (logind session, MOTD, environment), allocates a pseudo-terminal and starts the user's shell. Channels carry the terminal data.
 
 ### Operating-system components on the server
-- **systemd** starts \`ssh.service\`, which on Debian first runs \`sshd -t\` (configuration test) and then \`sshd -D\`. A failed test means sshd does not start.
-- The **listener** process accepts connections and starts one **per-connection child**. Pre-authentication work happens in an unprivileged, sandboxed process (privilege separation), so a bug in parsing attacker-controlled data does not run as root.
-- **PAM** (\`/etc/pam.d/sshd\`) handles password verification (\`pam_unix\` against \`/etc/shadow\`), account checks and session setup when \`UsePAM yes\`.
+sshd does not work alone. Several parts of the operating system take part in every login:
+- **systemd**, the Linux service manager that starts and supervises background programs, starts \`ssh.service\`, which on Debian first runs \`sshd -t\` (configuration test) and then \`sshd -D\`. A failed test means sshd does not start.
+- The main sshd process (the **listener**) accepts each connection and starts a separate **child process** for it. Everything that happens before login runs in an unprivileged, sandboxed process (this is called **privilege separation**), so a bug triggered by an attacker's data does not run as root.
+- **PAM** (Pluggable Authentication Modules, configured in \`/etc/pam.d/sshd\`) is the shared login framework of Linux. It handles password verification (\`pam_unix\` against \`/etc/shadow\`), account checks and session setup when \`UsePAM yes\`.
 - **The journal** receives sshd's messages (Debian 12 does not install rsyslog by default, so there is no \`/var/log/auth.log\`; use \`journalctl -u ssh\`).
 - **The host firewall** (nftables on Debian 12) filters packets before they reach any socket.
 
@@ -123,14 +131,13 @@ SSH works only if *every* layer below it works: name resolution → client route
   ],
 
   configIntro: `
-sshd reads \`/etc/ssh/sshd_config\` at start and on reload. Three rules explain most surprises:
-- **The first value obtained for a keyword wins.** Later duplicates are ignored (except list keywords such as \`Port\`, \`ListenAddress\`, \`HostKey\`, \`AllowUsers\`, which accumulate). Debian's file begins with \`Include /etc/ssh/sshd_config.d/*.conf\`, so drop-ins override the main file.
-- **Commented lines are documentation of defaults**, not configuration. \`#PasswordAuthentication yes\` does nothing.
-- **Edits take effect only after reload or restart**, and the daemon keeps running with the old configuration until then. Always run \`sshd -t\`, and verify with \`sshd -T\` (optionally \`-C user=alice,addr=10.0.10.25\` to evaluate Match blocks for a specific connection).
+sshd reads its configuration file, \`/etc/ssh/sshd_config\`, when it starts and when it is told to reload. Three rules explain most surprises:
+- **The first value for a setting wins.** If the same keyword appears twice, the second one is ignored. (A few list keywords, such as \`Port\`, \`ListenAddress\`, \`HostKey\` and \`AllowUsers\`, add up instead.) Debian's file starts with \`Include /etc/ssh/sshd_config.d/*.conf\`, so settings in those drop-in files take priority over the main file.
+- **Lines starting with # are comments.** In the default file they document the default values; they do not configure anything. \`#PasswordAuthentication yes\` does nothing.
+- **Edits only take effect after a reload or restart.** Until then, sshd keeps running with the old configuration. Always test the file with \`sshd -t\` before reloading, and check the result with \`sshd -T\`, which prints the settings sshd would actually use. Add \`-C user=alice,addr=10.0.10.25\` to see how Match blocks apply to one particular connection.
 
-Use the explorer below: it runs the simulator's sshd parser on your text and shows the effective result, exactly as \`sshd -T\` would.
+The explorer below runs the simulator's sshd parser on whatever you type and shows the effective result, exactly as \`sshd -T\` would.
 `,
-
   configFiles: [
     {
       platform: 'Linux (Debian/Ubuntu)',
@@ -180,13 +187,15 @@ Use the explorer below: it runs the simulator's sshd parser on your text and sho
 
   troubleshootingIntro: `
 ### A method, not a guess
-1. **Read the exact client message.** It tells you which layer failed (table below). Add \`-v\` to see how far the protocol got.
-2. **Locate the failure.** Is it before TCP (name resolution), during TCP (network/firewall/listener), during key exchange, or during authentication?
-3. **Collect evidence on both ends.** Client: \`ssh -v\`, \`getent hosts\`, \`ip route get\`, \`nc -zv\`. Server: \`systemctl status ssh\`, \`ss -tlnp\`, \`journalctl -u ssh\`, \`nft list ruleset\`, \`tcpdump\`.
-4. **Form one hypothesis and test it** with a command whose result would be different if you were wrong.
-5. **Fix in the persistent configuration**, then verify now AND after a reboot, and check you did not weaken security.
+Restarting sshd, or opening the firewall "to see if that helps", often hides the real problem or creates a new one. Work methodically instead:
 
-The client is deliberately vague about authentication failures (to avoid helping attackers). Authorization and permission problems are only explained in the **server log**.
+1. **Read the exact error message on the client.** Each layer fails with its own message (see the table below): "Could not resolve hostname" is DNS, "Connection refused" means nothing listens on port 22, "Connection timed out" means packets are dropped, "Permission denied" means the connection worked but the login was refused. Add \`-v\` to the ssh command to see how far the conversation got.
+2. **Work out where it failed.** Before TCP (name resolution), during TCP (network, firewall, or no listener), during the key exchange, or during login?
+3. **Collect evidence on both ends.** On the client: \`ssh -v\`, \`getent hosts\` (name), \`ip route get\` (route), \`nc -zv HOST 22\` (TCP). On the server: \`systemctl status ssh\` (is sshd running?), \`ss -tlnp\` (is it listening, and on which address?), \`journalctl -u ssh\` (sshd's log), \`nft list ruleset\` (firewall), \`tcpdump\` (what arrives).
+4. **Form one hypothesis and test it** with a command whose result would be different if you were wrong. For example: "sshd only listens on 127.0.0.1" is confirmed or ruled out by one look at \`ss -tlnp\`.
+5. **Fix it in the saved configuration**, then check that it works now **and** after a reboot, and that you did not weaken security on the way.
+
+The client is deliberately vague about login failures, so that it does not help attackers guess which part was wrong. The reason (wrong password, user not allowed, bad file permissions) is only written in the **server's log**, so always read it.
 
 ### Scoring engines and other programs (Go's SSH client)
 Competition scoring engines (CCDC and similar), monitoring and automation tools are often written in Go and report **Go's** error text, not OpenSSH's. They usually log in with a password, try it **once**, and ignore host keys. Translate the message, then investigate exactly as above:

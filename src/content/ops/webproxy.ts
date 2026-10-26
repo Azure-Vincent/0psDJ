@@ -122,11 +122,11 @@ export const WEBPROXY_GUIDE: ServiceGuide = {
     { action: 'Change the backend, not the proxy', when: 'The error log shows the upstream refusing or timing out.', effect: 'Fix the application, its port mapping or its firewall; the proxy recovers on the next request (no reload needed).', risk: 'Changing proxy_pass to "make it work" (pointing at another port or host) can expose the wrong service.' },
   ],
   workflow: [
-    { question: '1. Does the client reach the proxy, and who answers?', command: 'curl -sS -i http://apps.corp.lab/inventory/health', healthy: 'HTTP/1.1 200 OK\nServer: nginx/1.22.1\n...\n{"status":"ok","database":"ok"}', broken: '`Couldn\'t connect to server` (nginx down) → step 2. `502 Bad Gateway` / `504 Gateway Time-out` (nginx up, upstream failed) → step 3. A 404 or 500 whose body is the application\'s (JSON) → the backend answered: step 5.', next: 'Read the status and the body: nginx\'s HTML error page and the application\'s own errors point to different layers.', sim: true },
-    { question: '2. Is nginx running, and why not?', command: 'systemctl status nginx\njournalctl -u nginx -n 20\nnginx -t', healthy: 'active (running)\nnginx: configuration file /etc/nginx/nginx.conf test is successful', broken: '`[emerg] host not found in upstream "NAME:PORT"`: an upstream name does not resolve. Certificate errors, `bind() … (98: Address already in use)`.', next: 'Fix the configuration, nginx -t, then systemctl start nginx.', sim: true },
-    { question: '3. What did nginx try, and what happened?', command: 'tail -n 5 /var/log/nginx/error.log', healthy: '(nothing new for this request)', broken: '`connect() failed (111: Connection refused)` → nothing listens at upstream: "…" (wrong port, app down). `upstream timed out (110: Connection timed out) while connecting` → packets dropped (backend firewall). `SSL_do_handshake() failed … wrong version number` → https:// to a plain-HTTP backend.', next: 'The `upstream:` field is the exact target: test it from the proxy (step 4).', sim: true },
-    { question: '4. Does the upstream answer from the proxy host?', command: 'nc -zv -w 3 dock01.corp.lab 8000\ncurl -sS -i http://dock01.corp.lab:8000/health', healthy: 'Connection to dock01.corp.lab (10.0.20.40) 8000 port [tcp/*] succeeded!\nHTTP/1.1 200 OK', broken: 'Refused: the backend is down or on another port. Timed out while the same test works from a client PC: the backend firewall allows the clients but not the proxy.', next: 'Fix the backend or its firewall (allow the proxy\'s address), not the client side.', sim: true },
-    { question: '5. Which URI and Host does the backend receive?', command: 'grep -n -e location -e proxy_pass -e proxy_set_header /etc/nginx/nginx.conf', healthy: 'location /inventory/ {\nproxy_pass http://dock01.corp.lab:8000/;\nproxy_set_header Host $host;', broken: '`proxy_pass http://dock01.corp.lab:8000;` (no URI): the backend receives /inventory/health and answers 404. A missing `proxy_set_header Host` sends `Host: dock01.corp.lab:8000`, which name-based backends may not serve.', next: 'Compare with the backend\'s own log (docker compose logs app on dock01).', sim: true },
+    { question: 'Does the client reach the proxy, and who answers?', why: 'First find out whether the client reaches the proxy at all, and who answers: nginx (a 502 or 504) or the application (its own error page).', command: 'curl -sS -i http://apps.corp.lab/inventory/health', healthy: 'HTTP/1.1 200 OK\nServer: nginx/1.22.1\n...\n{"status":"ok","database":"ok"}', broken: '`Couldn\'t connect to server` (nginx down) → step 2. `502 Bad Gateway` / `504 Gateway Time-out` (nginx up, upstream failed) → step 3. A 404 or 500 whose body is the application\'s (JSON) → the backend answered: step 5.', next: 'Read the status and the body: nginx\'s HTML error page and the application\'s own errors point to different layers.', sim: true },
+    { question: 'Is nginx running, and why not?', why: 'If nginx itself is down or failed to start, no request gets anywhere. nginx refuses to start when an upstream name cannot be resolved or the configuration is invalid.', command: 'systemctl status nginx\njournalctl -u nginx -n 20\nnginx -t', healthy: 'active (running)\nnginx: configuration file /etc/nginx/nginx.conf test is successful', broken: '`[emerg] host not found in upstream "NAME:PORT"`: an upstream name does not resolve. Certificate errors, `bind() … (98: Address already in use)`.', next: 'Fix the configuration, nginx -t, then systemctl start nginx.', sim: true },
+    { question: 'What did nginx try, and what happened?', why: 'nginx writes the exact backend address it tried, and why it failed, to error.log. That is far more precise than the status code.', command: 'tail -n 5 /var/log/nginx/error.log', healthy: '(nothing new for this request)', broken: '`connect() failed (111: Connection refused)` → nothing listens at upstream: "…" (wrong port, app down). `upstream timed out (110: Connection timed out) while connecting` → packets dropped (backend firewall). `SSL_do_handshake() failed … wrong version number` → https:// to a plain-HTTP backend.', next: 'The `upstream:` field is the exact target: test it from the proxy (step 4).', sim: true },
+    { question: 'Does the upstream answer from the proxy host?', why: 'The second connection starts on the proxy machine, so test from there. A backend firewall may allow your workstation but not the proxy.', command: 'nc -zv -w 3 dock01.corp.lab 8000\ncurl -sS -i http://dock01.corp.lab:8000/health', healthy: 'Connection to dock01.corp.lab (10.0.20.40) 8000 port [tcp/*] succeeded!\nHTTP/1.1 200 OK', broken: 'Refused: the backend is down or on another port. Timed out while the same test works from a client PC: the backend firewall allows the clients but not the proxy.', next: 'Fix the backend or its firewall (allow the proxy\'s address), not the client side.', sim: true },
+    { question: 'Which URI and Host does the backend receive?', why: 'proxy_pass can rewrite the path, and the Host header may change on the way. The backend\'s own log shows what it really received.', command: 'grep -n -e location -e proxy_pass -e proxy_set_header /etc/nginx/nginx.conf', healthy: 'location /inventory/ {\nproxy_pass http://dock01.corp.lab:8000/;\nproxy_set_header Host $host;', broken: '`proxy_pass http://dock01.corp.lab:8000;` (no URI): the backend receives /inventory/health and answers 404. A missing `proxy_set_header Host` sends `Host: dock01.corp.lab:8000`, which name-based backends may not serve.', next: 'Compare with the backend\'s own log (docker compose logs app on dock01).', sim: true },
   ],
   failures: [
     { symptom: '502 Bad Gateway immediately', causes: ['proxy_pass names the wrong port or host (nothing listens there)', 'The backend application is down or crashing', 'https:// in proxy_pass for a plain-HTTP backend', 'RHEL: SELinux denies httpd_t network connections (13: Permission denied)'], diagnose: ['tail /var/log/nginx/error.log (message and upstream: field)', 'curl the upstream URL from the proxy host', 'getsebool httpd_can_network_connect (RHEL)'], fix: 'Point proxy_pass at the real port/scheme, start the backend, or set the SELinux boolean. nginx -t && systemctl reload nginx after a proxy change.', verify: 'curl -sS -o /dev/null -w "%{http_code}\\n" http://apps.corp.lab/inventory/health → 200' },
@@ -155,7 +155,11 @@ export const WEBPROXY_LESSON: Lesson = {
   concepts: ['web.proxy', 'tcp.handshake', 'dns.resolution', 'svc.listening', 'fw.path', 'svc.systemd'],
 
   what: `
-A **web server** answers HTTP requests from files (static content) or by handing them to an application. A **reverse proxy** is a web server placed **in front of** other servers: clients only talk to it, and it forwards each request to the right backend ("upstream") and relays the answer.
+A **web server** answers HTTP requests, either from files on disk (static content) or by handing the request to an application. A **reverse proxy** is a web server placed **in front of** other servers: clients only ever talk to the proxy, and the proxy forwards each request to the right server behind it (the **backend**, or **upstream**) and passes the answer back.
+
+Think of a hotel reception desk: guests only talk to the receptionist, who passes each request to the right department and brings back the answer. The guest never needs to know where the kitchen is.
+
+Every request through a proxy is really two separate connections: client to proxy, and proxy to backend. Each one needs DNS, a route, open firewalls and a listening service ([Transport and DNS](#/lesson/transport/what)), and with HTTPS also a valid certificate ([TLS](#/lesson/tls/what)). Most proxy troubleshooting comes down to finding out which of the two connections is broken.
 
 ### Problems it solves
 - **One name, many applications.** \`apps.corp.lab/inventory/\`, \`/wiki/\`, \`/grafana/\` can live on different machines and ports, behind one host name and one TLS certificate.
@@ -309,18 +313,20 @@ Everything is read at start/reload: run \`nginx -t\` first, read the result of t
 `,
   troubleshootingIntro: `
 ### Which hop is broken?
-1. **Client → proxy**: \`curl -i\` from the client. "Couldn't connect" means the proxy itself (nginx down, port, firewall in front of the proxy).
-2. **The proxy's verdict**: a 502/504 is nginx telling you about the upstream; the reason and the exact upstream address are in **error.log**.
-3. **Proxy → backend**: repeat the test **from the proxy host** (\`nc -zv\`, \`curl\`): refused (port, app down) or timed out (firewall that allows clients but not the proxy).
-4. **What the backend got**: its own log shows the path and Host that arrived (the URI rule, the Host header).
+A request through a proxy makes two trips: client to proxy, then proxy to backend. The error you see tells you which trip failed, and who is speaking: a 502 or 504 comes from the proxy, describing its trip to the backend; a 404 or 500 with the application's page comes from the backend itself.
+
+1. **Client to proxy.** Run \`curl -i\` from the client. "Couldn't connect" means the problem is the proxy itself: nginx is down, listening on another port, or a firewall in front of the proxy blocks it.
+2. **The proxy's verdict.** A 502 or 504 is nginx reporting a problem with the backend. The reason, and the exact backend address it tried, are written in nginx's **error.log**.
+3. **Proxy to backend.** Repeat the test **from the proxy machine** (\`nc -zv\`, \`curl\`), because that is where the second connection starts. Refused: the backend's port is wrong or the application is down. Timed out: a firewall that allows clients but not the proxy.
+4. **What the backend received.** The backend's own log shows the path and Host header that actually arrived, which may differ from what the client sent (because of the proxy_pass URI rule or the Host header).
 
 ### Status codes from a proxy
-| Code | Who | Meaning |
+| Code | Who answers | Meaning |
 |---|---|---|
-| 502 Bad Gateway | proxy | Could not get a valid response: refused, no route, TLS failure, connection closed |
-| 504 Gateway Time-out | proxy | Upstream did not accept or answer in time |
-| 503 | proxy (HAProxy, maintenance) or app | No server available / app reports itself unavailable |
-| 404, 500 with the app's body | backend | The request arrived; the application rejected it |
+| 502 Bad Gateway | the proxy | It could not get a valid response: connection refused, no route, a TLS failure, or the connection closed |
+| 504 Gateway Time-out | the proxy | The backend did not accept or answer in time |
+| 503 | the proxy (HAProxy, maintenance page) or the app | No backend available, or the application says it is unavailable |
+| 404, 500 with the app's own page | the backend | The request arrived; the application rejected it |
 
 `,
 

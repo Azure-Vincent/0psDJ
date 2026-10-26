@@ -191,7 +191,7 @@ export const LAB6: GuidedLab = {
   steps: [
     {
       id: 'routing', title: 'Network first: the router',
-      objective: 'Restore routing between the office (10.0.10.0/24) and the servers (10.0.20.0/24), **persistently**.',
+      objective: 'Office computers (10.0.10.0/24) cannot reach anything on the server network (10.0.20.0/24) since the power cut. Find out why traffic stops at the router, fix it, and make sure the fix survives the next restart.',
       background: 'Many symptoms, few causes: before touching any service, find what everything shares. From ws01, `ping 10.0.20.10` (an address: no DNS involved) gets "Destination Host Unreachable" **from 10.0.10.1**, while `ping 10.0.10.1` works: the router receives the packets and refuses to forward them. A Linux router forwards only with **net.ipv4.ip_forward=1**. The value set at runtime (`sysctl -w`) survived until the power cut; at boot the kernel reads it from **/etc/sysctl.d/**, and Thursday\'s hardening run removed that file. Nothing broke on Thursday: the fault waited for the next reboot.',
       tasks: [
         'On ws01: `ping -c1 10.0.10.1` (the router answers) and `ping -c1 10.0.20.10` (unreachable, reported by 10.0.10.1). On rtr01: `sysctl net.ipv4.ip_forward`.',
@@ -207,7 +207,7 @@ export const LAB6: GuidedLab = {
     },
     {
       id: 'dns', title: 'Names: the corp.lab zone',
-      objective: 'Make ns1 serve the complete corp.lab zone again, keeping Friday\'s change (prn01).',
+      objective: 'Now that the networks can reach each other, no corp.lab name resolves. Find out why the DNS server ns1 is not answering for corp.lab, and restore every name, including Friday\'s new printer record (prn01).',
       background: 'BIND loaded the zone file for the first time since Friday\'s edit, found an error and **refused the whole zone**: every corp.lab name now fails (SERVFAIL), which breaks almost everything else (mounts by name, the proxy\'s upstream, Kerberos\'s SRV records, log forwarding). `named-checkzone` names the line. There is a tempting shortcut, **/var/backups/bind/db.corp.lab.2026-10-12**: it loads, but it is two weeks old and silently drops fs01, log01 and prn01. Fix the current file instead, and increase the serial past Friday\'s.',
       tasks: [
         'On ns1: `journalctl -u named -b` and `named-checkzone corp.lab /etc/bind/db.corp.lab` (the line and the error).',
@@ -224,7 +224,7 @@ export const LAB6: GuidedLab = {
     },
     {
       id: 'time', title: 'Time: the reference clock',
-      objective: 'Get rtr01 serving time again (persistently), so that the clients synchronize and Kerberos works.',
+      objective: 'Users still cannot get Kerberos tickets, and several clocks are minutes off. Find out why the clients are not synchronizing their time, fix the cause so it survives a restart, and confirm that Kerberos works again.',
       background: 'The power cut left ws01 and srv01 several minutes fast, more than Kerberos tolerates (300 s): `kinit` fails with "Clock skew too great" even now that DNS is back. Their timesyncd asks rtr01, and rtr01 does not answer: the hardening run also **disabled chrony**, so it did not start at boot. Clients poll again by themselves once the server answers: no action is needed on them.',
       tasks: [
         'On ws01: `timedatectl` (not synchronized) and `kinit` (alice\'s Kerberos password Corp-Lab-2026).',
@@ -240,7 +240,7 @@ export const LAB6: GuidedLab = {
     },
     {
       id: 'mounts', title: 'Storage: mounts that gave up at boot',
-      objective: 'Bring back the NFS mounts on ws01 (/mnt/projects) and srv01 (/opt/software).',
+      objective: 'Users report that their project folder on ws01 (/mnt/projects) is empty, and srv01 is missing /opt/software. Find out why the shared storage is not there, and bring it back.',
       background: 'fs01 itself is fine: it booted and exports both shares. The **clients** tried to mount `fs01.corp.lab:...` at boot, when neither DNS nor routing worked, failed after the timeout, and systemd does not retry a failed mount unit. The directories show the empty local folders underneath. Nothing is wrong with the configuration: the fix is to mount again now that the dependencies are back.',
       tasks: [
         'On ws01 (sudo) or srv01: `journalctl -b -u mnt-projects.mount` / `-u opt-software.mount` (why it failed at boot), `mount -t nfs4` (nothing).',
@@ -255,7 +255,7 @@ export const LAB6: GuidedLab = {
     },
     {
       id: 'apps', title: 'Applications: what did not come back',
-      objective: 'Get the inventory app (dock01) and the reverse proxy (srv01) running, so that it survives the next reboot too; confirm that central logging recovered on its own.',
+      objective: 'The intranet and the inventory application are still down. Get the reverse proxy (srv01) and the inventory app (dock01) running in a way that survives the next restart. Also check whether central logging recovered by itself, and only act if it did not.',
       background: 'Two different reasons. **srv01**: nginx resolves upstream names when it starts; at boot dock01.corp.lab did not resolve, nginx refused its configuration ("host not found in upstream") and stayed down. Its configuration is correct: start it. **dock01**: dockerd started fine, but the containers were started by hand from a compose file **without restart policies**, so dockerd did not restart them: add `restart: unless-stopped` to both services and `docker compose up -d`. **Logging** needs nothing: the senders\' rsyslog queues kept retrying and delivered their backlog once routing and DNS were back. Check, do not "fix" it.',
       tasks: [
         'srv01: `systemctl --failed`, `journalctl -b -u nginx` ("host not found in upstream"), `nginx -t` (now OK), `systemctl start nginx`.',
@@ -274,7 +274,7 @@ export const LAB6: GuidedLab = {
     },
     {
       id: 'reboot', title: 'Prove it: the next power cut',
-      objective: 'Restart every machine and confirm that everything comes back by itself.',
+      objective: 'Restart every machine and confirm that everything comes back by itself, without anyone touching it.',
       background: 'The outage happened because four changes lived only in memory or in files nobody had tested at boot. Restarting everything on purpose, in a calm moment, is how you find the next one. Then write the incident report: timeline, root causes (hardening run, untested zone edit, missing restart policies), the cascade, and the preventive actions (test hardening with a reboot, named-checkzone before saving, restart policies in review, monitoring that alerts on a service that is enabled but not running).',
       tasks: ['Run "Check" on this step: it restarts every machine on a copy of the lab and re-runs all checks.'],
       hints: ['If only this step fails: something was started or set at runtime only (sysctl -w, systemctl start without enable, docker start).'],

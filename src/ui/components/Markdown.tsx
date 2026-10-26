@@ -72,10 +72,25 @@ export function Markdown({ text }: { text: string }) {
     }
     if (/^(- |\d+\. )/.test(line)) {
       const ordered = /^\d+\. /.test(line);
-      const items: string[] = [];
-      while (i < lines.length && /^(- |\d+\. )/.test(lines[i])) items.push(lines[i++].replace(/^(- |\d+\. )/, ''));
+      // In a numbered list, "- " lines belong to the step above them; a blank line followed by
+      // the next number continues the same list, so steps keep their own numbers.
+      const items: { text: string; sub: string[] }[] = [];
+      const start = ordered ? Number(/^(\d+)\./.exec(line)![1]) : 1;
+      while (i < lines.length) {
+        const l = lines[i];
+        if (ordered && /^- /.test(l) && items.length) { items[items.length - 1].sub.push(l.slice(2)); i++; continue; }
+        if (ordered ? /^\d+\. /.test(l) : /^- /.test(l)) { items.push({ text: l.replace(/^(- |\d+\. )/, ''), sub: [] }); i++; continue; }
+        if (ordered && l.trim() === '' && Number(/^(\d+)\. /.exec(lines[i + 1] ?? '')?.[1]) === start + items.length) { i++; continue; }
+        break;
+      }
       const Tag = ordered ? 'ol' : 'ul';
-      blocks.push(<Tag key={k++}>{items.map((it, j) => <li key={j}>{inline(it, `li${j}`)}</li>)}</Tag>);
+      blocks.push(
+        <Tag key={k++} start={ordered && start !== 1 ? start : undefined}>
+          {items.map((it, j) => (
+            <li key={j}>{inline(it.text, `li${j}`)}{it.sub.length > 0 && <ul>{it.sub.map((x, n) => <li key={n}>{inline(x, `li${j}s${n}`)}</li>)}</ul>}</li>
+          ))}
+        </Tag>,
+      );
       continue;
     }
     const para: string[] = [];

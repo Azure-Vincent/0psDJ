@@ -9,9 +9,11 @@ export const NFTABLES_LESSON: Lesson = {
   concepts: ['fw.stateful', 'fw.path', 'fw.persistence', 'net.cidr', 'net.icmp', 'tcp.handshake', 'svc.listening'],
 
   what: `
-**nftables** is the packet-filtering framework of the Linux kernel (since 3.13) and the default firewall back-end on Debian 10+, RHEL 8+ and Ubuntu 21.10+. It replaces iptables, ip6tables, arptables and ebtables with one rule language and one tool, \`nft\`.
+A **firewall** decides, packet by packet, what network traffic is allowed. **nftables** is the firewall built into the Linux kernel (since version 3.13), and the default on Debian 10+, RHEL 8+ and Ubuntu 21.10+. It replaces the older tools iptables, ip6tables, arptables and ebtables with one rule language and one command, \`nft\`.
 
-A host firewall answers one question for every packet: **should this packet be allowed to reach (or leave, or cross) this machine?** It is used to:
+A host firewall answers one question for every packet: **should this packet be allowed to reach this machine, leave it, or pass through it?** You write **rules**, grouped into **chains** (lists checked in order), and each rule says what to match (an address, a port, a protocol) and what to do with a match: **accept**, **drop** (discard silently) or **reject** (discard and tell the sender). Whatever no rule matched gets the chain's **policy**, its default verdict.
+
+It builds on what you learned about [addresses and routing](#/lesson/ipnet/what) and [ports and TCP](#/lesson/transport/what): rules match exactly those fields. A firewall is used to:
 - Expose only the services a server is meant to offer (default-deny inbound).
 - Separate networks on a Linux router or firewall (what may cross from the LAN to the servers).
 - Rate-limit, log and count traffic, and translate addresses (NAT).
@@ -182,11 +184,13 @@ Rules added with \`nft add rule …\` live in the kernel only. On Debian, \`nfta
 
   troubleshootingIntro: `
 ### Which filter, which rule?
-1. **Classify the symptom.** Timeout → something dropped (or a reply cannot return). Refused → RST (no listener or reject-with-reset). No route to host → ICMP unreachable/admin-prohibited or ARP failure.
-2. **Find how far the packet gets.** \`tcpdump\` on the destination. Nothing arrives → the problem is on the path (router forward chain, client output). Arrives but no reply → this host drops it (input) or cannot route the reply.
-3. **Find the rule.** \`nft -a list ruleset\`, repeat the test, look at which counter moved. Remember: first verdict wins; established,related comes first; the policy catches the rest.
-4. **Fix the persistent file**, validate with \`nft -c -f\`, apply with \`systemctl reload nftables\` (atomic), and verify both what must work and what must stay blocked.
-5. **Do not fix by opening everything.** Policy accept, blanket accept rules or source-port rules "work" and are wrong.
+A blocked connection is only useful information once you know **which** firewall dropped it and **which** rule did it. Work in this order:
+
+1. **Classify the symptom.** A timeout means something dropped the packet (or the reply cannot get back). "Connection refused" means a reset came back: nothing listens, or a rule rejects with a TCP reset. "No route to host" means an ICMP unreachable or administratively-prohibited message came back (a reject rule), or ARP failed.
+2. **Find how far the packet gets.** Run \`tcpdump\` on the destination while you test. Nothing arrives: the problem is on the path (a router's forward chain, or the client's own output chain). It arrives but there is no reply: this host drops it (its input chain) or cannot route the reply.
+3. **Find the rule.** Run \`nft -a list ruleset\`, repeat the test, and run it again: the rule whose counter went up is the one that acted. Remember the order of evaluation: rules are checked top to bottom and the first verdict wins; the "established,related" rule usually comes first; the chain's policy catches everything that matched nothing.
+4. **Fix the saved file**, check it with \`nft -c -f /etc/nftables.conf\`, and apply it with \`systemctl reload nftables\` (which swaps the whole ruleset in one step). Then verify both what must work **and** what must stay blocked.
+5. **Do not fix it by opening everything.** A policy of accept, a blanket accept rule, or a rule based on the source port "works", but it removes the protection the firewall was there for. Ticket checks will reject it.
 `,
 
   errorMap: [

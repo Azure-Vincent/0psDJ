@@ -11,7 +11,11 @@ export const KERBEROS_LESSON: Lesson = {
   mode: 'simulated',
 
   what: `
-**Kerberos** is a network authentication protocol built on a trusted third party, the **KDC** (Key Distribution Center). You prove your password **once** to the KDC and receive a **ticket-granting ticket (TGT)**; afterwards you ask the KDC for **service tickets** for each server you use, without typing the password again. That is **single sign-on**. The password never crosses the network, and servers never see it.
+**Kerberos** is a way of proving who you are to the services on a network without sending your password to each of them. It relies on a trusted third party, the **KDC** (Key Distribution Center).
+
+It works like a festival wristband. You show your ID **once** at the entrance (you prove your password to the KDC) and get a wristband, the **ticket-granting ticket (TGT)**. After that, for each stage you want to visit, you show the wristband at the ticket office and get a ticket for that stage, a **service ticket**, without showing your ID again. That is **single sign-on**. Your password never crosses the network, and the servers you use never see it.
+
+Kerberos depends on things from earlier lessons: [DNS](#/lesson/transport/what) to find the KDC and to name services, [time synchronisation](#/lesson/ntp/what) because tickets carry timestamps, and network access to the KDC on port 88.
 
 Kerberos is everywhere identity matters: every **Active Directory** logon and file share access, FreeIPA/IdM in Linux estates, SSH logins with GSSAPI, web single sign-on (SPNEGO), NFSv4 with sec=krb5, databases, Hadoop.
 
@@ -162,16 +166,22 @@ Kerberos configuration is small, but every line matters: the client file decides
 
   troubleshootingIntro: `
 ### Read the error, then follow the chain
-1. **kinit fails?** The text says where: *Cannot find KDC* (krb5.conf / DNS SRV), *Cannot contact any KDC* (network, firewall, KDC down: slow = dropped, fast = nothing listening), *Clock skew too great* (time), *Password incorrect* / *not found in Kerberos database* (account).
-2. **kinit works, the service does not?** \`kvno host/NAME\`: *Server not found* = principal missing or wrong name (FQDN, CNAME, IP address, domain_realm).
-3. **kvno works, the login does not?** The server side: keytab missing or wrong kvno (\`klist -ke\` vs \`kvno\`), service not configured (GSSAPIAuthentication), account mapping (\`.k5login\`), clock on the server.
-4. **Always check the KDC log**: \`journalctl -u krb5-kdc\` shows every request and its result.
-5. Prove the fix with a login that cannot fall back: \`ssh -o PubkeyAuthentication=no -o PasswordAuthentication=no\`.
+Kerberos error messages are precise once you know what each one means. A login with Kerberos goes through three stages: getting a TGT (kinit), getting a ticket for the service (kvno), and the service accepting it. Find which stage fails.
+
+1. **Does kinit fail?** The message says where:
+- *Cannot find KDC*: the client does not know where the KDC is (krb5.conf, or the DNS SRV records).
+- *Cannot contact any KDC*: the KDC was found but does not answer (network, firewall, or the KDC is down). A slow failure means packets are dropped; a fast one means nothing listens.
+- *Clock skew too great*: the client's clock is more than 5 minutes off the KDC's.
+- *Password incorrect* or *not found in Kerberos database*: the account or the password.
+2. **kinit works, but the service does not?** Run \`kvno host/NAME\`. *Server not found* means the service's principal is missing, or the name is wrong: Kerberos needs the full name (FQDN), not a CNAME alias or an IP address, and the right realm.
+3. **kvno works, but the login does not?** The problem is on the server: the keytab is missing or holds an older key version (compare \`klist -ke\` with \`kvno\`), the service is not configured for Kerberos (GSSAPIAuthentication), the user mapping is wrong (\`.k5login\`), or the server's clock is off.
+4. **Always check the KDC's log.** \`journalctl -u krb5-kdc\` shows every request and its result.
+5. **Prove the fix with a login that cannot fall back** to another method: \`ssh -o PubkeyAuthentication=no -o PasswordAuthentication=no\`.
 
 ### Where to look
-- Client: \`kinit\`, \`klist\`, \`kvno host/NAME\`, \`ssh -v\`, \`date\`/\`timedatectl\`, \`host -t SRV _kerberos._udp.DOMAIN\`.
-- KDC: \`journalctl -u krb5-kdc\` (one line per request: AS_REQ/TGS_REQ, client, service, result: ISSUE, NEEDED_PREAUTH, PREAUTH_FAILED, CLIENT_NOT_FOUND, LOOKING_UP_SERVER ...), \`kadmin.local -q "getprinc NAME"\`.
-- Server: \`klist -ke\` (keytab), \`sshd -T | grep gssapi\`, sshd log (GSSAPI errors appear at LogLevel DEBUG1).
+- Client: \`kinit\`, \`klist\`, \`kvno host/NAME\`, \`ssh -v\`, \`date\` or \`timedatectl\`, \`host -t SRV _kerberos._udp.DOMAIN\`.
+- KDC: \`journalctl -u krb5-kdc\` (one line per request: AS_REQ or TGS_REQ, the client, the service and the result: ISSUE, NEEDED_PREAUTH, PREAUTH_FAILED, CLIENT_NOT_FOUND, LOOKING_UP_SERVER ...), and \`kadmin.local -q "getprinc NAME"\`.
+- Server: \`klist -ke\` (the keytab), \`sshd -T | grep gssapi\`, the sshd log (GSSAPI errors only appear at LogLevel DEBUG1).
 
 `,
 

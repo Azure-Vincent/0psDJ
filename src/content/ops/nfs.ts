@@ -105,10 +105,10 @@ export const NFS_GUIDE: ServiceGuide = {
     { action: 'usermod -u UID USER', when: 'Aligning a user\'s UID with the file server.', effect: 'The account gets the new number; files on local disks must be re-owned (find / -uid OLD).', risk: 'Processes of that user should be stopped first; another user may already have the number.' },
   ],
   workflow: [
-    { question: '1. Is the share mounted at all?', command: 'mount -t nfs4\ndf -h /mnt/projects', healthy: 'fs01.corp.lab:/srv/projects on /mnt/projects type nfs4 (rw,...)', broken: 'No line: you are looking at the local directory. mount -a shows why: timed out (path/firewall), refused (nfsd down), access denied by server (export list).', next: 'If mounted, check what the server thinks of you.', sim: true },
-    { question: '2. Does the server export it to this client?', command: 'showmount -e fs01\nexportfs -v   # on fs01', healthy: '/srv/projects  10.0.10.0/24,10.0.20.0/24', broken: 'The client\'s network is missing: add it to /etc/exports and run exportfs -ra (or it is in the file but not loaded).', next: 'Then the identity used for each access.', sim: true },
-    { question: '3. Who am I on the server?', command: 'id\nls -ln /mnt/projects', healthy: 'uid=1000(alice) and files owned by 1000', broken: 'root: squashed to nobody (65534). A different number than the owner on the server: a UID mismatch.', next: 'Then the permissions for that identity.', sim: true },
-    { question: '4. Do the permissions allow it, and is it read-only?', command: 'ls -ld /srv/projects   # on fs01\nmount -t nfs4', healthy: 'drwxrwxr-x 2 alice alice ... /srv/projects', broken: '"Read-only file system": the export or the mount is ro. "Permission denied": the mode bits for the (mapped) uid.', next: 'Fix on the server, test the write from the client.', sim: true },
+    { question: 'Is the share mounted at all?', why: 'Nothing else matters if the share is not mounted, and the mount error already points to the network, the server, or the export.', command: 'mount -t nfs4\ndf -h /mnt/projects', healthy: 'fs01.corp.lab:/srv/projects on /mnt/projects type nfs4 (rw,...)', broken: 'No line: you are looking at the local directory. mount -a shows why: timed out (path/firewall), refused (nfsd down), access denied by server (export list).', next: 'If mounted, check what the server thinks of you.', sim: true },
+    { question: 'Does the server export it to this client?', why: 'The server only lets in the clients listed in its loaded export table, which may differ from /etc/exports until exportfs -ra runs.', command: 'showmount -e fs01\nexportfs -v   # on fs01', healthy: '/srv/projects  10.0.10.0/24,10.0.20.0/24', broken: 'The client\'s network is missing: add it to /etc/exports and run exportfs -ra (or it is in the file but not loaded).', next: 'Then the identity used for each access.', sim: true },
+    { question: 'Who am I on the server?', why: 'The server checks permissions against user numbers. A different UID on the client, or root being squashed to nobody, changes who you are on the server.', command: 'id\nls -ln /mnt/projects', healthy: 'uid=1000(alice) and files owned by 1000', broken: 'root: squashed to nobody (65534). A different number than the owner on the server: a UID mismatch.', next: 'Then the permissions for that identity.', sim: true },
+    { question: 'Do the permissions allow it, and is it read-only?', why: 'Even with the right identity, normal file permissions and read-only exports still apply.', command: 'ls -ld /srv/projects   # on fs01\nmount -t nfs4', healthy: 'drwxrwxr-x 2 alice alice ... /srv/projects', broken: '"Read-only file system": the export or the mount is ro. "Permission denied": the mode bits for the (mapped) uid.', next: 'Fix on the server, test the write from the client.', sim: true },
   ],
   failures: [
     { symptom: 'mount.nfs4: access denied by server while mounting', causes: ['Client not in the export\'s client list', 'Listed in /etc/exports but exportfs -ra not run', 'Listed by a host name that resolves to another address on the server'], diagnose: ['exportfs -v on the server vs cat /etc/exports', 'showmount -e SERVER on the client'], fix: 'Add the client network to the export and run exportfs -ra.', verify: 'mount -a succeeds; exportfs -v lists the client.' },
@@ -136,7 +136,9 @@ export const NFS_LESSON: Lesson = {
   concepts: ['files.nfs', 'linux.permissions', 'fw.path'],
 
   what: `
-**NFS** (Network File System) shares directories from a **file server** so that clients can **mount** them: the shared directory appears inside the client's own file tree, and programs use it like a local disk.
+**NFS** (Network File System) shares directories from a **file server** so that other machines can **mount** them: the shared directory appears inside the client's own file tree (for example as /mnt/projects), and programs use it like a local disk.
+
+NFS combines two things you have met before: a network service on TCP port 2049 (so routes and firewalls matter, see [Transport and DNS](#/lesson/transport/what)), and ordinary Linux file permissions based on user and group **numbers** (UID and GID). Most NFS surprises come from the second part.
 
 ### Problems it solves
 - **One copy of the data.** Project files, home directories, installers and backups live on one server instead of being copied around.
@@ -267,10 +269,12 @@ Configuration lives at both ends:
 `,
   troubleshootingIntro: `
 ### Mounted? Allowed? Who am I? May I?
-1. **Mounted?** \`mount -t nfs4\`, \`df -h\`. If not: \`mount -a\` and read the error (timed out / refused / access denied).
-2. **Allowed?** \`exportfs -v\` on the server (or \`showmount -e SERVER\`): is the client in the table that is loaded?
-3. **Who am I?** \`id\` on the client, \`ls -ln\`: root is nobody (root_squash); other users must have the same number as on the server.
-4. **May I?** \`ls -ld\` of the directory on the server for that number; "Read-only file system" means a ro export or mount.
+NFS access passes four gates in order. Each question below matches one gate, and each fails with a different message.
+
+1. **Is it mounted?** \`mount -t nfs4\` and \`df -h\` show active NFS mounts. If the share is not mounted, run \`mount -a\` and read the error: timed out (the network or a firewall), refused (nothing listens on port 2049) or access denied (the server does not export it to you).
+2. **Is this client allowed?** On the server, \`exportfs -v\` (or \`showmount -e SERVER\` from the client) shows the export table that is actually loaded. Is the client's address covered? Remember that editing /etc/exports changes nothing until \`exportfs -ra\` loads it.
+3. **Who am I on the server?** NFS sends user and group **numbers**, not names. Compare \`id\` on the client with \`ls -ln\` (numeric owners). root on the client is turned into "nobody" on the server (**root_squash**), and every other user must have the same number on both machines.
+4. **May I?** Check \`ls -ld\` of the directory on the server for that number. "Read-only file system" means the export or the mount is read-only (ro).
 `,
 
   errorMap: [
