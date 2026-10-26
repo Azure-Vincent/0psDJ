@@ -18,6 +18,7 @@ function proto(f: CapturedFrame): string {
   if (p.app?.protocol === 'RDP') return 'RDP';
   if (p.app?.protocol === 'NTP') return 'NTP';
   if (p.app?.protocol === 'SYSLOG') return 'Syslog';
+  if (p.app?.protocol === 'SMB2') return 'SMB2';
   if (p.app?.protocol === 'DATA') return p.tcp?.sport === 80 || p.tcp?.dport === 80 ? 'HTTP' : 'DATA';
   if (p.icmp && p.src.includes(':')) return 'ICMPv6';
   return p.proto.toUpperCase();

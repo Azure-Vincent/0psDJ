@@ -214,6 +214,8 @@ export interface Host {
   fs: Record<string, FileNode>;
   /** Active NFS mounts (client side). */
   mounts?: NfsMount[];
+  /** Samba's password database (passdb.tdb), filled by smbpasswd -a. */
+  sambaPassdb?: Record<string, { name: string; password: string; disabled: boolean }>;
   ifaces: Interface[];
   routes: Route[];
   neighbors: Neighbor[];
@@ -315,7 +317,7 @@ export interface IcmpHeader {
 }
 
 export interface AppLayer {
-  protocol: 'DNS' | 'SSH' | 'DATA' | 'DHCP' | 'DHCPv6' | 'TLS' | 'KRB5' | 'KADMIN' | 'RDP' | 'NTP' | 'SYSLOG';
+  protocol: 'DNS' | 'SSH' | 'DATA' | 'DHCP' | 'DHCPv6' | 'TLS' | 'KRB5' | 'KADMIN' | 'RDP' | 'NTP' | 'SYSLOG' | 'SMB2';
   /** Short Wireshark-style "Info" text. */
   info: string;
   /** Decoded protocol fields visible to an observer. */

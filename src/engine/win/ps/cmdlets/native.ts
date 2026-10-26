@@ -13,6 +13,7 @@ import { GROUPS, setDisabled, userDisabled } from './system';
 import { readFile, writeFile } from '../../../fs';
 import { RDP_TCP_KEY } from '../../model';
 import { domainDn, locateDc, secureChannel } from '../../ad';
+import { smbConnect, type SmbError } from '../../../sim/smb';
 
 const ok = (out: string, code = 0) => ({ out, code });
 
@@ -433,6 +434,54 @@ function columns(names: string[]): string[] {
   return out;
 }
 
+// net use: map a drive letter (or just connect) to \\SERVER\SHARE over SMB.
+const SYS_ERR: Partial<Record<SmbError, [number, string]>> = {
+  NT_STATUS_LOGON_FAILURE: [1326, 'The user name or password is incorrect.'],
+  NT_STATUS_ACCOUNT_DISABLED: [1331, "This user can't sign in because this account is currently disabled."],
+  NT_STATUS_ACCESS_DENIED: [5, 'Access is denied.'],
+  NT_STATUS_BAD_NETWORK_NAME: [67, 'The network name cannot be found.'],
+};
+
+function netUse(args: string[], ctx: PsCtx) {
+  const w = ctx.host.win!;
+  const maps = (w.smbMappings ??= []);
+  const pos = args.filter((a) => !a.startsWith('/'));
+  const sw = args.filter((a) => a.startsWith('/'));
+  if (!pos.length) {
+    if (!maps.length) return ok('New connections will be remembered.\n\nThere are no entries in the list.\n\n');
+    return ok(['New connections will be remembered.', '', '', 'Status       Local     Remote                    Network', '', '-'.repeat(79),
+      ...maps.map((m) => `${'OK'.padEnd(13)}${m.local.padEnd(10)}${m.remote.padEnd(26)}Microsoft Windows Network`), DONE].join('\n'));
+  }
+  const local = /^[a-z]:$/i.test(pos[0]) ? pos[0].toUpperCase() : '';
+  if (sw.some((x) => /^\/d(elete)?$/i.test(x))) {
+    const i = maps.findIndex((m) => (local ? m.local === local : m.remote.toLowerCase() === pos[0].toLowerCase()));
+    if (i < 0) return ok('The network connection could not be found.\n\nMore help is available by typing NET HELPMSG 2250.\n', 2);
+    maps.splice(i, 1);
+    return ok(`${local || pos[0]} was deleted successfully.\n\n`);
+  }
+  const remote = local ? pos[1] : pos[0];
+  const m = /^\\\\([^\\]+)\\([^\\]+)\\?$/.exec(remote ?? '');
+  if (!m) return ok('The syntax of this command is:\n\nNET USE\n[devicename | *] [\\\\computername\\sharename[\\volume] [password | *]]\n        [/USER:[domainname\\]username]\n        [/PERSISTENT:{YES | NO}] [/DELETE]\n', 1);
+  if (local && maps.some((x) => x.local === local)) return ok('System error 85 has occurred.\n\nThe local device name is already in use.\n\n', 2);
+  const userSw = sw.find((x) => /^\/u(ser)?:/i.test(x));
+  let user = userSw ? userSw.replace(/^\/u(ser)?:/i, '').replace(/^.*\\/, '') : ctx.user.name;
+  let password = (local ? pos[2] : pos[1]) ?? (userSw ? undefined : ctx.user.password ?? '');
+  if (password === '*' || password === undefined) password = ctx.ask(`Enter the password for '${user}' to connect to '${m[1]}': `, true);
+  let r = smbConnect(ctx.world, ctx.host, m[1], user, password, m[2]);
+  // With the signed-in user's credentials refused, Windows asks for others.
+  if (!r.ok && r.error === 'NT_STATUS_LOGON_FAILURE' && !userSw) {
+    user = ctx.ask(`Enter the user name for '${m[1]}': `, false).trim().replace(/^.*\\/, '');
+    password = ctx.ask(`Enter the password for ${m[1]}: `, true);
+    r = smbConnect(ctx.world, ctx.host, m[1], user, password, m[2]);
+  }
+  if (!r.ok) {
+    const [code, text] = SYS_ERR[r.error] ?? [53, 'The network path was not found.'];
+    return ok(`System error ${code} has occurred.\n\n${text}\n\n`, 2);
+  }
+  maps.push({ local, remote, user, server: r.session.server.id, share: r.session.share!.name });
+  return ok(DONE);
+}
+
 native({
   name: 'net', synopsis: 'net user | net localgroup | net start | net stop.',
   run(args, ctx) {
@@ -474,6 +523,7 @@ native({
         row('Password required', 'Yes'), row('User may change password', 'Yes'), '', row('Workstations allowed', 'All'), row('Logon script', ''), row('User profile', ''), row('Home directory', ''), '',
         row('Local Group Memberships', local.slice(0, 2).map((g) => g.padEnd(21)).join('').trim()), ...(local.length > 2 ? [row('', local.slice(2).join('  '))] : []), row('Global Group memberships', '*None'), DONE].join('\n'));
     }
+    if (sub === 'use') return netUse(args.slice(1), ctx);
     if (sub === 'localgroup') {
       if (!pos.length) return ok(['', `Aliases for \\\\${host.hostname.toUpperCase()}`, '', '-'.repeat(79), ...Object.keys(GROUPS).sort().map((g) => `*${g}`), DONE].join('\n'));
       const g = Object.keys(GROUPS).find((x) => x.toLowerCase() === pos[0].toLowerCase());

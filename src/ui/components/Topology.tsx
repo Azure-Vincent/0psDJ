@@ -55,7 +55,7 @@ export function Topology() {
       <path d="M24 596 V670 H40" fill="none" stroke="var(--ok)" />
       {box(40, 648, 'log01', ['10.0.20.50', 'rsyslog: TCP/UDP 514', 'central logs per host'], 150)}
       <path d="M24 670 V744 H40" fill="none" stroke="var(--ok)" />
-      {box(40, 722, 'fs01', ['10.0.20.60', 'NFS server: TCP 2049', '/srv/projects, /srv/software'], 150)}
+      {box(40, 722, 'fs01', ['10.0.20.60', 'NFS 2049, Samba 445', 'projects, office, software'], 150)}
       <text x={8} y={804} style={{ fill: 'var(--muted)', fontSize: 9.5 }}>All LAN ports are on sw01 (VLAN-aware Linux bridge): access ports for</text>
       <text x={8} y={816} style={{ fill: 'var(--muted)', fontSize: 9.5 }}>VLAN 10/20/30, trunk swp7 to rtr01 eth3. Console: sw01.</text>
     </svg>

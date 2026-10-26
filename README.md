@@ -24,9 +24,9 @@ For every technology it answers the same questions:
 
 ## What's inside
 
-- **23 lessons** on networking, interfaces and virtual switches, TLS, remote
+- **24 lessons** on networking, interfaces and virtual switches, TLS, remote
   access, identity (including Kerberos), firewalls, containers, web servers and
-  reverse proxies, time synchronisation, central logging, NFS file sharing, Linux and Windows
+  reverse proxies, time synchronisation, central logging, NFS and SMB file sharing, Linux and Windows
   administration, and safe recovery. Each lesson starts in plain language (the short version,
   an everyday analogy, the key ideas each with a concrete example from the lab,
   one case followed step by step, common misconceptions and a quick
@@ -47,7 +47,7 @@ For every technology it answers the same questions:
   machine configured from the files the design generates. You get terminals
   on each machine and a packet tracer that shows every hop and every firewall
   and NAT decision.
-- **115 troubleshooting tickets**, each injecting a realistic fault into the
+- **119 troubleshooting tickets**, each injecting a realistic fault into the
   lab. You investigate with real commands in terminals, record a diagnosis and
   repair the fault. The app then checks your fix immediately, again after
   rebooting every machine, and against security rules, so "just open the
@@ -78,10 +78,12 @@ For every technology it answers the same questions:
   a typo. A **Central logging** set makes logs go missing on their way to
   log01: a firewall that drops syslog, one server still forwarding over UDP to
   a TCP-only receiver, a selector that leaves out the SSH and sudo logs, and a
-  receiver input without its module. A **File sharing (NFS)** set breaks the
-  file server fs01: an export list edited but never reloaded, a root backup job
-  squashed to nobody, a hardened firewall that empties every mount at boot, and
-  a user whose UID differs between hosts.
+  receiver input without its module. A **File sharing** set breaks the file
+  server fs01: over NFS, an export list edited but never reloaded, a root backup
+  job squashed to nobody, a hardened firewall that empties every mount at boot,
+  and a user whose UID differs between hosts; over SMB, a new user without a
+  Samba password, a group change that locks someone out of a share, a share
+  path with the wrong case, and a scanner share that is read-only by default.
 - **7 end-to-end case studies**: SSH refused, a server with no Internet, a failed
   domain login, an unreachable Docker app, pfSense blocking traffic, RDP broken
   by a policy change, and several services failing at once.
@@ -134,7 +136,9 @@ sends syslog over TCP to log01, which files it per host and program; `logger`
 tests the path end to end. Files are shared over NFS: fs01 exports project and
 software directories from /etc/exports, ws01 and srv01 mount them from
 /etc/fstab at boot, and every access is checked with numeric UIDs, root
-squashing and read-only exports as on a real server.
+squashing and read-only exports as on a real server. The same server runs
+Samba: shares in smb.conf, its own password database, `smbclient` on Linux and
+`net use` on Windows, with SMB's logon, share and file steps and their errors.
 
 ## Installation
 

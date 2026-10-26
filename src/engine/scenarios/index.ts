@@ -20,6 +20,7 @@ import { PROXY_SCENARIOS } from './proxyScenarios';
 import { NTP_SCENARIOS } from './ntpScenarios';
 import { LOG_SCENARIOS } from './logScenarios';
 import { NFS_SCENARIOS } from './nfsScenarios';
+import { SMB_SCENARIOS } from './smbScenarios';
 import type { Scenario } from './types';
 
 /** Every troubleshooting scenario, grouped by the lesson that introduces it. */
@@ -41,7 +42,7 @@ export const SCENARIO_SETS: { id: string; title: string; scenarios: Scenario[] }
   { id: 'proxy', title: 'Web servers and reverse proxies', scenarios: PROXY_SCENARIOS },
   { id: 'ntp', title: 'Time synchronisation (NTP)', scenarios: NTP_SCENARIOS },
   { id: 'logging', title: 'Central logging (rsyslog)', scenarios: LOG_SCENARIOS },
-  { id: 'files', title: 'File sharing (NFS)', scenarios: NFS_SCENARIOS },
+  { id: 'files', title: 'File sharing (NFS and SMB)', scenarios: [...NFS_SCENARIOS, ...SMB_SCENARIOS] },
   { id: 'cases', title: 'End-to-end case studies', scenarios: CASE_SCENARIOS },
 ];
 

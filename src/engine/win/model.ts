@@ -110,6 +110,8 @@ export interface WinState {
   localDomainMembers?: Record<string, string[]>;
   /** Runtime: a domain controller was reachable at boot, so the Domain firewall profile applies. */
   domainNetwork?: boolean;
+  /** Mapped network drives (net use), per session of the console user. */
+  smbMappings?: { local: string; remote: string; user: string; server: string; share: string }[];
 }
 
 export interface AdUser {
