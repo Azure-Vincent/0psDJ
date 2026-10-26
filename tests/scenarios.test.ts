@@ -120,6 +120,10 @@ const SYMPTOM: Record<string, RegExp> = {
   'nfs-root-squash': /cp: cannot create regular file '\/mnt\/backup\/hosts\.srv01': Permission denied/,
   'nfs-firewall': /mount\.nfs4: Connection timed out/,
   'nfs-uid-mismatch': /touch: cannot touch '\/mnt\/projects\/srv01-check\.txt': Permission denied/,
+  'smb-new-user': /session setup failed: NT_STATUS_LOGON_FAILURE/,
+  'smb-valid-users': /System error 5 has occurred\.\n\nAccess is denied\./,
+  'smb-share-path': /System error 67 has occurred\.\n\nThe network name cannot be found\./,
+  'smb-read-only': /NT_STATUS_ACCESS_DENIED opening remote file \\scan-0001\.pdf/,
   'mtu-uplink-mismatch': /curl: \(28\) Operation timed out after 30000 milliseconds with 0 out of 4718592 bytes received/,
 };
 

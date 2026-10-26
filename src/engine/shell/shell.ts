@@ -23,12 +23,13 @@ import { DOCKER_COMMANDS } from './cmdDocker';
 import { NTP_COMMANDS } from './cmdNtp';
 import { LOG_COMMANDS } from './cmdLog';
 import { NFS_COMMANDS } from './cmdNfs';
+import { SMB_COMMANDS } from './cmdSmb';
 import { LINUX_ONLY, PF_COMMANDS, PF_VERSION } from './cmdPf';
 import { expandParams, parseCommandLine, type Segment } from './tokenize';
 import { type CmdCtx, type CmdResult, type CommandDef, type EditorRequest, NeedInput, type SessionFrame } from './types';
 
 export const COMMANDS: Record<string, CommandDef> = Object.fromEntries(
-  [...FILE_COMMANDS, ...NET_COMMANDS, ...HTTP_COMMANDS, ...SYSTEM_COMMANDS, ...KRB_COMMANDS, ...RDP_COMMANDS, ...DOCKER_COMMANDS, ...NTP_COMMANDS, ...LOG_COMMANDS, ...NFS_COMMANDS].map((c) => [c.name, c]),
+  [...FILE_COMMANDS, ...NET_COMMANDS, ...HTTP_COMMANDS, ...SYSTEM_COMMANDS, ...KRB_COMMANDS, ...RDP_COMMANDS, ...DOCKER_COMMANDS, ...NTP_COMMANDS, ...LOG_COMMANDS, ...NFS_COMMANDS, ...SMB_COMMANDS].map((c) => [c.name, c]),
 );
 
 export interface ExecResult {

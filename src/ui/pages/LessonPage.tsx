@@ -393,6 +393,15 @@ function widgetsFor(id: string): LessonWidgets {
       ],
     };
   }
+  if (id === 'smb') {
+    return {
+      sandbox: [
+        { hostId: 'fs01', user: 'root', label: 'fs01 console (root)', banner: 'Sandbox: fs01, the Samba server. Try: testparm -s, pdbedit -L, ls -l /srv/office, smbstatus, tail /var/log/samba/log.ws01.' },
+        { hostId: 'ws01', user: 'alice', label: 'ws01 (alice)', banner: 'Sandbox: ws01 with smbclient (alice\'s Samba password: Smb-alice-24). Try: smbclient -L fs01 -U alice, smbclient //fs01/office -U alice -c "ls; put /etc/hostname hello.txt".' },
+        { hostId: 'win01', user: 'Administrator', label: 'win01 (Administrator)', banner: 'Sandbox: win01. Map a drive as dana (Samba password Smb-dana-24): net use O: \\\\fs01\\office /user:dana *, then net use. Test-NetConnection fs01 -Port 445.' },
+      ],
+    };
+  }
   if (id === 'ntp') {
     return {
       sandbox: [

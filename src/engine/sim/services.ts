@@ -19,6 +19,7 @@ import { resolve } from './dns';
 import { type ChronyLoaded, chronyLoad, type TimesyncLoaded, timesyncLoad } from './ntp';
 import { rsyslogListeners, rsyslogStart } from './syslog';
 import { mountFstabNfs, nfsReset, nfsServerStart } from './nfs';
+import { parseSmbConf, SAMBA_VERSION, SMB_CONF } from './smb';
 import { type Cert, parseCerts, parseKey } from './pki';
 import type { Host, ServiceRuntime, World } from '../types';
 import { log } from './journal';
@@ -960,6 +961,38 @@ const nfsServer: ServiceDef = {
 };
 
 // ---------------------------------------------------------------------------
+// smbd (Samba): smb.conf is read again for each new connection (sim/smb.ts);
+// start only checks that it can be loaded.
+// ---------------------------------------------------------------------------
+
+const smbd: ServiceDef = {
+  name: 'smbd',
+  unit: 'smbd.service',
+  aliases: ['smbd', 'smbd.service', 'smb', 'smb.service', 'samba'],
+  description: 'Samba SMB Daemon',
+  configFiles: [SMB_CONF],
+  start(world, host, rt) {
+    const pid = allocPid(host);
+    rt.pid = pid;
+    if (readFile(host, SMB_CONF) === undefined) {
+      log(world, host, 'smbd', `Can't load ${SMB_CONF} - run testparm to debug it`, { pid, unit: 'smbd.service', priority: 'err' });
+      return false;
+    }
+    for (const u of parseSmbConf(readFile(host, SMB_CONF)!).unknown) log(world, host, 'smbd', `Ignoring unknown parameter "${u.name}"`, { pid, unit: 'smbd.service', priority: 'warning' });
+    log(world, host, 'smbd', `smbd version ${SAMBA_VERSION} started.`, { pid, unit: 'smbd.service' });
+    return true;
+  },
+  reload(world, host, rt) {
+    log(world, host, 'smbd', 'Reloading services after SIGHUP', { pid: rt.pid!, unit: 'smbd.service' });
+    return true;
+  },
+  listeners(_host, rt) {
+    const pid = rt.pid!;
+    return [445, 139].flatMap((port) => (['0.0.0.0', '::'] as const).map((addr) => ({ proto: 'tcp' as const, addr, port, process: 'smbd', pid, service: 'smbd' })));
+  },
+};
+
+// ---------------------------------------------------------------------------
 // networking (ifupdown)
 // ---------------------------------------------------------------------------
 
@@ -1073,7 +1106,7 @@ const networking: ServiceDef = {
   listeners: () => [],
 };
 
-export const SERVICE_DEFS: ServiceDef[] = [networking, rsyslog, timesyncd, chrony, nftables, nfsServer, named, krb5kdc, kadmind, dhcpd, dhcrelay, radvd, sshd, nginx];
+export const SERVICE_DEFS: ServiceDef[] = [networking, rsyslog, timesyncd, chrony, nftables, nfsServer, smbd, named, krb5kdc, kadmind, dhcpd, dhcrelay, radvd, sshd, nginx];
 
 export function findService(host: Host, name: string): ServiceDef | undefined {
   const n = name.replace(/\.service$/, '');

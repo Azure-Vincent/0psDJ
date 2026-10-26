@@ -1,6 +1,8 @@
 // File server: fs01 (10.0.20.60, Debian 12, switch port swp13) runs the kernel
-// NFS server. It exports /srv/projects (read-write, office and server networks)
-// and /srv/software (read-only, all internal networks). ws01 mounts the project
+// NFS server and Samba. Samba shares /srv/office (read-write for the staff
+// group) and /srv/software (read-only) over SMB on TCP 445; alice and dana have
+// Samba passwords (smbpasswd). The NFS server exports /srv/projects (read-write,
+// office and server networks) and /srv/software (read-only, all internal networks). ws01 mounts the project
 // share on /mnt/projects and srv01 the software share on /opt/software, both
 // from /etc/fstab at boot.
 
@@ -14,6 +16,44 @@ import { DEBIAN_SSHD_CONFIG, installHostKeys } from './sshLab';
 
 export const FS01_IP = '10.0.20.60';
 export const FS01_ALICE_PASSWORD = 'fs01-alice';
+/** Samba passwords (smbpasswd), separate from the Unix logins. */
+export const FS01_SMB_PASSWORDS: Record<string, string> = { alice: 'Smb-alice-24', dana: 'Smb-dana-24' };
+
+export const FS01_SMB_CONF = `# Samba configuration for fs01 (CHG-2310). See smb.conf(5).
+# Run "testparm" after every change. smbd re-reads this file for new
+# connections; "smbcontrol all reload-config" or a reload applies it at once.
+
+[global]
+   workgroup = WORKGROUP
+   server string = %h file server (Samba %v)
+   server role = standalone server
+   log file = /var/log/samba/log.%m
+   max log size = 1000
+   logging = file
+   # Troubleshooting level: failed logons (auth_audit) and share access decisions
+   log level = 2
+   panic action = /usr/share/samba/panic-action %d
+   obey pam restrictions = yes
+   server min protocol = SMB2_10
+   # "map to guest = bad user" removed (SEC-150): no silent fallback to guest
+   usershare allow guests = no
+   load printers = no
+
+[office]
+   comment = Office documents (staff)
+   path = /srv/office
+   valid users = @staff
+   read only = no
+   force group = staff
+   create mask = 0660
+   directory mask = 0770
+
+[software]
+   comment = Approved installers
+   path = /srv/software
+   valid users = @staff
+   read only = yes
+`;
 
 export const FS01_EXPORTS = `# /etc/exports: the access control list for filesystems which may be exported
 #		to NFS clients.  See exports(5).
@@ -45,6 +85,8 @@ table inet filter {
 		# NFS for the corp.lab networks: nfsd, rpcbind (showmount), mountd (CHG-2290)
 		ip saddr 10.0.0.0/16 tcp dport { 111, 2049, 20048 } accept
 		ip saddr 10.0.0.0/16 udp dport 111 accept
+		# SMB (Samba) for the corp.lab networks (CHG-2310)
+		ip saddr 10.0.0.0/16 tcp dport 445 accept
 	}
 	chain forward {
 		type filter hook forward priority filter; policy drop;
@@ -76,9 +118,9 @@ export function addNfsFstab(host: Host, line: string, mountPoint: string, t: num
 export function installFs01(world: World): Host {
   const t = world.clock;
   const h = createHost(world, {
-    id: 'fs01', hostname: 'fs01', domain: 'corp.lab', role: 'File server (NFS)',
+    id: 'fs01', hostname: 'fs01', domain: 'corp.lab', role: 'File server (NFS, SMB)',
     ifaces: [{ name: 'eth0', mac: '52:54:00:f5:00:3c', segment: null }],
-    services: ['rsyslog', 'systemd-timesyncd', 'nftables', 'ssh', 'nfs-kernel-server'],
+    services: ['rsyslog', 'systemd-timesyncd', 'nftables', 'ssh', 'nfs-kernel-server', 'smbd'],
   });
   writeFile(h, '/etc/network/interfaces', staticInterfaces([{ name: 'eth0', address: `${FS01_IP}/24`, gateway: '10.0.20.1' }]), t);
   writeFile(h, '/etc/resolv.conf', 'search corp.lab\nnameserver 10.0.10.53\n', t);
@@ -90,7 +132,7 @@ export function installFs01(world: World): Host {
   installHostKeys(h, t);
   trustCorpRoot(h, t);
   installRsyslog(h, t, true);
-  addUser(h, { name: 'alice', uid: 1000, gid: 1000, primaryGroup: 'alice', groups: ['sudo'], home: '/home/alice', shell: '/bin/bash', gecos: 'Alice Admin', password: FS01_ALICE_PASSWORD }, t);
+  addUser(h, { name: 'alice', uid: 1000, gid: 1000, primaryGroup: 'alice', groups: ['sudo', 'staff'], home: '/home/alice', shell: '/bin/bash', gecos: 'Alice Admin', password: FS01_ALICE_PASSWORD }, t);
   addUser(h, { name: 'nobody', uid: 65534, gid: 65534, primaryGroup: 'nogroup', groups: [], home: '/nonexistent', shell: '/usr/sbin/nologin', gecos: 'nobody', password: null }, t, false);
   if (!h.fs['/srv']) mkdir(h, '/srv', t);
   mkdir(h, '/srv/projects', t, { mode: 0o775, owner: 'alice', group: 'alice' });
@@ -100,6 +142,17 @@ export function installFs01(world: World): Host {
   mkdir(h, '/srv/software', t, { mode: 0o755 });
   writeFile(h, '/srv/software/README', 'Approved installers. Read-only for clients: request changes with a ticket.\n', t);
   writeFile(h, '/srv/software/agent-install.sh', '#!/bin/sh\necho "installing monitoring agent 3.2"\n', t, { mode: 0o755 });
+
+  // Samba: the office share (SMB only), Samba accounts and logs.
+  addUser(h, { name: 'dana', uid: 1002, gid: 1002, primaryGroup: 'dana', groups: ['staff'], home: '/home/dana', shell: '/usr/sbin/nologin', gecos: 'Dana Sales', password: null }, t);
+  mkdir(h, '/srv/office', t, { mode: 0o770, owner: 'root', group: 'staff' });
+  writeFile(h, '/srv/office/budget-2025.txt', 'Budget 2025 (draft)\nhardware 42000\nlicences 18500\n', t, { mode: 0o660, owner: 'dana', group: 'staff' });
+  mkdir(h, '/srv/office/minutes', t, { mode: 0o770, owner: 'alice', group: 'staff' });
+  writeFile(h, '/srv/office/minutes/2024-10-14.txt', 'Weekly IT meeting: file server migration to fs01 approved.\n', t, { mode: 0o660, owner: 'alice', group: 'staff' });
+  mkdir(h, '/etc/samba', t);
+  writeFile(h, '/etc/samba/smb.conf', FS01_SMB_CONF, t);
+  for (const d of ['/var/lib/samba', '/var/lib/samba/private', '/var/log/samba']) if (!h.fs[d]) mkdir(h, d, t, d.endsWith('private') ? { mode: 0o700 } : undefined);
+  h.sambaPassdb = Object.fromEntries(Object.entries(FS01_SMB_PASSWORDS).map(([name, password]) => [name, { name, password, disabled: false }]));
 
   addNfsFstab(world.hosts.ws01, 'fs01.corp.lab:/srv/projects /mnt/projects nfs4 defaults,_netdev 0 0', '/mnt/projects', t);
   addNfsFstab(world.hosts.srv01, 'fs01.corp.lab:/srv/software /opt/software nfs4 ro,_netdev 0 0', '/opt/software', t);

@@ -40,6 +40,17 @@ export const FILES_LINUX: FileRef[] = [
     relatedCommands: ['exportfs', 'showmount', 'mount'],
   },
   {
+    id: 'file:smb-conf', path: '/etc/samba/smb.conf', platform: 'Samba 4 (Debian / Ubuntu / RHEL)', kind: 'config',
+    services: ['SMB', 'Samba', 'Storage'],
+    purpose: 'Samba\'s configuration: the [global] server settings and one section per share.',
+    contents: '[global]: workgroup, server role (standalone server, member server), security, log file = /var/log/samba/log.%m and log level, map to guest, server min protocol. Each [share]: path, comment, valid users (names, @group), read only (default yes) or writable, write list, guest ok, force user/force group, create mask/directory mask. Samba also keeps its own users in /var/lib/samba/private/passdb.tdb (smbpasswd, pdbedit).',
+    accessed: 'When smbd starts, and again by each smbd child for new connections when the file changed (and every few minutes): share changes need no restart. Check with testparm.',
+    permissions: 'root:root 644.',
+    problems: 'Shares are read-only unless they say read only = no. Typos are ignored ("Unknown parameter"). A path that does not exist (Linux paths are case-sensitive) gives NT_STATUS_BAD_NETWORK_NAME. Samba\'s share rules and the directory\'s Unix permissions both apply. Logs per client: /var/log/samba/log.CLIENT.',
+    example: '[office]\n   comment = Office documents (staff)\n   path = /srv/office\n   valid users = @staff\n   read only = no\n   force group = staff\n   create mask = 0660\n   directory mask = 0770',
+    relatedCommands: ['testparm', 'smbclient', 'smbpasswd'],
+  },
+  {
     id: 'file:var-log', path: '/var/log', platform: 'Linux (all distributions)', kind: 'log',
     services: ['systemd', 'SSH', 'DNS', 'DHCP', 'Firewall', 'Web server'],
     purpose: 'Persistent logs: text files written by rsyslog and by services that log to files, plus the persistent systemd journal.',

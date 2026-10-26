@@ -571,5 +571,30 @@ export const CAUSES: Record<string, Cause> = Object.fromEntries(
       signature: 'A user can read the share but gets "Permission denied" writing where the same user can write on the server, and ls -l on the client shows numbers or another user\'s name as owner. NFS (sec=sys) sends numeric UIDs: id alice differs between the two hosts.',
       check: 'id USER on client and server; ls -ln on the mount and on the server.',
     },
+    {
+      id: 'smb-no-passdb', title: 'The user has a Unix account but no Samba password (smbpasswd -a missing)', category: 'Authentication', concept: 'files.smb',
+      signature: 'Every attempt fails at session setup ("NT_STATUS_LOGON_FAILURE", Windows: "System error 1326 ... user name or password is incorrect") even with the right password, while other users connect. The server log (auth_audit) says status [NT_STATUS_NO_SUCH_USER], and pdbedit -L does not list the user: Samba keeps its own password database, separate from /etc/shadow.',
+      check: 'pdbedit -L on the server; the Auth: line in /var/log/samba/log.CLIENT (NO_SUCH_USER versus WRONG_PASSWORD).',
+    },
+    {
+      id: 'smb-wrong-password', title: 'The user types the wrong password', category: 'Authentication', concept: 'files.smb',
+      signature: 'Session setup fails with NT_STATUS_LOGON_FAILURE; the server log shows status [NT_STATUS_WRONG_PASSWORD] for a user that pdbedit -L lists.',
+      check: 'The Auth: line in /var/log/samba/log.CLIENT; pdbedit -L.',
+    },
+    {
+      id: 'smb-valid-users', title: 'The share\'s "valid users" does not include the user (group membership)', category: 'Authorization', concept: 'files.smb',
+      signature: 'The logon succeeds (smbclient -L works) but connecting to one share fails with "tree connect failed: NT_STATUS_ACCESS_DENIED" (Windows: System error 5, Access is denied). The server log says "user \'X\' (from session setup) not permitted to access this share"; the share has valid users = @group and id X on the server does not list that group.',
+      check: 'testparm -s (valid users of the share); id USER on the server; /var/log/samba/log.CLIENT.',
+    },
+    {
+      id: 'smb-share-path', title: 'The share\'s path does not exist on the server', category: 'Configuration', concept: 'files.smb',
+      signature: 'The share is listed (smbclient -L) but connecting to it fails with "tree connect failed: NT_STATUS_BAD_NETWORK_NAME" (Windows: System error 67, The network name cannot be found). The server log says "canonicalize_connect_path failed for service X, path /..." and the path in smb.conf differs from the real directory (often only in case).',
+      check: 'testparm -s (path); ls -ld of that path on the server; /var/log/samba/log.CLIENT.',
+    },
+    {
+      id: 'smb-read-only', title: 'The share is read-only ("read only = yes" is Samba\'s default)', category: 'Configuration', concept: 'files.smb',
+      signature: 'Users connect and can list and read, but every write fails with "NT_STATUS_ACCESS_DENIED opening remote file" although the Unix permissions of the directory allow that user to write. testparm -s shows no "read only = No" (or writable = yes) for the share.',
+      check: 'testparm -s for the share; ls -ld of its path on the server.',
+    },
   ] as Cause[]).map((c) => [c.id, c]),
 );
