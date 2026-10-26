@@ -6,6 +6,21 @@ import { Shell } from '../shell/shell';
 import type { World } from '../types';
 import type { GuidedLab, LabCheck, LabCheckResult, LabStep } from './types';
 
+export const OK = (detail: string): LabCheckResult => ({ ok: true, detail });
+export const NO = (detail: string): LabCheckResult => ({ ok: false, detail });
+
+/** The last two non-empty lines of a goal check (the part worth showing under a failed check). */
+export const lastLines = (r: { lines: string[] }): string => r.lines.filter(Boolean).slice(-2).join(' ');
+
+/**
+ * A file's contents as a printf command line (reference solutions): escapes
+ * backslashes, % (printf directives), single quotes (the shell) and newlines.
+ */
+export function printfTo(text: string, path: string, append = false): string {
+  const body = text.replace(/\\/g, '\\\\').replace(/%/g, '%%').replace(/'/g, "'\\''").replace(/\n/g, '\\n');
+  return `printf '${body}' ${append ? '>>' : '>'} ${path}`;
+}
+
 /** Run a command line on a copy of the world and return its output and exit code. */
 export function probe(world: World, host: string, user: string, line: string): { output: string; code: number } {
   let w = structuredClone(world);

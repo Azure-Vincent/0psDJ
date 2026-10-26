@@ -17,13 +17,12 @@ import { proxiedNginxConf, deployProxy } from '../scenarios/proxyScenarios';
 import { parseExports, type NfsServerLoaded } from '../sim/nfs';
 import { findShare, loadSmbConf, shareReadOnly } from '../sim/smb';
 import { recomputeL2 } from '../sim/l2';
+import { hostAddresses } from '../sim/network';
 import { bootHost } from '../sim/services';
 import type { World } from '../types';
-import { probe } from './engine';
+import { lastLines as last, NO, OK, printfTo, probe } from './engine';
 import type { GuidedLab, LabCheck } from './types';
 
-const OK = (detail: string) => ({ ok: true, detail });
-const NO = (detail: string) => ({ ok: false, detail });
 
 export const APP01_IP = '10.0.20.70';
 export const APP01_PASSWORD = 'app01-alice';
@@ -148,10 +147,6 @@ export function buildLab5World(): World {
   return world;
 }
 
-/** A file's contents as a printf command line (for the reference solution). */
-const printfTo = (text: string, path: string, append = false) => `printf '${text.replace(/\\/g, '\\\\').replace(/'/g, "'\\''").replace(/\n/g, '\\n')}' ${append ? '>>' : '>'} ${path}`;
-
-const last = (r: { lines: string[] }) => r.lines.filter(Boolean).slice(-2).join(' ');
 
 // ---------------------------------------------------------------- checks
 
@@ -185,8 +180,9 @@ const timeOk: LabCheck = {
   check(w) {
     const r = checkGoal(w, { kind: 'time', description: '', host: 'app01' });
     if (!r.ok) return NO(r.lines.filter((l) => /synchronized|this clock is/.test(l)).join(' ') || 'not synchronized');
-    const src = probe(w, 'app01', 'root', 'timedatectl timesync-status').output;
-    return /10\.0\.10\.1|rtr01/.test(src) ? OK('System clock synchronized: yes (server rtr01).') : NO('Synchronized, but not from rtr01: use the internal time source.');
+    // Any of rtr01's addresses counts (10.0.20.1 is app01's gateway); nothing else does.
+    const server = /^\s*Server:\s*(\S+)/m.exec(probe(w, 'app01', 'root', 'timedatectl timesync-status').output)?.[1];
+    return server && hostAddresses(w.hosts.rtr01).includes(server) ? OK(`System clock synchronized: yes (server ${server}, rtr01).`) : NO(`Synchronized from ${server ?? 'an unknown server'}, not from rtr01: use the internal time source.`);
   },
 };
 

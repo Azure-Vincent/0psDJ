@@ -15,13 +15,11 @@ import { INVENTORY_CHECK, INVENTORY_COMPOSE, INVENTORY_DIR } from '../scenarios/
 import { checkGoal, rebootAll, script } from '../scenarios/engine';
 import { APPS_CHECK, deployProxy } from '../scenarios/proxyScenarios';
 import { loadProject } from '../sim/compose';
+import { sysctlFiles } from '../sim/services';
 import type { World } from '../types';
-import { probe } from './engine';
+import { lastLines as last, NO, OK, printfTo, probe } from './engine';
 import type { GuidedLab, LabCheck } from './types';
 
-const OK = (detail: string) => ({ ok: true, detail });
-const NO = (detail: string) => ({ ok: false, detail });
-const last = (r: { lines: string[] }) => r.lines.filter(Boolean).slice(-2).join(' ');
 
 export const ROUTER_SYSCTL = '# Enable IPv4 forwarding between eth0 (LAN) and eth1 (servers)\nnet.ipv4.ip_forward=1\n# IPv6 routing for the pilot (NET-40)\nnet.ipv6.conf.all.forwarding=1\n';
 /** Friday's unfinished zone edit (CHG-2341): a typo in log01's address, saved but never reloaded. */
@@ -56,7 +54,6 @@ export function buildLab6World(): World {
   // Friday: a zone edit saved on ns1 without named-checkzone or reload.
   const ns1 = world.hosts.ns1;
   writeFile(ns1, '/etc/bind/db.corp.lab', LAB6_BROKEN_ZONE, world.clock, { group: 'bind' });
-  if (!ns1.fs['/var/backups']) script(world, 'ns1', ['mkdir -p /var/backups']);
   script(world, 'ns1', ['mkdir -p /var/backups/bind']);
   writeFile(world.hosts.ns1, '/var/backups/bind/db.corp.lab.2026-10-12', LAB6_OLD_BACKUP, world.clock);
 
@@ -77,8 +74,9 @@ const routing: LabCheck = {
   check(w) {
     const ping = probe(w, 'ws01', 'alice', 'ping -c 1 -W 1 10.0.20.10');
     if (ping.code !== 0) return NO(`ws01 → srv01: ${ping.output.trim().split('\n').slice(-2).join(' ')}`);
-    const files = Object.entries(w.hosts.rtr01.fs).filter(([p, n]) => (p.startsWith('/etc/sysctl.d/') || p === '/etc/sysctl.conf') && n.type === 'file');
-    if (!files.some(([, n]) => /^\s*net\.ipv4\.ip_forward\s*=\s*1\s*$/m.test(n.content))) return NO('Forwarding is on now, but no file in /etc/sysctl.d sets net.ipv4.ip_forward=1: it is off again after the next boot.');
+    // What the next boot applies (sysctlFiles: /etc/sysctl.conf and /etc/sysctl.d/*.conf).
+    const persisted = sysctlFiles(w.hosts.rtr01).map((p) => w.hosts.rtr01.fs[p].content).join('\n');
+    if (!/^\s*net\.ipv4\.ip_forward\s*=\s*1\s*$/m.test(persisted)) return NO('Forwarding is on now, but no /etc/sysctl.d/*.conf file sets net.ipv4.ip_forward=1: it is off again after the next boot (files without .conf are ignored).');
     return OK('ws01 reaches srv01; net.ipv4.ip_forward=1 is in /etc/sysctl.d.');
   },
 };
@@ -131,7 +129,9 @@ const inventory: LabCheck = {
     const missing = p.services.filter((s) => s.restart !== 'unless-stopped' && s.restart !== 'always').map((s) => s.name);
     const r = checkGoal(w, INVENTORY_CHECK);
     if (!r.ok) return NO(`inventory: ${last(r)}`);
-    return missing.length ? NO(`Running now, but ${missing.join(' and ')} ${missing.length > 1 ? 'have' : 'has'} no restart policy: down again after the next reboot.`) : OK('inventory answers 200; restart: unless-stopped on both services.');
+    if (!missing.length) return OK('inventory answers 200; restart: unless-stopped on both services.');
+    const desc = missing.map((n) => `${n} (restart: ${p.services.find((s) => s.name === n)?.restart ?? 'no'})`).join(' and ');
+    return NO(`Running now, but ${desc} will not be started by dockerd after the next reboot: use restart: unless-stopped (or always).`);
   },
 };
 
@@ -155,8 +155,6 @@ const logs: LabCheck = {
 };
 
 // ---------------------------------------------------------------- the lab
-
-const printfTo = (text: string, path: string) => `printf '${text.replace(/\\/g, '\\\\').replace(/'/g, "'\\''").replace(/\n/g, '\\n')}' > ${path}`;
 
 export const LAB6: GuidedLab = {
   id: 'lab6',

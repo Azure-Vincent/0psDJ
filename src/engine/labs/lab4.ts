@@ -12,7 +12,7 @@ import { DB_PASSWORD, INVENTORY_CHECK, INVENTORY_COMPOSE, INVENTORY_DIR } from '
 import { loadProject, projectContainers } from '../sim/compose';
 import { daemonConfig } from '../sim/docker';
 import type { World } from '../types';
-import { probe } from './engine';
+import { printfTo, probe } from './engine';
 import type { GuidedLab, LabCheck } from './types';
 
 const OK = (detail: string) => ({ ok: true, detail });
@@ -86,8 +86,6 @@ export function buildLab4World(): World {
   return world;
 }
 
-/** A file's contents as a printf command line (for the reference solution). */
-const printfTo = (text: string, path: string) => `printf '${text.replace(/\\/g, '\\\\').replace(/\n/g, '\\n')}' > ${path}`;
 
 const project = (w: World) => loadProject(w.hosts.dock01, INVENTORY_DIR);
 

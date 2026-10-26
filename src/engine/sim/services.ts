@@ -71,6 +71,15 @@ function sysd(world: World, host: Host, msg: string, unit: string, priority: 'in
   log(world, host, 'systemd', msg, { pid: 1, unit, priority });
 }
 
+/**
+ * The files systemd-sysctl (and sysctl --system) apply: /etc/sysctl.conf and
+ * /etc/sysctl.d/*.conf, in lexical order (the last assignment wins). Files
+ * without the .conf suffix are ignored.
+ */
+export function sysctlFiles(host: Host): string[] {
+  return Object.keys(host.fs).filter((p) => p === '/etc/sysctl.conf' || (/^\/etc\/sysctl\.d\/[^/]+\.conf$/.test(p) && host.fs[p].type === 'file')).sort();
+}
+
 function allocPid(host: Host): number {
   host.nextPid += 7;
   return host.nextPid;
@@ -1247,9 +1256,7 @@ export function bootHost(world: World, host: Host): void {
   host.bootTime = world.clock;
   host.nextPid = 400;
   log(world, host, 'kernel', 'Linux version 6.1.0-26-amd64 (debian-kernel@lists.debian.org) #1 SMP PREEMPT_DYNAMIC Debian 6.1.112-1');
-  const sysctl = Object.keys(host.fs)
-    .filter((p) => p === '/etc/sysctl.conf' || p.startsWith('/etc/sysctl.d/'))
-    .sort() // systemd-sysctl applies files in lexical order; the last assignment wins
+  const sysctl = sysctlFiles(host)
     .map((p) => readFile(host, p) ?? '')
     .join('\n');
   host.ipForward = /^\s*net\.ipv4\.ip_forward\s*=\s*1\s*$/m.test(sysctl);

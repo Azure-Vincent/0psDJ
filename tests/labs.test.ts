@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { getLesson } from '../src/content/lessons';
 import { getRef } from '../src/content/reference';
-import { applySolution, checkStep } from '../src/engine/labs/engine';
+import { applySolution, checkStep, printfTo } from '../src/engine/labs/engine';
 import { GUIDED_LABS } from '../src/engine/labs';
 import { LAB1 } from '../src/engine/labs/lab1';
 import { LAB2 } from '../src/engine/labs/lab2';
@@ -41,7 +41,7 @@ describe('guided labs: Labs 5 and 6 reject the tempting wrong fixes', () => {
   it('Lab 6: runtime-only fixes and the old backup are caught', () => {
     let w = upTo(LAB6, 'routing');
     w = runAll(w, 'rtr01', 'root', ['sysctl -w net.ipv4.ip_forward=1']);
-    expect(failing(w, LAB6, 'routing')).toMatch(/no file in \/etc\/sysctl\.d/);
+    expect(failing(w, LAB6, 'routing')).toMatch(/no \/etc\/sysctl\.d\/\*\.conf file/);
     w = upTo(LAB6, 'dns');
     w = runAll(w, 'ns1', 'root', ['cp /var/backups/bind/db.corp.lab.2026-10-12 /etc/bind/db.corp.lab', 'rndc reload']);
     expect(failing(w, LAB6, 'dns')).toMatch(/fs01\.corp\.lab/);
@@ -51,7 +51,19 @@ describe('guided labs: Labs 5 and 6 reject the tempting wrong fixes', () => {
     w = upTo(LAB6, 'apps');
     w = runAll(w, 'dock01', 'root', ['docker start inventory-db-1 inventory-app-1']);
     w = runAll(w, 'srv01', 'root', ['systemctl start nginx']);
-    expect(failing(w, LAB6, 'apps')).toMatch(/no restart policy/);
+    expect(failing(w, LAB6, 'apps')).toMatch(/will not be started by dockerd after the next reboot/);
+  });
+
+  it('review fixes: rtr01\'s other address counts for NTP; a non-.conf sysctl file does not; printfTo survives % and quotes', () => {
+    let w = upTo(LAB5, 'time');
+    w = runAll(w, 'app01', 'root', ["printf '[Time]\\nNTP=10.0.20.1\\n' > /etc/systemd/timesyncd.conf", 'systemctl restart systemd-timesyncd']);
+    expect(failing(w, LAB5, 'time')).toBe('');
+    let v = upTo(LAB6, 'routing');
+    v = runAll(v, 'rtr01', 'root', ["printf 'net.ipv4.ip_forward=1\\n' > /etc/sysctl.d/99-router", 'sysctl -w net.ipv4.ip_forward=1']);
+    expect(failing(v, LAB6, 'routing')).toMatch(/files without \.conf are ignored/);
+    const text = "log_format main '%h %t \\\\n';\nit's 100%\n";
+    const t = runAll(LAB5.build(), 'app01', 'root', [printfTo(text, '/tmp/t.txt')]);
+    expect(t.hosts.app01.fs['/tmp/t.txt'].content).toBe(text);
   });
 
   it('Lab 5: a wide export, usermod -G without -a, and an open port 80 are caught', () => {
