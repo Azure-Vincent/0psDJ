@@ -6,6 +6,7 @@ import { AD_KERBEROS_PRIMER, DOCKER_PRIMER, KERBEROS_PRIMER, WINDOWS_RDP_PRIMER 
 import { WEBPROXY_PRIMER } from '../ops/webproxy';
 import { NTP_PRIMER } from '../ops/ntp';
 import { LOGGING_PRIMER } from '../ops/logging';
+import { NFS_PRIMER } from '../ops/nfs';
 import { NETOPS_PRIMER, NFTABLES_PRIMER, PFSENSE_PRIMER, RECOVERY_PRIMER, SSH_PRIMER, SYSTEMD_PRIMER } from './services';
 
 export const PRIMERS: Record<string, Primer> = {
@@ -31,4 +32,5 @@ export const PRIMERS: Record<string, Primer> = {
   webproxy: WEBPROXY_PRIMER,
   ntp: NTP_PRIMER,
   logging: LOGGING_PRIMER,
+  nfs: NFS_PRIMER,
 };

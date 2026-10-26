@@ -116,6 +116,10 @@ const SYMPTOM: Record<string, RegExp> = {
   'docker-port-taken': /HTTP\/1\.1 404 Not Found\nServer: nginx\/1\.25\.5/,
   'docker-no-restart': /curl: \(7\) Failed to connect to inventory\.corp\.lab port 8000/,
   'docker-daemon-json': /curl: \(7\) Failed to connect to inventory\.corp\.lab port 8000/,
+  'nfs-exportfs': /mount\.nfs4: access denied by server while mounting fs01\.corp\.lab:\/srv\/projects/,
+  'nfs-root-squash': /cp: cannot create regular file '\/mnt\/backup\/hosts\.srv01': Permission denied/,
+  'nfs-firewall': /mount\.nfs4: Connection timed out/,
+  'nfs-uid-mismatch': /touch: cannot touch '\/mnt\/projects\/srv01-check\.txt': Permission denied/,
   'mtu-uplink-mismatch': /curl: \(28\) Operation timed out after 30000 milliseconds with 0 out of 4718592 bytes received/,
 };
 

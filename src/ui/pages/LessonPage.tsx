@@ -384,6 +384,15 @@ function widgetsFor(id: string): LessonWidgets {
       ],
     };
   }
+  if (id === 'nfs') {
+    return {
+      sandbox: [
+        { hostId: 'fs01', user: 'root', label: 'fs01 console (root)', banner: 'Sandbox: fs01, the NFS server. Try: cat /etc/exports, exportfs -v, ls -ln /srv/projects, ss -tlnp, nft list ruleset.' },
+        { hostId: 'ws01', user: 'alice', label: 'ws01 (alice)', banner: 'Sandbox: ws01 mounts fs01:/srv/projects on /mnt/projects (sudo password ws01-alice). Try: mount -t nfs4, df -h, id, echo hi > /mnt/projects/hello.txt, then sudo touch /mnt/projects/root.txt (root_squash).' },
+        { hostId: 'srv01', user: 'root', label: 'srv01 console (root)', banner: 'Sandbox: srv01 mounts the read-only software share on /opt/software. Try: ls /opt/software, touch /opt/software/x, showmount -e fs01, id alice.' },
+      ],
+    };
+  }
   if (id === 'ntp') {
     return {
       sandbox: [

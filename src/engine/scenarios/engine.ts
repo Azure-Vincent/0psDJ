@@ -47,6 +47,7 @@ export function goalLabel(goal: Goal): string {
   if (goal.kind === 'scored-dns') return `scoring engine: DNS ${goal.name} A @${goal.server}`;
   if (goal.kind === 'time') return `${goal.host}: timedatectl (clock synchronized and correct)`;
   if (goal.kind === 'syslog') return `${goal.fromHost}: logger${goal.priority ? ` -p ${goal.priority}` : ''} → ${goal.server}:${goal.path}`;
+  if (goal.kind === 'command') return goal.steps.map((s) => `${s.host}: ${s.command}`).join(' → ');
   if (goal.kind === 'kerberos') return `${goal.fromHost}: kinit ${goal.localUser}${goal.sshTarget ? ` + ssh ${goal.sshTarget} (Kerberos)` : ''}`;
   return `${goal.user}@${goal.target}`;
 }
@@ -74,6 +75,21 @@ export function checkGoal(world: World, goal: Goal): GoalResult {
     const content = cur.hosts[goal.server].fs[path]?.content ?? '';
     const got = content.split('\n').find((l) => l.includes(token));
     return { goal, ok: !!got, lines: [`${goal.fromHost}# ${line}`, `${goal.server}# grep ${token} ${path}`, got ?? (cur.hosts[goal.server].fs[path] ? '(no such line)' : `grep: ${path}: No such file or directory`)] };
+  }
+  if (goal.kind === 'command') {
+    let cur = w;
+    const lines: string[] = [];
+    let last = { code: 0, output: '' };
+    for (const s of goal.steps) {
+      const u = cur.hosts[s.host].users[s.user];
+      const sh = new Shell(() => cur, (n) => (cur = n), { hostId: s.host, user: s.user, cwd: u?.home ?? '/' });
+      cur.clock += 5_000;
+      const r = sh.execute(s.command);
+      last = { code: r.code, output: r.output };
+      lines.push(`${s.user}@${s.host}${s.user === 'root' ? '#' : '$'} ${s.command}`, ...(r.output ? r.output.split('\n') : []));
+    }
+    const ok = last.code === 0 && (!goal.expect || new RegExp(goal.expect, 'm').test(last.output));
+    return { goal, ok, lines };
   }
   if (goal.kind === 'time') {
     let cur = w;
@@ -140,7 +156,7 @@ export function rebootAll(world: World): World {
   w.sessions = [];
   // Infrastructure first (switch, router, DNS/DHCP), then servers and clients; hosts added by a lab boot last.
   // Domain controllers before members (members look for a DC while they boot).
-  const order = ['sw01', 'rtr01', 'fw01', 'ns1', 'dc01', 'srv01', 'ws01', 'ws02', 'ext01', 'dev01', 'dev02'];
+  const order = ['sw01', 'rtr01', 'fw01', 'ns1', 'dc01', 'fs01', 'srv01', 'ws01', 'ws02', 'ext01', 'dev01', 'dev02'];
   for (const id of [...order, ...Object.keys(w.hosts).filter((h) => !order.includes(h))]) if (w.hosts[id]) bootHost(w, w.hosts[id]);
   ntpSettle(w);
   syslogFlush(w);

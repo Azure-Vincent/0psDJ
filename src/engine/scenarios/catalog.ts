@@ -551,5 +551,25 @@ export const CAUSES: Record<string, Cause> = Object.fromEntries(
       signature: 'rsyslogd on the log server is active and writes its own logs, but nothing listens on 514: senders are refused ("Connection refused", action suspended). rsyslogd -N1 / the journal show "input module name \'imtcp\' is unknown" (input() without module(load=...)) or the input lines are missing.',
       check: 'ss -tulnp and rsyslogd -N1 on the log server; journalctl -u rsyslog.',
     },
+    {
+      id: 'nfs-exports-not-loaded', title: '/etc/exports edited but the export table was not reloaded (exportfs -ra)', category: 'Service', concept: 'files.nfs',
+      signature: 'A client listed in /etc/exports is refused ("mount.nfs4: access denied by server while mounting"), while exportfs -v on the server does not show the new entry. The NFS server reads /etc/exports only when it starts or when exportfs -ra / exportfs -r runs.',
+      check: 'Compare cat /etc/exports with exportfs -v (or showmount -e) on the server; the mount error on the client.',
+    },
+    {
+      id: 'nfs-root-squash', title: 'root on the client is squashed to nobody (root_squash)', category: 'Permissions', concept: 'files.nfs',
+      signature: 'The share is mounted read-write and ordinary users can write, but root on the client gets "Permission denied": the server maps UID 0 to nobody (65534), which has no write permission on the exported directory. exportfs -v shows root_squash.',
+      check: 'exportfs -v on the server (root_squash / no_root_squash); ls -ln of the exported directory; id on the client; which user the failing job runs as.',
+    },
+    {
+      id: 'nfs-firewall', title: 'The NFS server\'s firewall drops NFS (TCP 2049)', category: 'Firewall', concept: 'files.nfs',
+      signature: 'Mounts hang and fail with "Connection timed out"; showmount -e reports "RPC: Timed out". The server listens on 2049 (ss -tlnp) and exports the share (exportfs -v), but the input chain has no accept rule for 2049/111, and tcpdump shows SYNs without replies.',
+      check: 'mount -a / journalctl -b on the client; ss -tlnp, exportfs -v, nft list ruleset and tcpdump -n port 2049 on the server.',
+    },
+    {
+      id: 'nfs-uid-mismatch', title: 'The same user has different UIDs on client and server', category: 'Permissions', concept: 'files.nfs',
+      signature: 'A user can read the share but gets "Permission denied" writing where the same user can write on the server, and ls -l on the client shows numbers or another user\'s name as owner. NFS (sec=sys) sends numeric UIDs: id alice differs between the two hosts.',
+      check: 'id USER on client and server; ls -ln on the mount and on the server.',
+    },
   ] as Cause[]).map((c) => [c.id, c]),
 );

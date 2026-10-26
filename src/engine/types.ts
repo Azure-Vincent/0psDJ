@@ -19,6 +19,8 @@ export interface FileNode {
   mtime: number;
   /** Nominal size in bytes for large/binary files whose bytes the simulator does not store. */
   size?: number;
+  /** Set on the client's view of a file under an NFS mount: export options the server applies. */
+  nfs?: { ro: boolean; squash: 'root' | 'all' | 'none'; stale?: boolean };
 }
 
 export interface UserAccount {
@@ -210,6 +212,8 @@ export interface Host {
   role: string;
   users: Record<string, UserAccount>;
   fs: Record<string, FileNode>;
+  /** Active NFS mounts (client side). */
+  mounts?: NfsMount[];
   ifaces: Interface[];
   routes: Route[];
   neighbors: Neighbor[];
@@ -356,4 +360,24 @@ export interface CapturedFrame {
   vlan?: number;
   ip?: Packet;
   arp?: ArpPacket;
+}
+
+/** An NFS export mounted on a client. */
+export interface NfsMount {
+  /** As in /etc/fstab: fs01.corp.lab:/srv/projects */
+  source: string;
+  server: string;
+  serverPath: string;
+  target: string;
+  options: string[];
+  /** The address the server sees for this client, and the server's. */
+  clientIp: string;
+  serverIp?: string;
+  ro: boolean;
+  /** The client's own directory hidden by the mount (restored at umount). */
+  underlying?: FileNode;
+  /** Signatures of the view after the last refresh, to find what the client changed. */
+  snapshot?: Record<string, string>;
+  /** The server no longer exports this to the client, or stopped serving it. */
+  stale?: boolean;
 }
