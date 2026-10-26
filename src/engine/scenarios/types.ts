@@ -6,7 +6,7 @@ export type ConceptId =
   | 'ssh.userauth' | 'ssh.authorized-keys' | 'linux.permissions' | 'ssh.config' | 'ssh.authz' | 'logs.journal'
   | 'net.cidr' | 'fw.path' | 'net.dhcp' | 'net.nat' | 'net.vlan' | 'net.ipv6' | 'net.ndp'
   | 'linux.fs' | 'net.ops' | 'ops.recovery' | 'win.services' | 'win.rdp' | 'ad.dns' | 'ad.kerberos' | 'ad.gpo'
-  | 'docker.lifecycle' | 'docker.networking' | 'pfsense.rules' | 'pfsense.nat' | 'tls.pki' | 'net.mtu' | 'net.interfaces' | 'web.proxy' | 'ntp.sync';
+  | 'docker.lifecycle' | 'docker.networking' | 'pfsense.rules' | 'pfsense.nat' | 'tls.pki' | 'net.mtu' | 'net.interfaces' | 'web.proxy' | 'ntp.sync' | 'logs.central';
 
 export type CauseCategory = 'Name resolution' | 'Network path' | 'Firewall' | 'Service' | 'Configuration' | 'Authentication' | 'Authorization' | 'Permissions' | 'Client' | 'Cryptography' | 'Persistence';
 
@@ -126,7 +126,19 @@ export interface TimeGoal {
   host: string;
 }
 
-export type Goal = SshGoal | HttpGoal | ResolveGoal | KerberosGoal | RdpGoal | ScoredSshGoal | ScoredWebGoal | ScoredDnsGoal | TimeGoal;
+/** A message logged on a host (logger, as root) must arrive in the central log server's files. */
+export interface SyslogGoal {
+  kind: 'syslog';
+  description: string;
+  fromHost: string;
+  /** logger -p FACILITY.LEVEL (default user.notice). */
+  priority?: string;
+  /** Where the message must appear on log01 (a file path; the tag is used as the program name). */
+  server: string;
+  path: string;
+}
+
+export type Goal = SshGoal | HttpGoal | ResolveGoal | KerberosGoal | RdpGoal | ScoredSshGoal | ScoredWebGoal | ScoredDnsGoal | TimeGoal | SyslogGoal;
 
 export interface ConstraintResult {
   id: string;

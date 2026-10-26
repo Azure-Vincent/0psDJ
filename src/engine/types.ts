@@ -162,8 +162,10 @@ export interface LogEntry {
   ident: string; // syslog identifier: sshd, systemd, kernel, named ...
   pid: number | null;
   unit: string | null; // systemd unit, used by journalctl -u
-  priority: 'err' | 'warning' | 'notice' | 'info' | 'debug';
+  priority: 'emerg' | 'alert' | 'crit' | 'err' | 'warning' | 'notice' | 'info' | 'debug';
   message: string;
+  /** Syslog facility when the sender chose one (logger -p); otherwise derived from the identifier. */
+  facility?: string;
 }
 
 export interface ConntrackEntry {
@@ -309,7 +311,7 @@ export interface IcmpHeader {
 }
 
 export interface AppLayer {
-  protocol: 'DNS' | 'SSH' | 'DATA' | 'DHCP' | 'DHCPv6' | 'TLS' | 'KRB5' | 'KADMIN' | 'RDP' | 'NTP';
+  protocol: 'DNS' | 'SSH' | 'DATA' | 'DHCP' | 'DHCPv6' | 'TLS' | 'KRB5' | 'KADMIN' | 'RDP' | 'NTP' | 'SYSLOG';
   /** Short Wireshark-style "Info" text. */
   info: string;
   /** Decoded protocol fields visible to an observer. */

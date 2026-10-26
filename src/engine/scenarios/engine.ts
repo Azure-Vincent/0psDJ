@@ -11,6 +11,7 @@ import { isWindows } from '../win/model';
 import { scoredDnsCheck, scoredSshCheck, scoredWebCheck } from './scoring';
 import { dockerTick } from '../sim/docker';
 import { clockSynchronized, ntpSettle } from '../sim/ntp';
+import { syslogFlush } from '../sim/syslog';
 import type { Constraint, ConstraintResult, Goal, Scenario } from './types';
 
 /** Run shell commands as root on a host, mutating `world` in place (used to inject faults). */
@@ -45,6 +46,7 @@ export function goalLabel(goal: Goal): string {
   if (goal.kind === 'scored-web') return `scoring engine: web ${goal.url}`;
   if (goal.kind === 'scored-dns') return `scoring engine: DNS ${goal.name} A @${goal.server}`;
   if (goal.kind === 'time') return `${goal.host}: timedatectl (clock synchronized and correct)`;
+  if (goal.kind === 'syslog') return `${goal.fromHost}: logger${goal.priority ? ` -p ${goal.priority}` : ''} → ${goal.server}:${goal.path}`;
   if (goal.kind === 'kerberos') return `${goal.fromHost}: kinit ${goal.localUser}${goal.sshTarget ? ` + ssh ${goal.sshTarget} (Kerberos)` : ''}`;
   return `${goal.user}@${goal.target}`;
 }
@@ -54,11 +56,25 @@ export function checkGoal(world: World, goal: Goal): GoalResult {
   // again, and Docker retries containers in "restarting". Let them catch up before the check.
   world = structuredClone(world);
   ntpSettle(world);
+  syslogFlush(world);
   for (const h of Object.values(world.hosts)) if (h.services.docker?.state === 'active') dockerTick(world, h);
   if (goal.kind === 'scored-ssh') return { goal, ...scoredSshCheck(world, goal) };
   if (goal.kind === 'scored-web') return { goal, ...scoredWebCheck(world, goal) };
   if (goal.kind === 'scored-dns') return { goal, ...scoredDnsCheck(world, goal) };
   const w = structuredClone(world);
+  if (goal.kind === 'syslog') {
+    let cur = w;
+    const token = `probe-${(w.counter * 2654435761 >>> 0).toString(16)}`;
+    const line = `logger${goal.priority ? ` -p ${goal.priority}` : ''} -t labcheck "central logging test ${token}"`;
+    const sh = new Shell(() => cur, (n) => (cur = n), { hostId: goal.fromHost, user: 'root', cwd: '/root' });
+    sh.execute(line);
+    // rsyslog forwards in the background: let a moment pass, then look on the server.
+    syslogFlush(cur);
+    const path = goal.path.replace('%PROGRAMNAME%', 'labcheck');
+    const content = cur.hosts[goal.server].fs[path]?.content ?? '';
+    const got = content.split('\n').find((l) => l.includes(token));
+    return { goal, ok: !!got, lines: [`${goal.fromHost}# ${line}`, `${goal.server}# grep ${token} ${path}`, got ?? (cur.hosts[goal.server].fs[path] ? '(no such line)' : `grep: ${path}: No such file or directory`)] };
+  }
   if (goal.kind === 'time') {
     let cur = w;
     const sh = new Shell(() => cur, (n) => (cur = n), { hostId: goal.host, user: 'root', cwd: '/root' });
@@ -127,6 +143,7 @@ export function rebootAll(world: World): World {
   const order = ['sw01', 'rtr01', 'fw01', 'ns1', 'dc01', 'srv01', 'ws01', 'ws02', 'ext01', 'dev01', 'dev02'];
   for (const id of [...order, ...Object.keys(w.hosts).filter((h) => !order.includes(h))]) if (w.hosts[id]) bootHost(w, w.hosts[id]);
   ntpSettle(w);
+  syslogFlush(w);
   w.clock += 30_000;
   return w;
 }

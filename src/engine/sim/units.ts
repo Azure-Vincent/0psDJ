@@ -217,6 +217,33 @@ CapabilityBoundingSet=CAP_NET_BIND_SERVICE
 WantedBy=multi-user.target
 `,
   },
+  rsyslog: {
+    path: '/lib/systemd/system/rsyslog.service',
+    wantedBy: 'multi-user.target',
+    text: `[Unit]
+Description=System Logging Service
+Requires=syslog.socket
+Documentation=man:rsyslogd(8)
+Documentation=man:rsyslog.conf(5)
+Documentation=https://www.rsyslog.com/doc/
+
+[Service]
+Type=notify
+ExecStart=/usr/sbin/rsyslogd -n -iNONE
+StandardOutput=null
+Restart=on-failure
+
+# Increase the default a bit in order to allow many simultaneous
+# files to be monitored, we might need a lot of fds.
+LimitNOFILE=16384
+
+CapabilityBoundingSet=CAP_BLOCK_SUSPEND CAP_CHOWN CAP_LEASE CAP_NET_ADMIN CAP_NET_BIND_SERVICE CAP_SYS_ADMIN CAP_SYS_RESOURCE CAP_SYSLOG
+
+[Install]
+WantedBy=multi-user.target
+Alias=syslog.service
+`,
+  },
   chrony: {
     path: '/lib/systemd/system/chrony.service',
     wantedBy: 'multi-user.target',

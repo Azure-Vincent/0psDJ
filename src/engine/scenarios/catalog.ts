@@ -531,5 +531,25 @@ export const CAUSES: Record<string, Cause> = Object.fromEntries(
       signature: 'No client synchronizes; the server\'s kernel answers requests with ICMP port unreachable (nothing on UDP 123 in ss -ulnp). systemctl status chrony shows failed, and journalctl -u chrony gives the reason (for example "Fatal error : Invalid directive at line N").',
       check: 'systemctl status chrony; journalctl -u chrony -n 20; ss -ulnp on the server.',
     },
+    {
+      id: 'syslog-receiver-firewall', title: 'The log server\'s firewall drops syslog (514)', category: 'Firewall', concept: 'logs.central',
+      signature: 'Nothing new arrives from any sender; the senders\' rsyslog logs "cannot connect to LOGSERVER:514: Connection timed out" and suspends its forwarding action. On the log server rsyslogd listens on 514 (ss -tulnp) but the input chain has no rule for it, and tcpdump shows SYNs without replies.',
+      check: 'journalctl -u rsyslog on a sender; ss -tulnp, nft list ruleset and tcpdump -n port 514 on the log server.',
+    },
+    {
+      id: 'syslog-protocol-mismatch', title: 'Sender forwards over UDP (@) to a TCP-only receiver', category: 'Configuration', concept: 'logs.central',
+      signature: 'One sender is missing on the log server and logs no error at all: its rule uses a single "@" (UDP) while the receiver only has imtcp. The receiver answers the datagrams with ICMP port unreachable, which rsyslog ignores.',
+      check: 'Compare the forwarding lines (@ = UDP, @@ or protocol="tcp" = TCP) with the receiver\'s inputs (ss -tulnp); tcpdump -n port 514 on the receiver.',
+    },
+    {
+      id: 'syslog-selector-excludes', title: 'Forwarding selector leaves out some facilities (e.g. auth,authpriv.none)', category: 'Configuration', concept: 'logs.central',
+      signature: 'A sender\'s messages arrive, except for some programs: sshd (auth), sudo/PAM (authpriv)... The selector of the forwarding rule excludes their facilities ("*.*;auth,authpriv.none"); the sender still writes them locally.',
+      check: 'The selector in front of the forwarding action; compare ls /var/log/remote/HOST/ on the log server with the sender\'s local files; logger -p authpriv.notice test.',
+    },
+    {
+      id: 'syslog-input-missing', title: 'Log server has no input on 514 (module not loaded)', category: 'Service', concept: 'logs.central',
+      signature: 'rsyslogd on the log server is active and writes its own logs, but nothing listens on 514: senders are refused ("Connection refused", action suspended). rsyslogd -N1 / the journal show "input module name \'imtcp\' is unknown" (input() without module(load=...)) or the input lines are missing.',
+      check: 'ss -tulnp and rsyslogd -N1 on the log server; journalctl -u rsyslog.',
+    },
   ] as Cause[]).map((c) => [c.id, c]),
 );

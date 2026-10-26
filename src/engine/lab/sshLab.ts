@@ -11,6 +11,8 @@ import { mkdir, readFile, writeFile } from '../fs';
 import { bootHost } from '../sim/services';
 import { ntpSettle } from '../sim/ntp';
 import { installNtp } from './ntpLab';
+import { installLog01, installRsyslog, LOG_SENDERS } from './logLab';
+import { syslogFlush } from '../sim/syslog';
 import { endSession, runSsh } from '../sim/ssh';
 import { makeKeyPair, type KeyType } from '../sim/keys';
 import type { Host, World } from '../types';
@@ -295,10 +297,15 @@ iface swp11
     alias dock01 (container host)
     bridge-access 20
 
+auto swp12
+iface swp12
+    alias log01 (central log server)
+    bridge-access 20
+
 auto br0
 iface br0
     bridge-vlan-aware yes
-    bridge-ports swp1 swp2 swp3 swp4 swp5 swp6 swp7 swp8 swp9 swp11
+    bridge-ports swp1 swp2 swp3 swp4 swp5 swp6 swp7 swp8 swp9 swp11 swp12
     bridge-vids 10 20 30
     bridge-pvid 1
     bridge-stp yes
@@ -423,6 +430,7 @@ fw01    IN A    10.0.20.254
 dmz01   IN A    172.16.50.10
 portal  IN A    172.16.50.10
 dock01  IN A    10.0.20.40
+log01   IN A    10.0.20.50
 inventory IN CNAME dock01
 apps    IN CNAME srv01
 www     IN CNAME srv01
@@ -475,7 +483,7 @@ export function buildSshLab(): World {
   world.links = [
     ['ws01', 'eth0', 'swp1'], ['ws02', 'eth0', 'swp2'], ['ns1', 'eth0', 'swp3'], ['rtr01', 'eth0', 'swp4'],
     ['rtr01', 'eth1', 'swp5'], ['srv01', 'eth0', 'swp6'], ['rtr01', 'eth3', 'swp7'], ['dev01', 'eth0', 'swp8'], ['dev02', 'eth0', 'swp9'],
-    ['dock01', 'eth0', 'swp11'],
+    ['dock01', 'eth0', 'swp11'], ['log01', 'eth0', 'swp12'],
   ].map(([host, iface, port]) => ({ a: { host, iface }, b: { host: 'sw01', iface: port } }));
   const t = world.clock;
 
@@ -485,8 +493,9 @@ export function buildSshLab(): World {
     ifaces: Array.from({ length: 9 }, (_, k) => ({ name: `swp${k + 1}`, mac: `52:54:00:5e:00:${(k + 1).toString(16).padStart(2, '0')}`, segment: null })),
     services: [],
   });
-  // swp10 is left free (Lab 1 cables a new server to it); swp11 is dock01's port.
+  // swp10 is left free (Lab 1 cables a new server to it); swp11 is dock01's port, swp12 log01's.
   sw.ifaces.push({ name: 'swp11', mac: '52:54:00:5e:00:0b', segment: null, address: null, prefix: null, up: false, staticSegment: null, addrs6: [] });
+  sw.ifaces.push({ name: 'swp12', mac: '52:54:00:5e:00:0c', segment: null, address: null, prefix: null, up: false, staticSegment: null, addrs6: [] });
   writeFile(sw, '/etc/network/interfaces', SW01_INTERFACES, t);
   writeFile(sw, '/etc/resolv.conf', '', t);
 
@@ -499,7 +508,7 @@ export function buildSshLab(): World {
       { name: 'eth2', mac: '52:54:00:a1:00:03', segment: 'wan' },
       { name: 'eth3', mac: '52:54:00:a1:00:04', segment: null },
     ],
-    services: ['chrony', 'nftables', 'radvd', 'dhcrelay', 'dhcpd'],
+    services: ['rsyslog', 'chrony', 'nftables', 'radvd', 'dhcrelay', 'dhcpd'],
   });
   writeFile(rtr, '/etc/network/interfaces', RTR01_INTERFACES, t);
   writeFile(rtr, '/etc/default/isc-dhcp-server', '# Defaults for isc-dhcp-server (sourced by /etc/init.d/isc-dhcp-server)\n\n# Path to dhcpd\'s config file (default: /etc/dhcp/dhcpd.conf).\n#DHCPDv4_CONF=/etc/dhcp/dhcpd.conf\n#DHCPDv6_CONF=/etc/dhcp/dhcpd6.conf\n\n# On what interfaces should the DHCP server (dhcpd) serve DHCP requests?\n# IPv4 for VLAN 30 is served by ns1 through the relay (isc-dhcp-relay); this\n# router only runs the DHCPv6 server for VLAN 30 (NET-77).\nINTERFACESv4=""\nINTERFACESv6="eth3.30"\n', t);
@@ -515,7 +524,7 @@ export function buildSshLab(): World {
   const ns1 = createHost(world, {
     id: 'ns1', hostname: 'ns1', domain: 'corp.lab', role: 'DNS server (BIND 9, authoritative for corp.lab)',
     ifaces: [{ name: 'eth0', mac: '52:54:00:b2:00:35', segment: null }],
-    services: ['systemd-timesyncd', 'nftables', 'named', 'dhcpd', 'krb5-kdc', 'krb5-admin-server'],
+    services: ['rsyslog', 'systemd-timesyncd', 'nftables', 'named', 'dhcpd', 'krb5-kdc', 'krb5-admin-server'],
   });
   writeFile(ns1, '/etc/dhcp/dhcpd.conf', DHCPD_CONF, t);
   writeFile(ns1, '/etc/default/isc-dhcp-server', '# Defaults for isc-dhcp-server (sourced by /etc/init.d/isc-dhcp-server)\n\n# On what interfaces should the DHCP server (dhcpd) serve DHCP requests?\nINTERFACESv4="eth0"\nINTERFACESv6=""\n', t);
@@ -530,7 +539,7 @@ export function buildSshLab(): World {
   const srv = createHost(world, {
     id: 'srv01', hostname: 'srv01', domain: 'corp.lab', role: 'Linux application server (sshd, nginx)',
     ifaces: [{ name: 'eth0', mac: '52:54:00:c3:00:0a', segment: null }],
-    services: ['systemd-timesyncd', 'nftables', 'ssh', 'nginx'],
+    services: ['rsyslog', 'systemd-timesyncd', 'nftables', 'ssh', 'nginx'],
   });
   writeFile(srv, '/etc/network/interfaces', staticInterfaces([{ name: 'eth0', address: '10.0.20.10/24', gateway: '10.0.20.1' }]) + 'iface eth0 inet6 static\n    address 2001:db8:20::10/64\n    gateway 2001:db8:20::1\n', t);
   writeFile(srv, '/etc/resolv.conf', 'search corp.lab\nnameserver 10.0.10.53\n', t);
@@ -616,15 +625,18 @@ export function buildSshLab(): World {
   const fw = installFw01(world);
   const dmz = installDmz01(world);
   const dock = installDock01(world);
+  const logsrv = installLog01(world);
+  for (const id of LOG_SENDERS) installRsyslog(world.hosts[id], world.clock, true);
   // On the Internet the portal is reached through fw01's public address.
   writeFile(ext, '/etc/hosts', `${readFile(ext, '/etc/hosts') ?? ''}203.0.113.10\tportal.corp.lab\n`, world.clock);
 
   // Boot everything. Order matters: the switch first (it creates the VLANs),
   // ns1 must serve DHCP before ws02 boots, rtr01 must advertise before dev01.
   installNtp(world);
-  for (const h of [sw, rtr, ns1, srv, ws, ws2, ext, dev, dev2, fw, dmz, dc, win, dock]) bootHost(world, h);
+  for (const h of [sw, rtr, ns1, srv, ws, ws2, ext, dev, dev2, fw, dmz, dc, win, dock, logsrv]) bootHost(world, h);
   // NTP converges in the minutes after boot (rtr01 needs ext01, the clients need rtr01).
   ntpSettle(world);
+  syslogFlush(world);
 
   // History: alice connected yesterday-style earlier today, accepting the host key.
   world.clock += 60_000;

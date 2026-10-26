@@ -201,9 +201,10 @@ const systemctl: CommandDef = {
             if (rt.state !== 'inactive' || rt.since) out.push(`    Process: ${(rt.pid ?? 500) - 2} ExecStartPre=/usr/sbin/sshd -t (code=exited, status=${rt.state === 'failed' ? '255/EXCEPTION' : '0/SUCCESS'})`);
           }
           if (rt.state === 'active' && !def.oneshot) {
-            out.push(`   Main PID: ${rt.pid} (${def.name === 'ssh' ? 'sshd' : def.name})`, '      Tasks: 1 (limit: 2307)', '     Memory: 2.3M', '        CPU: 41ms', `     CGroup: /system.slice/${def.unit}`);
+            const proc = ({ ssh: 'sshd', rsyslog: 'rsyslogd', chrony: 'chronyd' } as Record<string, string>)[def.name] ?? def.name;
+            out.push(`   Main PID: ${rt.pid} (${proc})`, '      Tasks: 1 (limit: 2307)', '     Memory: 2.3M', '        CPU: 41ms', `     CGroup: /system.slice/${def.unit}`);
             if (def.statusLines) out.push(...def.statusLines(host, rt));
-            else out.push(`             └─${rt.pid} ${def.name}`);
+            else out.push(`             └─${rt.pid} ${proc}`);
           }
           if (ctx.user.uid === 0 || ctx.user.groups.includes('adm')) {
             const logs = host.journal.filter((e) => e.unit === def.unit).slice(-10);

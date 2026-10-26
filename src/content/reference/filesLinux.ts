@@ -18,6 +18,17 @@ export const FILES_LINUX: FileRef[] = [
     relatedCommands: ['systemctl', 'getent', 'proc:safe-config-change'],
   },
   {
+    id: 'file:rsyslog-conf', path: '/etc/rsyslog.conf, /etc/rsyslog.d/*.conf', platform: 'Debian / Ubuntu / RHEL (rsyslog 8)', kind: 'config',
+    services: ['rsyslog', 'Logging'],
+    purpose: 'rsyslog\'s modules and inputs (what it receives), and its rules: which messages (facility.priority selectors, property filters) go where (files, other servers, stop).',
+    contents: 'module(load="imtcp") + input(type="imtcp" port="514") to receive over TCP (imudp for UDP); rules "SELECTOR ACTION" such as "*.*;auth,authpriv.none -/var/log/syslog", "auth,authpriv.* /var/log/auth.log"; forwarding "*.* @@log01:514" (TCP; one @ = UDP) or action(type="omfwd" target=... protocol="tcp" queue.type="LinkedList"); template(name=... string="/var/log/remote/%HOSTNAME%/%PROGRAMNAME%.log") with "?TemplateName" and "& stop". Files in rsyslog.d are read where $IncludeConfig appears (before Debian\'s default rules).',
+    accessed: 'When rsyslogd starts (systemctl restart rsyslog); validate first with rsyslogd -N1.',
+    permissions: 'root:root 644.',
+    problems: 'rsyslog starts even with errors and silently skips the bad parts. Rule order matters ("& stop" ends processing). A selector like ";auth,authpriv.none" removes the security logs from that rule. A suspended forwarding action without a queue discards messages.',
+    example: '*.* action(type="omfwd" target="log01.corp.lab" port="514" protocol="tcp"\n           queue.type="LinkedList" action.resumeRetryCount="-1")',
+    relatedCommands: ['logger', 'rsyslogd', 'journalctl'],
+  },
+  {
     id: 'file:var-log', path: '/var/log', platform: 'Linux (all distributions)', kind: 'log',
     services: ['systemd', 'SSH', 'DNS', 'DHCP', 'Firewall', 'Web server'],
     purpose: 'Persistent logs: text files written by rsyslog and by services that log to files, plus the persistent systemd journal.',

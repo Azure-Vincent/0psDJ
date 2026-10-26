@@ -19,7 +19,7 @@ export function installDock01(world: World): Host {
   const h = createHost(world, {
     id: 'dock01', hostname: 'dock01', domain: 'corp.lab', role: 'Container host (Docker Engine 26)',
     ifaces: [{ name: 'eth0', mac: '52:54:00:d0:00:28', segment: null }],
-    services: ['systemd-timesyncd', 'nftables', 'ssh', 'docker'],
+    services: ['rsyslog', 'systemd-timesyncd', 'nftables', 'ssh', 'docker'],
   });
   writeFile(h, '/etc/network/interfaces', staticInterfaces([{ name: 'eth0', address: `${DOCK01_IP}/24`, gateway: '10.0.20.1' }]), t);
   writeFile(h, '/etc/resolv.conf', 'search corp.lab\nnameserver 10.0.10.53\n', t);

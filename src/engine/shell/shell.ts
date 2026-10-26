@@ -5,6 +5,7 @@
 // exactly the same intermediate state.
 
 import { maintainLeases } from '../sim/dhcp';
+import { syslogFlush } from '../sim/syslog';
 import { normalizePath } from '../fs';
 import { endSession } from '../sim/ssh';
 import type { World } from '../types';
@@ -19,12 +20,13 @@ import { KRB_COMMANDS } from './cmdKrb';
 import { RDP_COMMANDS } from './cmdRdp';
 import { DOCKER_COMMANDS } from './cmdDocker';
 import { NTP_COMMANDS } from './cmdNtp';
+import { LOG_COMMANDS } from './cmdLog';
 import { LINUX_ONLY, PF_COMMANDS, PF_VERSION } from './cmdPf';
 import { expandParams, parseCommandLine, type Segment } from './tokenize';
 import { type CmdCtx, type CmdResult, type CommandDef, type EditorRequest, NeedInput, type SessionFrame } from './types';
 
 export const COMMANDS: Record<string, CommandDef> = Object.fromEntries(
-  [...FILE_COMMANDS, ...NET_COMMANDS, ...HTTP_COMMANDS, ...SYSTEM_COMMANDS, ...KRB_COMMANDS, ...RDP_COMMANDS, ...DOCKER_COMMANDS, ...NTP_COMMANDS].map((c) => [c.name, c]),
+  [...FILE_COMMANDS, ...NET_COMMANDS, ...HTTP_COMMANDS, ...SYSTEM_COMMANDS, ...KRB_COMMANDS, ...RDP_COMMANDS, ...DOCKER_COMMANDS, ...NTP_COMMANDS, ...LOG_COMMANDS].map((c) => [c.name, c]),
 );
 
 export interface ExecResult {
@@ -83,6 +85,8 @@ export class Shell {
     const world = structuredClone(this.getWorld());
     // DHCP clients renew, rebind or lose their leases as simulated time passes.
     maintainLeases(world);
+    // rsyslog forwards in the background: what earlier commands logged reaches the log server now.
+    syslogFlush(world);
     const frames: SessionFrame[] = structuredClone(this.frames);
     const queue = [...answers];
     const executed: string[] = [];
@@ -300,6 +304,8 @@ export class Shell {
   private executePs(line: string, answers: string[]): ExecResult {
     const world = structuredClone(this.getWorld());
     maintainLeases(world);
+    // rsyslog forwards in the background: what earlier commands logged reaches the log server now.
+    syslogFlush(world);
     const frames: SessionFrame[] = structuredClone(this.frames);
     const frame = frames[frames.length - 1];
     const host = world.hosts[frame.hostId];

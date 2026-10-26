@@ -6,9 +6,9 @@ export function log(
   host: Host,
   ident: string,
   message: string,
-  opts: { pid?: number | null; unit?: string | null; priority?: LogEntry['priority'] } = {},
+  opts: { pid?: number | null; unit?: string | null; priority?: LogEntry['priority']; facility?: string } = {},
 ): void {
-  host.journal.push({
+  const entry: LogEntry = {
     time: world.clock,
     host: host.hostname,
     ident,
@@ -16,9 +16,15 @@ export function log(
     unit: opts.unit ?? null,
     priority: opts.priority ?? 'info',
     message,
-  });
+  };
+  if (opts.facility) entry.facility = opts.facility;
+  host.journal.push(entry);
   if (host.journal.length > 2000) host.journal.splice(0, host.journal.length - 2000);
+  journalHooks.onLog?.(world, host, entry);
 }
+
+/** Consumers of new journal entries (rsyslog reads the journal, like imjournal/imuxsock). */
+export const journalHooks: { onLog?: (world: World, host: Host, entry: LogEntry) => void } = {};
 
 export function kernelLog(world: World, host: Host, message: string): void {
   log(world, host, 'kernel', message, { priority: 'warning' });
