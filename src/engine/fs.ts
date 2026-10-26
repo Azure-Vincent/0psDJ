@@ -84,13 +84,35 @@ export function octal(mode: number): string {
   return mode.toString(8).padStart(4, '0');
 }
 
+const NFS_NOBODY: UserAccount = { name: 'nobody', uid: 65534, gid: 65534, primaryGroup: 'nogroup', groups: [], home: '/nonexistent', shell: '/usr/sbin/nologin', gecos: 'nobody', password: null };
+
 /** Unix permission check for a non-root user (root bypasses read/write checks). */
 export function canAccess(node: FileNode, user: UserAccount, want: 'r' | 'w' | 'x'): boolean {
+  // NFS: the server decides with the export's options (read-only, root or all users squashed to nobody).
+  if (node.nfs) {
+    if (node.nfs.stale) return false;
+    if (want === 'w' && node.nfs.ro) return false;
+    if (node.nfs.squash === 'all' || (node.nfs.squash === 'root' && user.uid === 0)) user = NFS_NOBODY;
+  }
   if (user.uid === 0) return want !== 'x' || node.type === 'dir' || (node.mode & 0o111) !== 0;
   const bit = want === 'r' ? 4 : want === 'w' ? 2 : 1;
   if (node.owner === user.name) return (node.mode & (bit << 6)) !== 0;
   if (node.group === user.primaryGroup || user.groups.includes(node.group)) return (node.mode & (bit << 3)) !== 0;
   return (node.mode & bit) !== 0;
+}
+
+/**
+ * chmod/chown on an NFS file: the server checks the request as the squashed
+ * user, so client root gets EPERM unless the export has no_root_squash.
+ * Returns the error text, or null when allowed.
+ */
+export function nfsMetaDenied(node: FileNode, user: UserAccount, op: 'chmod' | 'chown'): string | null {
+  if (!node.nfs) return null;
+  if (node.nfs.stale) return 'Stale file handle';
+  if (node.nfs.ro) return 'Read-only file system';
+  const eff = node.nfs.squash === 'all' || (node.nfs.squash === 'root' && user.uid === 0) ? NFS_NOBODY : user;
+  if (eff.uid === 0) return null;
+  return op === 'chmod' && node.owner === eff.name ? null : 'Operation not permitted';
 }
 
 /** Ensure every ancestor directory of `path` is traversable by `user`. */

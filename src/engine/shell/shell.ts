@@ -6,6 +6,7 @@
 
 import { maintainLeases } from '../sim/dhcp';
 import { syslogFlush } from '../sim/syslog';
+import { nfsSync } from '../sim/nfs';
 import { normalizePath } from '../fs';
 import { endSession } from '../sim/ssh';
 import type { World } from '../types';
@@ -21,12 +22,13 @@ import { RDP_COMMANDS } from './cmdRdp';
 import { DOCKER_COMMANDS } from './cmdDocker';
 import { NTP_COMMANDS } from './cmdNtp';
 import { LOG_COMMANDS } from './cmdLog';
+import { NFS_COMMANDS } from './cmdNfs';
 import { LINUX_ONLY, PF_COMMANDS, PF_VERSION } from './cmdPf';
 import { expandParams, parseCommandLine, type Segment } from './tokenize';
 import { type CmdCtx, type CmdResult, type CommandDef, type EditorRequest, NeedInput, type SessionFrame } from './types';
 
 export const COMMANDS: Record<string, CommandDef> = Object.fromEntries(
-  [...FILE_COMMANDS, ...NET_COMMANDS, ...HTTP_COMMANDS, ...SYSTEM_COMMANDS, ...KRB_COMMANDS, ...RDP_COMMANDS, ...DOCKER_COMMANDS, ...NTP_COMMANDS, ...LOG_COMMANDS].map((c) => [c.name, c]),
+  [...FILE_COMMANDS, ...NET_COMMANDS, ...HTTP_COMMANDS, ...SYSTEM_COMMANDS, ...KRB_COMMANDS, ...RDP_COMMANDS, ...DOCKER_COMMANDS, ...NTP_COMMANDS, ...LOG_COMMANDS, ...NFS_COMMANDS].map((c) => [c.name, c]),
 );
 
 export interface ExecResult {
@@ -87,6 +89,7 @@ export class Shell {
     maintainLeases(world);
     // rsyslog forwards in the background: what earlier commands logged reaches the log server now.
     syslogFlush(world);
+    nfsSync(world, 'before');
     const frames: SessionFrame[] = structuredClone(this.frames);
     const queue = [...answers];
     const executed: string[] = [];
@@ -293,6 +296,8 @@ export class Shell {
     }
     this.frames = frames;
     this.status = result.code;
+    // NFS clients write their changes through to the server.
+    nfsSync(world, 'after');
     this.commit(world);
     const entry: CommandLogEntry = { time: world.clock, host: frames[frames.length - 1].hostId, user: this.frame.user, line, code: result.code };
     this.log.push(entry);

@@ -18,6 +18,7 @@ import { isIpAddress } from '../net/addr';
 import { resolve } from './dns';
 import { type ChronyLoaded, chronyLoad, type TimesyncLoaded, timesyncLoad } from './ntp';
 import { rsyslogListeners, rsyslogStart } from './syslog';
+import { mountFstabNfs, nfsReset, nfsServerStart } from './nfs';
 import { type Cert, parseCerts, parseKey } from './pki';
 import type { Host, ServiceRuntime, World } from '../types';
 import { log } from './journal';
@@ -929,6 +930,36 @@ const rsyslog: ServiceDef = {
 };
 
 // ---------------------------------------------------------------------------
+// NFS server (nfs-kernel-server): the export table lives in nfs.ts.
+// ---------------------------------------------------------------------------
+
+const nfsServer: ServiceDef = {
+  name: 'nfs-kernel-server',
+  unit: 'nfs-server.service',
+  aliases: ['nfs-kernel-server', 'nfs-kernel-server.service', 'nfs-server', 'nfs-server.service'],
+  description: 'NFS server and services',
+  configFiles: ['/etc/exports'],
+  start(world, host, rt) {
+    const pid = allocPid(host);
+    rt.pid = pid;
+    return nfsServerStart(world, host, rt, pid);
+  },
+  reload(world, host, rt) {
+    return nfsServerStart(world, host, rt, rt.pid!);
+  },
+  listeners(_host, rt) {
+    const pid = rt.pid!;
+    return [
+      { proto: 'tcp', addr: '0.0.0.0', port: 2049, process: 'nfsd', pid, service: 'nfs-kernel-server' },
+      { proto: 'tcp', addr: '::', port: 2049, process: 'nfsd', pid, service: 'nfs-kernel-server' },
+      { proto: 'tcp', addr: '0.0.0.0', port: 111, process: 'rpcbind', pid: pid - 3, service: 'nfs-kernel-server' },
+      { proto: 'udp', addr: '0.0.0.0', port: 111, process: 'rpcbind', pid: pid - 3, service: 'nfs-kernel-server' },
+      { proto: 'tcp', addr: '0.0.0.0', port: 20048, process: 'rpc.mountd', pid: pid + 1, service: 'nfs-kernel-server' },
+    ];
+  },
+};
+
+// ---------------------------------------------------------------------------
 // networking (ifupdown)
 // ---------------------------------------------------------------------------
 
@@ -1042,7 +1073,7 @@ const networking: ServiceDef = {
   listeners: () => [],
 };
 
-export const SERVICE_DEFS: ServiceDef[] = [networking, rsyslog, timesyncd, chrony, nftables, named, krb5kdc, kadmind, dhcpd, dhcrelay, radvd, sshd, nginx];
+export const SERVICE_DEFS: ServiceDef[] = [networking, rsyslog, timesyncd, chrony, nftables, nfsServer, named, krb5kdc, kadmind, dhcpd, dhcrelay, radvd, sshd, nginx];
 
 export function findService(host: Host, name: string): ServiceDef | undefined {
   const n = name.replace(/\.service$/, '');
@@ -1163,6 +1194,7 @@ export function bootHost(world: World, host: Host): void {
     });
     return;
   }
+  nfsReset(host);
   host.conntrack = [];
   host.nat = [];
   host.neighbors = [];
@@ -1198,4 +1230,6 @@ export function bootHost(world: World, host: Host): void {
     if (rt.enabled && !rt.masked) startService(world, host, def);
   }
   if (!host.services.networking) applyNetworkConfig(world, host);
+  // remote-fs.target: NFS entries of /etc/fstab, once the network is up.
+  mountFstabNfs(world, host);
 }

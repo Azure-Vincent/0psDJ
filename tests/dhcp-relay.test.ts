@@ -55,7 +55,7 @@ describe('DHCP lease timers', () => {
     lab.run('ws02', 'root', 'sleep 650');
     const j = lab.run('ws02', 'root', 'journalctl -t dhclient -n 16').output;
     // RENEWING retries by unicast until T2, REBINDING retries by broadcast until expiry.
-    expect(j).toMatch(/08:44:09 .*DHCPREQUEST for 10\.0\.10\.100 on eth0 to 10\.0\.10\.53 port 67\n.*08:45:09 .*to 10\.0\.10\.53 port 67\n.*08:46:09 .*to 10\.0\.10\.53 port 67\n.*08:46:54 .*DHCPREQUEST for 10\.0\.10\.100 on eth0 to 255\.255\.255\.255 port 67\n(.*to 255\.255\.255\.255 port 67\n)+.*No DHCPOFFERS received\.\n.*No working leases in persistent database - sleeping\.\n.*DHCPDISCOVER on eth0/);
+    expect(j).toMatch(/08:44:11 .*DHCPREQUEST for 10\.0\.10\.100 on eth0 to 10\.0\.10\.53 port 67\n.*08:45:11 .*to 10\.0\.10\.53 port 67\n.*08:46:11 .*to 10\.0\.10\.53 port 67\n.*08:46:56 .*DHCPREQUEST for 10\.0\.10\.100 on eth0 to 255\.255\.255\.255 port 67\n(.*to 255\.255\.255\.255 port 67\n)+.*No DHCPOFFERS received\.\n.*No working leases in persistent database - sleeping\.\n.*DHCPDISCOVER on eth0/);
     expect(j).not.toMatch(/Internet Systems Consortium/);
     expect(lab.run('ws02', 'root', 'ip -4 addr show eth0').output).toBe('');
     expect(lab.run('ws02', 'dana', 'ping -c 1 10.0.10.53').output).toMatch(/Network is unreachable/);

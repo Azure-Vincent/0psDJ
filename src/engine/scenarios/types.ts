@@ -6,7 +6,7 @@ export type ConceptId =
   | 'ssh.userauth' | 'ssh.authorized-keys' | 'linux.permissions' | 'ssh.config' | 'ssh.authz' | 'logs.journal'
   | 'net.cidr' | 'fw.path' | 'net.dhcp' | 'net.nat' | 'net.vlan' | 'net.ipv6' | 'net.ndp'
   | 'linux.fs' | 'net.ops' | 'ops.recovery' | 'win.services' | 'win.rdp' | 'ad.dns' | 'ad.kerberos' | 'ad.gpo'
-  | 'docker.lifecycle' | 'docker.networking' | 'pfsense.rules' | 'pfsense.nat' | 'tls.pki' | 'net.mtu' | 'net.interfaces' | 'web.proxy' | 'ntp.sync' | 'logs.central';
+  | 'docker.lifecycle' | 'docker.networking' | 'pfsense.rules' | 'pfsense.nat' | 'tls.pki' | 'net.mtu' | 'net.interfaces' | 'web.proxy' | 'ntp.sync' | 'logs.central' | 'files.nfs';
 
 export type CauseCategory = 'Name resolution' | 'Network path' | 'Firewall' | 'Service' | 'Configuration' | 'Authentication' | 'Authorization' | 'Permissions' | 'Client' | 'Cryptography' | 'Persistence';
 
@@ -138,7 +138,16 @@ export interface SyslogGoal {
   path: string;
 }
 
-export type Goal = SshGoal | HttpGoal | ResolveGoal | KerberosGoal | RdpGoal | ScoredSshGoal | ScoredWebGoal | ScoredDnsGoal | TimeGoal | SyslogGoal;
+/** Commands run in order (each as its user, in a fresh shell); the last one must succeed and its output match. */
+export interface CommandGoal {
+  kind: 'command';
+  description: string;
+  steps: { host: string; user: string; command: string }[];
+  /** A regular expression the last command's output must match. */
+  expect?: string;
+}
+
+export type Goal = SshGoal | HttpGoal | ResolveGoal | KerberosGoal | RdpGoal | ScoredSshGoal | ScoredWebGoal | ScoredDnsGoal | TimeGoal | SyslogGoal | CommandGoal;
 
 export interface ConstraintResult {
   id: string;

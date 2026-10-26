@@ -29,6 +29,17 @@ export const FILES_LINUX: FileRef[] = [
     relatedCommands: ['logger', 'rsyslogd', 'journalctl'],
   },
   {
+    id: 'file:exports', path: '/etc/exports, /etc/exports.d/*.exports', platform: 'Linux NFS server (nfs-kernel-server / nfs-utils)', kind: 'config',
+    services: ['NFS', 'Storage'],
+    purpose: 'Which directories the NFS server exports, to which clients, with which options.',
+    contents: 'One export per line: PATH CLIENT(OPTIONS) CLIENT(OPTIONS)... Clients are a network (10.0.10.0/24), a host name or address, a wildcard (*.corp.lab) or * (everyone). Options: rw/ro, sync, root_squash (default: client root becomes nobody) / no_root_squash / all_squash with anonuid/anongid, no_subtree_check, sec=sys|krb5|krb5i|krb5p. Note: no space between client and "(": "host (rw)" exports read-only to host and read-write to everyone.',
+    accessed: 'Only when the NFS server starts or exportfs -ra runs: editing the file changes nothing until then.',
+    permissions: 'root:root 644.',
+    problems: 'Forgetting exportfs -ra; a space before "(" that exports to the world; no_root_squash (the client\'s root owns the server\'s files); "*" instead of the networks that need it; a client listed by a name that resolves differently on the server.',
+    example: '/srv/projects  10.0.10.0/24(rw,sync,no_subtree_check) 10.0.20.0/24(rw,sync,no_subtree_check)\n/srv/software  10.0.0.0/16(ro,sync,no_subtree_check)',
+    relatedCommands: ['exportfs', 'showmount', 'mount'],
+  },
+  {
     id: 'file:var-log', path: '/var/log', platform: 'Linux (all distributions)', kind: 'log',
     services: ['systemd', 'SSH', 'DNS', 'DHCP', 'Firewall', 'Web server'],
     purpose: 'Persistent logs: text files written by rsyslog and by services that log to files, plus the persistent systemd journal.',
@@ -172,7 +183,7 @@ export const FILES_LINUX: FileRef[] = [
     permissions: 'root:root 644.',
     problems: 'A wrong UUID, removed disk or unreachable NFS server without `nofail` drops the boot into emergency mode ("You are in emergency mode. After logging in, type \\"journalctl -xb\\" to view system logs...") after a 90 s device timeout: a remote server becomes unreachable and needs the console. Always verify before rebooting: `findmnt --verify`, `mount -a`, then `systemctl daemon-reload`. In emergency mode: remount root read-write (`mount -o remount,rw /`), fix or comment the line, reboot.',
     example: '# <file system>                           <mount point> <type> <options>                <dump> <pass>\nUUID=6f2c0d7e-0b9a-4c3e-9a51-2a9d1b8f3e10  /             ext4    errors=remount-ro        0      1\nUUID=3b1f9e2a-77c4-4f0d-8e65-0c5a9d7e2b41  /srv          ext4    defaults,nofail          0      2\nnas01.corp.lab:/export/backup              /mnt/backup   nfs4    _netdev,nofail,noauto    0      0',
-    relatedCommands: ['systemctl', 'journalctl', 'proc:safe-config-change'],
+    relatedCommands: ['systemctl', 'journalctl', 'mount', 'proc:safe-config-change'],
   },
   {
     id: 'file:sudoers', path: '/etc/sudoers', platform: 'Linux (sudo)', kind: 'auth',

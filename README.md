@@ -24,9 +24,9 @@ For every technology it answers the same questions:
 
 ## What's inside
 
-- **22 lessons** on networking, interfaces and virtual switches, TLS, remote
+- **23 lessons** on networking, interfaces and virtual switches, TLS, remote
   access, identity (including Kerberos), firewalls, containers, web servers and
-  reverse proxies, time synchronisation, central logging, Linux and Windows
+  reverse proxies, time synchronisation, central logging, NFS file sharing, Linux and Windows
   administration, and safe recovery. Each lesson starts in plain language (the short version,
   an everyday analogy, the key ideas each with a concrete example from the lab,
   one case followed step by step, common misconceptions and a quick
@@ -47,7 +47,7 @@ For every technology it answers the same questions:
   machine configured from the files the design generates. You get terminals
   on each machine and a packet tracer that shows every hop and every firewall
   and NAT decision.
-- **111 troubleshooting tickets**, each injecting a realistic fault into the
+- **115 troubleshooting tickets**, each injecting a realistic fault into the
   lab. You investigate with real commands in terminals, record a diagnosis and
   repair the fault. The app then checks your fix immediately, again after
   rebooting every machine, and against security rules, so "just open the
@@ -78,7 +78,10 @@ For every technology it answers the same questions:
   a typo. A **Central logging** set makes logs go missing on their way to
   log01: a firewall that drops syslog, one server still forwarding over UDP to
   a TCP-only receiver, a selector that leaves out the SSH and sudo logs, and a
-  receiver input without its module.
+  receiver input without its module. A **File sharing (NFS)** set breaks the
+  file server fs01: an export list edited but never reloaded, a root backup job
+  squashed to nobody, a hardened firewall that empties every mount at boot, and
+  a user whose UID differs between hosts.
 - **7 end-to-end case studies**: SSH refused, a server with no Internet, a failed
   domain login, an unreachable Docker app, pfSense blocking traffic, RDP broken
   by a policy change, and several services failing at once.
@@ -128,7 +131,10 @@ crossing the routers and firewalls, `chronyc`, `timedatectl timesync-status`,
 and clocks that drift when the chain breaks. Logs are central too: rsyslog on the
 servers applies real rules (facilities, priorities, files, forwarding) and
 sends syslog over TCP to log01, which files it per host and program; `logger`
-tests the path end to end.
+tests the path end to end. Files are shared over NFS: fs01 exports project and
+software directories from /etc/exports, ws01 and srv01 mount them from
+/etc/fstab at boot, and every access is checked with numeric UIDs, root
+squashing and read-only exports as on a real server.
 
 ## Installation
 

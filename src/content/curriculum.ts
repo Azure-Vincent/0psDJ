@@ -109,7 +109,7 @@ export const CURRICULUM: CurriculumModule[] = [
       { title: 'Windows Server 2019/2022', level: 'beginner', status: 'partial', link: 'lesson/windows-rdp/what', note: 'Services, Event Viewer, registry, firewall, RDP, WinRM; roles such as IIS/file services not covered.' },
       { title: 'DHCP servers', level: 'beginner', status: 'partial', link: 'lesson/dhcp/deploy', note: 'ISC dhcpd and isc-dhcp-relay; Kea and Windows DHCP failover planned' },
       { title: 'Web servers (IIS, Apache, Nginx)', level: 'beginner', status: 'partial', link: 'lesson/webproxy/what', note: 'nginx server blocks, locations, status codes and nginx -t/reload (web servers and reverse proxies lesson, TLS lesson); Apache and IIS only as deployment notes.' },
-      { title: 'SMB and NFS file servers', level: 'intermediate', status: 'planned' },
+      { title: 'SMB and NFS file servers (simulated: NFS server fs01 and clients, 4 tickets; Samba planned)', level: 'intermediate', status: 'partial', link: 'lesson/nfs/what' },
       { title: 'Database servers', level: 'intermediate', status: 'planned' },
       { title: 'Reverse proxies and load balancers (simulated on srv01, 5 tickets)', level: 'intermediate', status: 'partial', link: 'lesson/webproxy/what', note: 'nginx proxy_pass, upstream groups, 502/504 and load-time resolution are simulated; health checks, HAProxy and cloud load balancers are described only.' },
       { title: 'Email infrastructure', level: 'advanced', status: 'planned' },

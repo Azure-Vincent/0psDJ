@@ -49,8 +49,8 @@ describe('rsyslog: local rules', () => {
 describe('rsyslog: central logging to log01', () => {
   it('every sender reaches log01 over TCP and is filed per host and program', () => {
     const l = lab();
-    expect(l.run('log01', 'root', 'ls /var/log/remote').output.split(/\s+/)).toEqual(['dock01', 'ns1', 'rtr01', 'srv01']);
-    for (const h of ['srv01', 'ns1', 'rtr01', 'dock01']) expect(checkGoal(l.world, goal(h)).ok, h).toBe(true);
+    expect(l.run('log01', 'root', 'ls /var/log/remote').output.split(/\s+/)).toEqual(['dock01', 'fs01', 'ns1', 'rtr01', 'srv01']);
+    for (const h of ['srv01', 'ns1', 'rtr01', 'dock01', 'fs01']) expect(checkGoal(l.world, goal(h)).ok, h).toBe(true);
     expect(checkGoal(l.world, goal('srv01', 'authpriv.notice')).ok).toBe(true);
     // log01 keeps remote messages out of its own files ("& stop").
     l.run('srv01', 'root', 'logger -t marker "only remote"');

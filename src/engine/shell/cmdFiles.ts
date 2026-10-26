@@ -1,7 +1,7 @@
 // File and user commands: ls, cat, head, tail, grep, echo, touch, mkdir, rm,
 // chmod, chown, stat, cd, pwd, id, whoami, editors, passwd, usermod.
 
-import { basename, canAccess, canTraverse, dirname, listDir, mkdir, modeString, normalizePath, writeFile } from '../fs';
+import { basename, canAccess, canTraverse, dirname, listDir, mkdir, modeString, nfsMetaDenied, normalizePath, writeFile } from '../fs';
 import { FAILLOCK_DIR, faillockConf, faillockRecords, faillockReset } from '../sim/accounts';
 import { formatSyslogTime, isoTime, log } from '../sim/journal';
 import type { FileNode, Host, Interface } from '../types';
@@ -99,6 +99,8 @@ export function writeChecked(ctx: CmdCtx, path: string, content: string, append 
   if (existing?.type === 'dir') return 'Is a directory';
   const parent = ctx.host.fs[dirname(path)];
   if (!parent) return 'No such file or directory';
+  if (parent.nfs?.stale) return 'Stale file handle';
+  if (parent.nfs?.ro) return 'Read-only file system';
   if (!canTraverse(ctx.host, path, ctx.user)) return 'Permission denied';
   if (existing) {
     if (!canAccess(existing, ctx.user, 'w')) return 'Permission denied';
@@ -416,6 +418,8 @@ const chmod: CommandDef = {
       for (const t of targets) {
         const n = ctx.host.fs[t];
         if (ctx.user.uid !== 0 && n.owner !== ctx.user.name) return err(`chmod: changing permissions of '${f}': Operation not permitted`);
+        const nfsErr = nfsMetaDenied(n, ctx.user, 'chmod');
+        if (nfsErr) return err(`chmod: changing permissions of '${f}': ${nfsErr}`);
         const next = /^[0-7]{3,4}$/.test(spec) ? parseInt(spec, 8) : applySymbolic(n.mode, spec, n.type === 'dir');
         if (next === null) return err(`chmod: invalid mode: '${spec}'`);
         n.mode = next;
@@ -441,6 +445,8 @@ const chown: CommandDef = {
       if (!ctx.host.fs[p]) return err(`chown: cannot access '${f}': No such file or directory`);
       const targets = flags.has('-R') ? Object.keys(ctx.host.fs).filter((k) => k === p || k.startsWith(p + '/')) : [p];
       for (const t of targets) {
+        const nfsErr = nfsMetaDenied(ctx.host.fs[t], ctx.user, 'chown');
+        if (nfsErr) return err(`chown: changing ownership of '${f}': ${nfsErr}`);
         if (u) ctx.host.fs[t].owner = u;
         if (g !== undefined) ctx.host.fs[t].group = g || ctx.host.users[u]?.primaryGroup || ctx.host.fs[t].group;
       }
@@ -687,11 +693,11 @@ const faillock: CommandDef = {
 
 const usermod: CommandDef = {
   name: 'usermod',
-  summary: 'modify a user account (-aG GROUP, -s SHELL, -L/-U, -e EXPIRE)',
-  usage: 'usermod [-aG GROUP] [-s SHELL] [-L|-U] [-e YYYY-MM-DD|\'\'] USER',
+  summary: 'modify a user account (-aG GROUP, -s SHELL, -u UID, -L/-U, -e EXPIRE)',
+  usage: 'usermod [-aG GROUP] [-s SHELL] [-u UID] [-L|-U] [-e YYYY-MM-DD|\'\'] USER',
   run(args, ctx) {
     if (ctx.user.uid !== 0) return err('usermod: Permission denied.\nusermod: cannot lock /etc/passwd; try again later.');
-    const { flags, rest } = parseFlags(args, ['-G', '-s', '-e']);
+    const { flags, rest } = parseFlags(args, ['-G', '-s', '-e', '-u']);
     if (!rest[0]) return err('Usage: usermod [options] LOGIN\n\nOptions:\n  -a, --append                  append the user to the supplemental GROUPS\n                                mentioned by the -G option without removing\n                                the user from other groups\n  -G, --groups GROUPS           new list of supplementary GROUPS\n  -L, --lock                    lock the user account\n  -s, --shell SHELL             new login shell for the user account\n  -U, --unlock                  unlock the user account', 2);
     const u = ctx.host.users[rest[0]];
     if (!u) return err(`usermod: user '${rest[0]}' does not exist`, 6);
@@ -700,6 +706,12 @@ const usermod: CommandDef = {
       u.groups = flags.has('-a') ? [...new Set([...u.groups, ...gs])] : gs;
     }
     if (flags.has('-s')) u.shell = String(flags.get('-s'));
+    if (flags.has('-u')) {
+      const uid = Number(flags.get('-u'));
+      if (!Number.isInteger(uid) || uid < 0) return err(`usermod: invalid user ID '${flags.get('-u')}'`, 3);
+      if (Object.values(ctx.host.users).some((x) => x.uid === uid && x.name !== u.name)) return err(`usermod: UID '${uid}' already exists`, 4);
+      u.uid = uid;
+    }
     if (flags.has('-e')) {
       const v = parseExpiry(String(flags.get('-e')));
       if (v === undefined) return err(`usermod: invalid date '${flags.get('-e')}'`, 3);

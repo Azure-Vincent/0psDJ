@@ -294,7 +294,7 @@ const journalctl: CommandDef = {
     const unit = (flags.get('-u') ?? flags.get('--unit')) as string | undefined;
     if (unit) {
       const def = findService(ctx.host, unit);
-      const name = def?.unit ?? (unit.endsWith('.service') ? unit : unit + '.service');
+      const name = def?.unit ?? (/\.(service|mount|socket|timer|target)$/.test(unit) ? unit : unit + '.service');
       entries = entries.filter((e) => e.unit === name);
     }
     const ident = (flags.get('-t') ?? flags.get('--identifier')) as string | undefined;
