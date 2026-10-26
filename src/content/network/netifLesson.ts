@@ -10,9 +10,11 @@ export const NETIF_LESSON: Lesson = {
   mode: 'simulated',
 
   what: `
-A **network interface** is the kernel object that sends and receives frames: it has a **name** (eth0), an **index**, a **MAC address**, an **MTU**, flags and counters, and zero or more IP addresses. Every other topic in this module (addresses, routes, VLANs, DHCP, firewall rules with \`iifname\`/\`oifname\`) hangs off interfaces, so the first question in any network fault is: **does the interface exist, is it up, does it have a link, and is it attached where I think it is?**
+A **network interface** is how the operating system sends and receives network traffic. Usually you think of it as "the network card", but to the kernel it is an object with a **name** (eth0), a number (its **index**), a **MAC address**, an **MTU** (the largest packet it sends), status flags, traffic counters, and zero or more IP addresses.
 
-Not every interface is a network card. The kernel has many interface **types**:
+Everything else in this module is attached to interfaces: addresses and routes ([IP networking](#/lesson/ipnet/what)), [VLANs](#/lesson/vlan/what), [DHCP](#/lesson/dhcp/what), and firewall rules that match \`iifname\` or \`oifname\` (the incoming or outgoing interface). So the first questions in any network fault are about the interface: **does it exist, is it switched on, does it have a link, and is it connected where I think it is?**
+
+Not every interface is a physical network card. The kernel has many **types** of interface:
 
 | Type | Example | What it is |
 |---|---|---|
@@ -27,10 +29,10 @@ Not every interface is a network card. The kernel has many interface **types**:
 | WireGuard, GRE, VXLAN | wg0, gre1, vxlan100 | Tunnels: packets are encapsulated and sent over another interface. |
 
 ### Virtual switches
-Every hypervisor contains a switch. A VM's virtual NIC is "cabled" to a port of that switch, and the switch has uplinks to physical NICs. Linux uses the **bridge** (KVM, Proxmox \`vmbr0\`, libvirt \`virbr0\`, Docker \`docker0\`) or **Open vSwitch**; VMware has the **vSphere Standard/Distributed Switch**; Hyper-V the **Hyper-V Virtual Switch**. They all behave like a physical switch: they learn MAC addresses, they can be VLAN-aware, and a VM attached to the wrong port group/VLAN is exactly as isolated as a server plugged into the wrong switch port.
+A **hypervisor** is the software that runs virtual machines (KVM, Proxmox, VMware ESXi, Hyper-V). Every hypervisor contains a software switch. A VM's virtual NIC is "cabled" to a port of that switch, and the switch has uplinks to physical NICs. Linux uses the **bridge** (KVM, Proxmox \`vmbr0\`, libvirt \`virbr0\`, Docker \`docker0\`) or **Open vSwitch**; VMware has the **vSphere Standard/Distributed Switch**; Hyper-V the **Hyper-V Virtual Switch**. They all behave like a physical switch: they learn MAC addresses, they can be VLAN-aware, and a VM attached to the wrong port group/VLAN is exactly as isolated as a server plugged into the wrong switch port.
 
 ### Why this is a troubleshooting topic
-Interface problems look like "the server is down" from the outside, but the cause is local and often invisible from the network:
+From the outside, an interface problem looks like "the server is down". But the cause is on the server itself, and often invisible from the network:
 - The configuration names an interface that **does not exist** (renamed after a hypervisor migration, new NIC driver, cloned VM).
 - The interface is **administratively down** (\`ip link set dev X down\`, \`auto\` missing in /etc/network/interfaces) or has **no carrier** (cable, switch port shut, virtual NIC "disconnected" in the hypervisor).
 - A switch or bridge port is up but **not a member** of the bridge/VLAN, so frames go nowhere.
@@ -228,14 +230,17 @@ Interfaces are configured by exactly **one** network stack per host. Find out wh
   ],
 
   troubleshootingIntro: `
-### Work bottom-up, on both ends
-1. **Does it exist?** \`ip -br link\`. The name in the configuration must be in this list (eth0 vs ens18 after a migration).
-2. **Admin up?** \`UP\` in the flags. If not: \`auto\` missing, ifup failed (\`systemctl status networking\`), or someone ran \`ip link set … down\`.
-3. **Carrier?** \`LOWER_UP\` / \`cat /sys/class/net/X/carrier\`. NO-CARRIER: cable, switch port disabled, VM NIC "disconnected" in the hypervisor, wrong vSwitch uplink.
-4. **Address and routes?** \`ip -br addr\`, \`ip route\`.
-5. **Can it reach its neighbour?** \`ping\` the gateway, then \`ip neigh\`: **FAILED** with carrier on both sides means layer 2 between them is broken: wrong VLAN, port not in the bridge, wrong port group.
-6. **On the switch / bridge**: \`bridge link\` (member?), \`bridge vlan show\` (right VLAN?), \`bridge fdb show\` (did it learn the server's MAC on that port?).
+### Work from the bottom up, on both ends of the link
+Each check below depends on the one before it: an interface that does not exist cannot be up, one that is down cannot have a link, and so on. Stop at the first check that fails.
+
+1. **Does the interface exist?** Run \`ip -br link\`. The name used in the configuration must appear in this list. After a VM migration or a driver change, eth0 may have become ens18, and a configuration for "eth0" then does nothing.
+2. **Is it switched on (administratively up)?** Look for \`UP\` in the flags. If it is missing: the interface has no \`auto\` line, \`ifup\` failed at boot (\`systemctl status networking\`), or someone ran \`ip link set … down\`.
+3. **Does it have a link (carrier)?** Look for \`LOWER_UP\`, or run \`cat /sys/class/net/X/carrier\` (1 = link). NO-CARRIER means a cable problem, a disabled switch port, a VM NIC set to "disconnected" in the hypervisor, or the wrong virtual switch uplink.
+4. **Does it have its address and routes?** \`ip -br addr\` and \`ip route\`.
+5. **Can it reach its neighbour?** Ping the gateway, then look at \`ip neigh\`. **FAILED** while both sides have carrier means the layer-2 path between them is broken: wrong VLAN, port not in the bridge, or the wrong port group on the virtual switch.
+6. **Check the switch or bridge side too:** \`bridge link\` (is the port a member?), \`bridge vlan show\` (is it in the right VLAN?), \`bridge fdb show\` (has the switch learned the server's MAC address on that port?).
 `,
+
 
   errorMap: [
     { message: 'Cannot find device "eth0"', layer: 'Interface', meaning: 'The configuration names an interface that does not exist (renamed, removed, typo).', firstCheck: 'ip -br link; compare with /etc/network/interfaces' },

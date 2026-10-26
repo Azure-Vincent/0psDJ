@@ -10,15 +10,15 @@ export const MTU_LESSON: Lesson = {
   mode: 'simulated',
 
   what: `
-The **MTU (maximum transmission unit)** is the largest IP packet a link can carry in one frame. Standard Ethernet: **1500 bytes** of IP packet (the frame adds 14 bytes of header and 4 of FCS, 18 more with an 802.1Q tag). Links with extra encapsulation carry less: PPPoE 1492, WireGuard 1420, GRE 1476, IPsec around 1400; data-centre links with **jumbo frames** carry 9000.
+The **MTU (maximum transmission unit)** is the largest IP packet a network link can carry in one frame. Think of it as the size of the envelopes a link accepts: anything bigger must be split up or sent back. On standard Ethernet the MTU is **1500 bytes** of IP packet; the Ethernet frame around it adds 14 bytes of header and a 4-byte checksum (FCS), plus 4 more bytes when it carries an 802.1Q [VLAN](#/lesson/vlan/internals) tag. Links with extra encapsulation carry less: PPPoE 1492, WireGuard 1420, GRE 1476, IPsec around 1400; data-centre links with **jumbo frames** carry 9000.
 
-When a packet is larger than the next link's MTU, something has to give:
+When a packet is larger than the MTU of the next link on its path, something has to give:
 - **IPv4 without DF**: the router **fragments** it; the receiver reassembles.
 - **IPv4 with DF (Don't Fragment)**, which is what TCP uses on Linux, Windows and macOS: the router **drops** it and sends back **ICMP "fragmentation needed"** with the next-hop MTU. The sender lowers its packet size for that destination. This is **path MTU discovery (PMTUD)**.
 - **IPv6**: routers never fragment; they send **ICMPv6 "packet too big"**.
 
 ### Why this is a troubleshooting topic
-MTU problems have a signature that confuses people: **small things work, big things hang**. ping works, DNS works, the SSH login works, \`curl -I\` returns headers, but file downloads stop at 0 bytes, TLS handshakes never finish (the certificate message fills full-size packets), \`git clone\` or \`apt update\` hang, a web page loads half. Two causes:
+MTU problems have a signature that confuses people: **small things work, big things hang**. Most "is it up?" tests only send small packets, so everything looks healthy. ping works, DNS works, the SSH login works, \`curl -I\` returns headers, but file downloads stop at 0 bytes, TLS handshakes never finish (the certificate message fills full-size packets), \`git clone\` or \`apt update\` hang, a web page loads half. Two causes:
 1. **MTU mismatch on a link**: the two ends disagree (1500 vs 1492, 9000 vs 1500). Frames larger than the receiver's MTU are dropped **silently**: there is no ICMP for this.
 2. **PMTUD black hole**: a router with a smaller MTU sends "fragmentation needed", but a firewall somewhere drops ICMP, so the sender never learns and keeps retransmitting full-size packets.
 
@@ -131,12 +131,15 @@ MTU arithmetic is where most mistakes happen. The calculator below works out the
 
   troubleshootingIntro: `
 ### When small things work and big things hang
-1. **Prove it is size-related**: \`curl -I URL\` works but \`curl -m 20 -o /dev/null URL\` times out with "0 out of N bytes received"; SSH logs in but \`cat\` of a large file freezes; HTTPS handshakes time out ("SSL connection timeout") while HTTP headers work.
-2. **Find the largest packet that passes**: \`ping -M do -s 1472 DST\`, then smaller (1464, 1400...). An ICMP reply "Frag needed and DF set (mtu = N)" means PMTUD works and tells you the bottleneck. **Silence** for big sizes and replies for small ones means the big packets vanish: a mismatch or a black hole.
-3. **Locate it**: \`tracepath -n DST\` (where does pmtu drop?), \`ip link\` on both ends of each suspicious link, tunnel and PPPoE interfaces.
-4. **Check ICMP filtering** on every firewall on the path: is ICMP type 3 / ICMPv6 type 2 allowed (related)?
-5. **Capture**: \`tcpdump -n -i IF tcp\` shows the MSS in SYNs and repeated retransmissions of the same full-size segment.
+The method is to prove that packet **size** is the problem, measure the largest size that gets through, and then find the link or firewall responsible.
+
+1. **Prove it is about size.** Typical signs: \`curl -I URL\` (headers only, small) works but \`curl -m 20 -o /dev/null URL\` (a full download) times out with "0 out of N bytes received"; SSH logs in but printing a large file with \`cat\` freezes; HTTPS handshakes time out ("SSL connection timeout") while plain HTTP headers work.
+2. **Find the largest packet that gets through.** Run \`ping -M do -s 1472 DST\`. \`-M do\` sets the Don't Fragment bit, and 1472 bytes of data plus 28 bytes of headers makes a 1500-byte packet. Then try smaller sizes (1464, 1400…). If a router answers "Frag needed and DF set (mtu = N)", path MTU discovery is working and N is the bottleneck. **Silence** for big sizes and replies for small ones means big packets vanish without a word: an MTU mismatch or an ICMP black hole.
+3. **Locate the link.** \`tracepath -n DST\` shows where the path MTU drops. Then compare \`ip link\` (the mtu value) on both ends of each suspicious link, including tunnel and PPPoE interfaces.
+4. **Check ICMP filtering** on every firewall along the path. Path MTU discovery depends on ICMP type 3 ("fragmentation needed") and, for IPv6, ICMPv6 type 2 ("packet too big") being allowed back, usually as "related" traffic.
+5. **Capture.** \`tcpdump -n -i IF tcp\` shows the MSS each side announces in its SYN, and the same full-size segment being retransmitted again and again when big packets are lost.
 `,
+
 
   errorMap: [
     { message: 'From 10.0.10.1 icmp_seq=1 Frag needed and DF set (mtu = 1492)', layer: 'PMTUD', meaning: 'A router\'s next hop has MTU 1492; PMTUD works.', firstCheck: 'Is 1492 expected (tunnel, PPPoE) or a misconfiguration?' },
