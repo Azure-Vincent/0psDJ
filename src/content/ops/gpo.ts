@@ -90,10 +90,10 @@ export const GPO_GUIDE: ServiceGuide = {
     { action: 'Set-GPLink -Enforced Yes', when: 'A baseline must reach every OU, including those that block inheritance.', effect: 'The link passes Block Inheritance and wins conflicts.', risk: 'OU owners can no longer override it.' },
   ],
   workflow: [
-    { question: '1. Does processing work at all?', command: 'gpupdate /force', healthy: 'Computer Policy update has completed successfully.', broken: '"lack of network connectivity to a domain controller" / event 1129: DC location (DNS, LDAP). "could not resolve the computer name" / 1055: no Kerberos ticket (KDC, port 88). "LDAP Bind function call failed" / 1006: trust or clock skew. "attempted to read the file ... gpt.ini" / 1058: SYSVOL (SMB 445, replication).', next: 'If it works, check scope.', sim: true },
-    { question: '2. Is the GPO in scope?', command: 'gpresult /r /scope computer\nGet-GPInheritance -Target "OU=Servers,DC=ad,DC=corp,DC=lab"', healthy: 'The computer\'s DN is in the OU the GPO is linked to (or below), and the GPO is in InheritedGpoLinks.', broken: 'DN in CN=Computers; link on another OU; link disabled; Block Inheritance above a non-enforced link.', next: 'If in scope, check filtering.', sim: true },
-    { question: '3. Is it filtered out?', command: 'gpresult /r (The following GPOs were not applied...)\nGet-GPPermission -Name "..." -All', healthy: 'Listed under Applied Group Policy Objects.', broken: 'Denied (Security): no Apply for the computer\'s groups (new group membership needs a restart). Inaccessible: no Read for the computer. Disabled (GPO): computer settings disabled. Not Applied (Empty): no computer settings.', next: 'If applied, check the setting itself.', sim: true },
-    { question: '4. Did the setting land?', command: 'Get-NetFirewallRule -PolicyStore RSOP\nGet-ItemProperty "HKLM:\\SOFTWARE\\Policies\\..."', healthy: 'The rule / value from the GPO.', broken: 'Another GPO with higher precedence sets the opposite value, or a local setting is shadowed by policy.', next: 'Compare precedence in gpresult.', sim: true },
+    { question: 'Does processing work at all?', why: 'Nothing else matters if the computer cannot fetch policy: the error event names the failing dependency (DC location, Kerberos, LDAP or SYSVOL).', command: 'gpupdate /force', healthy: 'Computer Policy update has completed successfully.', broken: '"lack of network connectivity to a domain controller" / event 1129: DC location (DNS, LDAP). "could not resolve the computer name" / 1055: no Kerberos ticket (KDC, port 88). "LDAP Bind function call failed" / 1006: trust or clock skew. "attempted to read the file ... gpt.ini" / 1058: SYSVOL (SMB 445, replication).', next: 'If it works, check scope.', sim: true },
+    { question: 'Is the GPO in scope?', why: 'A GPO only applies to computers in or below the container it is linked to. A computer left in CN=Computers misses OU-linked GPOs.', command: 'gpresult /r /scope computer\nGet-GPInheritance -Target "OU=Servers,DC=ad,DC=corp,DC=lab"', healthy: 'The computer\'s DN is in the OU the GPO is linked to (or below), and the GPO is in InheritedGpoLinks.', broken: 'DN in CN=Computers; link on another OU; link disabled; Block Inheritance above a non-enforced link.', next: 'If in scope, check filtering.', sim: true },
+    { question: 'Is it filtered out?', why: 'Security filtering can exclude a computer even when the GPO is in scope, and it uses the groups from the computer\'s last restart.', command: 'gpresult /r (The following GPOs were not applied...)\nGet-GPPermission -Name "..." -All', healthy: 'Listed under Applied Group Policy Objects.', broken: 'Denied (Security): no Apply for the computer\'s groups (new group membership needs a restart). Inaccessible: no Read for the computer. Disabled (GPO): computer settings disabled. Not Applied (Empty): no computer settings.', next: 'If applied, check the setting itself.', sim: true },
+    { question: 'Did the setting land?', why: 'The final proof is the setting itself on the computer. When GPOs conflict, precedence decides which value wins.', command: 'Get-NetFirewallRule -PolicyStore RSOP\nGet-ItemProperty "HKLM:\\SOFTWARE\\Policies\\..."', healthy: 'The rule / value from the GPO.', broken: 'Another GPO with higher precedence sets the opposite value, or a local setting is shadowed by policy.', next: 'Compare precedence in gpresult.', sim: true },
   ],
   failures: [
     { symptom: 'gpupdate succeeds but the setting never arrives', causes: ['Computer not in the linked OU', 'Link disabled', 'Block Inheritance (link not enforced)', 'Filtered out (security)'], diagnose: ['gpresult /r (DN, applied, filtered)', 'Get-GPInheritance on the OU'], fix: 'Move the computer, enable/enforce the link, or fix filtering.', verify: 'gpresult lists the GPO as applied; the setting is present.' },
@@ -120,7 +120,9 @@ export const GPO_LESSON: Lesson = {
   concepts: ['ad.gpo', 'ad.dns', 'fw.path'],
 
   what: `
-**Group Policy** configures the computers and users of an Active Directory domain from one place. A **Group Policy Object** (GPO) is a named set of settings; **linking** it to the domain or to an **organizational unit** (OU) makes every computer in that container apply it.
+**Group Policy** configures the computers and users of an [Active Directory](#/lesson/ad-kerberos/what) domain from one place. Instead of logging on to 200 servers to set the same firewall rule, you define it once and every server applies it by itself.
+
+A **Group Policy Object** (GPO) is a named set of settings. An **organizational unit** (OU) is a folder in the directory that holds computers or users, for example OU=Servers. **Linking** a GPO to the domain or to an OU makes every computer in that container apply it. Computers fetch their policy from a domain controller, so Group Policy depends on DC location (DNS), Kerberos and file sharing (SMB) all working.
 
 ### Problems it solves
 - **Consistency**: every server gets the same security baseline, firewall rules and update settings.
@@ -235,10 +237,12 @@ Group Policy is configured on the DC (or any host with GPMC / the GroupPolicy mo
 `,
   troubleshootingIntro: `
 ### Processing, scope, filtering, setting
-1. **Processing**: \`gpupdate /force\` and the System log (1058 SYSVOL, 1129 no DC, 1055 no Kerberos, 1006 bind).
-2. **Scope**: the computer's DN in \`gpresult /r\`; \`Get-GPInheritance\` for the OU (links, Block Inheritance, Enforced).
-3. **Filtering**: "The following GPOs were not applied because they were filtered out" with the reason; \`Get-GPPermission -All\`; the computer's groups (as of its last restart).
-4. **Setting**: \`Get-NetFirewallRule -PolicyStore RSOP\`, the HKLM\\SOFTWARE\\Policies values, precedence.
+A setting from a GPO reaches a computer only after four things succeed, in this order. Find the first one that fails.
+
+1. **Processing: can the computer fetch policy at all?** Run \`gpupdate /force\` and read the System log. Event 1058 means it could not read SYSVOL (SMB to the DC); 1129 means it found no DC; 1055 means it got no Kerberos ticket; 1006 means its LDAP bind to the DC failed.
+2. **Scope: is the GPO linked where this computer is?** \`gpresult /r\` shows the computer's place in the directory (its DN). \`Get-GPInheritance\` on its OU shows which GPOs are linked there, whether the OU blocks inheritance from above, and which links are enforced.
+3. **Filtering: is the computer allowed to apply it?** \`gpresult /r\` lists "The following GPOs were not applied because they were filtered out", with the reason. \`Get-GPPermission -All\` shows who may apply the GPO. The computer's groups are the ones it had at its last restart.
+4. **Setting: did the setting actually land?** \`Get-NetFirewallRule -PolicyStore RSOP\` shows firewall rules delivered by policy; the HKLM\\SOFTWARE\\Policies registry values show registry settings. If several GPOs set the same thing, precedence decides which one wins.
 `,
 
   errorMap: [
