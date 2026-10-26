@@ -35,12 +35,16 @@ For every technology it answers the same questions:
   Windows, pfSense, Docker), configuration reference, an **Operate & recover**
   guide (files, logs, service management, diagnostic workflow, common
   failures) and a graded assessment.
-- **Four guided labs**: build a freshly installed Debian server into a
+- **Six guided labs**: build a freshly installed Debian server into a
   hardened intranet web server (Lab 1), create an Active Directory domain and
   join a member server (Lab 2), turn a fresh pfSense into the perimeter
-  firewall with a DMZ and a published web server (Lab 3), and take over a
-  Docker Compose application and run it as a service on dock01 (Lab 4). The simulator checks
-  each step against the running machines, and the last step reboots everything.
+  firewall with a DMZ and a published web server (Lab 3), take over a
+  Docker Compose application and run it as a service on dock01 (Lab 4),
+  integrate a new server into every enterprise service (DNS, NTP, central
+  logs, NFS and SMB storage, the reverse proxy, a firewall) (Lab 5), and
+  recover the whole network after a power cut that exposed latent faults
+  (Lab 6). The simulator checks each step against the running machines, and
+  the last step reboots everything.
 - **An Infrastructure Builder**: draw your own network (workstations, servers,
   routers, VLAN-aware switches), set addresses, gateways, VLANs, firewall
   rules and NAT, then build it. Every device becomes a simulated Debian

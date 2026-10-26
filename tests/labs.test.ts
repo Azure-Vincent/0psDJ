@@ -7,6 +7,8 @@ import { LAB1 } from '../src/engine/labs/lab1';
 import { LAB2 } from '../src/engine/labs/lab2';
 import { LAB3 } from '../src/engine/labs/lab3';
 import { LAB4 } from '../src/engine/labs/lab4';
+import { LAB5 } from '../src/engine/labs/lab5';
+import { LAB6 } from '../src/engine/labs/lab6';
 import { findScenario } from '../src/engine/scenarios';
 import type { World } from '../src/engine/types';
 import { Lab } from './helpers';
@@ -23,7 +25,75 @@ function linkResolves(link: string): boolean {
   return false;
 }
 
+describe('guided labs: Labs 5 and 6 reject the tempting wrong fixes', () => {
+  const upTo = (lab: typeof LAB5, id: string): World => {
+    let w = lab.build();
+    for (const s of lab.steps) { if (s.id === id) break; w = applySolution(w, s); }
+    return w;
+  };
+  const runAll = (w: World, host: string, user: string, lines: string[]): World => {
+    const l = new Lab(w);
+    for (const line of lines) l.run(host, user, line);
+    return l.world;
+  };
+  const failing = (w: World, lab: typeof LAB5, id: string) => checkStep(w, lab, lab.steps.find((s) => s.id === id)!).results.filter((r) => !r.ok).map((r) => r.detail).join(' | ');
+
+  it('Lab 6: runtime-only fixes and the old backup are caught', () => {
+    let w = upTo(LAB6, 'routing');
+    w = runAll(w, 'rtr01', 'root', ['sysctl -w net.ipv4.ip_forward=1']);
+    expect(failing(w, LAB6, 'routing')).toMatch(/no file in \/etc\/sysctl\.d/);
+    w = upTo(LAB6, 'dns');
+    w = runAll(w, 'ns1', 'root', ['cp /var/backups/bind/db.corp.lab.2026-10-12 /etc/bind/db.corp.lab', 'rndc reload']);
+    expect(failing(w, LAB6, 'dns')).toMatch(/fs01\.corp\.lab/);
+    w = upTo(LAB6, 'time');
+    w = runAll(w, 'rtr01', 'root', ['systemctl start chrony']);
+    expect(failing(w, LAB6, 'time')).toMatch(/not enabled/);
+    w = upTo(LAB6, 'apps');
+    w = runAll(w, 'dock01', 'root', ['docker start inventory-db-1 inventory-app-1']);
+    w = runAll(w, 'srv01', 'root', ['systemctl start nginx']);
+    expect(failing(w, LAB6, 'apps')).toMatch(/no restart policy/);
+  });
+
+  it('Lab 5: a wide export, usermod -G without -a, and an open port 80 are caught', () => {
+    let w = upTo(LAB5, 'nfs');
+    w = applySolution(w, { ...LAB5.steps.find((s) => s.id === 'nfs')!, solution: LAB5.steps.find((s) => s.id === 'nfs')!.solution.map((x) => ({ ...x, commands: x.commands.map((c) => c.replace('10.0.20.70(rw', '10.0.20.0/24(rw')) })) });
+    expect(failing(w, LAB5, 'nfs')).toMatch(/also exported to 10\.0\.20\.0\/24/);
+    w = upTo(LAB5, 'smb');
+    w = applySolution(w, { ...LAB5.steps.find((s) => s.id === 'smb')!, solution: LAB5.steps.find((s) => s.id === 'smb')!.solution.map((x) => ({ ...x, commands: x.commands.map((c) => c.replace('usermod -aG finance', 'usermod -G finance')) })) });
+    expect(failing(w, LAB5, 'smb')).toMatch(/dana lost \[office\]/);
+    w = upTo(LAB5, 'firewall');
+    w = applySolution(w, { ...LAB5.steps.find((s) => s.id === 'firewall')!, solution: LAB5.steps.find((s) => s.id === 'firewall')!.solution.map((x) => ({ ...x, commands: x.commands.map((c) => c.replace('ip saddr 10.0.20.10 tcp dport 80', 'tcp dport 80')) })) });
+    expect(failing(w, LAB5, 'firewall')).toMatch(/ws01 connects to app01:80 directly/);
+  });
+});
+
 describe('guided labs', () => {
+  it('Lab 6: each step fails before its solution and passes after it; the reboot test passes at the end', () => {
+    let world: World = LAB6.build();
+    for (const step of LAB6.steps.filter((s) => !s.afterReboot)) {
+      const before = checkStep(world, LAB6, step);
+      expect(before.passed, `${step.id} should not pass before its solution`).toBe(false);
+      world = applySolution(world, step);
+      const after = checkStep(world, LAB6, step);
+      expect(after.results.filter((r) => !r.ok).map((r) => `${r.id}: ${r.detail}`), step.id).toEqual([]);
+    }
+    const final = checkStep(world, LAB6, LAB6.steps.at(-1)!);
+    expect(final.results.filter((r) => !r.ok).map((r) => `${r.step} / ${r.id}: ${r.detail}`)).toEqual([]);
+  });
+
+  it('Lab 5: each step fails before its solution and passes after it; the reboot test passes at the end', () => {
+    let world: World = LAB5.build();
+    for (const step of LAB5.steps.filter((s) => !s.afterReboot)) {
+      const before = checkStep(world, LAB5, step);
+      expect(before.passed, `${step.id} should not pass before its solution`).toBe(false);
+      world = applySolution(world, step);
+      const after = checkStep(world, LAB5, step);
+      expect(after.results.filter((r) => !r.ok).map((r) => `${r.id}: ${r.detail}`), step.id).toEqual([]);
+    }
+    const final = checkStep(world, LAB5, LAB5.steps.at(-1)!);
+    expect(final.results.filter((r) => !r.ok).map((r) => `${r.step} / ${r.id}: ${r.detail}`)).toEqual([]);
+  });
+
   it('Lab 2: each step fails before its solution and passes after it; the reboot test passes at the end', () => {
     let world: World = LAB2.build();
     for (const step of LAB2.steps.filter((s) => !s.afterReboot)) {
