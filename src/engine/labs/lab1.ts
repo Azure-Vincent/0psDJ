@@ -10,12 +10,10 @@ import { checkGoal } from '../scenarios/engine';
 import { runSsh } from '../sim/ssh';
 import type { NamedLoaded, SshdLoaded } from '../sim/services';
 import type { World } from '../types';
-import { probe } from './engine';
+import { NO, OK, probe } from './engine';
 import { buildLab1World, SRV02_PASSWORD } from './lab1World';
 import type { GuidedLab, LabCheck } from './types';
 
-const OK = (detail: string) => ({ ok: true, detail });
-const NO = (detail: string) => ({ ok: false, detail });
 
 function swConfig(world: World) {
   return parseInterfaces(readFile(world.hosts.sw01, '/etc/network/interfaces') ?? '').ifaces;

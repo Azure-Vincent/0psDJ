@@ -10,6 +10,7 @@ import { LAB4 } from '../src/engine/labs/lab4';
 import { LAB5 } from '../src/engine/labs/lab5';
 import { LAB6 } from '../src/engine/labs/lab6';
 import { findScenario } from '../src/engine/scenarios';
+import { rebootAll } from '../src/engine/scenarios/engine';
 import type { World } from '../src/engine/types';
 import { Lab } from './helpers';
 
@@ -41,7 +42,7 @@ describe('guided labs: Labs 5 and 6 reject the tempting wrong fixes', () => {
   it('Lab 6: runtime-only fixes and the old backup are caught', () => {
     let w = upTo(LAB6, 'routing');
     w = runAll(w, 'rtr01', 'root', ['sysctl -w net.ipv4.ip_forward=1']);
-    expect(failing(w, LAB6, 'routing')).toMatch(/no \/etc\/sysctl\.d\/\*\.conf file/);
+    expect(failing(w, LAB6, 'routing')).toMatch(/next boot sets net\.ipv4\.ip_forward=0 \(not set\)/);
     w = upTo(LAB6, 'dns');
     w = runAll(w, 'ns1', 'root', ['cp /var/backups/bind/db.corp.lab.2026-10-12 /etc/bind/db.corp.lab', 'rndc reload']);
     expect(failing(w, LAB6, 'dns')).toMatch(/fs01\.corp\.lab/);
@@ -61,6 +62,10 @@ describe('guided labs: Labs 5 and 6 reject the tempting wrong fixes', () => {
     let v = upTo(LAB6, 'routing');
     v = runAll(v, 'rtr01', 'root', ["printf 'net.ipv4.ip_forward=1\\n' > /etc/sysctl.d/99-router", 'sysctl -w net.ipv4.ip_forward=1']);
     expect(failing(v, LAB6, 'routing')).toMatch(/files without \.conf are ignored/);
+    let z = upTo(LAB6, 'routing');
+    z = runAll(z, 'rtr01', 'root', ["printf 'net.ipv4.ip_forward=1\\n' > /etc/sysctl.d/10-router.conf", "printf 'net.ipv4.ip_forward=0\\n' > /etc/sysctl.d/99-cis.conf", 'sysctl -w net.ipv4.ip_forward=1']);
+    expect(failing(z, LAB6, 'routing')).toMatch(/next boot sets net\.ipv4\.ip_forward=0/);
+    expect(rebootAll(z).hosts.rtr01.ipForward).toBe(false);
     const text = "log_format main '%h %t \\\\n';\nit's 100%\n";
     const t = runAll(LAB5.build(), 'app01', 'root', [printfTo(text, '/tmp/t.txt')]);
     expect(t.hosts.app01.fs['/tmp/t.txt'].content).toBe(text);

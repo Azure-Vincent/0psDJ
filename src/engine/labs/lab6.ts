@@ -15,7 +15,7 @@ import { INVENTORY_CHECK, INVENTORY_COMPOSE, INVENTORY_DIR } from '../scenarios/
 import { checkGoal, rebootAll, script } from '../scenarios/engine';
 import { APPS_CHECK, deployProxy } from '../scenarios/proxyScenarios';
 import { loadProject } from '../sim/compose';
-import { sysctlFiles } from '../sim/services';
+import { sysctlFiles, sysctlValue } from '../sim/services';
 import type { World } from '../types';
 import { lastLines as last, NO, OK, printfTo, probe } from './engine';
 import type { GuidedLab, LabCheck } from './types';
@@ -74,10 +74,11 @@ const routing: LabCheck = {
   check(w) {
     const ping = probe(w, 'ws01', 'alice', 'ping -c 1 -W 1 10.0.20.10');
     if (ping.code !== 0) return NO(`ws01 → srv01: ${ping.output.trim().split('\n').slice(-2).join(' ')}`);
-    // What the next boot applies (sysctlFiles: /etc/sysctl.conf and /etc/sysctl.d/*.conf).
-    const persisted = sysctlFiles(w.hosts.rtr01).map((p) => w.hosts.rtr01.fs[p].content).join('\n');
-    if (!/^\s*net\.ipv4\.ip_forward\s*=\s*1\s*$/m.test(persisted)) return NO('Forwarding is on now, but no /etc/sysctl.d/*.conf file sets net.ipv4.ip_forward=1: it is off again after the next boot (files without .conf are ignored).');
-    return OK('ws01 reaches srv01; net.ipv4.ip_forward=1 is in /etc/sysctl.d.');
+    // What the next boot applies: the last assignment in /etc/sysctl.conf and /etc/sysctl.d/*.conf.
+    const atBoot = sysctlValue(w.hosts.rtr01, 'net.ipv4.ip_forward');
+    if (atBoot !== '1') return NO(`Forwarding is on now, but the next boot sets net.ipv4.ip_forward=${atBoot ?? '0 (not set)'}: put net.ipv4.ip_forward=1 in a /etc/sysctl.d/*.conf file (files without .conf are ignored; the last assignment wins).`);
+    const file = [...sysctlFiles(w.hosts.rtr01)].reverse().find((p) => /^\s*net\.ipv4\.ip_forward\s*=\s*1\s*$/m.test(readFile(w.hosts.rtr01, p) ?? ''));
+    return OK(`ws01 reaches srv01; net.ipv4.ip_forward=1 persists (${file}).`);
   },
 };
 
@@ -129,7 +130,7 @@ const inventory: LabCheck = {
     const missing = p.services.filter((s) => s.restart !== 'unless-stopped' && s.restart !== 'always').map((s) => s.name);
     const r = checkGoal(w, INVENTORY_CHECK);
     if (!r.ok) return NO(`inventory: ${last(r)}`);
-    if (!missing.length) return OK('inventory answers 200; restart: unless-stopped on both services.');
+    if (!missing.length) return OK(`inventory answers 200; restart: ${[...new Set(p.services.map((s) => s.restart))].join(' / ')} on both services.`);
     const desc = missing.map((n) => `${n} (restart: ${p.services.find((s) => s.name === n)?.restart ?? 'no'})`).join(' and ');
     return NO(`Running now, but ${desc} will not be started by dockerd after the next reboot: use restart: unless-stopped (or always).`);
   },

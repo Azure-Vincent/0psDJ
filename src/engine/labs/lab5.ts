@@ -181,8 +181,11 @@ const timeOk: LabCheck = {
     const r = checkGoal(w, { kind: 'time', description: '', host: 'app01' });
     if (!r.ok) return NO(r.lines.filter((l) => /synchronized|this clock is/.test(l)).join(' ') || 'not synchronized');
     // Any of rtr01's addresses counts (10.0.20.1 is app01's gateway); nothing else does.
-    const server = /^\s*Server:\s*(\S+)/m.exec(probe(w, 'app01', 'root', 'timedatectl timesync-status').output)?.[1];
-    return server && hostAddresses(w.hosts.rtr01).includes(server) ? OK(`System clock synchronized: yes (server ${server}, rtr01).`) : NO(`Synchronized from ${server ?? 'an unknown server'}, not from rtr01: use the internal time source.`);
+    const status = probe(w, 'app01', 'root', 'timedatectl timesync-status');
+    const server = /^\s*Server:\s*(\S+)/m.exec(status.output)?.[1];
+    if (!server || server === 'null') return NO(`timedatectl timesync-status shows no server: ${status.output.trim().split('\n')[0] ?? ''}`);
+    const rtr = [...hostAddresses(w.hosts.rtr01, 4), ...hostAddresses(w.hosts.rtr01, 6)];
+    return rtr.includes(server) ? OK(`System clock synchronized: yes (server ${server}, rtr01).`) : NO(`Synchronized from ${server}, not from rtr01: use the internal time source.`);
   },
 };
 

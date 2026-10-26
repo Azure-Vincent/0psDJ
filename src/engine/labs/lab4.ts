@@ -12,11 +12,9 @@ import { DB_PASSWORD, INVENTORY_CHECK, INVENTORY_COMPOSE, INVENTORY_DIR } from '
 import { loadProject, projectContainers } from '../sim/compose';
 import { daemonConfig } from '../sim/docker';
 import type { World } from '../types';
-import { printfTo, probe } from './engine';
+import { NO, OK, printfTo, probe } from './engine';
 import type { GuidedLab, LabCheck } from './types';
 
-const OK = (detail: string) => ({ ok: true, detail });
-const NO = (detail: string) => ({ ok: false, detail });
 
 /** compose.yaml as the development team handed it over (DEV-881). */
 export const LAB4_DEV_COMPOSE = `# Inventory application, as handed over by the development team (DEV-881).
