@@ -9,77 +9,98 @@ export const DHCP_LESSON: Lesson = {
   concepts: ['net.dhcp', 'net.arp', 'net.routing', 'dns.resolution'],
 
   what: `
-**DHCP** (Dynamic Host Configuration Protocol, RFC 2131) lets a host that has no IP configuration ask the network for one. A **DHCP server** answers with an address from a **pool** (or a **reservation** for that client's MAC address) plus **options**: subnet mask, default **router**, **DNS servers**, domain name, and a **lease time** after which the client must renew.
+In the [IP networking lesson](#/lesson/ipnet/what) you saw that every computer needs an address, a prefix, a default gateway and, to use names, a DNS server. Typing these in by hand works for a few servers, but not for hundreds of laptops, phones and printers that come and go. **DHCP** (Dynamic Host Configuration Protocol, RFC 2131) solves this: a computer that has no network settings asks the network for them, and a **DHCP server** answers.
+
+The server hands out:
+- an **address**, either from a **pool** (a range of addresses it may give away) or from a **reservation** (a fixed address kept for one particular device, recognised by its MAC address);
+- **options**: the subnet mask, the default **router** (gateway), the **DNS servers**, the domain name;
+- a **lease time**: how long the client may keep the address before it has to ask again (**renew**).
+
+Think of it as a hotel reception: you arrive with nothing, ask at the desk, and get a room number (the address), directions to the lift (the gateway) and the phone number of the concierge (DNS), for a fixed number of nights (the lease).
 
 ### Why it matters
-Every laptop, phone, printer and most VMs use DHCP. When it fails, the symptoms rarely say "DHCP": the client ends up with **no address**, a **169.254.x.x** link-local address (Windows, some Linux setups), or an address with a **wrong gateway or DNS server**, which looks like a routing or DNS problem.
+Nearly every laptop, phone, printer and virtual machine uses DHCP. When it fails, the symptoms rarely mention DHCP. The client ends up with **no address**, with a **169.254.x.x** address (a "link-local" address that Windows and some Linux systems give themselves when nobody answers), or with an address but a **wrong gateway or DNS server**. That last case looks exactly like a routing or DNS problem, which is why it helps to know what DHCP hands out.
 
 ### Where it runs
-- **Client**: dhclient (ISC, Debian ifupdown), systemd-networkd, NetworkManager; on Windows the DHCP Client service.
-- **Server**: ISC dhcpd (\`isc-dhcp-server\`, used in the lab), its successor **Kea**, dnsmasq, Windows Server DHCP, and most routers/firewalls.
-- DHCP uses **UDP**: the server listens on port **67**, the client on **68**.
+- **Client**: dhclient (ISC, used by Debian's ifupdown), systemd-networkd or NetworkManager on Linux; the DHCP Client service on Windows.
+- **Server**: ISC dhcpd (the package \`isc-dhcp-server\`, used in this lab), its successor **Kea**, dnsmasq, the Windows Server DHCP role, and most routers and firewalls.
+- DHCP travels over **UDP** (see [Transport and DNS](#/lesson/transport/what)): the server listens on port **67**, the client on port **68**.
 
 ### In the lab
-ns1 (10.0.10.53) runs isc-dhcp-server for the office LAN 10.0.10.0/24, handing out 10.0.10.100–150 with router 10.0.10.1 and DNS 10.0.10.53. The laptop **ws02** is configured with \`iface eth0 inet dhcp\` and gets its address at boot. The development VLAN 30 has no DHCP server of its own: **rtr01** runs the **DHCP relay agent** isc-dhcp-relay, which forwards requests from VLAN 30 to ns1, so the hot-desk laptop **dev02** gets 10.0.30.100–150 with router 10.0.30.1. Leases last 600 seconds, so you can watch renewals happen (\`sleep 300\` lets simulated time pass).
+ns1 (10.0.10.53) runs isc-dhcp-server for the office network 10.0.10.0/24. It hands out 10.0.10.100–150, with router 10.0.10.1 and DNS server 10.0.10.53. The laptop **ws02** is configured with \`iface eth0 inet dhcp\` and gets its address at boot.
 
-> The simulator implements DISCOVER/OFFER/REQUEST/ACK and NAK with real BOOTP encoding (exportable to PCAP), the relay agent (giaddr, hops, forwarding to the server and back, \`-id\`/\`-iu\`), lease timers (renewal by unicast at T1, rebinding by broadcast at T2, expiry, retry every 5 minutes), INIT-REBOOT with a remembered lease, DHCPRELEASE, packet-socket reception that bypasses host firewalls, dhcpd.conf parsing (subnets, ranges, routers/DNS/domain options, host reservations, lease times, authoritative), the dhcpd.leases file, and dhclient applying the lease (address with lifetime, default route, resolv.conf). Not modelled: DECLINE/INFORM, the broadcast flag, relay agent information (option 82), failover. DHCPv6 is taught and simulated in the IPv6 lesson.
+The development network, VLAN 30, has no DHCP server of its own. Instead, **rtr01** runs a **DHCP relay agent** (isc-dhcp-relay), which passes requests from VLAN 30 on to ns1. That is how the hot-desk laptop **dev02** gets an address in 10.0.30.100–150 with router 10.0.30.1. Leases in the lab last only 600 seconds, so you can watch renewals happen (\`sleep 300\` lets simulated time pass).
+
+> What the simulator models: DISCOVER, OFFER, REQUEST, ACK and NAK with real BOOTP encoding (exportable as PCAP); the relay agent (giaddr, hops, forwarding to the server and back, \`-id\`/\`-iu\`); lease timers (renewal by unicast at T1, rebinding by broadcast at T2, expiry, retries every 5 minutes); INIT-REBOOT with a remembered lease; DHCPRELEASE; packet sockets that bypass host firewalls; dhcpd.conf parsing (subnets, ranges, router/DNS/domain options, host reservations, lease times, authoritative); the dhcpd.leases file; and dhclient applying the lease (address with lifetime, default route, resolv.conf). Not modelled: DECLINE/INFORM, the broadcast flag, relay agent information (option 82), failover. DHCPv6 is taught and simulated in the [IPv6 lesson](#/lesson/ipv6/what).
 `,
 
   internals: `
-### DORA: four messages
-1. **DISCOVER** (client → broadcast). The client has no address, so it sends from **0.0.0.0:68** to **255.255.255.255:67** in an Ethernet frame to **ff:ff:ff:ff:ff:ff**. The message carries a transaction ID (xid), the client's MAC (*chaddr*), and a **parameter request list** (option 55).
-2. **OFFER** (server → client). The server picks an address and offers it in *yiaddr* together with the options. ISC dhcpd sends it unicast to the client MAC (the client asked without the broadcast flag).
-3. **REQUEST** (client → broadcast). The client accepts **one** offer, naming the server in option 54 (*server identifier*) and the address in option 50. It is broadcast so that other servers that made offers learn they were declined.
-4. **ACK** (server → client). The server records the lease and confirms. Only now does the client configure the address. A server that cannot honour the request answers **NAK** instead and the client starts over.
+### DORA: the four messages
+A client without an address cannot send normal packets to a server it does not know yet. So the first messages are **broadcasts**: sent to every device on the local network. The exchange has four steps, remembered as **DORA**:
 
-### Broadcasts stay on the segment: DHCP relay agents
-A router does not forward 255.255.255.255. A DHCP server must therefore have an interface on each client subnet, **or** the router must run a **DHCP relay agent** (\`ip helper-address\` on Cisco, \`isc-dhcp-relay\`/\`dhcrelay\` on Linux, "DHCP Relay" on pfSense and Windows RRAS). For dev02 on VLAN 30:
-1. dev02 broadcasts DISCOVER on VLAN 30. rtr01's relay receives it on **eth3.30**.
-2. The relay sets **giaddr = 10.0.30.1** (its own address on the client's network), increments *hops*, and sends the message as an ordinary **unicast UDP packet, port 67 → 67**, to each configured server (10.0.10.53).
-3. ns1 picks the subnet that **contains giaddr** (10.0.30.0/24), allocates an address from that pool and sends the OFFER **to giaddr** (10.0.30.1:67), not to the client.
-4. The relay forwards the OFFER onto VLAN 30, addressed to dev02's MAC. REQUEST and ACK take the same path.
+1. **DISCOVER** (client to everyone). "Is there a DHCP server out there?" The client has no address yet, so it sends from **0.0.0.0** port 68 to the broadcast address **255.255.255.255** port 67, inside an Ethernet frame addressed to **ff:ff:ff:ff:ff:ff**. The message carries a random transaction ID (*xid*) to match the replies, the client's MAC address (*chaddr*), and a **parameter request list** (option 55) saying which settings it wants.
+2. **OFFER** (server to client). "You can have 10.0.10.100." The server picks an address and offers it in the *yiaddr* field ("your IP address"), together with the options. ISC dhcpd sends the OFFER straight to the client's MAC address.
+3. **REQUEST** (client to everyone). "I'll take 10.0.10.100 from server 10.0.10.53." The client accepts **one** offer, naming the server (option 54, *server identifier*) and the address (option 50). It broadcasts this so that any other server that made an offer knows it was turned down.
+4. **ACK** (server to client). "Confirmed." The server records the lease. Only now does the client configure the address. If the server cannot give that address after all, it answers **NAK** ("no") instead, and the client starts again from DISCOVER.
 
-Consequences you can troubleshoot:
-- The server needs a **subnet declaration for every relayed network**, even though it has no interface there. Without it: \`DHCPDISCOVER from … via 10.0.30.1: unknown network segment\`.
-- The relay must know the right server (\`SERVERS\` in /etc/default/isc-dhcp-relay) and must receive the replies on the server side. ISC dhcrelay 4.4 takes \`-id\` (downstream, client side) and \`-iu\` (upstream, server side) interfaces; a plain interface list makes it relay in both directions, including broadcasts from the server's own LAN.
-- Once a client has an address, **renewals do not use the relay**: they are unicast from the client straight to the server identifier, routed like any other packet.
+### Broadcasts do not cross routers: DHCP relay agents
+Routers do not forward broadcasts to 255.255.255.255; otherwise a single broadcast would flood every network. So either the DHCP server needs an interface in every client network, or the router in each client network runs a **DHCP relay agent**. On Cisco this is \`ip helper-address\`; on Linux it is \`isc-dhcp-relay\` (the program dhcrelay); pfSense and Windows RRAS call it "DHCP Relay".
+
+Here is what happens for dev02 on VLAN 30:
+1. dev02 broadcasts its DISCOVER on VLAN 30. rtr01's relay receives it on the interface **eth3.30**.
+2. The relay writes its own address on the client's network into the **giaddr** field ("gateway IP address", here 10.0.30.1), adds one to the *hops* counter, and forwards the message as an ordinary **unicast UDP packet, from port 67 to port 67**, to each server it knows (10.0.10.53).
+3. ns1 looks at giaddr to see which network the client is on. It picks the subnet that **contains giaddr** (10.0.30.0/24), takes an address from that pool, and sends the OFFER **back to giaddr** (10.0.30.1 port 67), not to the client.
+4. The relay passes the OFFER onto VLAN 30, addressed to dev02's MAC. REQUEST and ACK travel the same way.
+
+What this means when you troubleshoot:
+- The server needs a **subnet declaration for every network it serves through a relay**, even though it has no interface there. Without one, it logs \`DHCPDISCOVER from … via 10.0.30.1: unknown network segment\` and does not answer.
+- The relay must point at the right server (\`SERVERS\` in /etc/default/isc-dhcp-relay) and must be able to receive the replies on the server side. ISC dhcrelay 4.4 takes \`-id\` for the **downstream** interfaces (towards the clients) and \`-iu\` for the **upstream** interface (towards the server). A plain list of interfaces makes it relay in both directions, including broadcasts from the server's own network.
+- Once a client has an address, **renewals do not go through the relay**: the client sends them straight to the server (by unicast), routed like any other packet.
 
 ### DHCP software and host firewalls
-ISC dhcpd, dhclient and dhcrelay send and receive DHCP through **packet sockets (LPF)** on the interfaces they listen on. A packet socket gets its copy of each frame **before netfilter**, so a host firewall with \`policy drop\` does not stop DHCP to these daemons: a common source of "but the firewall blocks port 67 and it still works". The exception matters for relays: a reply that arrives on an interface dhcrelay does not listen on goes to its ordinary UDP socket, where the input chain applies.
+ISC dhcpd, dhclient and dhcrelay send and receive DHCP through **packet sockets** (called LPF, Linux Packet Filter). A packet socket gets its copy of each frame **before** the kernel's firewall (netfilter) sees it, so a host firewall with \`policy drop\` does not stop DHCP to these programs. This explains the common puzzle "the firewall blocks port 67, but DHCP still works".
 
-### How the server picks an address (ISC dhcpd)
-1. A **host** declaration with a matching \`hardware ethernet\` and \`fixed-address\` (a **reservation**).
-2. The address this MAC had before, if it is still in the **lease file** (\`/var/lib/dhcp/dhcpd.leases\`): clients tend to keep their address.
-3. The first free address in the **range** of the subnet the request arrived on.
-4. Nothing free → the server logs **"no free leases"** and does not answer at all.
+There is one exception that matters for relays: a reply that arrives on an interface dhcrelay is not listening on goes to its ordinary UDP socket instead, and there the firewall's input chain does apply.
 
-The subnet is chosen by the **interface the request arrived on** (or *giaddr* for relayed requests). That is why dhcpd refuses to start if no \`subnet\` declaration matches an interface it listens on, and why \`INTERFACESv4\` in \`/etc/default/isc-dhcp-server\` matters: an interface name that does not exist means dhcpd is "Not configured to listen on any interfaces!".
+### How the server chooses an address (ISC dhcpd)
+dhcpd tries these in order:
+1. A **host** declaration whose \`hardware ethernet\` matches the client's MAC and which has a \`fixed-address\`. This is a **reservation**.
+2. The address this MAC address had before, if it is still in the **lease file** (\`/var/lib/dhcp/dhcpd.leases\`). This is why clients tend to keep the same address.
+3. The first free address in the **range** of the subnet the request came from.
+4. If nothing is free, the server logs **"no free leases"** and does **not answer at all**.
+
+Which subnet a request "came from" is decided by the **interface it arrived on**, or by *giaddr* for relayed requests. That is why dhcpd refuses to start if no \`subnet\` declaration matches an interface it listens on, and why \`INTERFACESv4\` in \`/etc/default/isc-dhcp-server\` matters: if it names an interface that does not exist, dhcpd reports "Not configured to listen on any interfaces!".
 
 ### Leases and their timers (RFC 2131 §4.4.5)
-A lease is valid for the lease time (option 51); the server also sends T1 (option 58) and T2 (option 59). With the lab's 600-second leases:
+A lease is valid for the lease time (option 51). The server also sends two timers: **T1** (option 58) and **T2** (option 59). With the lab's 600-second leases:
 
 | Time after the ACK | Client state | What it does |
 |---|---|---|
-| 0 s | BOUND | uses the address (\`ip addr\` shows \`dynamic\`, \`valid_lft 600sec\` counting down) |
-| T1 = 50 % = 300 s | RENEWING | DHCPREQUEST **unicast to the server that granted the lease** (ciaddr = its address), retransmitted until T2. An ACK restarts the clock. |
-| T2 = 87.5 % = 525 s | REBINDING | the server did not answer: DHCPREQUEST **broadcast**, retransmitted until expiry, so any server (or relay) for this network may extend the lease |
-| 100 % = 600 s | INIT | the lease expired: the address and default route are **removed**; dhclient starts over with DISCOVER and retries every 5 minutes while nobody answers |
+| 0 s | BOUND | uses the address (\`ip addr\` shows \`dynamic\` and \`valid_lft 600sec\`, counting down) |
+| T1 = 50 % = 300 s | RENEWING | sends a DHCPREQUEST **directly to the server that gave the lease** (unicast, with its current address in *ciaddr*), and keeps resending until T2. An ACK restarts the lease. |
+| T2 = 87.5 % = 525 s | REBINDING | that server has not answered, so the client **broadcasts** its DHCPREQUEST, so that any server (or relay) for this network can extend the lease |
+| 100 % = 600 s | INIT | the lease has expired: the address and default route are **removed**, and dhclient starts again with DISCOVER, retrying every 5 minutes while nobody answers |
 
-So when a DHCP server dies, **nothing happens at first**: clients keep working until their own lease runs out, then drop off one by one at different times. Long leases (8–24 h in offices) ride out short outages; short ones recycle addresses quickly (guest Wi-Fi). dhcpd appends every change to the lease file; the last entry for an address wins.
+So when a DHCP server dies, **nothing happens at first**. Clients keep working until their own lease runs out, then lose their addresses one by one, at different times. That delay can make the cause hard to spot. Long leases (8–24 hours in offices) ride out short outages; short leases (guest Wi-Fi) recycle addresses quickly. dhcpd adds every change to the end of its lease file; for each address, the last entry wins.
 
 ### INIT-REBOOT and NAK
-A client that remembers a lease (\`/var/lib/dhcp/dhclient.eth0.leases\`) starts by broadcasting a REQUEST for **its old address**, without DISCOVER. If that address belongs to the network the client is now on, the server ACKs (that is why \`sudo dhclient -v eth0\` usually shows only REQUEST and ACK). If the laptop moved to another network, or the address was given to someone else, an **authoritative** server answers **DHCPNAK**; the client discards the old lease and starts with DISCOVER. A non-authoritative server stays silent and the client waits before falling back.
+A client that remembers a lease (in \`/var/lib/dhcp/dhclient.eth0.leases\`) skips DISCOVER and broadcasts a REQUEST for **its old address** straight away. If that address belongs to the network the client is now on, the server ACKs it. That is why \`sudo dhclient -v eth0\` often shows only REQUEST and ACK.
 
-### What the client does with the options (dhclient-script on Debian)
-- \`ip addr add <yiaddr>/<mask> dev eth0\`
-- \`ip route add default via <option routers>\`
-- write \`/etc/resolv.conf\` from \`domain-name-servers\` and \`domain-name\`
-- save the lease to \`/var/lib/dhcp/dhclient.eth0.leases\`
+If the laptop has moved to another network, or the address now belongs to someone else, an **authoritative** server answers **DHCPNAK**. The client throws away the old lease and starts over with DISCOVER. A server that is not authoritative stays silent, and the client waits a while before falling back to DISCOVER.
 
-So a typo in \`option routers\` produces a client with an address but no working gateway, and a wrong \`domain-name-servers\` produces DNS failures, on **every** DHCP client at once.
+### What the client does with the answer (dhclient-script on Debian)
+When the ACK arrives, a script applies the settings:
+- \`ip addr add <yiaddr>/<mask> dev eth0\` (the address)
+- \`ip route add default via <option routers>\` (the default gateway)
+- writes \`/etc/resolv.conf\` from \`domain-name-servers\` and \`domain-name\` (DNS)
+- saves the lease to \`/var/lib/dhcp/dhclient.eth0.leases\`
+
+So a typo in \`option routers\` gives clients an address but no working gateway, and a wrong \`domain-name-servers\` breaks DNS, on **every** DHCP client at once.
 
 ### Ports and security
-Servers and relays use UDP 67, clients UDP 68. Document the ports in your firewall policy (and open them for DHCP servers that use ordinary UDP sockets, such as Kea with \`"dhcp-socket-type": "udp"\`), but remember that ISC's daemons bypass the input chain as described above. DHCP has **no authentication**: any host can answer DISCOVERs. A **rogue DHCP server** (a misconfigured home router plugged into the office, or an attacker) hands out its own gateway/DNS. Switches mitigate this with **DHCP snooping** (only trusted ports may send OFFER/ACK).
+Servers and relays use UDP 67, clients UDP 68. Document these ports in your firewall policy, and open them for DHCP servers that use ordinary UDP sockets (such as Kea with \`"dhcp-socket-type": "udp"\`), but remember that ISC's programs bypass the input chain as described above.
+
+DHCP has **no authentication**: any device on the network can answer a DISCOVER. A **rogue DHCP server** (a home router plugged into the office network by mistake, or an attacker) can hand out its own gateway and DNS server and so redirect traffic. Managed switches protect against this with **DHCP snooping**: only trusted ports are allowed to send OFFER and ACK messages.
 `,
 
   deployment: [
@@ -137,7 +158,9 @@ Servers and relays use UDP 67, clients UDP 68. Document the ports in your firewa
   ],
 
   configIntro: `
-ISC dhcpd reads \`/etc/dhcp/dhcpd.conf\` at start; options can be global or inside a \`subnet\`/\`host\` block (the most specific wins). The allocation simulator below runs the simulator's own parser and allocation function on whatever configuration you type.
+ISC dhcpd reads \`/etc/dhcp/dhcpd.conf\` when it starts, so every change needs a restart (check the syntax first). Options can be written at the top of the file (global), inside a \`subnet\` block or inside a \`host\` block; the most specific one wins. For example, a \`option routers\` line inside a subnet block overrides a global one for clients in that subnet.
+
+The allocation simulator below runs the simulator's own parser and address-allocation logic on whatever configuration you type, so you can try out changes safely.
 `,
 
   configFiles: [
@@ -184,30 +207,32 @@ ISC dhcpd reads \`/etc/dhcp/dhcpd.conf\` at start; options can be global or insi
   ],
 
   troubleshootingIntro: `
-### Work from the client to the server
-1. **What did the client get?** \`ip -4 addr\`, \`ip route\`, \`cat /etc/resolv.conf\`, \`cat /var/lib/dhcp/dhclient.eth0.leases\`. No address → DORA failed. Address but wrong router/DNS → the server's options.
-2. **Try again verbosely:** \`sudo dhclient -r eth0; sudo dhclient -v eth0\`. Only DISCOVERs → nobody offers.
-3. **Is the server running and listening?** \`systemctl status isc-dhcp-server\` (look for "Listening on LPF/eth0/…"), \`ss -ulnp | grep :67\`.
-4. **Did the request arrive?** \`journalctl -u isc-dhcp-server\` on the server: no DISCOVER line → it never got there (wrong interface, different segment without relay, relay sending elsewhere). DISCOVER but no OFFER → "no free leases" or "unknown network segment" (no subnet for that giaddr).
-5. **Relayed network?** On the router: \`systemctl status isc-dhcp-relay\`, \`cat /etc/default/isc-dhcp-relay\`, then \`tcpdump\` on the client side **and** the server side. Requests leave but no replies arrive → server or routing; replies arrive but nothing goes out on the client side → the relay does not receive them (\`-iu\` missing, firewall on its fallback socket).
-6. **Capture:** \`tcpdump -n -i eth0 port 67 or port 68\` on the server.
+### Work from the client towards the server
+Start with what the client actually got, because that tells you which half of the exchange failed.
+
+1. **What did the client get?** Run \`ip -4 addr\`, \`ip route\` and \`cat /etc/resolv.conf\`, and look at the saved lease with \`cat /var/lib/dhcp/dhclient.eth0.leases\`. No address at all means the DORA exchange failed. An address with a wrong gateway or DNS server means DHCP worked, but the server's **options** are wrong.
+2. **Ask again and watch.** Run \`sudo dhclient -r eth0\` (release the lease) and then \`sudo dhclient -v eth0\` (request a new one, verbosely). If you only see DISCOVER lines repeating, no server is offering anything.
+3. **Is the server running and listening?** On the server, \`systemctl status isc-dhcp-server\` should show a line like "Listening on LPF/eth0/…", which proves the interface and subnet match. \`ss -ulnp | grep :67\` shows the socket.
+4. **Did the request reach the server?** Read \`journalctl -u isc-dhcp-server\` on the server. No DISCOVER line from the client: the request never got there (wrong interface, a different network without a relay, or a relay sending to the wrong server). A DISCOVER line but no OFFER: look for "no free leases" (the pool is full) or "unknown network segment" (no subnet declaration for that relay's giaddr).
+5. **Is the client behind a relay?** On the router, check \`systemctl status isc-dhcp-relay\` and \`cat /etc/default/isc-dhcp-relay\`, then run \`tcpdump\` on the client side **and** on the server side of the router. Requests leave but no replies come back: look at the server or the routing between them. Replies come back but nothing goes out on the client side: the relay is not receiving them (\`-iu\` missing, or a firewall in front of its fallback socket).
+6. **Look at the wire.** \`tcpdump -n -i eth0 port 67 or port 68\` on the server shows exactly which messages arrive and leave.
 
 ### Clients that lose their address later
-A client that worked and then lost its address is a **renewal** problem: read its history with \`journalctl -t dhclient\` (as root). REQUESTs "to 10.0.10.53" without ACK (T1), then "to 255.255.255.255" (T2), then DISCOVERs: the server stopped answering at least one lease time ago. \`ip -4 addr\` shows the remaining lifetime of a DHCP address (\`valid_lft\`).
+If a client had an address and later lost it, the problem is with **renewal**, not with the first request. Read the client's history with \`journalctl -t dhclient\` (as root). A typical pattern: REQUESTs "to 10.0.10.53" with no ACK (that is T1), then REQUESTs "to 255.255.255.255" (T2), then DISCOVERs. That means the server stopped answering at least one lease time ago. \`ip -4 addr\` shows how long the current address is still valid (\`valid_lft\`).
 `,
 
   errorMap: [
-    { message: 'No DHCPOFFERS received.', layer: 'DHCP (client)', meaning: 'Nobody answered the DISCOVERs.', firstCheck: 'Server status and logs; is the server on this segment (or is there a relay)?' },
-    { message: 'Not configured to listen on any interfaces!', layer: 'DHCP (server)', meaning: 'INTERFACESv4 is empty or names interfaces that do not exist / have no matching subnet.', firstCheck: 'ip -br link; cat /etc/default/isc-dhcp-server' },
+    { message: 'No DHCPOFFERS received.', layer: 'DHCP (client)', meaning: 'The client broadcast DISCOVER messages and no DHCP server answered.', firstCheck: 'Server status and logs; is the server on this segment (or is there a relay)?' },
+    { message: 'Not configured to listen on any interfaces!', layer: 'DHCP (server)', meaning: 'INTERFACESv4 is empty, or names interfaces that do not exist or have no matching subnet declaration.', firstCheck: 'ip -br link; cat /etc/default/isc-dhcp-server' },
     { message: 'No subnet declaration for eth0 (10.0.10.53).', layer: 'DHCP (server)', meaning: 'The listening interface\'s network is not declared in dhcpd.conf.', firstCheck: 'Compare ip addr on the server with the subnet lines' },
-    { message: 'DHCPDISCOVER from … via eth0: network 10.0.10.0/24: no free leases', layer: 'DHCP (server)', meaning: 'Every address in the range is leased.', firstCheck: 'dhcpd.leases: which MACs hold the pool? Enlarge the range or shorten leases' },
-    { message: 'DHCPDISCOVER from 52:54:00:e7:00:2a via 10.0.30.1: unknown network segment', layer: 'DHCP (server, relayed)', meaning: 'No subnet declaration contains the relay\'s giaddr.', firstCheck: 'Add a subnet for the relayed network to dhcpd.conf' },
+    { message: 'DHCPDISCOVER from … via eth0: network 10.0.10.0/24: no free leases', layer: 'DHCP (server)', meaning: 'Every address in the range is already leased to someone, so the server stays silent.', firstCheck: 'dhcpd.leases: which MACs hold the pool? Enlarge the range or shorten leases' },
+    { message: 'DHCPDISCOVER from 52:54:00:e7:00:2a via 10.0.30.1: unknown network segment', layer: 'DHCP (server, relayed)', meaning: 'The request came through a relay, and no subnet declaration in dhcpd.conf contains the relay\'s address (giaddr).', firstCheck: 'Add a subnet for the relayed network to dhcpd.conf' },
     { message: 'DHCPNAK on 10.0.10.100 to … / DHCPNAK from 10.0.10.53', layer: 'DHCP (INIT-REBOOT)', meaning: 'The client asked for an address that is wrong for this network (moved laptop) or no longer its own; it starts over with DISCOVER.', firstCheck: 'Normal after moving; repeated NAKs for the same client: duplicate servers or a mismatched pool' },
     { message: 'DHCPREQUEST for 10.0.10.100 on eth0 to 10.0.10.53 port 67 (repeated, no DHCPACK)', layer: 'DHCP (renewal)', meaning: 'The client is renewing at T1 and the server does not answer.', firstCheck: 'Is the server running and reachable by unicast from the client?' },
     { message: 'Only clients on one VLAN get no address', layer: 'DHCP relay', meaning: 'Relay missing, stopped, pointed at the wrong server, or not receiving replies.', firstCheck: 'systemctl status isc-dhcp-relay; tcpdump both sides of the router' },
-    { message: 'Client has 169.254.x.x (APIPA)', layer: 'DHCP (client)', meaning: 'Windows/zeroconf fallback after DHCP failed.', firstCheck: 'Treat as "No DHCPOFFERS received"' },
-    { message: 'Address OK, cannot leave the subnet', layer: 'DHCP options', meaning: 'Wrong or missing option routers.', firstCheck: 'ip route on the client; option routers in dhcpd.conf' },
-    { message: 'Address OK, names do not resolve', layer: 'DHCP options', meaning: 'Wrong domain-name-servers.', firstCheck: 'cat /etc/resolv.conf on the client' },
+    { message: 'Client has 169.254.x.x (APIPA)', layer: 'DHCP (client)', meaning: 'The address a client gives itself when no DHCP server answered (APIPA on Windows, zeroconf on Linux).', firstCheck: 'Treat as "No DHCPOFFERS received"' },
+    { message: 'Address OK, cannot leave the subnet', layer: 'DHCP options', meaning: 'DHCP worked, but the server handed out a wrong (or no) default gateway in option routers.', firstCheck: 'ip route on the client; option routers in dhcpd.conf' },
+    { message: 'Address OK, names do not resolve', layer: 'DHCP options', meaning: 'DHCP worked, but the server handed out wrong DNS servers in domain-name-servers.', firstCheck: 'cat /etc/resolv.conf on the client' },
   ],
 
   scenarioIds: ['dhcp-interface', 'dhcp-pool-exhausted', 'dhcp-wrong-router', 'dhcp-lease-expiry', 'dhcp-relay-server', 'dhcp-relay-subnet', 'dhcp-relay-iu'],

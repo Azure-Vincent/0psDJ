@@ -158,16 +158,17 @@ export function GuideWorkflow({ g, simulated }: { g: ServiceGuide; simulated: bo
   return (
     <>
       <h2>Diagnostic workflow</h2>
-      <p className="small muted">Work from the bottom of the stack upwards and stop at the first step that fails: everything above it depends on it.</p>
+      <p className="small muted">Go through the steps in order. Each one checks something that the later steps depend on, so the first step that fails is usually where the problem is. Fix that, then carry on from there.</p>
       {g.workflow.map((w, i) => (
         <div className="card" key={w.question} style={{ marginBottom: 8 }}>
-          <div className="spread"><strong>{i + 1}. {w.question}</strong>{w.sim && simulated && <span className="badge accent">in simulator</span>}</div>
+          <div className="spread"><strong>{i + 1}. {w.question.replace(/^\d+\.\s*/, '')}</strong>{w.sim && simulated && <span className="badge accent">in simulator</span>}</div>
+          {w.why && <div className="small" style={{ marginTop: 4 }}><Inline text={w.why} /></div>}
           <pre>{w.command}</pre>
           <div className="grid2" style={{ gap: 10 }}>
-            <div><div className="small muted">Healthy</div><pre className="small" style={{ whiteSpace: 'pre-wrap' }}>{w.healthy}</pre></div>
-            <div><div className="small muted">Broken, and what it means</div><Inline text={w.broken} /></div>
+            <div><div className="small muted">Normal output</div><pre className="small" style={{ whiteSpace: 'pre-wrap' }}>{w.healthy}</pre></div>
+            <div><div className="small muted">If you see something else, it means</div><Inline text={w.broken} /></div>
           </div>
-          <div className="small" style={{ marginTop: 6 }}><strong>Next:</strong> <Inline text={w.next} /></div>
+          <div className="small" style={{ marginTop: 6 }}><strong>What to do next:</strong> <Inline text={w.next} /></div>
         </div>
       ))}
     </>

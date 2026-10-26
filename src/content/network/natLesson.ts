@@ -9,48 +9,64 @@ export const NAT_LESSON: Lesson = {
   concepts: ['net.nat', 'net.routing', 'fw.stateful', 'fw.path'],
 
   what: `
-**Network Address Translation** rewrites the addresses (and often ports) of packets as they pass a router. It exists mainly because IPv4 addresses are scarce: organisations number their internal networks from the **private ranges** (RFC 1918: 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16), which are not routed on the Internet, and share one or a few **public addresses**.
+**Network Address Translation (NAT)** means a router rewrites the addresses (and often the ports) in packets as they pass through it. You have almost certainly used it: your home router does it for every phone and laptop in the house.
+
+### Why NAT exists
+There are only about four billion IPv4 addresses, far too few for every device in the world. So organisations number their internal networks from the **private ranges** defined in RFC 1918: 10.0.0.0/8, 172.16.0.0/12 and 192.168.0.0/16. These addresses are not routed on the Internet; anyone can reuse them inside their own network. When an inside device talks to the Internet, the router replaces the private address with one of the organisation's few **public addresses**, and reverses the change on the replies.
+
+This builds on the [IP networking lesson](#/lesson/ipnet/what) (routing, gateways) and on ports from [Transport and DNS](#/lesson/transport/what): NAT changes exactly those addresses and ports.
 
 ### Two directions
-- **Source NAT (SNAT / masquerade)**: outbound connections from inside hosts leave with the router's public address as source. The outside world only ever sees the router. *Masquerade* is SNAT that automatically uses the address of the outgoing interface (useful when that address is assigned by DHCP).
-- **Destination NAT (DNAT / port forwarding)**: inbound connections to the public address (on a given port) are redirected to an inside server. This is how a web server on a private address is **published**.
+- **Source NAT (SNAT), often as masquerade**: for connections that start **inside** and go out. They leave with the router's public address as the source, so the outside world only ever sees the router. *Masquerade* is SNAT that automatically uses whatever address the outgoing interface has, which is handy when that address comes from DHCP and may change.
+- **Destination NAT (DNAT), also called port forwarding**: for connections that start **outside** and come in. A connection to the public address (on a given port) is redirected to a server inside. This is how a web server with a private address is **published** on the Internet.
 
 ### In the lab
-rtr01 has a third interface **eth2** on the "Internet" 203.0.113.0/24 (a documentation range standing in for public addresses) with **203.0.113.2**. Its ruleset has a \`table ip nat\`: \`oifname "eth2" masquerade\` and \`iifname "eth2" tcp dport 80 dnat to 10.0.20.10:80\`. **ext01** (203.0.113.80) is a host on the Internet with no route to private networks: exactly like a real Internet host.
+rtr01 has a third interface, **eth2**, on the "Internet" network 203.0.113.0/24, with the address **203.0.113.2**. (203.0.113.0/24 is a range reserved for documentation, standing in here for real public addresses.) Its firewall ruleset contains a \`table ip nat\` with two rules:
+- \`oifname "eth2" masquerade\`: everything leaving through eth2 gets rtr01's public address as source;
+- \`iifname "eth2" tcp dport 80 dnat to 10.0.20.10:80\`: web requests arriving on eth2 are sent on to srv01.
 
-> The simulator implements nftables nat chains (prerouting/postrouting, masquerade, snat/dnat with optional port), per-flow translation entries that reverse replies automatically, conntrack listing, the correct ordering relative to the filter hooks, and the hop notes that show each rewrite. ICMP error messages are not reverse-translated, and port-collision handling for masquerade is not modelled.
+**ext01** (203.0.113.80) is a host on that "Internet" with no route to any private network, just like a real Internet host.
+
+> What the simulator models: nftables NAT chains (prerouting and postrouting, masquerade, snat and dnat with an optional port), translation entries per connection that reverse replies automatically, the conntrack listing, the correct order relative to the filter hooks, and notes on each hop that show every rewrite. It does not reverse-translate ICMP error messages, and it does not model masquerade port collisions.
 `,
 
   internals: `
-### Where NAT happens in netfilter
+### Where NAT happens inside the router
+On Linux, packet filtering and NAT are done by **netfilter**, which inspects packets at fixed points on their way through the kernel, called **hooks**. NAT uses two of them: **prerouting** (just after a packet arrives) and **postrouting** (just before it leaves).
+
 \`\`\`
               prerouting            forward               postrouting
  eth2 in ──▶ [DNAT: change dst] ──▶ routing ──▶ [filter] ──▶ [SNAT/masquerade: change src] ──▶ eth1/eth0 out
                                     │
                                     └──▶ input (local)    output ──▶ postrouting
 \`\`\`
-- **DNAT happens in prerouting, BEFORE the routing decision**: the router must know the real destination to choose the outgoing interface.
-- **SNAT/masquerade happens in postrouting, AFTER the routing decision and AFTER filtering**: the outgoing interface is known, so masquerade can use its address.
-- **Consequence:** the **forward filter sees the inside addresses**: the DNATed destination (10.0.20.10:80, not 203.0.113.2:80) and the original private source (10.0.10.25, not 203.0.113.2). Forward rules must be written for those.
 
-### Only the first packet consults the NAT rules
-nat chains are evaluated for the **first packet of a connection** (conntrack state NEW). The decision is stored with the conntrack entry, and every later packet of the flow, in both directions, is translated the same way without looking at the rules again. That is why changing a NAT rule does not affect existing connections (flush them with \`conntrack -F\` or wait for them to end).
+The order matters:
+- **DNAT happens in prerouting, before the routing decision.** The router needs to know the real destination to choose the right outgoing interface.
+- **SNAT and masquerade happen in postrouting, after the routing decision and after filtering.** By then the outgoing interface is known, so masquerade can use its address.
+- **The result:** the forward filter, which sits between the two, sees the **inside addresses**: the DNAT destination (10.0.20.10:80, not 203.0.113.2:80) and the original private source (10.0.10.25, not 203.0.113.2). Firewall rules in the forward chain must therefore be written for those addresses. This is one of the most common NAT mistakes.
 
-### Replies are reversed automatically
-Outbound with masquerade:
+### Only the first packet looks at the NAT rules
+The kernel tracks every connection in its **connection tracking table** (conntrack). NAT rules are only checked for the **first packet** of a connection (conntrack state NEW). The decision is saved with the connection, and every later packet of that flow, in both directions, is translated the same way without looking at the rules again.
+
+That is why changing a NAT rule does not affect connections that are already open. They keep their old translation until they end, or until you clear them with \`conntrack -F\`.
+
+### Replies are translated back automatically
+Here is an outbound web request with masquerade, hop by hop:
 \`\`\`
 ws01 → rtr01:   10.0.10.25:52088  → 203.0.113.80:80
 rtr01 → ext01:  203.0.113.2:52088 → 203.0.113.80:80     (source rewritten)
 ext01 → rtr01:  203.0.113.80:80   → 203.0.113.2:52088
 rtr01 → ws01:   203.0.113.80:80   → 10.0.10.25:52088    (destination rewritten back)
 \`\`\`
-Inbound with DNAT the mirror image happens: the destination is rewritten on the way in and the **source of the reply** is rewritten back to the public address on the way out. The client must see the reply come from the address it contacted, otherwise its TCP stack ignores it.
 
-### conntrack shows both tuples
+Inbound with DNAT, the mirror image happens: the destination is rewritten on the way in, and the **source of the reply** is rewritten back to the public address on the way out. This is essential, because a client only accepts a reply that comes from the address it contacted. If a reply arrived from 10.0.20.10 instead of 203.0.113.2, the client's TCP stack would ignore it.
+
+### conntrack shows both directions
 \`\`\`
 tcp 6 117 ESTABLISHED src=10.0.10.25 dst=203.0.113.80 sport=52088 dport=80 src=203.0.113.80 dst=203.0.113.2 sport=80 dport=52088 [ASSURED]
 \`\`\`
-The first tuple is the packet as it arrived (original direction); the second is the **expected reply**. When they are not mirror images, the flow is translated: here the reply goes to 203.0.113.2, so the source was masqueraded.
+Each entry has two sets of addresses and ports. The first is the packet as it arrived (the **original** direction). The second is the **reply** the router expects. If the second is simply the first with source and destination swapped, nothing was translated. Here it is not: the reply is expected at 203.0.113.2, so the source was masqueraded.
 
 `,
 
@@ -91,8 +107,9 @@ The first tuple is the packet as it arrived (original direction); the second is 
   ],
 
   configIntro: `
-NAT rules live in nat-type chains. The NAT inspector below runs one connection through a fresh lab and shows the same flow on each side of rtr01, plus the router's conntrack table: the before/after of translation.
+NAT rules live in nftables chains of type \`nat\`, separate from the filter rules. The NAT inspector below sends one connection through a fresh copy of the lab and shows the same flow on both sides of rtr01, together with the router's conntrack table, so you can see the packet before and after translation.
 `,
+
 
   configFiles: [
     {
@@ -117,27 +134,29 @@ NAT rules live in nat-type chains. The NAT inspector below runs one connection t
 
   troubleshootingIntro: `
 ### Capture on both sides of the router
-1. **Is the router routing?** \`sysctl net.ipv4.ip_forward\`.
-2. **Does the packet leave translated?** \`tcpdump -n -i eth2\` while testing. A private source address on the uplink = no masquerade. Nothing at all = dropped in forward (check counters with \`nft -a list ruleset\`).
-3. **Inbound: does the packet reach the inside server?** \`tcpdump\` on the server. Nothing → forward filter (remember it sees the translated packet) or a wrong DNAT target. SYN arrives but no answer → the server's own firewall or its route back.
-4. **What did conntrack record?** \`conntrack -L\`: compare the original and reply tuples. A DNAT entry to an unexpected address points straight at the rule.
-5. **Old flows:** after changing NAT rules, existing connections keep their translation. \`conntrack -F\` on a lab router (careful in production: it resets every tracked flow).
+NAT changes packets inside the router, so the most useful evidence is a comparison: what the packet looks like when it arrives, and what it looks like when it leaves.
+
+1. **Does the router route at all?** \`sysctl net.ipv4.ip_forward\` must show 1. If it is 0, NAT rules make no difference.
+2. **Outbound: does the packet leave translated?** Run \`tcpdump -n -i eth2\` on the router while you test. A private source address on the Internet-facing interface means masquerade is missing or does not match. Nothing at all means the packet was dropped in the forward chain: check which rule's counters go up with \`nft -a list ruleset\`.
+3. **Inbound: does the packet reach the inside server?** Run \`tcpdump\` on the server. Nothing arrives: look at the forward filter (remember, it sees the translated address) or a wrong DNAT target. The SYN arrives but there is no answer: look at the server's own firewall or its route back.
+4. **What did conntrack record?** \`conntrack -L\` lists the connections. Compare the original and reply directions. A DNAT entry pointing at an unexpected address leads you straight to the faulty rule.
+5. **Old connections:** after changing NAT rules, existing connections keep their old translation. On a lab router, \`conntrack -F\` clears them. Be careful in production: it resets every tracked connection, not just the one you are testing.
 
 ### Typical mistakes
-- **No masquerade:** private source addresses leave on the uplink; the remote side cannot route replies to 10.x (on the real Internet, providers drop such packets). Outbound connections time out.
-- **Wrong DNAT target:** the router faithfully forwards to an address that does not exist (ARP fails → ICMP host unreachable) or to the wrong port (RST → refused).
-- **Filtering the public address:** a forward rule matching \`dport 8080\` when 8080 is DNATed to port 80 never matches: the filter sees port 80. Match the inside address/port (or, on a real system, \`ct status dnat\`).
-- **Hairpin NAT:** inside clients using the public address of an inside server need an extra SNAT rule so replies return through the router (not modelled here).
-- **ip_forward=0:** NAT rules are irrelevant if the router does not route at all.
+- **No masquerade:** packets leave with private source addresses. The remote side cannot send replies to 10.x addresses (on the real Internet, providers drop such packets), so outbound connections time out.
+- **Wrong DNAT target:** the router faithfully forwards to an address that does not exist (ARP fails, and the router sends ICMP host unreachable) or to the wrong port (a reset comes back: "Connection refused").
+- **Filtering on the public port:** a forward rule matching \`dport 8080\`, when 8080 is translated to port 80, never matches, because the filter sees port 80. Match the inside address and port instead (or, on a real system, \`ct status dnat\`).
+- **Hairpin NAT:** inside clients that use the **public** address of an inside server need an extra SNAT rule, so that replies return through the router (not modelled in the simulator).
+- **ip_forward=0:** if the router does not route, its NAT rules are never reached.
 
 `,
 
   errorMap: [
-    { message: 'Outbound connections time out; tcpdump on the uplink shows 10.x sources', layer: 'NAT (source)', meaning: 'Masquerade/SNAT missing or not matching the interface.', firstCheck: 'nft list table ip nat: oifname of the masquerade rule' },
-    { message: 'Port forward times out; inside server sees nothing', layer: 'Filter after DNAT', meaning: 'Forward chain drops the (already translated) packet.', firstCheck: 'nft -a list ruleset: which rule counters increase?' },
+    { message: 'Outbound connections time out; tcpdump on the uplink shows 10.x sources', layer: 'NAT (source)', meaning: 'Masquerade (SNAT) is missing, or its rule names a different interface, so private addresses leave untranslated and replies never come back.', firstCheck: 'nft list table ip nat: oifname of the masquerade rule' },
+    { message: 'Port forward times out; inside server sees nothing', layer: 'Filter after DNAT', meaning: 'The forward chain drops the packet. Remember that it sees the already-translated inside address and port.', firstCheck: 'nft -a list ruleset: which rule counters increase?' },
     { message: 'Port forward: "No route to host" from outside', layer: 'NAT (destination)', meaning: 'The DNAT target does not exist; the router\'s ARP fails and it sends ICMP host unreachable.', firstCheck: 'dnat to … address; ip neigh on the router' },
-    { message: 'Port forward: "Connection refused"', layer: 'NAT target service', meaning: 'Wrong target port or service not listening there.', firstCheck: 'ss -tlnp on the inside server' },
-    { message: 'Works from outside, not from inside using the public address', layer: 'Hairpin NAT', meaning: 'Replies bypass the router.', firstCheck: 'Use internal DNS (split horizon) or add hairpin SNAT' },
+    { message: 'Port forward: "Connection refused"', layer: 'NAT target service', meaning: 'The DNAT rule points at the wrong port, or no service listens on that port on the inside server.', firstCheck: 'ss -tlnp on the inside server' },
+    { message: 'Works from outside, not from inside using the public address', layer: 'Hairpin NAT', meaning: 'Inside clients reach the inside server through its public address, but the server replies directly, bypassing the router, so the client ignores the reply.', firstCheck: 'Use internal DNS (split horizon) or add hairpin SNAT' },
   ],
 
   scenarioIds: ['nat-no-masquerade', 'nat-dnat-typo', 'nat-filter-order'],

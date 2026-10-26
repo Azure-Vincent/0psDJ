@@ -5,7 +5,7 @@ import type { ConceptId } from '../engine/scenarios/types';
 
 export type Level = 'beginner' | 'intermediate' | 'advanced';
 
-/** Markdown-lite text: paragraphs, "- " lists, "### " headings, "> " callouts, ``` code, `inline`, **bold**. */
+/** Markdown-lite text: paragraphs, "- " lists, "### " headings, "> " callouts, ``` code, `inline`, **bold**, [links](#/lesson/id/section) to app pages. */
 export type RichText = string;
 
 export interface Reference {
@@ -100,6 +100,8 @@ export interface ManagementTask {
 export interface DiagnosticStep {
   /** The question this step answers ("Is the daemon running?"). */
   question: string;
+  /** Why this check comes now and what its result tells you (the reasoning, for beginners). */
+  why?: RichText;
   command: string;
   /** What healthy output looks like. */
   healthy: string;
