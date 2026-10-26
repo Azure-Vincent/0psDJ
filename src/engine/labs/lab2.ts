@@ -10,11 +10,9 @@ import { checkGoal } from '../scenarios/engine';
 import { bootHost } from '../sim/services';
 import type { World } from '../types';
 import { principalGroups } from '../win/ad';
-import { probe } from './engine';
+import { NO, OK, probe } from './engine';
 import type { GuidedLab, LabCheck } from './types';
 
-const OK = (detail: string) => ({ ok: true, detail });
-const NO = (detail: string) => ({ ok: false, detail });
 
 export const LAB2_DSRM_PASSWORD = 'Dsrm-Lab2-2026';
 

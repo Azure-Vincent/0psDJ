@@ -5,7 +5,7 @@ import { dnsQuery, lookupHostsFile, QTYPES, resolve, type QType } from '../sim/d
 import { isoTime } from '../sim/journal';
 import { maintainLeases } from '../sim/dhcp';
 import { echoIcmp, hostAddresses, icmpMeaning, isFragNeeded, nextId, pathMtu, sourceAddress, transmit } from '../sim/network';
-import { allListeners } from '../sim/services';
+import { allListeners, sysctlFiles } from '../sim/services';
 import { ERRNO_TEXT, tcpConnect } from '../sim/tcp';
 import type { CapturedFrame, Packet } from '../types';
 import { parseResolvConf } from '../config/netconf';
@@ -419,7 +419,7 @@ const sysctl: CommandDef = {
       // Same sources as boot (see bootHost); only the forwarding switches are modelled.
       const files = flags.has('-p')
         ? [rest[0] ? normalizePath(rest[0], ctx.frame.cwd, ctx.user.home) : '/etc/sysctl.conf']
-        : Object.keys(ctx.host.fs).filter((p) => p === '/etc/sysctl.conf' || p.startsWith('/etc/sysctl.d/')).sort();
+        : sysctlFiles(ctx.host);
       const out: string[] = [];
       for (const f of files) {
         const node = ctx.host.fs[f];

@@ -71,6 +71,22 @@ function sysd(world: World, host: Host, msg: string, unit: string, priority: 'in
   log(world, host, 'systemd', msg, { pid: 1, unit, priority });
 }
 
+/**
+ * The files systemd-sysctl (and sysctl --system) apply: /etc/sysctl.conf and
+ * /etc/sysctl.d/*.conf, in lexical order (the last assignment wins). Files
+ * without the .conf suffix are ignored.
+ */
+export function sysctlFiles(host: Host): string[] {
+  return Object.keys(host.fs).filter((p) => (p === '/etc/sysctl.conf' || /^\/etc\/sysctl\.d\/[^/]+\.conf$/.test(p)) && host.fs[p].type === 'file').sort();
+}
+
+/** The value systemd-sysctl leaves for KEY: the last assignment across sysctlFiles. */
+export function sysctlValue(host: Host, key: string): string | undefined {
+  const k = key.replace(/\./g, '\\.');
+  const text = sysctlFiles(host).map((p) => readFile(host, p) ?? '').join('\n');
+  return [...text.matchAll(new RegExp(`^\\s*${k}\\s*=\\s*(\\S+)\\s*$`, 'gm'))].pop()?.[1];
+}
+
 function allocPid(host: Host): number {
   host.nextPid += 7;
   return host.nextPid;
@@ -1247,15 +1263,9 @@ export function bootHost(world: World, host: Host): void {
   host.bootTime = world.clock;
   host.nextPid = 400;
   log(world, host, 'kernel', 'Linux version 6.1.0-26-amd64 (debian-kernel@lists.debian.org) #1 SMP PREEMPT_DYNAMIC Debian 6.1.112-1');
-  const sysctl = Object.keys(host.fs)
-    .filter((p) => p === '/etc/sysctl.conf' || p.startsWith('/etc/sysctl.d/'))
-    .sort() // systemd-sysctl applies files in lexical order; the last assignment wins
-    .map((p) => readFile(host, p) ?? '')
-    .join('\n');
-  host.ipForward = /^\s*net\.ipv4\.ip_forward\s*=\s*1\s*$/m.test(sysctl);
-  // Last assignment wins, as with sysctl --system.
-  const f6 = [...sysctl.matchAll(/^\s*net\.ipv6\.conf\.all\.forwarding\s*=\s*([01])\s*$/gm)].pop();
-  host.ip6Forward = f6 ? f6[1] === '1' : false;
+  // systemd-sysctl: the last assignment across /etc/sysctl.conf and /etc/sysctl.d/*.conf wins.
+  host.ipForward = sysctlValue(host, 'net.ipv4.ip_forward') === '1';
+  host.ip6Forward = sysctlValue(host, 'net.ipv6.conf.all.forwarding') === '1';
   // networking always runs at boot on these Debian hosts (it is enabled by default)
   for (const def of SERVICE_DEFS) {
     const rt = host.services[def.name];

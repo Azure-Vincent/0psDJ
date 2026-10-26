@@ -7,6 +7,7 @@
 
 import { DMZ01_IP, factoryConfig, FW01_ADMIN_PASSWORD, FW01_LAN_IP, installFw01 } from '../lab/pfLab';
 import { buildSshLab } from '../lab/sshLab';
+import { NO, OK } from './engine';
 import type { PfAlias, PfConfig } from '../pf/config';
 import { FILTER_LOG, PF_VERSION, readConfig, RULES_DEBUG } from '../pf/model';
 import { assignInterface, browse, guiApply, guiSave, saveAlias, saveInterface, savePortForward, saveRule, type Subsystem } from '../pf/webgui';
@@ -15,8 +16,6 @@ import { bootHost } from '../sim/services';
 import type { World } from '../types';
 import type { GuidedLab, LabCheck } from './types';
 
-const OK = (detail: string) => ({ ok: true, detail });
-const NO = (detail: string) => ({ ok: false, detail });
 
 export function buildLab3World(): World {
   const world = buildSshLab();
