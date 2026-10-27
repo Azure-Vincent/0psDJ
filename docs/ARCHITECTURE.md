@@ -1,4 +1,4 @@
-# Infrastructure Lab: design
+# Cyber Owl Lab: design
 
 This document covers the six design deliverables requested before implementation:
 architecture and stack, curriculum dependency map, interface layout, data model,

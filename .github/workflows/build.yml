@@ -58,7 +58,7 @@ jobs:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
       - uses: actions/upload-artifact@v4
         with:
-          name: InfrastructureLab-${{ runner.os }}
+          name: CyberOwlLab-${{ runner.os }}
           path: |
             release/*.AppImage
             release/*.deb

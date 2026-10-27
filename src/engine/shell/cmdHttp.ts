@@ -248,7 +248,7 @@ const curl: CommandDef = {
       const elapsedNow = () => Math.round(ctx.world.clock - start);
       const stalled = (got: number) => {
         if (conn.lastError === 'deadline') return fail(28, `Operation timed out after ${elapsedNow()} milliseconds with ${got} out of ${got === 0 && !okHdr ? -1 : bodyLen} bytes received`.replace(' out of -1', ''), vlog);
-        return err([verbose ? vlog.join('\n') : '', '^C', `[Infrastructure Lab: no data arrived for ${Math.round(elapsedNow() / 60000)} minutes; the server's kernel gave up retransmitting, but curl without -m waits forever, so the simulator interrupted it. Use -m SECONDS to set a time limit.]`].filter(Boolean).join('\n'), 130);
+        return err([verbose ? vlog.join('\n') : '', '^C', `[Cyber Owl Lab: no data arrived for ${Math.round(elapsedNow() / 60000)} minutes; the server's kernel gave up retransmitting, but curl without -m waits forever, so the simulator interrupted it. Use -m SECONDS to set a time limit.]`].filter(Boolean).join('\n'), 130);
       };
       if (!okHdr) return stalled(0);
       vlog.push(...hdrs.map((h) => `< ${h}`), '<');
@@ -496,7 +496,7 @@ function sClient(args: string[], ctx: CmdCtx) {
     trusted = f.text ? parseCerts(f.text).filter((x): x is Cert => !!x) : [];
   }
   const tls = tlsHandshake(conn, srv.tls!.chain, sni ?? '', trusted);
-  if (tls.stalled) return err(`CONNECTED(00000003)\n[Infrastructure Lab: the server's certificate flight never arrived; s_client waited until you pressed Ctrl-C]\n^C`, 130);
+  if (tls.stalled) return err(`CONNECTED(00000003)\n[Cyber Owl Lab: the server's certificate flight never arrived; s_client waited until you pressed Ctrl-C]\n^C`, 130);
   const chain = tls.chain;
   const v = verifyChain(chain[0], chain.slice(1), trusted, ctx.world.clock);
   // verify callback output, from the top of the built chain down to the leaf
@@ -552,7 +552,7 @@ function req(args: string[], ctx: CmdCtx) {
     if (!opts.has('noout')) out.push(csrPem(csr).trimEnd());
     return ok(out.join('\n'));
   }
-  if (typeof opts.get('subj') !== 'string') return err('[Infrastructure Lab: interactive Distinguished Name prompts are not simulated; pass the subject with -subj "/CN=www.corp.lab"]', 1);
+  if (typeof opts.get('subj') !== 'string') return err('[Cyber Owl Lab: interactive Distinguished Name prompts are not simulated; pass the subject with -subj "/CN=www.corp.lab"]', 1);
   const subject = parseSubj(opts.get('subj') as string);
   if (!subject) return err(`req: Error parsing -subj argument ${opts.get('subj')}: subject name is expected to be in the format /type0=value0/type1=value1/type2=...`, 1);
   let key: PrivKey;
@@ -560,7 +560,7 @@ function req(args: string[], ctx: CmdCtx) {
   if (opts.has('newkey')) {
     const keyout = (opts.get('keyout') as string) ?? 'privkey.pem';
     key = newKey(ctx, opts.get('newkey'), keyout);
-    if (!opts.has('nodes') && !opts.has('noenc')) return err('[Infrastructure Lab: passphrase-protected keys are not simulated; add -nodes (or -noenc) so nginx can read the key at boot]', 1);
+    if (!opts.has('nodes') && !opts.has('noenc')) return err('[Cyber Owl Lab: passphrase-protected keys are not simulated; add -nodes (or -noenc) so nginx can read the key at boot]', 1);
     const e = save(ctx, keyout, keyPem(key), 0o600);
     if (e) return err(`req: Can't open "${keyout}" for writing, ${e}`, 1);
     noise.push(KEYGEN_NOISE);
@@ -600,7 +600,7 @@ function rsaPkey(cmd: string, args: string[], ctx: CmdCtx) {
   const out: string[] = [];
   if (opts.has('check')) out.push(cmd === 'rsa' ? 'RSA key ok' : 'Key is valid');
   if (opts.has('modulus')) out.push(`Modulus=${modulus(k.key.keyId, k.key.bits)}`);
-  if (opts.has('text')) out.push(`Private-Key: (${k.key.bits} bit, 2 primes)`, 'modulus:', hexColons('00' + modulus(k.key.keyId, k.key.bits), 15, '    '), 'publicExponent: 65537 (0x10001)', '[Infrastructure Lab: private exponent and primes omitted]');
+  if (opts.has('text')) out.push(`Private-Key: (${k.key.bits} bit, 2 primes)`, 'modulus:', hexColons('00' + modulus(k.key.keyId, k.key.bits), 15, '    '), 'publicExponent: 65537 (0x10001)', '[Cyber Owl Lab: private exponent and primes omitted]');
   if (opts.has('pubout')) out.push(publicKeyPem(k.key.keyId, k.key.bits));
   else if (!opts.has('noout')) out.push(keyPem(k.key).trimEnd());
   return ok(out.join('\n'));
@@ -632,7 +632,7 @@ const openssl: CommandDef = {
       case 'rsa': case 'pkey': return rsaPkey(sub, rest, ctx);
       case 'md5': case 'sha1': case 'sha256': case 'dgst': return digest(sub === 'dgst' ? (rest.find((a) => /^-(md5|sha1|sha256)$/.test(a))?.slice(1) ?? 'sha256') : sub, rest.filter((a) => !/^-(md5|sha1|sha256)$/.test(a)), ctx);
       case 'version': return ok('OpenSSL 3.0.11 19 Sep 2023 (Library: OpenSSL 3.0.11 19 Sep 2023)');
-      case undefined: return err('[Infrastructure Lab: interactive openssl prompt not simulated]\nusage: openssl x509|verify|s_client|req|genrsa|rsa|pkey|md5|sha256|version', 1);
+      case undefined: return err('[Cyber Owl Lab: interactive openssl prompt not simulated]\nusage: openssl x509|verify|s_client|req|genrsa|rsa|pkey|md5|sha256|version', 1);
       default: return err(`Invalid command '${sub}'; type "help" for a list.`, 1);
     }
   },

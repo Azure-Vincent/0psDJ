@@ -18,13 +18,13 @@ const { PRODUCT, MANIFEST, SIGNATURE, NAME_RE, parseVersion, verifyManifest } = 
 /** Release file name → what it is (names come from the "build" section of package.json). */
 function classify(name) {
   const rules = [
-    [/^InfrastructureLab-Setup-.+-win-x64\.exe$/, 'win32', 'x64', 'nsis'],
-    [/^InfrastructureLab-.+-win-x64-portable\.exe$/, 'win32', 'x64', 'portable'],
-    [/^InfrastructureLab-.+-win-x64\.zip$/, 'win32', 'x64', 'zip'],
-    [/^InfrastructureLab-.+-linux-x86_64\.AppImage$/, 'linux', 'x64', 'appimage'],
-    [/^InfrastructureLab-.+-linux-amd64\.deb$/, 'linux', 'x64', 'deb'],
-    [/^InfrastructureLab-.+-linux-x64\.tar\.gz$/, 'linux', 'x64', 'targz'],
-    [/^InfrastructureLab-.+-mac-(x64|arm64)\.dmg$/, 'darwin', null, 'dmg'],
+    [/^CyberOwlLab-Setup-.+-win-x64\.exe$/, 'win32', 'x64', 'nsis'],
+    [/^CyberOwlLab-.+-win-x64-portable\.exe$/, 'win32', 'x64', 'portable'],
+    [/^CyberOwlLab-.+-win-x64\.zip$/, 'win32', 'x64', 'zip'],
+    [/^CyberOwlLab-.+-linux-x86_64\.AppImage$/, 'linux', 'x64', 'appimage'],
+    [/^CyberOwlLab-.+-linux-amd64\.deb$/, 'linux', 'x64', 'deb'],
+    [/^CyberOwlLab-.+-linux-x64\.tar\.gz$/, 'linux', 'x64', 'targz'],
+    [/^CyberOwlLab-.+-mac-(x64|arm64)\.dmg$/, 'darwin', null, 'dmg'],
   ];
   for (const [re, platform, arch, kind] of rules) {
     const m = re.exec(name);

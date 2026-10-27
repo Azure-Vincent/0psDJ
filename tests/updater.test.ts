@@ -16,7 +16,7 @@ const other = crypto.generateKeyPairSync('ed25519');
 
 const ARTIFACT = Buffer.from('new installer bytes '.repeat(1000));
 const SHA = crypto.createHash('sha256').update(ARTIFACT).digest('hex');
-const SETUP = 'InfrastructureLab-Setup-1.3.0-win-x64.exe';
+const SETUP = 'CyberOwlLab-Setup-1.3.0-win-x64.exe';
 
 function manifest(over: Record<string, unknown> = {}) {
   return Buffer.from(JSON.stringify({
@@ -51,7 +51,7 @@ function github(files: Record<string, Buffer>, opts: { redirect?: string; assetS
   return { fetchFn, seen };
 }
 
-const WIN = { platform: 'win32', arch: 'x64', hasUninstaller: true, execPath: 'C:\\Users\\a\\AppData\\Local\\Programs\\infrastructure-lab\\Infrastructure Lab.exe' };
+const WIN = { platform: 'win32', arch: 'x64', hasUninstaller: true, execPath: 'C:\\Users\\a\\AppData\\Local\\Programs\\infrastructure-lab\\Cyber Owl Lab.exe' };
 
 describe('updater: manifest verification', () => {
   it('accepts a manifest signed by an embedded key', () => {
@@ -156,11 +156,11 @@ describe('updater: checking the latest release', () => {
     expect(U.installMode(WIN)).toEqual({ mode: 'nsis', kind: 'nsis' });
     expect(U.installMode({ ...WIN, portableDir: 'D:\\apps' })).toEqual({ mode: 'download', kind: 'portable' });
     expect(U.installMode({ ...WIN, hasUninstaller: false })).toEqual({ mode: 'download', kind: 'zip' });
-    expect(U.installMode({ platform: 'linux', arch: 'x64', appImage: '/home/a/Lab.AppImage', appDir: '/tmp/.mount_LabX1', execPath: '/tmp/.mount_LabX1/infrastructure-lab' })).toEqual({ mode: 'appimage', kind: 'appimage' });
+    expect(U.installMode({ platform: 'linux', arch: 'x64', appImage: '/home/a/Lab.AppImage', appDir: '/tmp/.mount_LabX1', execPath: '/tmp/.mount_LabX1/cyber-owl-lab' })).toEqual({ mode: 'appimage', kind: 'appimage' });
     // APPIMAGE inherited from another AppImage (a .deb install started from it): never replace that other file.
-    expect(U.installMode({ platform: 'linux', arch: 'x64', appImage: '/home/a/Editor.AppImage', appDir: '/tmp/.mount_Edit99', execPath: '/opt/Infrastructure Lab/infrastructure-lab' })).toEqual({ mode: 'download', kind: 'deb' });
-    expect(U.installMode({ platform: 'linux', arch: 'x64', appImage: '/home/a/Editor.AppImage', execPath: '/home/a/lab/infrastructure-lab' })).toEqual({ mode: 'download', kind: 'targz' });
-    expect(U.installMode({ platform: 'linux', arch: 'x64', appImage: 'relative.AppImage', execPath: '/opt/Infrastructure Lab/x' })).toEqual({ mode: 'download', kind: 'deb' });
+    expect(U.installMode({ platform: 'linux', arch: 'x64', appImage: '/home/a/Editor.AppImage', appDir: '/tmp/.mount_Edit99', execPath: '/opt/Cyber Owl Lab/infrastructure-lab' })).toEqual({ mode: 'download', kind: 'deb' });
+    expect(U.installMode({ platform: 'linux', arch: 'x64', appImage: '/home/a/Editor.AppImage', execPath: '/home/a/lab/cyber-owl-lab' })).toEqual({ mode: 'download', kind: 'targz' });
+    expect(U.installMode({ platform: 'linux', arch: 'x64', appImage: 'relative.AppImage', execPath: '/opt/Cyber Owl Lab/x' })).toEqual({ mode: 'download', kind: 'deb' });
     expect(U.installMode({ platform: 'darwin', arch: 'arm64', execPath: '/Applications/x' })).toEqual({ mode: 'download', kind: 'dmg' });
     // An AppImage in a folder the user cannot write: the verified file is downloaded instead.
     expect(U.installMode({ platform: 'linux', arch: 'x64', appImage: '/opt/Lab.AppImage', appDir: '/tmp/.mount_Lab1', execPath: '/tmp/.mount_Lab1/x', appImageWritable: false })).toEqual({ mode: 'download', kind: 'appimage' });
@@ -216,16 +216,16 @@ describe('updater: downloads', () => {
 
 describe('updater: the CI signer', () => {
   it('classifies the release artifacts by their real names', () => {
-    expect(classify('InfrastructureLab-Setup-1.2.4-win-x64.exe')).toEqual({ platform: 'win32', arch: 'x64', kind: 'nsis' });
-    expect(classify('InfrastructureLab-1.2.4-win-x64-portable.exe')).toEqual({ platform: 'win32', arch: 'x64', kind: 'portable' });
-    expect(classify('InfrastructureLab-1.2.4-linux-x86_64.AppImage')).toEqual({ platform: 'linux', arch: 'x64', kind: 'appimage' });
-    expect(classify('InfrastructureLab-1.2.4-mac-arm64.dmg')).toEqual({ platform: 'darwin', arch: 'arm64', kind: 'dmg' });
-    expect(classify('InfrastructureLab-1.2.4-mac-arm64.zip')).toBeNull();
+    expect(classify('CyberOwlLab-Setup-1.2.4-win-x64.exe')).toEqual({ platform: 'win32', arch: 'x64', kind: 'nsis' });
+    expect(classify('CyberOwlLab-1.2.4-win-x64-portable.exe')).toEqual({ platform: 'win32', arch: 'x64', kind: 'portable' });
+    expect(classify('CyberOwlLab-1.2.4-linux-x86_64.AppImage')).toEqual({ platform: 'linux', arch: 'x64', kind: 'appimage' });
+    expect(classify('CyberOwlLab-1.2.4-mac-arm64.dmg')).toEqual({ platform: 'darwin', arch: 'arm64', kind: 'dmg' });
+    expect(classify('CyberOwlLab-1.2.4-mac-arm64.zip')).toBeNull();
   });
 
   it('skips tags that are not vX.Y.Z (prereleases are not offered), without failing the release', () => {
     const d = fs.mkdtempSync(path.join(os.tmpdir(), 'lab-sign-'));
-    fs.writeFileSync(path.join(d, 'InfrastructureLab-Setup-1.3.0-rc.1-win-x64.exe'), ARTIFACT);
+    fs.writeFileSync(path.join(d, 'CyberOwlLab-Setup-1.3.0-rc.1-win-x64.exe'), ARTIFACT);
     const out = execFileSync(process.execPath, ['scripts/sign-update-manifest.cjs', d, 'v1.3.0-rc.1'], { env: { ...process.env, UPDATE_SIGNING_KEY: privateKey.export({ type: 'pkcs8', format: 'pem' }) as string } }).toString();
     expect(out).toContain('not a vX.Y.Z tag');
     expect(fs.existsSync(path.join(d, U.MANIFEST))).toBe(false);
@@ -233,7 +233,7 @@ describe('updater: the CI signer', () => {
 
   it('writes a manifest and signature that the app accepts', () => {
     const d = fs.mkdtempSync(path.join(os.tmpdir(), 'lab-sign-'));
-    fs.writeFileSync(path.join(d, 'InfrastructureLab-Setup-1.3.0-win-x64.exe'), ARTIFACT);
+    fs.writeFileSync(path.join(d, 'CyberOwlLab-Setup-1.3.0-win-x64.exe'), ARTIFACT);
     fs.writeFileSync(path.join(d, 'notes.txt'), 'ignored');
     execFileSync(process.execPath, ['scripts/sign-update-manifest.cjs', d, 'v1.3.0'], { env: { ...process.env, UPDATE_SIGNING_KEY: privateKey.export({ type: 'pkcs8', format: 'pem' }) as string } });
     const m = U.verifyManifest(fs.readFileSync(path.join(d, U.MANIFEST)), fs.readFileSync(path.join(d, U.SIGNATURE), 'utf8'), [PUB]);

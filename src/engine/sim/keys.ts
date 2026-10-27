@@ -69,7 +69,7 @@ export function makeKeyPair(type: KeyType, seed: string, comment: string): KeyPa
     publicLine: `${KEY_ALG[type]} ${blobB64} ${comment}`,
     privateFile: [
       '-----BEGIN OPENSSH PRIVATE KEY-----',
-      '(Infrastructure Lab simulated private key. No real key material is stored.)',
+      '(Cyber Owl Lab simulated private key. No real key material is stored.)',
       `sim-public: ${KEY_ALG[type]} ${blobB64}`,
       '-----END OPENSSH PRIVATE KEY-----',
       '',

@@ -24,6 +24,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const REPO = 'Azure-Vincent/0psDJ';
+// The appId, kept from the app's first name so that installs and signed manifests stay compatible.
 const PRODUCT = 'lab.infrastructure.desktop';
 const MANIFEST = 'update-manifest.json';
 const SIGNATURE = 'update-manifest.json.sig';
@@ -139,7 +140,7 @@ function chooseFile(manifest, env, kind) {
 async function safeFetch(fetchFn, url, accept) {
   let current = safeUrl(url);
   for (let i = 0; i <= MAX_REDIRECTS; i++) {
-    const res = await fetchFn(current, { redirect: 'manual', headers: { Accept: accept, 'User-Agent': 'InfrastructureLab-Updater' } });
+    const res = await fetchFn(current, { redirect: 'manual', headers: { Accept: accept, 'User-Agent': 'CyberOwlLab-Updater' } });
     if ([301, 302, 303, 307, 308].includes(res.status)) {
       const loc = res.headers.get('location');
       if (!loc) throw new UpdateError('redirect without a location');

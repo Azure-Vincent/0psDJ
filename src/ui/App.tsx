@@ -118,7 +118,7 @@ function Shell() {
       )}
       <aside className="sidebar" hidden={collapsed}>
         <div className="brand">
-          <span aria-hidden>⧉</span> Infrastructure Lab
+          <span aria-hidden>🦉</span> Cyber Owl Lab
           <button className="rail-toggle" style={{ marginLeft: 'auto' }} onClick={toggleSidebar} aria-label="Hide sidebar" aria-expanded title="Hide sidebar (Ctrl+\)">«</button>
         </div>
         <form className="search" onSubmit={(e) => { e.preventDefault(); if (q.trim()) go(`search?q=${encodeURIComponent(q.trim())}`); }}>

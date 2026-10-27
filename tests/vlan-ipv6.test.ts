@@ -177,7 +177,7 @@ describe('VLAN/IPv6 visual runs, lessons and assessments', () => {
     'same-vlan': /ttl=64/, 'inter-vlan': /ttl=63/, 'wrong-access': /Destination Host Unreachable/, 'trunk-pruned': /Destination Host Unreachable/,
     slaac: /^$/, 'ndp-ping': /icmp_seq=1 ttl=63/, 'dual-stack': /Connected to srv01\.corp\.lab \(2001:db8:20::10\)/,
     'icmpv6-blocked': /Address unreachable/, 'happy-eyeballs': /Connected to srv01\.corp\.lab \(10\.0\.20\.10\)/, 'no-forwarding': /curl: \(28\)/,
-    dhcpv6: /RCV: Reply message on eth0[\s\S]*PRC: Bound to lease/, 'dhcpv6-stateless': /RCV: Reply message on eth0/, 'dhcpv6-client-fw': /XMT: Solicit on eth0, interval 8650ms\.\n\[Infrastructure Lab: no DHCPv6 lease yet/,
+    dhcpv6: /RCV: Reply message on eth0[\s\S]*PRC: Bound to lease/, 'dhcpv6-stateless': /RCV: Reply message on eth0/, 'dhcpv6-client-fw': /XMT: Solicit on eth0, interval 8650ms\.\n\[Cyber Owl Lab: no DHCPv6 lease yet/,
   };
   it.each([...VLAN_RUNS, ...IPV6_RUNS].map((r) => r.id))('run %s', (id) => {
     const run = [...VLAN_RUNS, ...IPV6_RUNS].find((r) => r.id === id)!;

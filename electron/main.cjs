@@ -1,4 +1,4 @@
-// Electron shell for Infrastructure Lab.
+// Electron shell for Cyber Owl Lab.
 // The renderer is a fully offline static build (dist/). All simulations run
 // locally in the renderer process; the only network access is the optional
 // update check (update-service.cjs), made by the main process to GitHub.
@@ -18,7 +18,7 @@ function createWindow() {
     height: 900,
     minWidth: 1024,
     minHeight: 680,
-    title: 'Infrastructure Lab',
+    title: 'Cyber Owl Lab',
     // Matches the default soft themes (Ember / Paper) so the window does not flash white while loading.
     backgroundColor: nativeTheme.shouldUseDarkColors ? '#262321' : '#f3ead7',
     webPreferences: {

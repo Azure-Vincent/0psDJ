@@ -1,14 +1,18 @@
-# Infrastructure Lab
+# Cyber Owl Lab
 
-Infrastructure Lab is a free, offline desktop application for learning how to run,
+Cyber Owl Lab is a free, offline desktop application for learning how to run,
 troubleshoot and recover the services that real networks depend on: IP routing,
 DNS, DHCP, NAT, VLANs, IPv6, MTU, TLS certificates, SSH, firewalls, Linux
 services, Windows/RDP, Active Directory, Docker and pfSense.
 
+> Cyber Owl Lab was called **Infrastructure Lab** up to version 1.2.4. Installing
+> the new version keeps your progress (it is stored under the app's internal
+> name, `infrastructure-lab`, which has not changed).
+
 ## Purpose
 
 Most courses explain what a service is; few teach what to do when it breaks.
-Infrastructure Lab is for students and new administrators: teams preparing for
+Cyber Owl Lab is for students and new administrators: teams preparing for
 defensive competitions such as CCDC, Network+ and CCNA candidates, and junior
 sysadmins. It trains the skill that matters in an outage: **finding the cause
 from evidence** instead of guessing, fixing it safely, and proving that the fix
@@ -187,7 +191,7 @@ Open a terminal in the project folder and run:
 ```
 
 The first run installs the dependencies and builds the app (one to two
-minutes); later runs start immediately. To add **Infrastructure Lab** to your
+minutes); later runs start immediately. To add **Cyber Owl Lab** to your
 application menu, run `./launch.sh --add-to-menu` once
 (`./launch.sh --remove-from-menu` removes it). If you get "Permission denied",
 run `sh launch.sh` instead.
@@ -197,7 +201,7 @@ into the application menu and needs no Node.js afterwards:
 
 ```bash
 npm install && npm run dist:linux
-sudo apt install ./release/InfrastructureLab-*-linux-amd64.deb
+sudo apt install ./release/CyberOwlLab-*-linux-amd64.deb
 ```
 
 Start it from the menu or with `infrastructure-lab`; remove it with
@@ -215,11 +219,11 @@ AppImage and a `.tar.gz` in `release/` for other distributions.
 [latest release](https://github.com/Azure-Vincent/0psDJ/releases/latest) and
 download one of:
 
-- **`InfrastructureLab-Setup-<version>-win-x64.exe`**: the installer. Double-click
+- **`CyberOwlLab-Setup-<version>-win-x64.exe`**: the installer. Double-click
   it; it installs for your user only (no administrator rights needed), starts
-  the app, and adds **Infrastructure Lab** to the Start menu and the desktop.
+  the app, and adds **Cyber Owl Lab** to the Start menu and the desktop.
   Remove it from **Settings → Apps**.
-- **`InfrastructureLab-<version>-win-x64-portable.exe`**: no installation; double-click
+- **`CyberOwlLab-<version>-win-x64-portable.exe`**: no installation; double-click
   it to run (handy on a USB stick or a locked-down PC). It starts a little slower
   because it unpacks itself each time.
 
@@ -307,6 +311,19 @@ npm run typecheck    # TypeScript checks
 | `electron/`, `build/`, `scripts/` | desktop shell, packaging configuration and Linux launch helpers |
 | `tests/` | tests, including a content-integrity suite that checks every cross-link |
 | `docs/ARCHITECTURE.md` | design documents and how to add a new service |
+
+### Names that must not change (maintainers)
+
+The display name is **Cyber Owl Lab** (`build.productName`), but three
+identifiers keep the app's first name on purpose:
+- the package `name` **`infrastructure-lab`**: Electron names the user-data
+  folder after it (all progress lives there), and it is the .deb package name
+  that apt upgrades;
+- the `appId` **`lab.infrastructure.desktop`**: Windows finds the existing
+  installation by it, and signed update manifests name it as their product;
+- the browser-storage keys (`infralab.*`) in the app.
+
+Changing any of them makes every user start over or end up with two installs.
 
 ### Release signing (maintainers)
 

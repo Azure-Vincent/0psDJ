@@ -338,7 +338,7 @@ export class Shell {
     if (ctx.reboot) {
       bootHost(world, host);
       frame.ps = newSession(user.home);
-      output = [output, `[Infrastructure Lab: ${host.hostname.toUpperCase()} restarted; you are signed in at the console again.]`].filter(Boolean).join('\n');
+      output = [output, `[Cyber Owl Lab: ${host.hostname.toUpperCase()} restarted; you are signed in at the console again.]`].filter(Boolean).join('\n');
     }
     frame.cwd = frame.ps.cwd;
     const code = session.lastOk ? 0 : 1;
@@ -386,7 +386,7 @@ function psLineKinds(output: string): ('out' | 'err' | 'warn')[] {
 function helpText(): string {
   const names = Object.keys(COMMANDS).sort();
   return [
-    'Infrastructure Lab simulated shell (GNU bash-compatible subset).',
+    'Cyber Owl Lab simulated shell (GNU bash-compatible subset).',
     'Pipes (|), redirection (> and >>), && / || / ; and sudo are supported.',
     'Commands available in this simulation:',
     '',

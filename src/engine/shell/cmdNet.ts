@@ -358,7 +358,7 @@ const tcpdump: CommandDef = {
     const head = [
       'tcpdump: verbose output suppressed, use -v[v]... for full protocol decode',
       `listening on ${iface}, link-type EN10MB (Ethernet), snapshot length 262144 bytes`,
-      `[Infrastructure Lab: showing the last ${shown.length} matching frame(s) captured on ${iface} by the simulator. Real tcpdump only shows traffic that occurs while it runs; run your test (ssh, ping, dig) first, then tcpdump.]`,
+      `[Cyber Owl Lab: showing the last ${shown.length} matching frame(s) captured on ${iface} by the simulator. Real tcpdump only shows traffic that occurs while it runs; run your test (ssh, ping, dig) first, then tcpdump.]`,
     ];
     return ok([...head, ...lines, '', `${shown.length} packets captured`, `${shown.length} packets received by filter`, '0 packets dropped by kernel'].join('\n'));
   },

@@ -84,14 +84,14 @@ export function Settings() {
     const blob = new Blob([JSON.stringify(progress, null, 2)], { type: 'application/json' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = `infralab-progress-${new Date().toISOString().slice(0, 10)}.json`;
+    a.download = `cyber-owl-lab-progress-${new Date().toISOString().slice(0, 10)}.json`;
     a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   };
   const importProgress = async (file: File) => {
     try {
       const p = JSON.parse(await file.text()) as Progress;
-      if (p.version !== 1 || !Array.isArray(p.attempts)) throw new Error('not an Infrastructure Lab progress file');
+      if (p.version !== 1 || !Array.isArray(p.attempts)) throw new Error('not a Cyber Owl Lab progress file');
       replace({ ...emptyProgress(), ...p });
       setMsg('Progress imported.');
     } catch (e) {
@@ -125,7 +125,7 @@ export function Settings() {
       <div className="card">
         <h3>About the simulation</h3>
         <p className="small">
-          Infrastructure Lab simulates hosts, routing, ARP, nftables, DNS, systemd services and OpenSSH in a deterministic engine written in TypeScript.
+          Cyber Owl Lab simulates hosts, routing, ARP, nftables, DNS, systemd services and OpenSSH in a deterministic engine written in TypeScript.
           It does not run real operating systems, virtual machines or containers. Simulated behaviour follows the cited RFCs and the behaviour of Debian 12
           (OpenSSH 9.2p1, BIND 9.18, nftables 1.0.6, systemd 252); simplifications are noted where they appear. Use the Deployment guides to build the same
           environment on real virtual machines.

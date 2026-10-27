@@ -1,5 +1,5 @@
 @echo off
-rem Infrastructure Lab: one-click launcher for a source checkout on Windows.
+rem Cyber Owl Lab: one-click launcher for a source checkout on Windows.
 rem   launch.cmd            install dependencies and build if needed, then start the app
 rem   launch.cmd --rebuild  rebuild first (use after updating the source)
 setlocal
@@ -33,5 +33,5 @@ if "%NEED_BUILD%"=="1" (
   if errorlevel 1 ( pause & exit /b 1 )
 )
 
-echo ==^> Starting Infrastructure Lab...
+echo ==^> Starting Cyber Owl Lab...
 node scripts\electron-launch.cjs .

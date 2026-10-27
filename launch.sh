@@ -1,8 +1,8 @@
 #!/bin/sh
-# Infrastructure Lab: one-command launcher for a source checkout (Linux, macOS).
+# Cyber Owl Lab: one-command launcher for a source checkout (Linux, macOS).
 #
 #   ./launch.sh                    install dependencies if needed, build if needed, start the app
-#   ./launch.sh --add-to-menu      also add "Infrastructure Lab" to your desktop's application menu
+#   ./launch.sh --add-to-menu      also add "Cyber Owl Lab" to your desktop's application menu
 #   ./launch.sh --remove-from-menu remove that menu entry again
 #
 # The first run downloads the dependencies (including the Electron runtime, ~100 MB) and needs
@@ -12,7 +12,7 @@ set -e
 APP_DIR=$(cd "$(dirname "$0")" && pwd)
 cd "$APP_DIR"
 
-DESKTOP_FILE="${XDG_DATA_HOME:-$HOME/.local/share}/applications/infrastructure-lab.desktop"
+DESKTOP_FILE="${XDG_DATA_HOME:-$HOME/.local/share}/applications/cyber-owl-lab.desktop"
 
 say() { printf '\033[1;36m==>\033[0m %s\n' "$*"; }
 die() { printf '\033[1;31mError:\033[0m %s\n' "$*" >&2; exit 1; }
@@ -55,10 +55,11 @@ fi
 if [ "${1:-}" = "--add-to-menu" ]; then
   shift
   mkdir -p "$(dirname "$DESKTOP_FILE")"
+  rm -f "$(dirname "$DESKTOP_FILE")/infrastructure-lab.desktop"   # entry from before the rename
   cat > "$DESKTOP_FILE" <<EOF
 [Desktop Entry]
 Type=Application
-Name=Infrastructure Lab
+Name=Cyber Owl Lab
 Comment=Offline IT infrastructure learning lab
 Exec="$APP_DIR/launch.sh"
 Icon=$APP_DIR/build/icon.png
@@ -67,9 +68,9 @@ Categories=Education;Network;
 EOF
   chmod +x "$DESKTOP_FILE"
   command -v update-desktop-database >/dev/null 2>&1 && update-desktop-database "$(dirname "$DESKTOP_FILE")" 2>/dev/null || true
-  say "Added Infrastructure Lab to the application menu ($DESKTOP_FILE)."
+  say "Added Cyber Owl Lab to the application menu ($DESKTOP_FILE)."
 fi
 
 # --- Start (scripts/electron-launch.cjs keeps the Chromium sandbox on where it can work) -------
-say "Starting Infrastructure Lab..."
+say "Starting Cyber Owl Lab..."
 exec node scripts/electron-launch.cjs . "$@"
