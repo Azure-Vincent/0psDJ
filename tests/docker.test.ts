@@ -123,6 +123,33 @@ describe('restart policies, the daemon and the host firewall', () => {
     expect(l.run('dock01', 'alice', 'docker ps').code).toBe(0);
   });
 
+  it('the API socket is root:docker 0660 and its permissions decide who may use the CLI', () => {
+    const l = lab();
+    expect(l.run('dock01', 'alice', 'ls -l /var/run/docker.sock').output).toMatch(/^srw-rw---- 1 root +docker +0 .* \/var\/run\/docker\.sock$/);
+    expect(l.run('dock01', 'alice', 'stat /run/docker.sock').output).toContain('IO Block: 4096   socket');
+    root(l, 'usermod -aG docker alice');
+    expect(l.run('dock01', 'alice', 'docker ps').code).toBe(0);
+    // connect() needs write permission only.
+    root(l, 'chmod 620 /var/run/docker.sock /run/docker.sock');
+    expect(l.run('dock01', 'alice', 'docker ps').code).toBe(0);
+    root(l, 'chmod 600 /run/docker.sock');
+    expect(l.run('dock01', 'alice', 'docker ps').output).toMatch(/^permission denied while trying to connect/);
+    root(l, 'chmod 660 /run/docker.sock');
+    root(l, 'chmod 700 /var/run');
+    expect(l.run('dock01', 'alice', 'docker ps').output).toMatch(/^permission denied while trying to connect/);
+    root(l, 'chmod 755 /var/run');
+    expect(root(l, 'cat /var/run/docker.sock').output).toBe('cat: /var/run/docker.sock: No such device or address');
+    expect(root(l, 'echo x > /var/run/docker.sock').output).toContain('No such device or address');
+    expect(root(l, 'ls -l /var/run/docker.sock').output).toMatch(/^srw--w----/);
+    root(l, 'systemctl stop docker');
+    expect(root(l, 'ls /var/run/docker.sock').output).toBe('/var/run/docker.sock');
+    root(l, 'rm /var/run/docker.sock');
+    root(l, 'systemctl start docker');
+    expect(root(l, 'ls -l /var/run/docker.sock').output).toMatch(/^srw-rw---- 1 root +docker/);
+    root(l, 'rm /run/docker.sock');
+    expect(root(l, 'docker ps').output).toBe('Cannot connect to the Docker daemon at unix:///var/run/docker.sock. Is the docker daemon running?');
+  });
+
   it('docker exec runs only programs the image has', () => {
     const l = lab();
     root(l, 'docker run -d --name web nginx:1.25');

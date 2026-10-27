@@ -4,10 +4,11 @@
 // error messages; containers are simulated hosts (see sim/docker.ts).
 
 import {
-  addPulledImage, containerHostId, containerLogs, daemonConfig, deleteContainer, DOCKER_VERSION, dockerTick, ensureBridges, findContainer, findImage,
+  addPulledImage, containerHostId, containerLogs, daemonConfig, deleteContainer, DOCKER_SOCK_PATHS, DOCKER_VERSION, dockerTick, ensureBridges, findContainer, findImage,
   IMAGES, listContainers, listNetworks, newId, nextSubnet, pulledImages, runningHost, saveContainer, saveNetworks, startContainer, stopContainer,
   syncDockerRules, type ContainerConfig, type Mount, type NetworkConfig, type PortBinding, type RestartPolicy,
 } from '../sim/docker';
+import { canAccess, canTraverse } from '../fs';
 import { sha256Hex } from '../util/sha256';
 import { composeConfig, composeDown, composeUp, loadProject, progress, projectContainers } from '../sim/compose';
 import type { Host } from '../types';
@@ -529,7 +530,11 @@ const docker: CommandDef = {
     if (sub === 'version' || sub === '--version' || sub === '-v') {
       if (sub !== 'version') return ok(`Docker version ${DOCKER_VERSION}, build b9d17ea`);
     }
-    const isAdmin = ctx.user.uid === 0 || ctx.user.groups.includes('docker');
+    // connect() on the API socket needs search permission on its directories and write permission
+    // on the socket (root:docker 0660 unless someone changed it). Without the socket there is nothing to connect to.
+    const socks = DOCKER_SOCK_PATHS.map((p) => [p, host.fs[p]] as const);
+    if (socks.some(([, n]) => !n?.socket)) return err(NO_DAEMON, 1);
+    const isAdmin = ctx.user.uid === 0 || socks.every(([p, n]) => canTraverse(host, p, ctx.user) && canAccess(n!, ctx.user, 'w'));
     if (!isAdmin) return err(SOCK_DENIED(sub === 'ps' ? 'Get "http://%2Fvar%2Frun%2Fdocker.sock/v1.45/containers/json"' : 'Head "http://%2Fvar%2Frun%2Fdocker.sock/_ping"'), 1);
     if (host.services.docker.state !== 'active') return err(NO_DAEMON, 1);
     dockerTick(ctx.world, host);

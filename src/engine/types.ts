@@ -19,6 +19,8 @@ export interface FileNode {
   mtime: number;
   /** Nominal size in bytes for large/binary files whose bytes the simulator does not store. */
   size?: number;
+  /** A Unix domain socket (ls shows "s"; it has no readable content), e.g. /var/run/docker.sock. */
+  socket?: boolean;
   /** Set on the client's view of a file under an NFS mount: export options the server applies. */
   nfs?: { ro: boolean; squash: 'root' | 'all' | 'none'; stale?: boolean };
 }
