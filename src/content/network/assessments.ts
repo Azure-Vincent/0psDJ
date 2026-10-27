@@ -5,19 +5,19 @@ export const IP_ASSESSMENT: Assessment = {
   title: 'IP networking knowledge check',
   questions: [
     {
-      id: 'ip-q-broadcast', kind: 'text', level: 'beginner',
+      id: 'ip-q-broadcast', kind: 'text', level: 'beginner', learn: ['lesson/ipnet/internals'],
       prompt: 'What is the broadcast address of 172.16.5.130/26?',
       accept: ['172.16.5.191'], placeholder: 'a.b.c.d', concepts: ['net.cidr'],
       explanation: '/26 = blocks of 64: .128–.191. Network 172.16.5.128, broadcast 172.16.5.191, hosts .129–.190.',
     },
     {
-      id: 'ip-q-hosts', kind: 'text', level: 'beginner',
+      id: 'ip-q-hosts', kind: 'text', level: 'beginner', learn: ['lesson/ipnet/internals'],
       prompt: 'How many usable host addresses does a /27 network have?',
       accept: ['30'], placeholder: 'number', concepts: ['net.cidr'],
       explanation: '2^(32−27) = 32 addresses, minus the network and broadcast addresses = 30.',
     },
     {
-      id: 'ip-q-lpm', kind: 'single', level: 'intermediate',
+      id: 'ip-q-lpm', kind: 'single', level: 'intermediate', learn: ['lesson/ipnet/internals'],
       prompt: 'A host has these routes. Which next hop does it use for **10.0.20.77**?',
       exhibit: 'default via 10.0.10.1 dev eth0\n10.0.0.0/16 via 10.0.10.2 dev eth0\n10.0.20.0/24 via 10.0.10.3 dev eth0\n10.0.10.0/24 dev eth0 proto kernel scope link src 10.0.10.25',
       options: [
@@ -30,7 +30,7 @@ export const IP_ASSESSMENT: Assessment = {
       explanation: 'Longest prefix match: of all routes containing the destination, the one with the largest prefix length wins, regardless of order.',
     },
     {
-      id: 'ip-q-arp-mac', kind: 'single', level: 'beginner',
+      id: 'ip-q-arp-mac', kind: 'single', level: 'beginner', learn: ['lesson/ipnet/internals'],
       prompt: 'ws01 (10.0.10.25/24, gateway 10.0.10.1) sends a packet to 10.0.20.10. Whose MAC address is the **destination MAC** of the frame leaving ws01?',
       options: [
         { text: 'The MAC of 10.0.20.10', misconception: 'ARP only works on the local segment; ws01 cannot learn (and does not need) the MAC of a host behind a router.' },
@@ -41,7 +41,7 @@ export const IP_ASSESSMENT: Assessment = {
       explanation: 'The IP destination stays 10.0.20.10 end to end; the Ethernet destination is always the next hop on the current segment. The router builds a new frame on the next segment.',
     },
     {
-      id: 'ip-q-order', kind: 'order', level: 'intermediate',
+      id: 'ip-q-order', kind: 'order', level: 'intermediate', learn: ['lesson/ipnet/internals'],
       prompt: 'Order what happens when ws01 pings 10.0.20.10 for the first time (cold ARP caches).',
       items: [
         'ws01 looks up its routing table: default via 10.0.10.1',
@@ -57,7 +57,7 @@ export const IP_ASSESSMENT: Assessment = {
       explanation: 'Each hop: route lookup → ARP for the next hop if needed → new frame. The reply is routed independently by srv01.',
     },
     {
-      id: 'ip-q-own-unreachable', kind: 'single', level: 'intermediate',
+      id: 'ip-q-own-unreachable', kind: 'single', level: 'intermediate', learn: ['lesson/ipnet/internals', 'lesson/ipnet/troubleshoot'],
       prompt: 'ping prints **From 10.0.10.25 icmp_seq=1 Destination Host Unreachable** on host 10.0.10.25. What does that tell you?',
       options: [
         { text: 'The router 10.0.10.1 could not reach the destination', misconception: 'Then the message would say "From 10.0.10.1". The source shown is the host that generated the error.' },
@@ -68,7 +68,7 @@ export const IP_ASSESSMENT: Assessment = {
       explanation: 'The local kernel generates this error when neighbour resolution fails. Look at ip route get DEST and ip neigh.',
     },
     {
-      id: 'ip-q-forward', kind: 'multi', level: 'intermediate',
+      id: 'ip-q-forward', kind: 'multi', level: 'intermediate', learn: ['lesson/ipnet/internals'],
       prompt: 'A Linux router has net.ipv4.ip_forward=0. Which statements are true? (Select all that apply.)',
       options: [
         { text: 'Clients can still ping the router\'s own addresses', correct: true },
@@ -80,7 +80,7 @@ export const IP_ASSESSMENT: Assessment = {
       explanation: 'Forwarding is a per-kernel switch; the router remains a normal host for its own addresses.',
     },
     {
-      id: 'ip-q-return', kind: 'single', level: 'advanced',
+      id: 'ip-q-return', kind: 'single', level: 'advanced', learn: ['lesson/ipnet/internals'],
       prompt: 'tcpdump on a server shows ICMP echo requests arriving from 10.0.10.25 but no echo replies leaving. The server firewall accepts ICMP. What is the most likely cause?',
       options: [
         { text: 'The client has the wrong gateway', misconception: 'The requests DO arrive, so the client\'s path works.' },
@@ -91,13 +91,13 @@ export const IP_ASSESSMENT: Assessment = {
       explanation: 'Replies are routed by the server\'s own table. Check ip route get 10.0.10.25 on the server.',
     },
     {
-      id: 'ip-q-cmd', kind: 'text', level: 'beginner',
+      id: 'ip-q-cmd', kind: 'text', level: 'beginner', learn: ['lesson/ipnet/internals'],
       prompt: 'Type the command that shows which route, next hop and source address Linux would use to reach 10.0.20.10.',
       accept: [/^(sudo\s+)?ip\s+(-4\s+)?r(oute)?\s+get\s+10\.0\.20\.10$/], placeholder: 'command', concepts: ['net.routing'],
       explanation: 'ip route get 10.0.20.10 performs the real lookup, including policy routing and the chosen source address.',
     },
     {
-      id: 'ip-q-mask', kind: 'single', level: 'advanced',
+      id: 'ip-q-mask', kind: 'single', level: 'advanced', learn: ['lesson/ipnet/internals'],
       prompt: 'A host is configured as 10.0.10.25/16 while the LAN is really 10.0.10.0/24 and the router is 10.0.10.1. What happens when it connects to 10.0.20.10?',
       options: [
         { text: 'It works: the default gateway is still configured', misconception: 'The connected /16 route is more specific than the default route and contains 10.0.20.10, so the gateway is never used.' },
@@ -115,20 +115,20 @@ export const TRANSPORT_ASSESSMENT: Assessment = {
   title: 'TCP, UDP and DNS knowledge check',
   questions: [
     {
-      id: 'tr-q-handshake', kind: 'order', level: 'beginner',
+      id: 'tr-q-handshake', kind: 'order', level: 'beginner', learn: ['lesson/transport/internals'],
       prompt: 'Order the TCP segments of a short HTTP exchange where the client closes first.',
       items: ['SYN (client)', 'SYN, ACK (server)', 'ACK (client)', 'PSH, ACK: HTTP request (client)', 'PSH, ACK: HTTP response (server)', 'FIN, ACK (client)', 'FIN, ACK (server)', 'ACK (client)'],
       concepts: ['tcp.handshake'],
       explanation: 'Three-way handshake, data in both directions (each segment acknowledging the other side), then FIN from each side and a final ACK.',
     },
     {
-      id: 'tr-q-ack', kind: 'text', level: 'intermediate',
+      id: 'tr-q-ack', kind: 'text', level: 'intermediate', learn: ['lesson/transport/internals'],
       prompt: 'A client sends a segment with seq = 1001 carrying 200 bytes of data. What acknowledgement number does the server send if it received everything?',
       accept: ['1201'], placeholder: 'number', concepts: ['tcp.handshake'],
       explanation: 'ack = next expected byte = 1001 + 200 = 1201.',
     },
     {
-      id: 'tr-q-refused', kind: 'single', level: 'beginner',
+      id: 'tr-q-refused', kind: 'single', level: 'beginner', learn: ['lesson/transport/internals'],
       prompt: 'Who sends the RST that makes a client print "Connection refused" when nothing listens on the port?',
       options: [
         { text: 'The server\'s kernel', correct: true },
@@ -139,13 +139,13 @@ export const TRANSPORT_ASSESSMENT: Assessment = {
       explanation: 'The RST proves the packet reached a live host. That rules out routing and silent firewalls on the path.',
     },
     {
-      id: 'tr-q-timeout', kind: 'text', level: 'intermediate',
+      id: 'tr-q-timeout', kind: 'text', level: 'intermediate', learn: ['lesson/transport/internals'],
       prompt: 'With Linux defaults (tcp_syn_retries = 6, initial RTO 1 s), after roughly how many **seconds** does an unanswered connect() give up?',
       accept: ['127', '~127', '127s', '127 s'], placeholder: 'seconds', concepts: ['tcp.handshake'],
       explanation: '1 + 2 + 4 + 8 + 16 + 32 + 64 = 127 seconds.',
     },
     {
-      id: 'tr-q-loopback', kind: 'single', level: 'intermediate',
+      id: 'tr-q-loopback', kind: 'single', level: 'intermediate', learn: ['lesson/transport/config', 'lesson/transport/troubleshoot'],
       prompt: 'ss on a server shows: `LISTEN 0 511 127.0.0.1:80 0.0.0.0:* users:(("nginx",...))`. What happens to a connection from 10.0.10.25 to 10.0.20.10:80?',
       options: [
         { text: 'It is accepted: nginx listens on port 80', misconception: 'A socket matches an address AND a port; 127.0.0.1:80 does not match 10.0.20.10:80.' },
@@ -156,7 +156,7 @@ export const TRANSPORT_ASSESSMENT: Assessment = {
       explanation: 'Bind to 0.0.0.0 (or the specific external address) to accept remote connections.',
     },
     {
-      id: 'tr-q-udp', kind: 'multi', level: 'intermediate',
+      id: 'tr-q-udp', kind: 'multi', level: 'intermediate', learn: ['lesson/transport/what', 'lesson/transport/internals'],
       prompt: 'Which are properties of UDP? (Select all that apply.)',
       options: [
         { text: 'No handshake before data', correct: true },
@@ -168,14 +168,14 @@ export const TRANSPORT_ASSESSMENT: Assessment = {
       explanation: 'DNS uses UDP for speed; the resolver\'s timeout/attempts provide reliability.',
     },
     {
-      id: 'tr-q-resolve-order', kind: 'order', level: 'intermediate',
+      id: 'tr-q-resolve-order', kind: 'order', level: 'intermediate', learn: ['lesson/transport/internals'],
       prompt: 'Order what glibc does for `ssh srv01` on a host with "hosts: files dns" and "search corp.lab".',
       items: ['Look for "srv01" in /etc/hosts', 'Query the first nameserver for srv01.corp.lab.', 'On NXDOMAIN, query for srv01.', 'On NXDOMAIN again, fail: Name or service not known'],
       concepts: ['dns.resolution'],
       explanation: 'Files first; a short name (fewer dots than ndots=1) tries search domains before the bare name.',
     },
     {
-      id: 'tr-q-dig-getent', kind: 'single', level: 'intermediate',
+      id: 'tr-q-dig-getent', kind: 'single', level: 'intermediate', learn: ['lesson/transport/internals'],
       prompt: '`dig +short srv01.corp.lab` prints 10.0.20.10, but `getent hosts srv01.corp.lab` prints 10.0.20.99. Where does 10.0.20.99 come from?',
       options: [
         { text: 'A stale DNS cache on the DNS server', misconception: 'dig asked the DNS server and got .10. The difference is on the client.' },
@@ -186,7 +186,7 @@ export const TRANSPORT_ASSESSMENT: Assessment = {
       explanation: 'dig bypasses NSS; getent uses it like applications do.',
     },
     {
-      id: 'tr-q-servfail', kind: 'single', level: 'advanced',
+      id: 'tr-q-servfail', kind: 'single', level: 'advanced', learn: ['lesson/transport/internals'],
       prompt: 'Every name in corp.lab fails with "Temporary failure in name resolution"; `dig @10.0.10.53 srv01.corp.lab` shows status: SERVFAIL. Where do you look first?',
       options: [
         { text: 'The client\'s /etc/resolv.conf', misconception: 'The client reached the server and got an answer (SERVFAIL). Its configuration works.' },
@@ -197,7 +197,7 @@ export const TRANSPORT_ASSESSMENT: Assessment = {
       explanation: 'An authoritative server that cannot load its zone answers SERVFAIL; journalctl -u named and named-checkzone show why.',
     },
     {
-      id: 'tr-q-port', kind: 'text', level: 'beginner',
+      id: 'tr-q-port', kind: 'text', level: 'beginner', learn: ['lesson/transport/what'],
       prompt: 'On which UDP/TCP port does DNS listen?',
       accept: ['53'], placeholder: 'port', concepts: ['dns.resolution'],
       explanation: 'Port 53, UDP for most queries and TCP for large responses and zone transfers.',
@@ -210,14 +210,14 @@ export const DHCP_ASSESSMENT: Assessment = {
   title: 'DHCP knowledge check',
   questions: [
     {
-      id: 'dhcp-q-dora', kind: 'order', level: 'beginner',
+      id: 'dhcp-q-dora', kind: 'order', level: 'beginner', learn: ['lesson/dhcp/internals'],
       prompt: 'Order the messages of a DHCP address assignment.',
       items: ['DHCPDISCOVER (client, broadcast)', 'DHCPOFFER (server)', 'DHCPREQUEST (client, broadcast)', 'DHCPACK (server)'],
       concepts: ['net.dhcp'],
       explanation: 'DORA. The client only configures the address after the ACK.',
     },
     {
-      id: 'dhcp-q-src', kind: 'single', level: 'beginner',
+      id: 'dhcp-q-src', kind: 'single', level: 'beginner', learn: ['lesson/dhcp/internals'],
       prompt: 'Which source and destination IP addresses does a DHCPDISCOVER use?',
       options: [
         { text: '0.0.0.0 → 255.255.255.255', correct: true },
@@ -228,7 +228,7 @@ export const DHCP_ASSESSMENT: Assessment = {
       explanation: 'No address yet, no server known: from 0.0.0.0:68 to the limited broadcast address, port 67.',
     },
     {
-      id: 'dhcp-q-router', kind: 'single', level: 'intermediate',
+      id: 'dhcp-q-router', kind: 'single', level: 'intermediate', learn: ['lesson/dhcp/internals'],
       prompt: 'After a change on the DHCP server, new clients get correct addresses and can reach hosts on their own subnet, but nothing beyond it. What is the most likely mistake?',
       options: [
         { text: 'Wrong option routers', correct: true },
@@ -240,7 +240,7 @@ export const DHCP_ASSESSMENT: Assessment = {
       explanation: 'The default gateway comes from option routers; `ip route` on a client shows the bad value.',
     },
     {
-      id: 'dhcp-q-relay', kind: 'single', level: 'intermediate',
+      id: 'dhcp-q-relay', kind: 'single', level: 'intermediate', learn: ['lesson/dhcp/internals'],
       prompt: 'Clients on 10.0.30.0/24 get no address. The DHCP server is on 10.0.10.0/24 and has a correct subnet declaration for 10.0.30.0/24. What is missing?',
       options: [
         { text: 'A DHCP relay (ip helper-address) on the router for 10.0.30.0/24', correct: true },
@@ -251,7 +251,7 @@ export const DHCP_ASSESSMENT: Assessment = {
       explanation: 'Broadcasts stay on their segment. The relay forwards them as unicast and sets giaddr so the server picks the 10.0.30.0/24 pool.',
     },
     {
-      id: 'dhcp-q-alloc', kind: 'single', level: 'intermediate',
+      id: 'dhcp-q-alloc', kind: 'single', level: 'intermediate', learn: ['lesson/dhcp/internals'],
       prompt: 'Which address does ISC dhcpd offer to a client whose MAC appears in a host declaration with fixed-address 10.0.10.21 AND in the lease file with 10.0.10.104?',
       options: [
         { text: '10.0.10.21', correct: true },
@@ -262,7 +262,7 @@ export const DHCP_ASSESSMENT: Assessment = {
       explanation: 'Order: reservation, previous lease for this MAC, first free address of the range.',
     },
     {
-      id: 'dhcp-q-nofree', kind: 'single', level: 'intermediate',
+      id: 'dhcp-q-nofree', kind: 'single', level: 'intermediate', learn: ['lesson/dhcp/internals', 'lesson/dhcp/troubleshoot'],
       prompt: 'The server log shows: `DHCPDISCOVER from 52:54:00:d4:00:42 via eth0: network 10.0.10.0/24: no free leases`. What does the client see?',
       options: [
         { text: 'Repeated DHCPDISCOVERs and finally "No DHCPOFFERS received."', correct: true },
@@ -273,19 +273,19 @@ export const DHCP_ASSESSMENT: Assessment = {
       explanation: 'Silence on the wire; the explanation is only in the server\'s log.',
     },
     {
-      id: 'dhcp-q-interfaces', kind: 'text', level: 'intermediate',
+      id: 'dhcp-q-interfaces', kind: 'text', level: 'intermediate', learn: ['lesson/dhcp/internals'],
       prompt: 'Which variable in /etc/default/isc-dhcp-server selects the interfaces dhcpd serves on (IPv4)?',
       accept: ['INTERFACESv4', /^interfacesv4(=.*)?$/i], placeholder: 'NAME', concepts: ['net.dhcp'],
       explanation: 'INTERFACESv4="eth0". A wrong name gives "Not configured to listen on any interfaces!".',
     },
     {
-      id: 'dhcp-q-renew', kind: 'text', level: 'advanced',
+      id: 'dhcp-q-renew', kind: 'text', level: 'advanced', learn: ['lesson/dhcp/internals'],
       prompt: 'With a lease time of 600 seconds, after how many seconds does the client first try to renew (T1)?',
       accept: ['300', '300s', '300 s'], placeholder: 'seconds', concepts: ['net.dhcp'],
       explanation: 'T1 = 50 % of the lease time (unicast to the same server); T2 = 87.5 % (broadcast to any server).',
     },
     {
-      id: 'dhcp-q-rogue', kind: 'multi', level: 'advanced',
+      id: 'dhcp-q-rogue', kind: 'multi', level: 'advanced', learn: ['lesson/dhcp/internals'],
       prompt: 'A home router plugged into the office LAN starts answering DHCP. Which effects and defences are real? (Select all that apply.)',
       options: [
         { text: 'Some clients get its gateway and DNS and lose access to internal services', correct: true },
@@ -297,7 +297,7 @@ export const DHCP_ASSESSMENT: Assessment = {
       explanation: 'Rogue DHCP is a classic outage and attack vector; snooping is the network-side control.',
     },
     {
-      id: 'dhcp-q-giaddr', kind: 'single', level: 'intermediate',
+      id: 'dhcp-q-giaddr', kind: 'single', level: 'intermediate', learn: ['lesson/dhcp/internals'],
       prompt: 'ns1 (10.0.10.53) receives a relayed DISCOVER with giaddr 10.0.30.1. How does dhcpd decide which pool to allocate from?',
       options: [
         { text: 'It uses the subnet declaration that contains giaddr (10.0.30.0/24)', correct: true },
@@ -309,13 +309,13 @@ export const DHCP_ASSESSMENT: Assessment = {
       explanation: 'Without a subnet containing giaddr, dhcpd logs "unknown network segment" and does not answer. The OFFER is sent back to giaddr.',
     },
     {
-      id: 'dhcp-q-t2', kind: 'text', level: 'intermediate',
+      id: 'dhcp-q-t2', kind: 'text', level: 'intermediate', learn: ['lesson/dhcp/internals'],
       prompt: 'A client gets a lease of 28800 seconds (8 hours). After how many seconds does it start rebinding (T2) if its server does not answer the renewals?',
       accept: ['25200'], placeholder: 'seconds', concepts: ['net.dhcp'],
       explanation: 'T2 defaults to 87.5 % of the lease: 0.875 × 28800 = 25200 s (7 h). T1, the first unicast renewal, is at 50 % = 14400 s.',
     },
     {
-      id: 'dhcp-q-renew-relay', kind: 'single', level: 'intermediate',
+      id: 'dhcp-q-renew-relay', kind: 'single', level: 'intermediate', learn: ['lesson/dhcp/internals'],
       prompt: 'dev02 (VLAN 30) got its lease through the relay on rtr01. How does it renew at T1?',
       options: [
         { text: 'Unicast DHCPREQUEST from its own address straight to the server identifier (10.0.10.53), routed like any other packet', correct: true },
@@ -326,7 +326,7 @@ export const DHCP_ASSESSMENT: Assessment = {
       explanation: 'That is why a working relay is not enough for renewals: the client also needs a routed path (and firewall permission) to the server.',
     },
     {
-      id: 'dhcp-q-iu', kind: 'single', level: 'advanced',
+      id: 'dhcp-q-iu', kind: 'single', level: 'advanced', learn: ['lesson/dhcp/internals'],
       prompt: 'ns1 logs "DHCPOFFER on 10.0.30.100 … via 10.0.30.1", but dev02 never receives an offer. tcpdump on rtr01 eth0 shows the OFFER arriving for 10.0.30.1. The relay runs with OPTIONS="-id eth3.30". What is wrong?',
       options: [
         { text: 'dhcrelay has no upstream interface (-iu eth0), so the reply reaches only its fallback UDP socket, where rtr01\'s input chain drops it', correct: true },
@@ -345,7 +345,7 @@ export const NAT_ASSESSMENT: Assessment = {
   title: 'NAT knowledge check',
   questions: [
     {
-      id: 'nat-q-private', kind: 'multi', level: 'beginner',
+      id: 'nat-q-private', kind: 'multi', level: 'beginner', learn: ['lesson/nat/what'],
       prompt: 'Which are RFC 1918 private ranges? (Select all that apply.)',
       options: [
         { text: '10.0.0.0/8', correct: true },
@@ -358,14 +358,14 @@ export const NAT_ASSESSMENT: Assessment = {
       explanation: 'Private ranges are not routed on the Internet; hosts using them need NAT (or a proxy) to reach it.',
     },
     {
-      id: 'nat-q-hooks', kind: 'order', level: 'intermediate',
+      id: 'nat-q-hooks', kind: 'order', level: 'intermediate', learn: ['lesson/nat/internals'],
       prompt: 'Order what happens on the router to the first packet of an inbound connection to a port-forwarded service.',
       items: ['Packet arrives on the uplink', 'prerouting: DNAT rewrites the destination', 'Routing decision for the new destination', 'forward hook: filter rules evaluated', 'postrouting: SNAT rules evaluated', 'Packet leaves on the inside interface'],
       concepts: ['net.nat', 'fw.path'],
       explanation: 'DNAT before routing, filter in forward, SNAT last.',
     },
     {
-      id: 'nat-q-filter', kind: 'single', level: 'intermediate',
+      id: 'nat-q-filter', kind: 'single', level: 'intermediate', learn: ['lesson/nat/internals'],
       prompt: 'Public TCP 8443 is forwarded with `iifname "eth2" tcp dport 8443 dnat to 10.0.20.10:443`. The forward chain has policy drop. Which rule allows the traffic?',
       options: [
         { text: 'iifname "eth2" tcp dport 8443 accept', misconception: 'The forward hook sees the packet after DNAT: its port is already 443.' },
@@ -376,7 +376,7 @@ export const NAT_ASSESSMENT: Assessment = {
       explanation: 'Write forward rules for the translated (inside) destination.',
     },
     {
-      id: 'nat-q-conntrack', kind: 'single', level: 'advanced',
+      id: 'nat-q-conntrack', kind: 'single', level: 'advanced', learn: ['lesson/nat/internals'],
       prompt: 'What does this conntrack entry show?',
       exhibit: 'tcp 6 117 ESTABLISHED src=10.0.10.25 dst=203.0.113.80 sport=52088 dport=80 src=203.0.113.80 dst=203.0.113.2 sport=80 dport=52088 [ASSURED]',
       options: [
@@ -388,7 +388,7 @@ export const NAT_ASSESSMENT: Assessment = {
       explanation: 'Original tuple vs expected reply tuple: replies are expected at 203.0.113.2, so the source was translated.',
     },
     {
-      id: 'nat-q-nomasq', kind: 'single', level: 'intermediate',
+      id: 'nat-q-nomasq', kind: 'single', level: 'intermediate', learn: ['lesson/nat/troubleshoot'],
       prompt: 'Office PCs cannot reach any Internet site. On the router\'s uplink, `tcpdump -n` shows `IP 10.0.10.25.52088 > 203.0.113.80.80: Flags [S]` repeated. What is wrong?',
       options: [
         { text: 'Source NAT/masquerade is not applied on the uplink', correct: true },
@@ -399,7 +399,7 @@ export const NAT_ASSESSMENT: Assessment = {
       explanation: 'Private sources on the uplink = no SNAT. Check the postrouting chain and its oifname.',
     },
     {
-      id: 'nat-q-masq-vs-snat', kind: 'single', level: 'intermediate',
+      id: 'nat-q-masq-vs-snat', kind: 'single', level: 'intermediate', learn: ['lesson/nat/what'],
       prompt: 'When is `masquerade` preferable to `snat to 203.0.113.2`?',
       options: [
         { text: 'When the uplink address is dynamic (DHCP/PPPoE)', correct: true },
@@ -410,7 +410,7 @@ export const NAT_ASSESSMENT: Assessment = {
       explanation: 'masquerade looks up the outgoing interface address per new connection and forgets translations when the interface goes down.',
     },
     {
-      id: 'nat-q-existing', kind: 'single', level: 'advanced',
+      id: 'nat-q-existing', kind: 'single', level: 'advanced', learn: ['lesson/nat/internals'],
       prompt: 'You fix a wrong DNAT rule and reload the ruleset. A client that has kept retrying the same connection (same source port) is still sent to the old target. Why?',
       options: [
         { text: 'NAT decisions are stored in conntrack for existing flows; only new flows see the new rule', correct: true },
@@ -421,7 +421,7 @@ export const NAT_ASSESSMENT: Assessment = {
       explanation: 'Delete the entry (conntrack -D / -F) or wait for it to time out.',
     },
     {
-      id: 'nat-q-dnat-noport', kind: 'single', level: 'advanced',
+      id: 'nat-q-dnat-noport', kind: 'single', level: 'advanced', learn: ['lesson/nat/config'],
       prompt: 'What is the risk of `iifname "eth2" dnat to 10.0.20.10` (no protocol/port match)?',
       options: [
         { text: 'Every port on the public address is forwarded to the inside server', correct: true },
@@ -439,7 +439,7 @@ export const VLAN_ASSESSMENT: Assessment = {
   title: 'VLAN knowledge check',
   questions: [
     {
-      id: 'vlan-q-broadcast', kind: 'single', level: 'beginner',
+      id: 'vlan-q-broadcast', kind: 'single', level: 'beginner', learn: ['lesson/vlan/what'],
       prompt: 'ws01 (access port, VLAN 10) and dev01 (access port, VLAN 30) are plugged into the same switch. ws01 sends an ARP broadcast. Who receives it?',
       options: [
         { text: 'Every device on the switch', misconception: 'That is a switch without VLANs. VLANs are separate broadcast domains.' },
@@ -450,19 +450,19 @@ export const VLAN_ASSESSMENT: Assessment = {
       explanation: 'Broadcasts are flooded within the VLAN only. Reaching another VLAN always requires routing.',
     },
     {
-      id: 'vlan-q-tag', kind: 'text', level: 'beginner',
+      id: 'vlan-q-tag', kind: 'text', level: 'beginner', learn: ['lesson/vlan/internals'],
       prompt: 'Which EtherType value (TPID) marks an Ethernet frame as 802.1Q-tagged? (hex)',
       accept: ['0x8100', '8100'], placeholder: '0x....', concepts: ['net.vlan'],
       explanation: 'TPID 0x8100 is followed by 3 bits priority, 1 bit DEI and the 12-bit VLAN ID; then the real EtherType.',
     },
     {
-      id: 'vlan-q-vid', kind: 'text', level: 'beginner',
+      id: 'vlan-q-vid', kind: 'text', level: 'beginner', learn: ['lesson/vlan/internals'],
       prompt: 'How many bits does the VLAN ID have?',
       accept: ['12'], placeholder: 'bits', concepts: ['net.vlan'],
       explanation: '12 bits: 4096 values, of which 1–4094 are usable (0 and 4095 are reserved).',
     },
     {
-      id: 'vlan-q-access', kind: 'single', level: 'intermediate',
+      id: 'vlan-q-access', kind: 'single', level: 'intermediate', learn: ['lesson/vlan/internals'],
       prompt: 'With this ifupdown2 port configuration, how are frames between the switch and the host sent?',
       exhibit: 'auto swp8\niface swp8\n    bridge-access 30',
       options: [
@@ -474,7 +474,7 @@ export const VLAN_ASSESSMENT: Assessment = {
       explanation: 'bridge-access N = member of VLAN N only, PVID N, egress untagged.',
     },
     {
-      id: 'vlan-q-symptom', kind: 'single', level: 'intermediate',
+      id: 'vlan-q-symptom', kind: 'single', level: 'intermediate', learn: ['lesson/vlan/troubleshoot'],
       prompt: 'A PC has the right IP address, mask and gateway, the link LED is on, but "ip neigh" shows its gateway as FAILED. Other PCs in the same subnet work. What is the most likely cause?',
       options: [
         { text: 'Its switch port is in the wrong VLAN', correct: true },
@@ -486,7 +486,7 @@ export const VLAN_ASSESSMENT: Assessment = {
       explanation: 'ARP for the gateway failing for one host only, with a correct configuration, points at its port\'s VLAN. Check bridge fdb show / bridge vlan show.',
     },
     {
-      id: 'vlan-q-trunk', kind: 'single', level: 'intermediate',
+      id: 'vlan-q-trunk', kind: 'single', level: 'intermediate', learn: ['lesson/vlan/troubleshoot'],
       prompt: 'All hosts in VLAN 30 can ping each other, but none can reach the gateway 10.0.30.1 on the router\'s sub-interface eth3.30. Other VLANs work. Where do you look first?',
       options: [
         { text: 'Whether the trunk to the router carries VLAN 30 (switch) and the sub-interface VLAN ID (router)', correct: true },
@@ -497,14 +497,14 @@ export const VLAN_ASSESSMENT: Assessment = {
       explanation: 'A whole VLAN cut off from its gateway = the path between the VLAN and the router\'s sub-interface: trunk membership or tagging.',
     },
     {
-      id: 'vlan-q-subif', kind: 'text', level: 'intermediate',
+      id: 'vlan-q-subif', kind: 'text', level: 'intermediate', learn: ['lesson/vlan/internals'],
       prompt: 'Write the iproute2 command that creates VLAN 40 on eth3 as interface eth3.40.',
       accept: [/^(sudo )?ip link add link eth3 name eth3\.40 type vlan id 40$/i, /^(sudo )?ip link add name eth3\.40 link eth3 type vlan id 40$/i],
       placeholder: 'ip link add ...', concepts: ['net.vlan'],
       explanation: '"ip link add link eth3 name eth3.40 type vlan id 40", then add an address and set it up.',
     },
     {
-      id: 'vlan-q-order', kind: 'order', level: 'advanced',
+      id: 'vlan-q-order', kind: 'order', level: 'advanced', learn: ['lesson/vlan/internals'],
       prompt: 'Order the path of a ping from dev01 (VLAN 30, access port swp8) to srv01 (VLAN 20, access port swp6) through rtr01 (trunk swp7 with eth3.30, access port swp5 on eth1).',
       items: [
         'dev01 sends an untagged frame to the MAC of 10.0.30.1 into swp8',
@@ -518,7 +518,7 @@ export const VLAN_ASSESSMENT: Assessment = {
       explanation: 'Tags exist only on the trunk; each VLAN is a separate subnet joined by the router.',
     },
     {
-      id: 'vlan-q-security', kind: 'multi', level: 'advanced',
+      id: 'vlan-q-security', kind: 'multi', level: 'advanced', learn: ['lesson/vlan/troubleshoot'],
       prompt: 'Which practices reduce VLAN-related risk? (Select all that apply.)',
       options: [
         { text: 'Allow only the needed VLANs on each trunk', correct: true },
@@ -537,13 +537,13 @@ export const IPV6_ASSESSMENT: Assessment = {
   title: 'IPv6 knowledge check',
   questions: [
     {
-      id: 'v6-q-compress', kind: 'text', level: 'beginner',
+      id: 'v6-q-compress', kind: 'text', level: 'beginner', learn: ['lesson/ipv6/internals'],
       prompt: 'Write 2001:0db8:0000:0000:0000:0000:0020:0010 in the shortest canonical form (RFC 5952).',
       accept: ['2001:db8::20:10'], placeholder: '2001:db8:...', concepts: ['net.ipv6'],
       explanation: 'Drop leading zeros (2001:db8:0:0:0:0:20:10) and compress the longest zero run with :: once.',
     },
     {
-      id: 'v6-q-linklocal', kind: 'single', level: 'beginner',
+      id: 'v6-q-linklocal', kind: 'single', level: 'beginner', learn: ['lesson/ipv6/internals'],
       prompt: 'Which prefix do link-local addresses use?',
       options: [
         { text: 'fe80::/10', correct: true },
@@ -555,13 +555,13 @@ export const IPV6_ASSESSMENT: Assessment = {
       explanation: 'Every IPv6 interface has a fe80:: address; it is only valid on its own link and routers never forward it.',
     },
     {
-      id: 'v6-q-eui64', kind: 'text', level: 'intermediate',
+      id: 'v6-q-eui64', kind: 'text', level: 'intermediate', learn: ['lesson/ipv6/internals'],
       prompt: 'A host with MAC 52:54:00:e7:00:1e receives the prefix 2001:db8:30::/64 in a router advertisement. Which SLAAC (EUI-64) address does it form?',
       accept: ['2001:db8:30:0:5054:ff:fee7:1e', '2001:db8:30::5054:ff:fee7:1e'], placeholder: '2001:db8:30:...', concepts: ['net.ipv6'],
       explanation: 'Insert ff:fe in the middle of the MAC and flip bit 7 of the first byte (52 → 50): 5054:00ff:fee7:001e. Appended to the /64: 2001:db8:30:0:5054:ff:fee7:1e.',
     },
     {
-      id: 'v6-q-nd', kind: 'single', level: 'intermediate',
+      id: 'v6-q-nd', kind: 'single', level: 'intermediate', learn: ['lesson/ipv6/internals'],
       prompt: 'How does an IPv6 host find the MAC address of its next hop?',
       options: [
         { text: 'ICMPv6 Neighbor Solicitation to the solicited-node multicast address, answered by a Neighbor Advertisement', correct: true },
@@ -572,7 +572,7 @@ export const IPV6_ASSESSMENT: Assessment = {
       explanation: 'NS goes to ff02::1:ffXX:XXXX (last 24 bits of the target); the owner replies unicast with its MAC.',
     },
     {
-      id: 'v6-q-firewall', kind: 'single', level: 'advanced',
+      id: 'v6-q-firewall', kind: 'single', level: 'advanced', learn: ['lesson/ipv6/internals'],
       prompt: 'A server\'s nftables input chain (policy drop) has "ct state established,related accept", "meta l4proto icmp accept" and "tcp dport 80 accept". IPv4 to port 80 works. What happens over IPv6?',
       options: [
         { text: 'Nothing works: Neighbor Solicitations (ICMPv6, ct state untracked) are dropped, so the router cannot resolve the server', correct: true },
@@ -583,7 +583,7 @@ export const IPV6_ASSESSMENT: Assessment = {
       explanation: 'Add "meta l4proto ipv6-icmp accept" (or at least the nd-* types, RFC 4890).',
     },
     {
-      id: 'v6-q-forwarding', kind: 'single', level: 'intermediate',
+      id: 'v6-q-forwarding', kind: 'single', level: 'intermediate', learn: ['lesson/ipv6/internals'],
       prompt: 'net.ipv4.ip_forward = 1 and net.ipv6.conf.all.forwarding = 0 on a router. What does a client behind it see when it connects to a server beyond it over IPv6?',
       options: [
         { text: 'A timeout: the router discards the packets silently', correct: true },
@@ -594,7 +594,7 @@ export const IPV6_ASSESSMENT: Assessment = {
       explanation: 'The router does not route IPv6 at all; radvd may even keep advertising, which makes the hosts look configured.',
     },
     {
-      id: 'v6-q-slaac-order', kind: 'order', level: 'intermediate',
+      id: 'v6-q-slaac-order', kind: 'order', level: 'intermediate', learn: ['lesson/ipv6/internals'],
       prompt: 'Order the SLAAC steps of a host whose interface comes up.',
       items: [
         'Form a link-local address fe80:: + interface identifier',
@@ -607,7 +607,7 @@ export const IPV6_ASSESSMENT: Assessment = {
       explanation: 'The link-local address is needed to talk to the router at all; the default gateway is the router\'s fe80:: address.',
     },
     {
-      id: 'v6-q-happy', kind: 'single', level: 'advanced',
+      id: 'v6-q-happy', kind: 'single', level: 'advanced', learn: ['lesson/ipv6/internals'],
       prompt: 'IPv6 to a server is broken (packets dropped). Which client is most likely to notice?',
       options: [
         { text: 'An ssh client: it tries IPv6 first and waits for the full connect timeout before trying IPv4', correct: true },
@@ -618,13 +618,13 @@ export const IPV6_ASSESSMENT: Assessment = {
       explanation: 'Always test IPv6 explicitly (curl -6, ssh -6, ping -6).',
     },
     {
-      id: 'v6-q-subnet', kind: 'text', level: 'beginner',
+      id: 'v6-q-subnet', kind: 'text', level: 'beginner', learn: ['lesson/ipv6/what'],
       prompt: 'What prefix length do IPv6 LAN subnets normally use (required for SLAAC)?',
       accept: ['64', '/64'], placeholder: '/..', concepts: ['net.ipv6'],
       explanation: '/64: 64 bits network, 64 bits interface identifier.',
     },
     {
-      id: 'v6-q-dhcp6-route', kind: 'single', level: 'intermediate',
+      id: 'v6-q-dhcp6-route', kind: 'single', level: 'intermediate', learn: ['lesson/ipv6/internals'],
       prompt: 'A network has a DHCPv6 server but the router does not send router advertisements. Clients get an address from DHCPv6. What is missing?',
       options: [
         { text: 'The default route: DHCPv6 has no router option, routers announce themselves only in RAs', correct: true },
@@ -636,7 +636,7 @@ export const IPV6_ASSESSMENT: Assessment = {
       explanation: 'IPv6 hosts always learn routers from RAs. With DHCPv6, run radvd with AdvManagedFlag (and the prefix as on-link).',
     },
     {
-      id: 'v6-q-dhcp6-fw', kind: 'single', level: 'advanced',
+      id: 'v6-q-dhcp6-fw', kind: 'single', level: 'advanced', learn: ['lesson/ipv6/internals'],
       prompt: 'dev02\'s input chain has policy drop with "ct state established,related accept". The DHCPv6 server logs "Sending Advertise to fe80::5054:ff:fee7:2a port 546", but dev02 never gets an address. Why?',
       options: [
         { text: 'The Solicit went to the multicast group ff02::1:2; the Advertise comes from the server\'s own address, so conntrack sees a new flow and the drop policy applies', correct: true },
@@ -648,7 +648,7 @@ export const IPV6_ASSESSMENT: Assessment = {
       explanation: 'Clients need "udp dport 546 accept" (ideally from fe80::/10, sport 547); servers need "udp dport 547 accept".',
     },
     {
-      id: 'v6-q-flags', kind: 'single', level: 'intermediate',
+      id: 'v6-q-flags', kind: 'single', level: 'intermediate', learn: ['lesson/ipv6/internals'],
       prompt: 'An RA has the O flag set and the M flag clear, with an autonomous prefix. What does a client that follows the flags do?',
       options: [
         { text: 'SLAAC for its address, and a stateless DHCPv6 Information-request for DNS and other options', correct: true },
@@ -659,7 +659,7 @@ export const IPV6_ASSESSMENT: Assessment = {
       explanation: 'M = addresses from DHCPv6, O = other configuration (DNS, domain search) from DHCPv6.',
     },
     {
-      id: 'v6-q-duid', kind: 'single', level: 'intermediate',
+      id: 'v6-q-duid', kind: 'single', level: 'intermediate', learn: ['lesson/ipv6/internals'],
       prompt: 'How does a DHCPv6 server recognise a client (e.g. for a reservation)?',
       options: [
         { text: 'By its DUID (DHCP Unique Identifier) and the IAID of the identity association', correct: true },
@@ -670,7 +670,7 @@ export const IPV6_ASSESSMENT: Assessment = {
       explanation: 'Cloned VMs with the same stored DUID collide; reinstalling a machine creates a new one.',
     },
     {
-      id: 'v6-q-subnet6', kind: 'text', level: 'advanced',
+      id: 'v6-q-subnet6', kind: 'text', level: 'advanced', learn: ['lesson/ipv6/internals'],
       prompt: 'dhcpd -6 logs "No subnet6 declaration for eth3 (fe80::5054:ff:fea1:4)". VLAN 30 (2001:db8:30::1/64) runs on eth3.30. What should INTERFACESv6 contain?',
       accept: ['eth3.30', 'INTERFACESv6="eth3.30"'], placeholder: 'interface', concepts: ['net.ipv6'],
       explanation: 'dhcpd -6 serves an interface whose global address lies in a subnet6; the VLAN parent eth3 has only a link-local address.',
@@ -683,7 +683,7 @@ export const TLS_ASSESSMENT: Assessment = {
   title: 'TLS and certificates knowledge check',
   questions: [
     {
-      id: 'tls-q-chain', kind: 'single', level: 'beginner',
+      id: 'tls-q-chain', kind: 'single', level: 'beginner', learn: ['lesson/tls/internals'],
       prompt: 'Which certificates should an HTTPS server send in its Certificate message?',
       options: [
         { text: 'Its own certificate followed by the intermediate CA certificate(s)', correct: true },
@@ -695,7 +695,7 @@ export const TLS_ASSESSMENT: Assessment = {
       explanation: 'nginx sends the ssl_certificate file as is, so it must contain the leaf followed by the intermediates (a "full chain").',
     },
     {
-      id: 'tls-q-depth', kind: 'single', level: 'intermediate',
+      id: 'tls-q-depth', kind: 'single', level: 'intermediate', learn: ['lesson/tls/internals'],
       prompt: 'Only Dana\'s new laptop fails. On it, `openssl s_client` shows the exhibit. What is the most likely cause?',
       exhibit: 'depth=1 C = US, O = Corp Lab, CN = Corp Lab Issuing CA 1\nverify error:num=20:unable to get local issuer certificate\nverify return:1\ndepth=0 CN = www.corp.lab\nverify return:1\n---\nCertificate chain\n 0 s:CN = www.corp.lab\n   i:C = US, O = Corp Lab, CN = Corp Lab Issuing CA 1\n 1 s:C = US, O = Corp Lab, CN = Corp Lab Issuing CA 1\n   i:C = US, O = Corp Lab, CN = Corp Lab Root CA',
       options: [
@@ -708,7 +708,7 @@ export const TLS_ASSESSMENT: Assessment = {
       explanation: 'The chain is complete up to the intermediate; the client cannot find its issuer (the root) in its own trust store. Other clients work because they have the root.',
     },
     {
-      id: 'tls-q-san', kind: 'single', level: 'beginner',
+      id: 'tls-q-san', kind: 'single', level: 'beginner', learn: ['lesson/tls/internals'],
       prompt: 'A certificate has CN = www.corp.lab and subjectAltName = DNS:srv01.corp.lab. Does `curl https://www.corp.lab/` accept it?',
       options: [
         { text: 'No: when a subjectAltName is present, clients ignore the CN', correct: true },
@@ -719,7 +719,7 @@ export const TLS_ASSESSMENT: Assessment = {
       explanation: 'curl: "(60) SSL: no alternative certificate subject name matches target host name \'www.corp.lab\'". Request certificates with every name in the SAN.',
     },
     {
-      id: 'tls-q-reload', kind: 'single', level: 'intermediate',
+      id: 'tls-q-reload', kind: 'single', level: 'intermediate', learn: ['lesson/tls/internals'],
       prompt: 'You copied a renewed certificate over the old file but kept the old key, then ran `systemctl reload nginx`. What do clients see?',
       options: [
         { text: 'The old certificate: the reload failed (key values mismatch) and nginx kept its previous configuration', correct: true },
@@ -730,14 +730,14 @@ export const TLS_ASSESSMENT: Assessment = {
       explanation: 'nginx validates the new configuration before switching. Check `nginx -t` and the reload\'s exit status; compare moduli of certificate and key.',
     },
     {
-      id: 'tls-q-match', kind: 'text', level: 'intermediate',
+      id: 'tls-q-match', kind: 'text', level: 'intermediate', learn: ['lesson/tls/internals'],
       prompt: 'Which openssl command prints the modulus of the private key /etc/ssl/private/www.corp.lab.key (to compare it with the certificate\'s)?',
       accept: [/^openssl (rsa|pkey) -in \/etc\/ssl\/private\/www\.corp\.lab\.key (-noout )?-modulus( -noout)?$/, /^openssl (rsa|pkey) -noout -modulus -in \/etc\/ssl\/private\/www\.corp\.lab\.key$/, /^openssl (rsa|pkey) -modulus -noout -in \/etc\/ssl\/private\/www\.corp\.lab\.key$/],
       placeholder: 'openssl ...', concepts: ['tls.pki'],
       explanation: '`openssl rsa -in KEY -noout -modulus` (pipe both into `openssl md5` to compare short hashes with `openssl x509 -in CERT -noout -modulus`).',
     },
     {
-      id: 'tls-q-trust', kind: 'order', level: 'intermediate',
+      id: 'tls-q-trust', kind: 'order', level: 'intermediate', learn: ['lesson/tls/deploy', 'lesson/tls/internals'],
       prompt: 'Put the steps to trust an internal root CA on a Debian client in order.',
       items: [
         'Download the root certificate (PEM)',
@@ -750,7 +750,7 @@ export const TLS_ASSESSMENT: Assessment = {
       explanation: 'The fingerprint check is what makes an HTTP download safe; update-ca-certificates only picks up *.crt files.',
     },
     {
-      id: 'tls-q-k', kind: 'multi', level: 'beginner',
+      id: 'tls-q-k', kind: 'multi', level: 'beginner', learn: ['lesson/tls/internals', 'lesson/tls/troubleshoot'],
       prompt: 'Which of these are acceptable fixes for "unable to get local issuer certificate" on all clients after a renewal? (Select all that apply.)',
       options: [
         { text: 'Install the full chain (certificate + intermediate) on the server and reload', correct: true },
@@ -762,7 +762,7 @@ export const TLS_ASSESSMENT: Assessment = {
       explanation: 'Fix the server, then check what it serves from a clean client.',
     },
     {
-      id: 'tls-q-errors', kind: 'single', level: 'advanced',
+      id: 'tls-q-errors', kind: 'single', level: 'advanced', learn: ['lesson/tls/troubleshoot'],
       prompt: 'curl connects to port 443 and immediately prints "(35) ... wrong version number". What is going on?',
       options: [
         { text: 'The port speaks plain HTTP (no "ssl" on the listen line, or the wrong port)', correct: true },
@@ -773,7 +773,7 @@ export const TLS_ASSESSMENT: Assessment = {
       explanation: 'The client received bytes that are not a TLS record (an HTTP error page). The reverse case, http:// to a TLS port, returns nginx\'s "400 The plain HTTP request was sent to HTTPS port".',
     },
     {
-      id: 'tls-q-sni', kind: 'single', level: 'intermediate',
+      id: 'tls-q-sni', kind: 'single', level: 'intermediate', learn: ['lesson/tls/internals'],
       prompt: 'One nginx server on one IP address serves www.corp.lab and shop.corp.lab with two different certificates. How does it know which certificate to send?',
       options: [
         { text: 'From the SNI extension in the ClientHello, which carries the host name before any certificate is sent', correct: true },
@@ -785,7 +785,7 @@ export const TLS_ASSESSMENT: Assessment = {
       explanation: 'nginx matches the SNI name against server_name to pick the server block (and its ssl_certificate). Clients connecting by IP address send no SNI and get the default server.',
     },
     {
-      id: 'tls-q-ext', kind: 'single', level: 'beginner',
+      id: 'tls-q-ext', kind: 'single', level: 'beginner', learn: ['lesson/tls/internals'],
       prompt: 'You copied corp-root.pem into /usr/local/share/ca-certificates/ and ran update-ca-certificates, which printed "0 added, 0 removed". Why?',
       options: [
         { text: 'Only files ending in .crt are picked up: rename it to corp-root.crt and run it again', correct: true },
@@ -804,19 +804,19 @@ export const MTU_ASSESSMENT: Assessment = {
   title: 'MTU and path MTU discovery knowledge check',
   questions: [
     {
-      id: 'mtu-q-ping', kind: 'text', level: 'beginner',
+      id: 'mtu-q-ping', kind: 'text', level: 'beginner', learn: ['lesson/mtu/internals'],
       prompt: 'Which `-s` value makes `ping -M do -s N` send exactly a 1500-byte IPv4 packet?',
       accept: ['1472'], placeholder: '1472?', concepts: ['net.mtu'],
       explanation: '1472 bytes of data + 8 bytes ICMP header + 20 bytes IPv4 header = 1500.',
     },
     {
-      id: 'mtu-q-mss', kind: 'text', level: 'beginner',
+      id: 'mtu-q-mss', kind: 'text', level: 'beginner', learn: ['lesson/mtu/internals'],
       prompt: 'A host\'s interface MTU is 1492 (PPPoE). Which TCP MSS does it announce for IPv4 connections?',
       accept: ['1452'], placeholder: 'bytes', concepts: ['net.mtu', 'tcp.handshake'],
       explanation: 'MSS = MTU − 20 (IPv4 header) − 20 (TCP header) = 1452. For IPv6 subtract 60: 1432.',
     },
     {
-      id: 'mtu-q-signature', kind: 'single', level: 'intermediate',
+      id: 'mtu-q-signature', kind: 'single', level: 'intermediate', learn: ['lesson/mtu/what', 'lesson/mtu/troubleshoot'],
       prompt: 'ping, DNS, SSH logins and `curl -I` work, but downloads stop at 0 bytes and some HTTPS sites never load. What do you test first?',
       options: [
         { text: 'The largest packet that passes: ping -M do -s 1472, then smaller sizes', correct: true },
@@ -828,7 +828,7 @@ export const MTU_ASSESSMENT: Assessment = {
       explanation: '"Small works, big hangs" is the MTU signature. ping with DF and decreasing sizes finds the limit.',
     },
     {
-      id: 'mtu-q-icmp', kind: 'single', level: 'intermediate',
+      id: 'mtu-q-icmp', kind: 'single', level: 'intermediate', learn: ['lesson/mtu/internals'],
       prompt: 'Which ICMP message makes path MTU discovery work over IPv4?',
       options: [
         { text: 'Type 3 code 4: destination unreachable, fragmentation needed and DF set', correct: true },
@@ -840,7 +840,7 @@ export const MTU_ASSESSMENT: Assessment = {
       explanation: 'It carries the next-hop MTU. IPv6 uses ICMPv6 type 2 (packet too big), and routers never fragment.',
     },
     {
-      id: 'mtu-q-mismatch', kind: 'single', level: 'advanced',
+      id: 'mtu-q-mismatch', kind: 'single', level: 'advanced', learn: ['lesson/mtu/internals'],
       prompt: 'rtr01\'s eth2 is set to MTU 1492; the ISP side of the same link uses 1500. Why does ws01 get no "fragmentation needed" message for downloads from the Internet?',
       options: [
         { text: 'The 1500-byte frames are dropped by rtr01\'s eth2 on receipt; no router forwarding decision happens, so no ICMP is generated', correct: true },
@@ -851,7 +851,7 @@ export const MTU_ASSESSMENT: Assessment = {
       explanation: 'A mismatch on one link is invisible to PMTUD. Fix both ends to the same MTU (or clamp MSS so senders never exceed it).',
     },
     {
-      id: 'mtu-q-clamp', kind: 'single', level: 'advanced',
+      id: 'mtu-q-clamp', kind: 'single', level: 'advanced', learn: ['lesson/mtu/internals'],
       prompt: 'What does `tcp flags syn tcp option maxseg size set rt mtu` in rtr01\'s forward chain do?',
       options: [
         { text: 'Rewrites the MSS option in forwarded SYNs to the route MTU minus 40, so both endpoints send segments that fit', correct: true },
@@ -863,7 +863,7 @@ export const MTU_ASSESSMENT: Assessment = {
       explanation: 'MSS clamping is standard on PPPoE and VPN gateways (Cisco: ip tcp adjust-mss).',
     },
     {
-      id: 'mtu-q-black', kind: 'multi', level: 'intermediate',
+      id: 'mtu-q-black', kind: 'multi', level: 'intermediate', learn: ['lesson/mtu/internals'],
       prompt: 'Which configurations can create a path MTU black hole? (Select all that apply.)',
       options: [
         { text: 'A firewall rule "drop all ICMP" placed before "ct state established,related accept"', correct: true },
@@ -875,7 +875,7 @@ export const MTU_ASSESSMENT: Assessment = {
       explanation: 'The sender must receive the type 3/4 (or ICMPv6 type 2) message; anything that drops it creates a black hole.',
     },
     {
-      id: 'mtu-q-v6', kind: 'single', level: 'intermediate',
+      id: 'mtu-q-v6', kind: 'single', level: 'intermediate', learn: ['lesson/mtu/what'],
       prompt: 'An IPv6 router receives a 1500-byte packet for a link with MTU 1400. What does it do?',
       options: [
         { text: 'Drops it and sends ICMPv6 "packet too big" (type 2) with mtu 1400 to the sender', correct: true },
@@ -887,7 +887,7 @@ export const MTU_ASSESSMENT: Assessment = {
       explanation: 'IPv6 depends entirely on PMTUD (RFC 8201), which is why ICMPv6 type 2 must never be filtered.',
     },
     {
-      id: 'mtu-q-jumbo', kind: 'single', level: 'advanced',
+      id: 'mtu-q-jumbo', kind: 'single', level: 'advanced', learn: ['lesson/mtu/internals'],
       prompt: 'Two backup servers were set to MTU 9000. SSH between them works, but backups hang. `ping -M do -s 8972` between them gets no reply and no error. What is the most likely cause?',
       options: [
         { text: 'A switch between them still forwards only 1500-byte frames and drops the jumbo frames silently', correct: true },
@@ -905,7 +905,7 @@ export const NETIF_ASSESSMENT: Assessment = {
   title: 'Network interfaces and virtual switches knowledge check',
   questions: [
     {
-      id: 'netif-q-flags', kind: 'single', level: 'beginner',
+      id: 'netif-q-flags', kind: 'single', level: 'beginner', learn: ['lesson/netif/internals'],
       prompt: '`ip link` shows `2: eth0: <NO-CARRIER,BROADCAST,MULTICAST,UP> mtu 1500 … state DOWN`. What does that mean?',
       options: [
         { text: 'The interface is administratively up, but there is no link (cable, switch port, or disconnected virtual NIC)', correct: true },
@@ -917,7 +917,7 @@ export const NETIF_ASSESSMENT: Assessment = {
       explanation: 'UP = admin state; LOWER_UP/NO-CARRIER = carrier; "state" = the resulting operstate. Check ethtool (Link detected), the cable/switch port, or the VM\'s NIC connection.',
     },
     {
-      id: 'netif-q-name', kind: 'single', level: 'beginner',
+      id: 'netif-q-name', kind: 'single', level: 'beginner', learn: ['lesson/netif/internals'],
       prompt: 'After moving a Debian VM to Proxmox, `ip -br link` lists `lo` and `ens18`, and `journalctl -u networking -b` says `Cannot find device "eth0"`. What is the fix?',
       options: [
         { text: 'Change eth0 to ens18 in /etc/network/interfaces (and other files that name the interface), then restart networking', correct: true },
@@ -929,13 +929,13 @@ export const NETIF_ASSESSMENT: Assessment = {
       explanation: 'Predictable names depend on the virtual hardware (virtio in PCI slot 18 → ens18). Update every reference, or pin a name by MAC with a systemd .link file.',
     },
     {
-      id: 'netif-q-prefix', kind: 'text', level: 'intermediate',
+      id: 'netif-q-prefix', kind: 'text', level: 'intermediate', learn: ['lesson/netif/internals'],
       prompt: 'Which naming prefix does systemd-udevd use for an Ethernet NIC named after its PCI bus and slot location, as in enp1s0? (two letters plus one letter, e.g. "xxy")',
       accept: ['enp'], placeholder: 'en?', concepts: ['net.interfaces'],
       explanation: 'en = Ethernet; p<bus>s<slot> = PCI location (enp1s0). Others: eno1 (onboard index), ens18 (hot-plug slot), enx<MAC>.',
     },
     {
-      id: 'netif-q-bridge', kind: 'single', level: 'intermediate',
+      id: 'netif-q-bridge', kind: 'single', level: 'intermediate', learn: ['lesson/netif/internals'],
       prompt: 'srv01 and rtr01 both show LOWER_UP and correct addresses, but ARP between them fails. On sw01, `bridge link` lists every port except swp6 (srv01\'s port). Why?',
       options: [
         { text: 'swp6 is not a member of br0: it has carrier, but the bridge never forwards its frames', correct: true },
@@ -947,7 +947,7 @@ export const NETIF_ASSESSMENT: Assessment = {
       explanation: 'bridge link lists only member ports. Add swp6 back to bridge-ports and run ifreload -a; then bridge vlan show and bridge fdb show confirm VLAN 20 and srv01\'s MAC.',
     },
     {
-      id: 'netif-q-types', kind: 'multi', level: 'intermediate',
+      id: 'netif-q-types', kind: 'multi', level: 'intermediate', learn: ['lesson/netif/what'],
       prompt: 'Which of these interfaces are virtual (created in software, not backed by a NIC)? (Select all that apply.)',
       options: [
         { text: 'dummy0', correct: true },
@@ -960,7 +960,7 @@ export const NETIF_ASSESSMENT: Assessment = {
       explanation: 'Dummy, bridge, veth and VLAN interfaces are created with ip link add (or the network configuration). The guest\'s virtio NIC is a device with a driver like any physical NIC.',
     },
     {
-      id: 'netif-q-hyperv', kind: 'single', level: 'intermediate',
+      id: 'netif-q-hyperv', kind: 'single', level: 'intermediate', learn: ['lesson/netif/internals'],
       prompt: 'A Hyper-V VM can reach the host and other VMs, but nothing on the physical network. Which switch type is it most likely connected to?',
       options: [
         { text: 'An Internal virtual switch', correct: true },
@@ -971,7 +971,7 @@ export const NETIF_ASSESSMENT: Assessment = {
       explanation: 'External = VMs + host + physical network; Internal = VMs + host; Private = VMs only.',
     },
     {
-      id: 'netif-q-bond', kind: 'single', level: 'advanced',
+      id: 'netif-q-bond', kind: 'single', level: 'advanced', learn: ['lesson/netif/internals'],
       prompt: 'A server bond uses `bond-mode 802.3ad`. `/proc/net/bonding/bond0` shows both slaves "MII Status: up" but "Partner Mac Address: 00:00:00:00:00:00". What is missing?',
       options: [
         { text: 'A matching LACP port-channel (LAG) on the switch ports', correct: true },
@@ -983,7 +983,7 @@ export const NETIF_ASSESSMENT: Assessment = {
       explanation: '802.3ad needs LACP on both ends. Without a partner, the bond does not aggregate; use active-backup if the switch cannot do LACP.',
     },
     {
-      id: 'netif-q-order', kind: 'order', level: 'intermediate',
+      id: 'netif-q-order', kind: 'order', level: 'intermediate', learn: ['lesson/netif/troubleshoot'],
       prompt: 'Order the checks for "server unreachable, console works" from the bottom up.',
       items: [
         'Does the configured interface exist? (ip -br link)',

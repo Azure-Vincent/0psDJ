@@ -54,7 +54,7 @@ Here is what happens for dev02 on VLAN 30:
 
 What this means when you troubleshoot:
 - The server needs a **subnet declaration for every network it serves through a relay**, even though it has no interface there. Without one, it logs \`DHCPDISCOVER from … via 10.0.30.1: unknown network segment\` and does not answer.
-- The relay must point at the right server (\`SERVERS\` in /etc/default/isc-dhcp-relay) and must be able to receive the replies on the server side. ISC dhcrelay 4.4 takes \`-id\` for the **downstream** interfaces (towards the clients) and \`-iu\` for the **upstream** interface (towards the server). A plain list of interfaces makes it relay in both directions, including broadcasts from the server's own network.
+- The relay must point at the right server (\`SERVERS\` in /etc/default/isc-dhcp-relay) and must be able to receive the replies on the server side. ISC dhcrelay 4.4 takes \`-id\` for the **downstream** interfaces (towards the clients) and \`-iu\` for the **upstream** interface (towards the server). A plain list of interfaces makes it relay in both directions, including broadcasts from the server's own network. The upstream side matters for the **replies**: with \`-iu eth0\`, dhcrelay reads them on eth0 with a packet socket, before the host firewall. Without \`-iu\`, the replies only reach its fallback UDP socket on port 67, which the host firewall filters like any other port: if rtr01's input chain does not allow UDP 67, the OFFER arrives at the router and goes no further.
 - Once a client has an address, **renewals do not go through the relay**: the client sends them straight to the server (by unicast), routed like any other packet.
 
 ### DHCP software and host firewalls
@@ -100,7 +100,7 @@ So a typo in \`option routers\` gives clients an address but no working gateway,
 ### Ports and security
 Servers and relays use UDP 67, clients UDP 68. Document these ports in your firewall policy, and open them for DHCP servers that use ordinary UDP sockets (such as Kea with \`"dhcp-socket-type": "udp"\`), but remember that ISC's programs bypass the input chain as described above.
 
-DHCP has **no authentication**: any device on the network can answer a DISCOVER. A **rogue DHCP server** (a home router plugged into the office network by mistake, or an attacker) can hand out its own gateway and DNS server and so redirect traffic. Managed switches protect against this with **DHCP snooping**: only trusted ports are allowed to send OFFER and ACK messages.
+DHCP has **no authentication**: any device on the network can answer a DISCOVER. A **rogue DHCP server** (a home router plugged into the office network by mistake, or an attacker) can hand out its own gateway and DNS server and so redirect traffic. Managed switches protect against this with **DHCP snooping**: only trusted ports are allowed to send OFFER and ACK messages. In an Active Directory domain, Windows DHCP servers must also be **authorised** in AD, and an unauthorised Windows DHCP server refuses to hand out addresses. That only stops Windows servers: a home router or a Linux box does not check AD, so snooping is still needed.
 `,
 
   deployment: [

@@ -4,7 +4,7 @@ import { ALL_SCENARIOS } from '../../engine/scenarios';
 import type { ConceptId } from '../../engine/scenarios/types';
 import { CAUSES } from '../../engine/scenarios/catalog';
 import { mastery } from '../../learning/progress';
-import { SECTIONS } from './LessonPage';
+import { SECTIONS } from '../sections';
 import { go, useProgress } from '../state';
 
 function misconceptionText(m: string): string | null {

@@ -233,6 +233,19 @@ So before restarting, ask: "Do I know what is wrong, and does it live in memory 
 `,
 
   internals: `
+### A safe change, step by step
+The habits listed in the overview fit together in a fixed order. Example: changing sshd's configuration on a remote server you reach over SSH.
+1. **Record the effective state** (\`sshd -T > /root/sshd-before.txt\`), so you can compare later.
+2. **Back up the file** with a timestamp (\`cp -a /etc/ssh/sshd_config /root/sshd_config.2026-10-21-0930\`).
+3. **Edit** the file.
+4. **Validate** it without applying it (\`sshd -t\`). Fix any error before going on.
+5. **Arm an automatic rollback** *before* the risky step, so a lock-out undoes itself: \`systemd-run --on-active=5min sh -c 'cp /root/sshd_config.2026-10-21-0930 /etc/ssh/sshd_config && systemctl reload ssh'\`.
+6. **Apply** the change in the gentlest way (\`systemctl reload ssh\`, not restart).
+7. **Test with a new connection** from a client, keeping your current session open. Your open session proves nothing: it was set up under the old rules.
+8. **Cancel the rollback** (\`systemctl stop run-r….timer\`) and **document** the change. Cancel only now: cancelling earlier removes your safety net, and forgetting to cancel undoes your good change.
+
+The same eight steps apply to a firewall (\`nft list ruleset\`, \`nft -c -f\`, \`systemctl reload nftables\`), a web server (\`nginx -T\`, \`nginx -t\`) or a network change, where \`netplan try\` combines steps 5 and 6: it applies the change and reverts it automatically unless you confirm in time. Testing from a new connection before you confirm, and documenting the change, are still up to you.
+
 ### Runtime state versus persistent state
 Every system has two copies of its configuration: the **files on disk** and the **state loaded in memory**. They agree only when someone has loaded the files and nobody has changed the running state since.
 
@@ -262,10 +275,10 @@ Lab examples:
 ### Why a restart can "fix" things without fixing them
 A restart resets **runtime state**. If the fault lives in runtime state, the symptom goes away, and comes back when the state builds up again:
 - **Memory leak**: the process grows until it is killed or swaps; a restart frees the memory and the clock starts again.
-- **Disk full**: a daemon holds a deleted (but still open) log file; restarting it closes the file and the space reappears, until the log fills it again. \`lsof +L1\` shows such files.
+- **Disk full**: a daemon holds a deleted (but still open) log file; restarting it closes the file and the space reappears, until the log fills it again. \`lsof +L1\` shows such files. The permanent fix is log rotation that tells the daemon to **reopen** its log files after rotating them (logrotate's \`postrotate\` step, for nginx \`nginx -s reopen\`), plus monitoring of disk usage, so the restart is never needed.
 - **DHCP**: renewing a lease on one client works while the pool is exhausted for new clients.
 - **Runtime-only configuration**: a restart (or reboot) can also *remove* a working runtime change, which is the opposite surprise.
-- **Flapping**: \`Restart=on-failure\` (Linux) or service recovery actions (Windows) restart a crashing service automatically. Users notice nothing until the start limit is hit: "Start request repeated too quickly".
+- **Flapping**: \`Restart=on-failure\` (Linux) or service recovery actions (Windows) restart a crashing service automatically. Users notice only short outages until the start limit is hit: "Start request repeated too quickly". Then find out **why** it dies instead of restarting it again. \`status=9/KILL\` means the process was killed with SIGKILL; when nobody did that by hand, it is usually the kernel's OOM killer ending a process that used too much memory (\`journalctl -k | grep -i oom\`). \`systemctl show app -p NRestarts\` shows how often systemd restarted it.
 - **Cleared caches and connections**: a restart drops stuck connections, cached negative DNS answers, or a deadlock, without explaining why they happened.
 
 If a restart "fixes" something, ask *what state did the restart reset?* That state, and why it went bad, is the cause.
@@ -470,6 +483,7 @@ export const RECOVERY_ASSESSMENT: Assessment = {
       id: 'recovery-q-order',
       kind: 'order',
       level: 'beginner',
+      learn: ['lesson/recovery/internals'],
       prompt: 'You must add a rule to srv01\'s firewall over SSH. Put the steps of a safe change in order.',
       items: [
         'Record the effective state (nft list ruleset) as a baseline',
@@ -488,6 +502,7 @@ export const RECOVERY_ASSESSMENT: Assessment = {
       id: 'recovery-q-monday',
       kind: 'single',
       level: 'intermediate',
+      learn: ['lesson/recovery/internals'],
       prompt: 'Monday after a patch reboot, SSH to srv01 times out. Last Wednesday an admin "fixed SSH quickly" after rewriting /etc/nftables.conf. What do these outputs show?',
       exhibit: '# history | grep nft   (Wednesday)\nnft -f /etc/nftables.conf\nnft add rule inet filter input tcp dport 22 accept\n\n# grep -c "dport 22" /etc/nftables.conf\n0',
       options: [
@@ -503,6 +518,7 @@ export const RECOVERY_ASSESSMENT: Assessment = {
       id: 'recovery-q-reload',
       kind: 'single',
       level: 'intermediate',
+      learn: ['lesson/recovery/internals'],
       prompt: 'An admin added a line to an sshd drop-in and ran `systemctl reload ssh` on Debian 12. Users with open sessions notice nothing. What is the state of SSH now?',
       exhibit: '     Active: active (running) since Mon 2026-10-19 07:58:05 UTC; 35min ago\n    Process: 405 ExecStartPre=/usr/sbin/sshd -t (code=exited, status=0/SUCCESS)\n   Main PID: 407 (sshd)\n...\nsshd[431]: /etc/ssh/sshd_config.d/10-hardening.conf line 5: Bad configuration option: PubkeyAuthentcation\nsystemd[1]: ssh.service: Control process exited, code=exited, status=255/EXCEPTION\nsystemd[1]: Reload failed for ssh.service - OpenBSD Secure Shell server.',
       options: [
@@ -518,6 +534,7 @@ export const RECOVERY_ASSESSMENT: Assessment = {
       id: 'recovery-q-persistent',
       kind: 'multi',
       level: 'beginner',
+      learn: ['lesson/recovery/internals'],
       prompt: 'Which of these changes survive a reboot without any further action? (Select all that apply.)',
       options: [
         { text: 'Adding a rule to /etc/nftables.conf and running systemctl reload nftables (nftables.service enabled)', correct: true },
@@ -534,6 +551,7 @@ export const RECOVERY_ASSESSMENT: Assessment = {
       id: 'recovery-q-disk',
       kind: 'single',
       level: 'intermediate',
+      learn: ['lesson/recovery/internals'],
       prompt: 'nginx on a server stops answering every few days. Each time, restarting it "fixes" the problem. During the last incident you saw the following. What is the best classification of "restart nginx"?',
       exhibit: '$ df -h /var\nFilesystem      Size  Used Avail Use% Mounted on\n/dev/vda1        20G   20G     0 100% /\n$ sudo lsof +L1 | head -3\nCOMMAND  PID     USER   FD   TYPE DEVICE   SIZE/OFF NLINK  NODE NAME\nnginx    812 www-data    5w   REG  254,1 9663676416     0 39321 /var/log/nginx/access.log.1 (deleted)',
       options: [
@@ -549,6 +567,7 @@ export const RECOVERY_ASSESSMENT: Assessment = {
       id: 'recovery-q-workaround-dns',
       kind: 'single',
       level: 'intermediate',
+      learn: ['lesson/recovery/troubleshoot'],
       prompt: 'In the `case-no-internet` ticket, srv01 could not reach the update mirror. Before you arrived, a colleague set `nameserver 8.8.8.8` in srv01\'s /etc/resolv.conf "in case it was DNS". You found and fixed the real cause (NAT on rtr01). What should happen to the resolver change?',
       options: [
         { text: 'Leave it: public DNS is more reliable.', misconception: '8.8.8.8 does not know corp.lab, so internal names (ns1.corp.lab, the database) stop resolving. The workaround added a second fault.' },
@@ -563,6 +582,7 @@ export const RECOVERY_ASSESSMENT: Assessment = {
       id: 'recovery-q-rollback-cmd',
       kind: 'text',
       level: 'advanced',
+      learn: ['lesson/recovery/internals', 'lesson/recovery/operate'],
       prompt: 'Before reloading a new firewall on a remote Debian server, you want systemd to load the backup /root/nftables.conf.bak automatically in 5 minutes unless you cancel it. Type the command.',
       accept: [/^(sudo\s+)?systemd-run\s+--on-active=(5min|5m|300s?|"5min"|'5min')\s+(\/usr\/sbin\/)?nft\s+-f\s+\/root\/nftables\.conf\.bak$/],
       placeholder: 'command',
@@ -573,6 +593,7 @@ export const RECOVERY_ASSESSMENT: Assessment = {
       id: 'recovery-q-access',
       kind: 'multi',
       level: 'intermediate',
+      learn: ['lesson/recovery/what', 'lesson/recovery/operate'],
       prompt: 'You are about to change the address and gateway of eth0 on a remote server, and your SSH session runs over eth0. Which measures actually protect you from a lock-out? (Select all that apply.)',
       options: [
         { text: 'Open the hypervisor console or iLO/iDRAC before starting', correct: true },
@@ -588,6 +609,7 @@ export const RECOVERY_ASSESSMENT: Assessment = {
       id: 'recovery-q-reverse-deps',
       kind: 'text',
       level: 'intermediate',
+      learn: ['lesson/recovery/internals'],
       prompt: 'Before restarting nftables on srv01, you want to see which units depend on nftables.service (the units that would be affected). Type the systemctl command.',
       accept: [/^(sudo\s+)?systemctl\s+list-dependencies\s+--reverse\s+nftables(\.service)?$/, /^(sudo\s+)?systemctl\s+list-dependencies\s+nftables(\.service)?\s+--reverse$/],
       placeholder: 'command',
@@ -598,6 +620,7 @@ export const RECOVERY_ASSESSMENT: Assessment = {
       id: 'recovery-q-flapping',
       kind: 'single',
       level: 'advanced',
+      learn: ['lesson/recovery/internals'],
       prompt: 'Monitoring shows the app "up" all week, but users report short outages several times a day. Then this appears. What does it tell you?',
       exhibit: 'systemd[1]: app.service: Main process exited, code=killed, status=9/KILL\nsystemd[1]: app.service: Failed with result \'signal\'.\nsystemd[1]: app.service: Scheduled restart job, restart counter is at 5.\nsystemd[1]: app.service: Start request repeated too quickly.\nsystemd[1]: app.service: Failed with result \'signal\'.\nsystemd[1]: Failed to start app.service - Example App.',
       options: [
@@ -613,6 +636,7 @@ export const RECOVERY_ASSESSMENT: Assessment = {
       id: 'recovery-q-validate',
       kind: 'single',
       level: 'beginner',
+      learn: ['lesson/recovery/what'],
       prompt: 'Which command checks /etc/nftables.conf for errors **without** changing the loaded ruleset?',
       options: [
         { text: 'nft -c -f /etc/nftables.conf', correct: true },
@@ -627,6 +651,7 @@ export const RECOVERY_ASSESSMENT: Assessment = {
       id: 'recovery-q-incident',
       kind: 'single',
       level: 'intermediate',
+      learn: ['lesson/recovery/troubleshoot'],
       prompt: 'In an incident record for `ssh-monday-reboot`, which entry belongs under **contributing factors** rather than **root cause**?',
       options: [
         { text: 'The SSH allow rule existed only in the runtime ruleset and ssh.service was disabled.', misconception: 'That is the technical root cause: the direct reason SSH failed after the reboot.' },

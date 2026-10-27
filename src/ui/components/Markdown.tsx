@@ -79,6 +79,8 @@ export function Markdown({ text }: { text: string }) {
       while (i < lines.length) {
         const l = lines[i];
         if (ordered && /^- /.test(l) && items.length) { items[items.length - 1].sub.push(l.slice(2)); i++; continue; }
+        // In either kind of list, an indented "  - " line is a sub-point of the item above it.
+        if (/^ {2,}- /.test(l) && items.length) { items[items.length - 1].sub.push(l.trim().slice(2)); i++; continue; }
         if (ordered ? /^\d+\. /.test(l) : /^- /.test(l)) { items.push({ text: l.replace(/^(- |\d+\. )/, ''), sub: [] }); i++; continue; }
         if (ordered && l.trim() === '' && Number(/^(\d+)\. /.exec(lines[i + 1] ?? '')?.[1]) === start + items.length) { i++; continue; }
         break;

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { ASSESSMENTS, getLesson } from '../../content/lessons';
 import { CURRICULUM } from '../../content/curriculum';
 import type { Lesson, Section } from '../../content/types';
+import { SECTIONS } from '../sections';
 import { DHCP_RUNS, FIREWALL_RUNS, IP_RUNS, IPV6_RUNS, KRB_RUNS, MTU_RUNS, NAT_RUNS, TLS_RUNS, TRANSPORT_RUNS, VLAN_RUNS } from '../../engine/lab/visualRuns';
 import { OUTCOME_LABELS, SSH_DEPENDENCIES, freshLab, runWithFault } from '../../engine/lab/dependencies';
 import { ALL_SCENARIOS } from '../../engine/scenarios';
@@ -29,16 +30,6 @@ import type { TermSpec } from '../components/LabTerminals';
 import type { ReactNode } from 'react';
 import { go, routeQuery, useProgress } from '../state';
 
-export const SECTIONS: Section[] = [
-  { id: 'what', title: 'What is it?', short: 'Overview' },
-  { id: 'internals', title: 'How it works' },
-  { id: 'visualize', title: 'Visualize' },
-  { id: 'deploy', title: 'Deploy' },
-  { id: 'config', title: 'Configuration', short: 'Config' },
-  { id: 'operate', title: 'Operate & recover', short: 'Operate' },
-  { id: 'troubleshoot', title: 'Troubleshooting', short: 'Troubleshoot' },
-  { id: 'assess', title: 'Assessment' },
-];
 
 function SshVisualize() {
   const q = routeQuery();
@@ -570,7 +561,7 @@ export function LessonPage({ lessonId, section }: { lessonId: string; section: s
         <>
           {L.primer && <PrimerChecks p={L.primer} />}
           {L.primer && <h2>Graded assessment</h2>}
-          <AssessmentView assessment={ASSESSMENTS[L.assessmentId]} />
+          <AssessmentView assessment={ASSESSMENTS[L.assessmentId]} lessonId={L.id} />
         </>
       )}
     </div>

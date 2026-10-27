@@ -49,7 +49,7 @@ Before any data flows, client and server agree to talk. This takes three packets
 
 Two things can go wrong here, and they look different:
 - **Nothing is listening** on that port: the server's kernel answers the SYN with a reset (**RST, ACK**). The client fails at once with **ECONNREFUSED: "Connection refused"**.
-- **Nothing answers at all** (a firewall drops the packet, or there is no route back): Linux resends the SYN after 1, 2, 4, 8, 16 and 32 seconds (\`net.ipv4.tcp_syn_retries = 6\`) and gives up after about 127 seconds with **ETIMEDOUT: "Connection timed out"**. Most programs give up sooner with their own timeout (\`ssh -o ConnectTimeout\`, \`curl -m\`, \`nc -w\`).
+- **Nothing answers at all** (a firewall drops the packet, or there is no route back): Linux resends the SYN after 1, 2, 4, 8, 16 and 32 seconds (\`net.ipv4.tcp_syn_retries = 6\`) and gives up after about 127 seconds with **ETIMEDOUT: "Connection timed out"**. Where does 127 come from? The wait doubles after every attempt, starting at 1 second: 1 + 2 + 4 + 8 + 16 + 32 seconds between the seven SYNs, plus a last 64-second wait for an answer to the final one: 1 + 2 + 4 + 8 + 16 + 32 + 64 = 127. With a different \`tcp_syn_retries\`, add up the doubling waits in the same way (one wait per retry, plus the final one). Most programs give up sooner with their own timeout (\`ssh -o ConnectTimeout\`, \`curl -m\`, \`nc -w\`).
 
 So "refused" means a computer answered and said no; "timed out" means nobody answered at all. That difference tells you where to look.
 

@@ -271,6 +271,9 @@ export interface CertExam {
 
 // --- Assessments --------------------------------------------------------------
 
+/** A lesson section that teaches part of an assessment (lesson id, then a section other than the assessment itself). */
+export type LearnRoute = `lesson/${string}/${Exclude<Section['id'], 'assess'>}`;
+
 interface QuestionBase {
   id: string;
   prompt: RichText;
@@ -279,6 +282,8 @@ interface QuestionBase {
   concepts: ConceptId[];
   explanation: RichText;
   level: Level;
+  /** Lesson sections (routes such as lesson/ipnet/internals) that teach what is needed to work out the answer. */
+  learn?: LearnRoute[];
 }
 
 export interface SingleChoice extends QuestionBase {

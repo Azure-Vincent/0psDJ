@@ -162,6 +162,19 @@ describe('curriculum', () => {
   });
 });
 
+describe('assessment questions', () => {
+  it('every question links to the lesson sections that teach it', () => {
+    for (const A of Object.values(ASSESSMENTS)) for (const q of A.questions) {
+      expect(q.learn?.length ?? 0, `${q.id} has no learn links`).toBeGreaterThan(0);
+      for (const r of q.learn ?? []) {
+        const [head, , sec] = r.split('/');
+        expect(head === 'lesson' && SECTIONS.has(sec) && sec !== 'assess', `${q.id} → ${r}`).toBe(true);
+        expect(routeOk(r), `${q.id} → ${r}`).toBeNull();
+      }
+    }
+  });
+});
+
 describe('in-text links', () => {
   it('every [label](#/route) in lessons, tickets, labs and case studies points to an existing page', () => {
     const text = JSON.stringify([LESSONS, ALL_SCENARIOS, GUIDED_LABS.map(({ build: _b, ...l }) => ({ ...l, steps: l.steps.map((s) => ({ ...s, check: undefined, solution: undefined })) })), CASE_STUDIES]);

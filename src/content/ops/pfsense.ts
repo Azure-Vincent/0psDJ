@@ -201,7 +201,7 @@ The lab's perimeter firewall **fw01** is a simulated pfSense CE 2.7.2: WAN \`vtn
 
   internals: `
 ### Interfaces: physical, logical and VLAN
-pfSense separates the **physical** interface (driver name + unit: \`vtnet0\` on KVM/Proxmox VirtIO, \`igb0\`/\`igc0\` on Intel NICs, \`em0\` on e1000, \`vmx0\` on VMware) from the **logical** name used everywhere in the GUI and config: \`wan\`, \`lan\`, \`opt1\`, \`opt2\`… (you can add a description such as DEV). Rules, DHCP and NAT refer to the logical name, so if an assignment changes, all of them silently follow the new NIC.
+pfSense separates the **physical** interface (driver name + unit: \`vtnet0\` on KVM/Proxmox VirtIO, \`igb0\`/\`igc0\` on Intel NICs, \`em0\` on e1000, \`vmx0\` on VMware) from the **logical** name used everywhere in the GUI and config: \`wan\`, \`lan\`, \`opt1\`, \`opt2\`… (you can add a description such as DEV). Rules, DHCP and NAT refer to the logical name, so if an assignment changes, all of them silently follow the new NIC. The other way round: if the **physical** names in config.xml no longer exist (for example the VM's NICs were changed from e1000 \`em0\`/\`em1\` to VirtIO \`vtnet0\`/\`vtnet1\`), pfSense stops at boot with an interface-assignment prompt, because it cannot find the NICs it was told to use. Assign the new NICs to WAN and LAN (console option 1); rules, DHCP and NAT follow the logical names, so the rest of the configuration is kept.
 - Assign at **Interfaces > Assignments**, or from the console with **option 1 "Assign Interfaces"** (it first asks "Should VLANs be set up now?", then which NIC is WAN, LAN and optional interfaces).
 - Address them with **option 2 "Set interface(s) IP address"** (also offers to enable DHCP on LAN and to revert the GUI to HTTP) or at Interfaces > (name).
 - A **VLAN** is created at Interfaces > Assignments > VLANs (parent \`vtnet1\`, tag 30), which creates \`vtnet1.30\`; it must then be **assigned** (becomes OPTx), **enabled**, and given an address. The parent carries untagged LAN traffic and the tagged VLANs on the same wire, so the switch port must be a trunk.
@@ -225,7 +225,7 @@ Diagnostics > Routes (or \`netstat -rn -f inet\` in the shell) shows the FreeBSD
 
 ### NAT
 - **Outbound NAT** (Firewall > NAT > Outbound) rewrites the source of traffic leaving a WAN-type interface. Modes: **Automatic** (generated mappings for every internal subnet), **Hybrid** (your manual mappings first, then automatic ones), **Manual** (only your mappings; when you switch to Manual the current automatic ones are copied, but **subnets added later are not**), **Disabled**.
-- **Port Forward** (destination NAT, \`rdr\`) translates inbound WAN traffic to an internal host. The rdr happens before filtering, so the filter rule must match the **internal** address and port: use "Add associated filter rule".
+- **Port Forward** (destination NAT, \`rdr\`) translates inbound WAN traffic to an internal host. The rdr happens before filtering, so the filter rule must match the **internal** address and port: use "Add associated filter rule". With Filter rule association "None", no pass rule exists and the forwarded traffic hits the default deny. Two more things must be true: the WAN rule **Block private networks** drops sources from 10.x, 172.16–31.x and 192.168.x before any of your rules, so a test from a private upstream network fails while the Internet works; and the internal server must send its **replies back through pfSense** (its default gateway must be pfSense), otherwise they never pass the state that would translate them back.
 - **NAT reflection** lets internal clients use the public address of a port forward (System > Advanced > Firewall & NAT, disabled by default). Split DNS (a DNS Resolver host override pointing to the internal address) is usually cleaner.
 - **1:1 NAT** maps a whole external address to one internal address in both directions.
 
@@ -249,6 +249,17 @@ Oct 21 09:14:02 pfSense filterlog[40312]: 5,,,1000000103,vtnet1.30,match,block,i
 
 ### config.xml: the single source of truth
 Everything above is stored in \`/cf/conf/config.xml\`. The GUI validates input, writes the file, keeps the previous version in \`/cf/conf/backup/\` (Diagnostics > Backup & Restore > Config History), and then reloads the affected subsystem, which **regenerates** the real configuration (\`/tmp/rules.debug\`, \`/var/unbound/unbound.conf\`, \`/var/dhcpd/etc/dhcpd.conf\`…). Editing those generated files is pointless (they are overwritten); editing config.xml by hand skips validation and history, is not applied until the subsystem reloads, is shadowed by \`/tmp/config.cache\`, and an XML error can stop the next boot. If a hand edit is truly unavoidable: back up the file, edit, \`rm /tmp/config.cache\`, then reload the subsystem or reboot.
+
+### Which action applies which change
+Each part of pfSense is applied by its own action, so choose the smallest one that covers your change:
+| You changed | Smallest action that applies it |
+|---|---|
+| Firewall rules, aliases or NAT | **Apply Changes** / filter reload (existing states are kept) |
+| A service's settings (DNS Resolver, DHCP server, a VPN) | **Restart that service** (Status > Services, or \`pfSsh.php playback svc restart NAME\`) |
+| An interface's address or VLAN | **Apply** on that interface |
+| Nothing is wrong with the config, but one host keeps an old connection | **Kill that host's states** (\`pfctl -k ADDRESS\`) |
+| Hardware, a kernel tunable, or something the GUI says needs it | **Reboot**, in a maintenance window |
+Restarting a service also clears its runtime data: restarting unbound empties its DNS cache, restarting a VPN server disconnects its clients. Clients may still cache an old DNS answer until its TTL expires.
 `,
 
   deployment: [
@@ -417,6 +428,7 @@ export const PFSENSE_ASSESSMENT: Assessment = {
       id: 'pfsense-q-new-opt',
       kind: 'single',
       level: 'beginner',
+      learn: ['lesson/pfsense/internals'],
       prompt: 'You created VLAN 30, assigned it as OPT1 "DEV" with 10.0.30.1/24 and enabled DHCP. Clients get leases but cannot even ping 10.0.30.1. The firewall log shows the entries below. What is the cause?',
       exhibit: 'Oct 21 09:14:02  DEV  Default deny rule IPv4 (1000000103)  10.0.30.25  10.0.30.1  ICMP\nOct 21 09:14:05  DEV  Default deny rule IPv4 (1000000103)  10.0.30.25:51514  10.0.20.10:443  TCP:S',
       options: [
@@ -432,6 +444,7 @@ export const PFSENSE_ASSESSMENT: Assessment = {
       id: 'pfsense-q-ingress',
       kind: 'single',
       level: 'beginner',
+      learn: ['lesson/pfsense/internals'],
       prompt: 'You want to stop hosts in VLAN 30 (OPT1) from reaching the office LAN 10.0.10.0/24. On which rules tab do you add the block rule?',
       options: [
         { text: 'OPT1 (DEV), above the rule that passes DEV to any', correct: true },
@@ -446,6 +459,7 @@ export const PFSENSE_ASSESSMENT: Assessment = {
       id: 'pfsense-q-manual-nat',
       kind: 'single',
       level: 'intermediate',
+      learn: ['lesson/pfsense/internals'],
       prompt: 'A new subnet 10.0.30.0/24 can reach the servers but not the Internet. The OPT1 rule passes to any. Outbound NAT is in **Manual** mode with the mappings shown. A capture on WAN shows `IP 10.0.30.25.51514 > 203.0.113.80.443: Flags [S]`. What is wrong?',
       exhibit: 'Firewall > NAT > Outbound   Mode: Manual Outbound NAT rule generation\nInterface  Source          Translation\nWAN        10.0.10.0/24    WAN address\nWAN        10.0.20.0/24    WAN address',
       options: [
@@ -461,6 +475,7 @@ export const PFSENSE_ASSESSMENT: Assessment = {
       id: 'pfsense-q-states',
       kind: 'single',
       level: 'intermediate',
+      learn: ['lesson/pfsense/internals'],
       prompt: 'You add a block rule for 10.0.30.25 on OPT1 and click Apply Changes. The user\'s existing SSH session to srv01 keeps working, while new connections are blocked. Why, and what is the targeted fix?',
       options: [
         { text: 'The established connection matches an existing state; kill that host\'s states (Diagnostics > States or pfctl -k 10.0.30.25)', correct: true },
@@ -475,6 +490,7 @@ export const PFSENSE_ASSESSMENT: Assessment = {
       id: 'pfsense-q-portforward',
       kind: 'multi',
       level: 'intermediate',
+      learn: ['lesson/pfsense/internals'],
       prompt: 'A port forward WAN TCP 443 → 10.0.20.10:443 does not work when tested from a laptop on the upstream network 192.168.1.0/24 (the lab WAN is 192.168.1.50). Which of these can cause it? (Select all that apply.)',
       options: [
         { text: '"Block private networks and loopback addresses" is enabled on WAN', correct: true },
@@ -490,6 +506,7 @@ export const PFSENSE_ASSESSMENT: Assessment = {
       id: 'pfsense-q-filterlog',
       kind: 'single',
       level: 'intermediate',
+      learn: ['lesson/pfsense/internals'],
       prompt: 'Read this raw line from `/var/log/filter.log`. What happened?',
       exhibit: 'Oct 21 09:20:11 pfSense filterlog[40312]: 5,,,1000000103,vtnet1.30,match,block,in,4,0x0,,64,51344,0,DF,6,tcp,60,10.0.30.25,10.0.20.10,51514,443,0,S,3912442117,,64240,,mss;sackOK;TS;nop;wscale',
       options: [
@@ -505,6 +522,7 @@ export const PFSENSE_ASSESSMENT: Assessment = {
       id: 'pfsense-q-lockout-order',
       kind: 'order',
       level: 'advanced',
+      learn: ['lesson/pfsense/operate'],
       prompt: 'You disabled the anti-lockout rule and saved a LAN rule change that blocks your admin PC from the webConfigurator. Put the recovery steps in order (console access is available).',
       items: [
         'Open the console and choose option 8 (Shell)',
@@ -520,6 +538,7 @@ export const PFSENSE_ASSESSMENT: Assessment = {
       id: 'pfsense-q-config-xml',
       kind: 'multi',
       level: 'intermediate',
+      learn: ['lesson/pfsense/internals'],
       prompt: 'Why is editing `/cf/conf/config.xml` by hand discouraged? (Select all that apply.)',
       options: [
         { text: 'It bypasses the GUI validation and an XML error can prevent the next boot', correct: true },
@@ -534,6 +553,7 @@ export const PFSENSE_ASSESSMENT: Assessment = {
       id: 'pfsense-q-actions',
       kind: 'single',
       level: 'intermediate',
+      learn: ['lesson/pfsense/internals'],
       prompt: 'You changed only the DNS Resolver host overrides and clients still get the old answer. Which action is proportionate?',
       options: [
         { text: 'Restart the unbound service (Status > Services, or pfSsh.php playback svc restart unbound)', correct: true },
@@ -548,6 +568,7 @@ export const PFSENSE_ASSESSMENT: Assessment = {
       id: 'pfsense-q-dns-refused',
       kind: 'single',
       level: 'advanced',
+      learn: ['lesson/pfsense/troubleshoot'],
       prompt: 'Clients on 10.0.40.0/24, behind a router reached via a static route on LAN, get the answer below from pfSense. Clients on LAN resolve fine. What is the cause?',
       exhibit: '$ dig @10.0.10.1 example.com\n;; ->>HEADER<<- opcode: QUERY, status: REFUSED, id: 40211\n;; SERVER: 10.0.10.1#53(10.0.10.1) (UDP)',
       options: [
@@ -563,6 +584,7 @@ export const PFSENSE_ASSESSMENT: Assessment = {
       id: 'pfsense-q-capture',
       kind: 'text',
       level: 'intermediate',
+      learn: ['lesson/pfsense/internals'],
       prompt: 'From the pfSense shell, type a tcpdump command that captures traffic of host 10.0.30.25 on the VLAN 30 interface `vtnet1.30` without resolving names.',
       accept: [/^tcpdump\s+(-ni|-in|-n\s+-i)\s*vtnet1\.30\s+host\s+10\.0\.30\.25$/, /^tcpdump\s+-i\s*vtnet1\.30\s+-n\s+host\s+10\.0\.30\.25$/],
       placeholder: 'tcpdump ...',
@@ -573,6 +595,7 @@ export const PFSENSE_ASSESSMENT: Assessment = {
       id: 'pfsense-q-assign',
       kind: 'single',
       level: 'beginner',
+      learn: ['lesson/pfsense/internals'],
       prompt: 'After replacing the VM\'s NICs (e1000 → VirtIO), pfSense stops at boot asking to assign interfaces. Why?',
       options: [
         { text: 'config.xml refers to em0/em1, which no longer exist; the new NICs are vtnet0/vtnet1 and must be assigned to WAN/LAN', correct: true },

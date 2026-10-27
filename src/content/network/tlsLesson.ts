@@ -75,6 +75,18 @@ The client builds the chain from the certificates the server sent (untrusted) up
 
 **Why roots are not sent and intermediates must be:** a root sent by the server would prove nothing (anyone can make one). Intermediates connect the server certificate to the root; a server that sends only its own certificate produces "unable to get local issuer certificate" at depth 0 on clean clients, while browsers that cached the intermediate keep working. That combination is the classic "works in my browser, fails in curl".
 
+**Reading \`openssl s_client\` output.** Two parts tell you where a chain breaks:
+- Under **Certificate chain**, each certificate the server sent is listed with its subject (\`s:\`) and its issuer (\`i:\`). Number 0 is the server's own certificate; each next one should be the issuer of the one before it. Count them: a single entry means the server sent no intermediate.
+- The **depth=N** lines show the verification, from the top of the chain down. A \`verify error\` at a depth tells you which certificate's issuer could not be found.
+
+Then decide by looking at the **last \`i:\` line**, the issuer of the last certificate the server sent:
+- It names a **root CA** (the top of the PKI, such as Corp Lab Root CA, which signs itself): the server sent everything it should. If verification still fails with "unable to get local issuer certificate" (error 20), **this client does not trust that root**: install the root on the client.
+- It names an **intermediate CA** (a CA that was itself issued by another CA): the server stopped too early and the client cannot climb to a root. The **intermediate is missing**: fix the server so it sends the full chain. A clean client will usually report this as error 20 at depth 0 when only the leaf was sent.
+
+Telling the two apart needs one fact about your PKI: which CAs are roots. Your PKI documentation (or \`openssl x509 -noout -subject -issuer\` on the CA certificate: a root has the same subject and issuer) tells you.
+
+Example: a server sends \`0 s:CN = shop.example\` / \`i:CN = Example Issuing CA\` and \`1 s:CN = Example Issuing CA\` / \`i:CN = Example Root\`, and the error is at depth=1: the server did its job; the client lacks Example Root.
+
 ### Keys, CSRs and issuance
 1. Generate a key pair on the server: the **private key never leaves it** (mode 0600/0640, /etc/ssl/private/).
 2. Create a **CSR** (certificate signing request): public key + requested subject and SANs, signed with the private key.

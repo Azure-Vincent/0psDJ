@@ -332,6 +332,7 @@ export const GPO_ASSESSMENT: Assessment = {
       id: 'gpo-q-order',
       kind: 'order',
       level: 'beginner',
+      learn: ['lesson/gpo/internals'],
       prompt: 'Order the containers in the sequence Group Policy applies them (the last one wins).',
       items: ['Local policy', 'Site', 'Domain', 'Parent OU', 'Child OU (where the computer is)'],
       concepts: ['ad.gpo'],
@@ -341,6 +342,7 @@ export const GPO_ASSESSMENT: Assessment = {
       id: 'gpo-q-scope',
       kind: 'single',
       level: 'beginner',
+      learn: ['lesson/gpo/internals'],
       prompt: 'gpresult on win01 shows "CN=WIN01,CN=Computers,DC=ad,DC=corp,DC=lab" and only Default Domain Policy. "Server Baseline" is linked to OU=Servers. What do you do?',
       options: [
         { text: 'Move WIN01 into OU=Servers (Move-ADObject), then gpupdate /force', correct: true },
@@ -355,6 +357,7 @@ export const GPO_ASSESSMENT: Assessment = {
       id: 'gpo-q-token',
       kind: 'single',
       level: 'intermediate',
+      learn: ['lesson/gpo/internals'],
       prompt: 'A GPO is filtered to "Baseline Servers". WIN01$ was added to the group an hour ago; gpupdate /force runs fine but gpresult says "Denied (Security)". Why?',
       options: [
         { text: 'win01\'s Kerberos ticket, obtained at startup, does not contain the new group yet', correct: true },
@@ -368,6 +371,7 @@ export const GPO_ASSESSMENT: Assessment = {
       id: 'gpo-q-sysvol',
       kind: 'single',
       level: 'intermediate',
+      learn: ['lesson/gpo/internals'],
       prompt: 'gpupdate on members fails with "Windows attempted to read the file \\\\ad.corp.lab\\sysvol\\...\\gpt.ini ... not successful", while domain logons work. What is the likely cause?',
       options: [
         { text: 'Members cannot reach SMB (TCP 445) on the DC', correct: true },
@@ -381,6 +385,7 @@ export const GPO_ASSESSMENT: Assessment = {
       id: 'gpo-q-enforced',
       kind: 'single',
       level: 'advanced',
+      learn: ['lesson/gpo/internals'],
       prompt: 'OU=Servers blocks inheritance to keep "Workstation Lockdown" (domain-linked) off servers. "Corp Security Baseline", also domain-linked, must still reach them. What is the right change?',
       options: [
         { text: 'Set the Corp Security Baseline link to Enforced', correct: true },
@@ -394,6 +399,7 @@ export const GPO_ASSESSMENT: Assessment = {
       id: 'gpo-q-filter',
       kind: 'multi',
       level: 'advanced',
+      learn: ['lesson/gpo/internals'],
       prompt: 'You want a GPO to apply only to the computers in the group "Baseline Servers". Which permission changes are right? (choose all that apply)',
       options: [
         { text: 'Baseline Servers: GpoApply', correct: true },

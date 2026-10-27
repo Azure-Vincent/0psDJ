@@ -8,6 +8,7 @@ export const SSH_ASSESSMENT: Assessment = {
       id: 'ssh-q-order',
       kind: 'order',
       level: 'beginner',
+      learn: ['lesson/ssh/internals'],
       prompt: 'Put the steps of `ssh alice@srv01.corp.lab` (first connection to a known host, key-based login) in order.',
       items: [
         'Resolve srv01.corp.lab to an IP address',
@@ -27,6 +28,7 @@ export const SSH_ASSESSMENT: Assessment = {
       id: 'ssh-q-refused-vs-timeout',
       kind: 'single',
       level: 'beginner',
+      learn: ['lesson/transport/internals'],
       prompt: 'A client gets **Connection timed out** after about two minutes. Which statement is best supported by this symptom alone?',
       options: [
         { text: 'sshd is not running on the server.', misconception: 'A stopped sshd with a reachable host gives an immediate "Connection refused": the kernel answers the SYN with RST. Timeouts mean no answer at all.' },
@@ -41,6 +43,7 @@ export const SSH_ASSESSMENT: Assessment = {
       id: 'ssh-q-noroute',
       kind: 'multi',
       level: 'intermediate',
+      learn: ['lesson/ipnet/internals', 'lesson/nftables/internals'],
       prompt: '`ssh srv01` fails immediately with **No route to host**. Which of these can produce exactly this message? (Select all that apply.)',
       options: [
         { text: 'A firewall rule "reject with icmpx type admin-prohibited" on the server', correct: true },
@@ -56,6 +59,7 @@ export const SSH_ASSESSMENT: Assessment = {
       id: 'ssh-q-exhibit-strictmodes',
       kind: 'single',
       level: 'intermediate',
+      learn: ['lesson/ssh/config'],
       prompt: 'The user reports "Permission denied (publickey)". You find this in the server journal. What is the fix?',
       exhibit: 'sshd[2214]: Authentication refused: bad ownership or modes for directory /home/alice/.ssh\nsshd[2214]: Connection closed by authenticating user alice 10.0.10.25 port 51744 [preauth]',
       options: [
@@ -71,6 +75,7 @@ export const SSH_ASSESSMENT: Assessment = {
       id: 'ssh-q-firstmatch',
       kind: 'single',
       level: 'intermediate',
+      learn: ['lesson/ssh/config'],
       prompt: 'Debian\'s sshd_config begins with `Include /etc/ssh/sshd_config.d/*.conf`. A drop-in contains `PasswordAuthentication no`; further down, sshd_config contains `PasswordAuthentication yes`. What does `sshd -T` report?',
       options: [
         { text: 'passwordauthentication yes (the main file wins)', misconception: 'For sshd the FIRST value obtained wins. The Include is processed before the later line.' },
@@ -84,6 +89,7 @@ export const SSH_ASSESSMENT: Assessment = {
       id: 'ssh-q-hostkey',
       kind: 'single',
       level: 'beginner',
+      learn: ['lesson/ssh/internals'],
       prompt: 'You see "WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!" for srv01. What should you do first?',
       options: [
         { text: 'Run ssh-keygen -R srv01 and reconnect', misconception: 'That accepts whatever key is presented next. If this is an attack, you just trusted the attacker.' },
@@ -98,6 +104,7 @@ export const SSH_ASSESSMENT: Assessment = {
       id: 'ssh-q-publickey-only',
       kind: 'single',
       level: 'beginner',
+      learn: ['lesson/ssh/config', 'lesson/ssh/troubleshoot'],
       prompt: 'A user insists their password is correct, but ssh says `Permission denied (publickey)` without ever prompting. What does the text in parentheses tell you?',
       options: [
         { text: 'The methods the server allows; password authentication is not offered at all', correct: true },
@@ -111,6 +118,7 @@ export const SSH_ASSESSMENT: Assessment = {
       id: 'ssh-q-journal-unit',
       kind: 'text',
       level: 'beginner',
+      learn: ['lesson/ssh/internals'],
       prompt: 'On Debian 12, type the command that shows the last 50 log lines of the SSH server.',
       accept: [/^(sudo\s+)?journalctl\s+(-u|--unit(=|\s))\s*(ssh|sshd|ssh\.service|sshd\.service)\s+(-n\s*50|--lines(=|\s)50|-n50)$/, /^(sudo\s+)?journalctl\s+(-n\s*50|-n50)\s+-u\s*(ssh|sshd|ssh\.service)$/],
       placeholder: 'command',
@@ -121,6 +129,7 @@ export const SSH_ASSESSMENT: Assessment = {
       id: 'ssh-q-effective',
       kind: 'text',
       level: 'intermediate',
+      learn: ['lesson/ssh/config'],
       prompt: 'Which sshd option prints the effective configuration (after includes, defaults and first-match rules)? Type the full command line.',
       accept: [/^(sudo\s+)?(\/usr\/sbin\/)?sshd\s+-T(\s+-C\s+\S+)?$/],
       placeholder: 'command',
@@ -131,6 +140,7 @@ export const SSH_ASSESSMENT: Assessment = {
       id: 'ssh-q-nft',
       kind: 'nft-rule',
       level: 'intermediate',
+      learn: ['lesson/nftables/internals'],
       prompt: 'srv01\'s input chain has policy drop and already accepts established traffic. Write ONE nftables rule (expression only, as you would type after `nft add rule inet filter input`) that allows SSH from the admin LAN 10.0.10.0/24 and the bastion 10.0.99.5, and nothing else.',
       context: ['ct state established,related accept'],
       tests: [
@@ -148,6 +158,7 @@ export const SSH_ASSESSMENT: Assessment = {
       id: 'ssh-q-sshd-config',
       kind: 'sshd-config',
       level: 'advanced',
+      learn: ['lesson/ssh/config'],
       prompt: 'Write sshd_config lines that: disable password logins for everyone EXCEPT connections from the lab subnet 10.0.30.0/24, forbid root logins, and keep public-key authentication enabled.',
       checks: [
         { description: 'Password authentication disabled globally', key: 'passwordAuthentication', expect: false },
@@ -163,6 +174,7 @@ export const SSH_ASSESSMENT: Assessment = {
       id: 'ssh-q-reload',
       kind: 'single',
       level: 'intermediate',
+      learn: ['lesson/ssh/config'],
       prompt: 'You edited sshd_config over SSH. Which sequence is safest?',
       options: [
         { text: 'systemctl restart ssh', misconception: 'If the new config is invalid, the restart stops the running daemon and the new one fails to start. Your next login will be refused.' },
@@ -176,6 +188,7 @@ export const SSH_ASSESSMENT: Assessment = {
       id: 'ssh-q-pcap',
       kind: 'multi',
       level: 'advanced',
+      learn: ['lesson/ssh/internals'],
       prompt: 'In a packet capture of an SSH login taken on the network, which of the following can an observer see WITHOUT the session keys?',
       options: [
         { text: 'Client and server IP addresses and ports', correct: true },
@@ -193,6 +206,7 @@ export const SSH_ASSESSMENT: Assessment = {
       id: 'ssh-q-dependency',
       kind: 'single',
       level: 'advanced',
+      learn: ['lesson/ipnet/internals'],
       prompt: 'srv01 lost its default route. Hosts on srv01\'s own subnet can still SSH in, but clients on other subnets time out. Why?',
       options: [
         { text: 'The SYN cannot reach srv01', misconception: 'The SYN uses the client\'s and routers\' routes; srv01\'s routing table is not involved in delivering packets TO it.' },

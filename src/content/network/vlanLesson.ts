@@ -156,6 +156,13 @@ A VLAN problem usually looks like this: the cable is plugged in, the link is up,
 - **Wrong sub-interface ID**: the router tags with VLAN 3 instead of 30. Everything looks fine on the router itself, which makes this one hard to spot.
 - **Forgetting runtime versus saved configuration**: \`bridge vlan add\` fixes it now, but only the file survives a reboot.
 
+### Keeping VLANs secure
+VLANs separate broadcast domains. They are not a firewall on their own. Good practice:
+- **Allow only the VLANs that are needed on each trunk.** A trunk that carries every VLAN lets a mistake (or an attacker) on one switch reach all of them.
+- **Make end-user ports access ports, never trunks.** A trunk on a desk port lets the connected device send into any VLAN by tagging its frames. "Every port a trunk, so moves need no reconfiguration" is convenient and unsafe.
+- **Use an unused VLAN as the native VLAN, or tag every VLAN on trunks.** Untagged traffic on a trunk belongs to the native VLAN; if that is VLAN 1 and also used by hosts, a "double-tagged" frame can hop into another VLAN.
+- **Filter traffic between VLANs where it is routed** (on the router or firewall). Routing is what connects VLANs, so that is where the policy belongs.
+
 `,
 
   errorMap: [

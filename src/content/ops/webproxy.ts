@@ -186,6 +186,8 @@ nginx first picks a **server** block from the address and port the connection ar
 | \`/inventory/\` | \`http://dock01:8000\` | \`/inventory/health\` | \`/inventory/health\` (unchanged) |
 | \`/inventory/\` | \`http://dock01:8000/api/\` | \`/inventory/items\` | \`/api/items\` |
 
+Anything after a \`?\` (the **query string**, such as \`?id=7&sort=name\`) is not part of the matched prefix and is passed on unchanged: a request for \`/inventory/health?full=1\` reaches the backend of the first row as \`/health?full=1\`.
+
 A missing or extra slash is the most common cause of "everything is 404 behind the proxy".
 
 ### 3. Headers
@@ -419,6 +421,7 @@ export const WEBPROXY_ASSESSMENT: Assessment = {
       id: 'webproxy-q-order',
       kind: 'order',
       level: 'beginner',
+      learn: ['lesson/webproxy/internals'],
       prompt: 'Order what happens when ws01 requests http://apps.corp.lab/inventory/health through srv01.',
       items: ['ws01 resolves apps.corp.lab to srv01 and connects to port 80', 'nginx picks the server block apps.corp.lab', 'nginx picks location /inventory/', 'nginx opens a TCP connection from srv01 to 10.0.20.40:8000', 'the API receives GET /health and answers 200', 'nginx relays the answer and writes access.log'],
       concepts: ['web.proxy'],
@@ -428,6 +431,7 @@ export const WEBPROXY_ASSESSMENT: Assessment = {
       id: 'webproxy-q-502',
       kind: 'single',
       level: 'intermediate',
+      learn: ['lesson/webproxy/internals'],
       prompt: 'Users get "502 Bad Gateway" from the proxy immediately. What is the most likely cause?',
       exhibit: '2026/10/19 08:34:00 [error] 433#433: *1 connect() failed (111: Connection refused) while connecting to upstream, client: 10.0.10.25, server: apps.corp.lab, request: "GET /inventory/health HTTP/1.1", upstream: "http://10.0.20.40:8080/health", host: "apps.corp.lab"',
       options: [
@@ -443,6 +447,7 @@ export const WEBPROXY_ASSESSMENT: Assessment = {
       id: 'webproxy-q-uri',
       kind: 'text',
       level: 'intermediate',
+      learn: ['lesson/webproxy/internals'],
       prompt: 'With `location /inventory/ { proxy_pass http://dock01.corp.lab:8000/; }`, which path does the backend receive for a client request to `/inventory/items?page=2`?',
       accept: ['/items?page=2'],
       placeholder: '/...',
@@ -453,6 +458,7 @@ export const WEBPROXY_ASSESSMENT: Assessment = {
       id: 'webproxy-q-504',
       kind: 'single',
       level: 'advanced',
+      learn: ['lesson/webproxy/internals'],
       prompt: 'http://inventory.corp.lab:8000/health works from every office PC, but through the proxy on srv01 the same API answers 504 after 60 seconds. What do you check first?',
       options: [
         { text: 'The backend\'s firewall: does it allow connections from the proxy\'s address (10.0.20.10)?', correct: true },
@@ -467,6 +473,7 @@ export const WEBPROXY_ASSESSMENT: Assessment = {
       id: 'webproxy-q-reload',
       kind: 'multi',
       level: 'intermediate',
+      learn: ['lesson/webproxy/internals'],
       prompt: 'An upstream host name in nginx.conf was mistyped and `systemctl reload nginx` was run on Friday. Which statements are true? (choose all that apply)',
       options: [
         { text: 'The reload failed and nginx kept serving with the previous configuration', correct: true },
@@ -481,6 +488,7 @@ export const WEBPROXY_ASSESSMENT: Assessment = {
       id: 'webproxy-q-who',
       kind: 'single',
       level: 'beginner',
+      learn: ['lesson/webproxy/internals'],
       prompt: 'Through the proxy you get `HTTP/1.1 404 Not Found` with `Server: nginx/1.22.1` and the body `{"detail":"Not found."}`. Who decided the request does not exist?',
       options: [
         { text: 'The backend application (the body is its JSON); nginx only replaced the Server header', correct: true },

@@ -1,11 +1,35 @@
 import { useMemo, useState } from 'react';
-import type { Assessment as AssessmentT, Question } from '../../content/types';
+import type { Assessment as AssessmentT, LearnRoute, Question } from '../../content/types';
 import { gradeQuestion, stableShuffle, type GradeResult } from '../../learning/grading';
 import { recordConcepts } from '../../learning/progress';
 import { useProgress } from '../state';
+import { getLesson } from '../../content/lessons';
+import { SECTIONS } from '../sections';
 import { Markdown } from './Markdown';
 
-function QuestionView({ q, index }: { q: Question; index: number }) {
+/**
+ * Unsubmitted answers by question id. "Where this is taught" sends the learner to another tab,
+ * which unmounts the questions; this keeps their work for when they come back (until the app reloads).
+ */
+const drafts = new Map<string, unknown>();
+
+/** "Where this is taught": links to the lesson sections that explain how to work out the answer. */
+function LearnLinks({ routes, lessonId }: { routes: LearnRoute[]; lessonId?: string }) {
+  return (
+    <div className="small muted" style={{ margin: '4px 0 6px' }}>
+      Where this is taught:{' '}
+      {routes.map((r, i) => {
+        const [, id, sec] = r.split('/');
+        const s = SECTIONS.find((x) => x.id === sec);
+        const label = s?.short ?? s?.title ?? sec;
+        const title = id === lessonId ? label : `${getLesson(id)?.title ?? id} › ${label}`;
+        return <span key={r}>{i > 0 && ' · '}<a href={`#/${r}`}>{title}</a></span>;
+      })}
+    </div>
+  );
+}
+
+function QuestionView({ q, index, lessonId }: { q: Question; index: number; lessonId?: string }) {
   const { progress, update } = useProgress();
   const initial = useMemo(() => {
     // Order questions track positions in q.items, not the text: items may repeat ("ACK (client)").
@@ -14,7 +38,8 @@ function QuestionView({ q, index }: { q: Question; index: number }) {
     if (q.kind === 'single') return -1;
     return '';
   }, [q]);
-  const [answer, setAnswer] = useState<unknown>(initial);
+  const [answer, setAnswerState] = useState<unknown>(() => (drafts.has(q.id) ? drafts.get(q.id) : initial));
+  const setAnswer = (a: unknown) => { drafts.set(q.id, a); setAnswerState(a); };
   const [result, setResult] = useState<GradeResult | null>(null);
   const prior = progress.questions[q.id];
 
@@ -44,6 +69,7 @@ function QuestionView({ q, index }: { q: Question; index: number }) {
       </div>
       <Markdown text={q.prompt} />
       {q.exhibit && <pre>{q.exhibit}</pre>}
+      {q.learn && q.learn.length > 0 && <LearnLinks routes={q.learn} lessonId={lessonId} />}
 
       {q.kind === 'single' && q.options.map((o, i) => (
         <label key={i} className="row" style={{ alignItems: 'flex-start', margin: '4px 0' }}>
@@ -112,16 +138,16 @@ function QuestionView({ q, index }: { q: Question; index: number }) {
   );
 }
 
-export function AssessmentView({ assessment }: { assessment: AssessmentT }) {
+export function AssessmentView({ assessment, lessonId }: { assessment: AssessmentT; lessonId?: string }) {
   const { progress } = useProgress();
   const done = assessment.questions.filter((q) => progress.questions[q.id]?.correct).length;
   return (
     <div>
       <div className="spread" style={{ marginBottom: 10 }}>
-        <div className="muted">Conceptual, design and troubleshooting questions. Practical answers are graded by the simulator itself.</div>
+        <div className="muted">Conceptual, design and troubleshooting questions. Practical answers are graded by the simulator itself. Each question links to the lesson sections that teach how to work it out.</div>
         <span className="badge accent">{done} / {assessment.questions.length} correct</span>
       </div>
-      {assessment.questions.map((q, i) => <QuestionView key={q.id} q={q} index={i} />)}
+      {assessment.questions.map((q, i) => <QuestionView key={q.id} q={q} index={i} lessonId={lessonId} />)}
     </div>
   );
 }

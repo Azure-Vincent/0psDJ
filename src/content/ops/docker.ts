@@ -260,6 +260,8 @@ Internal web applications, CI runners, monitoring stacks (Prometheus/Grafana), r
 4. For \`-p\`, dockerd installs NAT rules and starts \`docker-proxy\`.
 
 ### 2. Lifecycle and exit codes
+**Restart versus recreate.** A container's environment variables, published ports, mounts, network and command are fixed **when the container is created**. \`docker restart web\` and \`docker compose restart web\` stop and start the **same** container, so they keep the old settings even if compose.yaml or .env changed. To apply new settings the container must be **recreated**: \`docker compose up -d\` compares the file with the running containers and recreates only the services whose configuration changed (named volumes, and so the data, are kept). With plain docker: \`docker rm -f web\` and \`docker run …\` again.
+
 States: **created → running → (paused) → exited**, plus **restarting** (restart policy waiting to start it again) and **dead** (removal failed). **A container lives exactly as long as its main process.** If PID 1 exits, the container is \`Exited (code)\`. The code tells you who ended it:
 - **0**: the process finished normally (a shell with no input, a one-shot script). Not a crash, but no service either.
 - **1** (or other small numbers): the application reported an error. Read \`docker logs\`.
@@ -498,6 +500,7 @@ export const DOCKER_ASSESSMENT: Assessment = {
       id: 'docker-q-chain',
       kind: 'order',
       level: 'beginner',
+      learn: ['lesson/docker/what'],
       prompt: 'Order the components a `docker run` request passes through, from the command you type to the container\'s process.',
       items: ['docker CLI', '/var/run/docker.sock', 'dockerd', 'containerd', 'containerd-shim-runc-v2', 'runc', 'container main process (PID 1)'],
       concepts: ['docker.lifecycle'],
@@ -507,6 +510,7 @@ export const DOCKER_ASSESSMENT: Assessment = {
       id: 'docker-q-137',
       kind: 'single',
       level: 'intermediate',
+      learn: ['lesson/docker/internals'],
       prompt: 'The worker container keeps restarting. What is the most likely cause?',
       exhibit: '$ docker inspect --format \'{{.State.Status}} exit={{.State.ExitCode}} oom={{.State.OOMKilled}} restarts={{.RestartCount}}\' worker\nrestarting exit=137 oom=true restarts=14\n$ docker inspect --format \'{{.HostConfig.Memory}}\' worker\n268435456',
       options: [
@@ -522,6 +526,7 @@ export const DOCKER_ASSESSMENT: Assessment = {
       id: 'docker-q-exit-codes',
       kind: 'text',
       level: 'beginner',
+      learn: ['lesson/docker/internals'],
       prompt: 'A container exits immediately with `exec: "gunicorn": executable file not found in $PATH`. Which exit code does `docker ps -a` show?',
       accept: ['127'],
       placeholder: 'number',
@@ -532,6 +537,7 @@ export const DOCKER_ASSESSMENT: Assessment = {
       id: 'docker-q-restart-vs-recreate',
       kind: 'single',
       level: 'intermediate',
+      learn: ['lesson/docker/internals'],
       prompt: 'You added a missing `API_KEY` to `.env` and referenced it in compose.yaml, then ran `docker compose restart web`. The app still says `API_KEY is not set`. Why?',
       options: [
         { text: 'restart reuses the existing container with its original environment; `docker compose up -d` is needed to recreate it with the new configuration', correct: true },
@@ -546,6 +552,7 @@ export const DOCKER_ASSESSMENT: Assessment = {
       id: 'docker-q-localhost-bind',
       kind: 'single',
       level: 'advanced',
+      learn: ['lesson/docker/internals'],
       prompt: 'The container is Up (healthy) but clients cannot reach the app. What is wrong?',
       exhibit: '$ docker port inventory-web-1\n8000/tcp -> 0.0.0.0:8080\n8000/tcp -> [::]:8080\n$ curl http://127.0.0.1:8080/\ncurl: (52) Empty reply from server\n$ docker exec inventory-web-1 ss -tlnp\nState  Recv-Q Send-Q Local Address:Port Peer Address:Port Process\nLISTEN 0      2048       127.0.0.1:8000      0.0.0.0:*     users:(("gunicorn",pid=1,fd=5))',
       options: [
@@ -561,6 +568,7 @@ export const DOCKER_ASSESSMENT: Assessment = {
       id: 'docker-q-ufw-bypass',
       kind: 'multi',
       level: 'advanced',
+      learn: ['lesson/docker/internals'],
       prompt: 'An admin ran `ufw deny 5432` but the database container published with `-p 5432:5432` is still reachable from the whole network. Which statements are correct? (Select all that apply.)',
       options: [
         { text: 'Published ports are DNATed and forwarded, so ufw\'s INPUT rules never see that traffic', correct: true },
@@ -576,6 +584,7 @@ export const DOCKER_ASSESSMENT: Assessment = {
       id: 'docker-q-dns',
       kind: 'single',
       level: 'intermediate',
+      learn: ['lesson/docker/internals'],
       prompt: 'On Ubuntu 24.04, containers can resolve public names but not `registry.corp.lab`. The host itself resolves it. What is the best fix?',
       exhibit: '$ docker run --rm busybox cat /etc/resolv.conf\nnameserver 8.8.8.8\nnameserver 8.8.4.4',
       options: [
@@ -591,6 +600,7 @@ export const DOCKER_ASSESSMENT: Assessment = {
       id: 'docker-q-default-bridge',
       kind: 'single',
       level: 'beginner',
+      learn: ['lesson/docker/internals'],
       prompt: 'Two containers were started with plain `docker run` (no --network). The app container cannot connect to `db:5432`: "Name or service not known". Why?',
       options: [
         { text: 'The default bridge network has no embedded DNS, so container names do not resolve; use a user-defined network', correct: true },
@@ -604,6 +614,7 @@ export const DOCKER_ASSESSMENT: Assessment = {
       id: 'docker-q-volume-perms',
       kind: 'multi',
       level: 'intermediate',
+      learn: ['lesson/docker/internals'],
       prompt: 'On a RHEL 9 host, nginx in a container logs `open() "/usr/share/nginx/html/index.html" failed (13: Permission denied)` for a bind mount `/srv/web/html`. `ls -l` shows the files world-readable. Which are reasonable next steps? (Select all that apply.)',
       options: [
         { text: 'Check for SELinux denials with `ausearch -m avc -ts recent`', correct: true },
@@ -618,6 +629,7 @@ export const DOCKER_ASSESSMENT: Assessment = {
       id: 'docker-q-daemon-restart',
       kind: 'single',
       level: 'intermediate',
+      learn: ['lesson/docker/operate'],
       prompt: 'One of six application containers on dock01 is unhealthy. A colleague proposes `sudo systemctl restart docker`. What is the main objection?',
       options: [
         { text: 'It stops every container on the host (unless live-restore is enabled), causing an outage of all six services to fix one', correct: true },
@@ -632,6 +644,7 @@ export const DOCKER_ASSESSMENT: Assessment = {
       id: 'docker-q-pull',
       kind: 'single',
       level: 'beginner',
+      learn: ['lesson/docker/config'],
       prompt: '`docker pull nginx:1.27` on a server behind the corporate proxy times out, although `curl https://registry-1.docker.io/v2/` works in your shell where `https_proxy` is exported. Why?',
       options: [
         { text: 'The pull is performed by dockerd, which does not inherit your shell\'s proxy variables; configure a systemd drop-in or "proxies" in daemon.json', correct: true },

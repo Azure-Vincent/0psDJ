@@ -5,20 +5,20 @@ export const KERBEROS_ASSESSMENT: Assessment = {
   title: 'Kerberos and DNS service records knowledge check',
   questions: [
     {
-      id: 'krb-q-order', kind: 'order', level: 'beginner',
+      id: 'krb-q-order', kind: 'order', level: 'beginner', learn: ['lesson/kerberos/internals'],
       prompt: 'Put the steps of a Kerberos SSH login from a freshly logged-in workstation in order.',
       items: ['DNS SRV lookup of _kerberos._udp.corp.lab', 'AS exchange: get a TGT (pre-authentication with the password)', 'TGS exchange: get a ticket for host/srv01.corp.lab', 'SSH gssapi-with-mic: present the ticket to sshd', 'sshd decrypts the ticket with its keytab'],
       concepts: ['ad.kerberos', 'ad.dns'],
       explanation: 'Find the KDC, prove the password once (TGT), exchange the TGT for a service ticket, hand that ticket to the service, which checks it with its own key. The KDC is not involved in the last step.',
     },
     {
-      id: 'krb-q-srv', kind: 'text', level: 'beginner',
+      id: 'krb-q-srv', kind: 'text', level: 'beginner', learn: ['lesson/kerberos/what'],
       prompt: 'krb5.conf lists no KDC for CORP.LAB. Which DNS name does the library query (over UDP) to find one?',
       accept: ['_kerberos._udp.corp.lab', '_kerberos._udp.corp.lab.'], placeholder: '_service._proto.domain', concepts: ['ad.dns'],
       explanation: 'SRV records are named _service._protocol.domain; the realm is lower-cased to form the domain. _kerberos._tcp.corp.lab is queried as well; _kerberos-adm._tcp locates kadmind.',
     },
     {
-      id: 'krb-q-skew', kind: 'single', level: 'beginner',
+      id: 'krb-q-skew', kind: 'single', level: 'beginner', learn: ['lesson/kerberos/internals', 'lesson/ntp/operate'],
       prompt: 'kinit says "Clock skew too great while getting initial credentials". What is the right fix?',
       options: [
         { text: 'Enable NTP on the machine whose clock is wrong (timedatectl set-ntp true)', correct: true },
@@ -30,7 +30,7 @@ export const KERBEROS_ASSESSMENT: Assessment = {
       explanation: 'Kerberos rejects timestamps more than 300 s from the KDC\'s clock. Synchronise clocks; never loosen the tolerance.',
     },
     {
-      id: 'krb-q-errors', kind: 'single', level: 'intermediate',
+      id: 'krb-q-errors', kind: 'single', level: 'intermediate', learn: ['lesson/kerberos/troubleshoot'],
       prompt: 'kinit waits about 10 seconds and then reports "Cannot contact any KDC for realm \'CORP.LAB\'". "host -t SRV _kerberos._udp.corp.lab" answers with ns1. On ns1, krb5-kdc is active and listening on :88, but its log shows no request from you. Most likely cause?',
       options: [
         { text: 'A firewall drops port 88 on the way to (or on) ns1', correct: true },
@@ -42,7 +42,7 @@ export const KERBEROS_ASSESSMENT: Assessment = {
       explanation: 'Slow failure = silence = dropped packets. tcpdump on ns1 and nft list ruleset confirm it.',
     },
     {
-      id: 'krb-q-kvno', kind: 'single', level: 'intermediate',
+      id: 'krb-q-kvno', kind: 'single', level: 'intermediate', learn: ['lesson/kerberos/internals'],
       exhibit: 'ws01$ kvno host/srv01.corp.lab\nhost/srv01.corp.lab@CORP.LAB: kvno = 3\n\nsrv01# klist -k\nKeytab name: FILE:/etc/krb5.keytab\nKVNO Principal\n---- ------------------------------------------\n   2 host/srv01.corp.lab@CORP.LAB\n   2 host/srv01.corp.lab@CORP.LAB',
       prompt: 'kinit works, but Kerberos SSH logins to srv01 fail. What does the exhibit show, and how do you fix it?',
       options: [
@@ -55,7 +55,7 @@ export const KERBEROS_ASSESSMENT: Assessment = {
       explanation: 'The key was changed on the KDC (cpw -randkey or a ktadd elsewhere) without updating srv01\'s keytab. ktadd on the server creates a new key and stores it locally in one step; clients then need fresh tickets (kdestroy; kinit).',
     },
     {
-      id: 'krb-q-names', kind: 'multi', level: 'advanced',
+      id: 'krb-q-names', kind: 'multi', level: 'advanced', learn: ['lesson/kerberos/internals'],
       prompt: 'srv01 has only the principal host/srv01.corp.lab. With rdns = false, which of these commands (with a valid TGT) can log in with Kerberos? Select all that apply.',
       options: [
         { text: 'ssh srv01.corp.lab', correct: true },
@@ -67,7 +67,7 @@ export const KERBEROS_ASSESSMENT: Assessment = {
       explanation: 'The client canonicalises the name with forward DNS (search domains, CNAMEs) and asks for host/<canonical name>. IP addresses only work with reverse DNS (rdns = true and correct PTR records) or an extra principal.',
     },
     {
-      id: 'krb-q-preauth', kind: 'single', level: 'advanced',
+      id: 'krb-q-preauth', kind: 'single', level: 'advanced', learn: ['lesson/kerberos/internals'],
       prompt: 'Why does the KDC answer the first AS-REQ with KDC_ERR_PREAUTH_REQUIRED instead of issuing a TGT right away?',
       options: [
         { text: 'So that nobody can obtain material encrypted with a user\'s key without proving the password first (offline guessing, "AS-REP roasting")', correct: true },
