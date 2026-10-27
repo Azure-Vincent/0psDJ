@@ -75,8 +75,9 @@ jobs:
   # The update signing key (secret UPDATE_SIGNING_KEY) is used only here, to
   # sign update-manifest.json: the list of artifacts with their SHA-256 that
   # the desktop app verifies before it installs an update. Store the secret in
-  # the "release" environment and give that environment required reviewers so
-  # that no one can run this job (and so use the key) without approval.
+  # the "release" environment, limit that environment to v* tags (deployment
+  # branches and tags), protect v* tags with a ruleset, and give it required
+  # reviewers: then no one can use the key from other code or without approval.
   release:
     needs: package
     if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.release_tag != '')

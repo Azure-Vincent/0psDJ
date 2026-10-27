@@ -315,10 +315,18 @@ with the project key. Set this up once:
 
 1. `node scripts/update-keygen.cjs` creates `update-signing-key.pem` (git-ignored)
    and adds the public key to `electron/update-public-keys.cjs`. Commit that file.
-2. In GitHub, create the environment **release** (Settings → Environments), add
-   **required reviewers**, and store the whole private key file there as the
-   secret **`UPDATE_SIGNING_KEY`**. Only the `release` job of
-   `.github/workflows/build.yml` can read it, and only after approval.
+2. In GitHub, create the environment **release** (Settings → Environments) and
+   store the whole private key file there as the secret **`UPDATE_SIGNING_KEY`**
+   (not as a repository secret). Then protect it:
+   - **Deployment branches and tags → Selected branches and tags**: add the tag
+     pattern `v*` only (and `main` if you create releases with a manual run);
+   - **Required reviewers**: yourself (and any co-maintainer);
+   - a **tag ruleset** (Settings → Rules) so that only maintainers can create
+     or move `v*` tags.
+
+   Only the `release` job of `.github/workflows/build.yml` can read the key, only
+   for a protected tag, and only after approval: a collaborator cannot change
+   the signing script on a branch and run it with the key.
 3. Move the private key file offline (a password manager) and delete it from
    the working copy.
 

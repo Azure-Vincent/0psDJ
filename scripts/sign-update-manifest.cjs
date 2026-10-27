@@ -13,7 +13,7 @@
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
-const { PRODUCT, MANIFEST, SIGNATURE, NAME_RE, verifyManifest } = require('../electron/updater.cjs');
+const { PRODUCT, MANIFEST, SIGNATURE, NAME_RE, parseVersion, verifyManifest } = require('../electron/updater.cjs');
 
 /** Release file name → what it is (names come from the "build" section of package.json). */
 function classify(name) {
@@ -41,6 +41,11 @@ function main() {
     process.exit(2);
   }
   const version = tag.replace(/^v/, '');
+  // Only X.Y.Z releases are offered as updates; others (v1.3.0-rc.1) are published unsigned.
+  if (!/^v/.test(tag) || !parseVersion(version)) {
+    console.log(`::warning::${tag} is not a vX.Y.Z tag: no update manifest (the app will not offer this release).`);
+    return;
+  }
   const files = [];
   for (const name of fs.readdirSync(dir).sort()) {
     const what = classify(name);

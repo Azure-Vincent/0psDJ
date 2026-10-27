@@ -31,7 +31,12 @@ const pub = publicKey.export({ type: 'spki', format: 'pem' }).trim();
 const keys = require(keysFile);
 if (keys.includes(pub)) process.exit(0);
 const list = [...keys, pub].map((k) => `  ${JSON.stringify(k)},`).join('\n');
-const src = fs.readFileSync(keysFile, 'utf8').replace(/module\.exports = \[[\s\S]*\];\s*$/, `module.exports = [\n${list}\n];\n`);
+const before = fs.readFileSync(keysFile, 'utf8');
+const src = before.replace(/module\.exports = \[[\s\S]*?\];/, `module.exports = [\n${list}\n];`);
+if (src === before || !src.includes(JSON.stringify(pub))) {
+  console.error(`Could not add the public key to ${keysFile}: add this entry to its module.exports list by hand:\n${JSON.stringify(pub)}`);
+  process.exit(1);
+}
 fs.writeFileSync(keysFile, src);
 console.log(`Private key: ${out} (keep it secret; store it as the UPDATE_SIGNING_KEY secret, then move it offline).`);
 console.log(`Public key added to ${path.relative(process.cwd(), keysFile)}.`);

@@ -7,7 +7,8 @@ const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const updates = require('./update-service.cjs');
 
-const isDev = process.argv.includes('--dev');
+// --dev (load the Vite dev server) only when running from source: a packaged app always loads its own files.
+const isDev = process.argv.includes('--dev') && !app.isPackaged;
 const DIST = path.join(__dirname, '..', 'dist');
 const DEV_URL = 'http://localhost:5173/';
 

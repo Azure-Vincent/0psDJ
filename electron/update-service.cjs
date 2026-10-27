@@ -16,6 +16,7 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
+const { Readable } = require('node:stream');
 const { pathToFileURL } = require('node:url');
 const U = require('./updater.cjs');
 const PUBLIC_KEYS = require('./update-public-keys.cjs');
@@ -28,6 +29,8 @@ let status = { state: 'idle' };
 let verified = null;
 /** A verified Windows installer waiting to run when the app quits. */
 let stagedInstaller = null;
+/** The version already staged or written in place this session (it applies at the next start). */
+let appliedVersion = null;
 let busy = false;
 let allowedUrl = () => false;
 
@@ -50,6 +53,7 @@ function env() {
     platform: process.platform,
     arch: process.arch,
     appImage: process.env.APPIMAGE,
+    appDir: process.env.APPDIR,
     portableDir: process.env.PORTABLE_EXECUTABLE_DIR,
     execPath: process.execPath,
     hasUninstaller: process.platform === 'win32' && fs.existsSync(path.join(path.dirname(process.execPath), `Uninstall ${app.getName()}.exe`)),
@@ -73,7 +77,35 @@ function setStatus(s) {
   for (const w of BrowserWindow.getAllWindows()) if (!w.isDestroyed()) w.webContents.send('updater:changed', publicStatus());
 }
 
-const fetchFn = (url, init) => net.fetch(url, init);
+/**
+ * fetch-like adapter over Electron's net.request (which uses the system proxy
+ * settings). net.fetch cannot be used: with redirect 'manual' it rejects
+ * ("Redirect was cancelled") instead of returning the 3xx. Here every redirect
+ * target is checked against the host allow-list before it is followed.
+ */
+function fetchFn(url, init) {
+  return new Promise((resolve, reject) => {
+    const req = net.request({ url, method: 'GET', redirect: 'manual' });
+    for (const [k, v] of Object.entries(init?.headers ?? {})) req.setHeader(k, v);
+    let redirects = 0;
+    req.on('redirect', (_status, _method, target) => {
+      try {
+        if (++redirects > U.MAX_REDIRECTS) throw new U.UpdateError('too many redirects');
+        U.safeUrl(target);
+        req.followRedirect();
+      } catch (e) {
+        req.abort();
+        reject(e);
+      }
+    });
+    req.on('response', (res) => {
+      const header = (h) => { const v = res.headers[h.toLowerCase()]; return Array.isArray(v) ? v[0] : v ?? null; };
+      resolve({ status: res.statusCode, headers: { get: header }, body: Readable.toWeb(res) });
+    });
+    req.on('error', reject);
+    req.end();
+  });
+}
 
 async function check(auto = false) {
   if (!app.isPackaged) return setStatus({ state: 'unsupported' });
@@ -85,7 +117,11 @@ async function check(auto = false) {
     prefs.lastCheck = Date.now();
     savePrefs();
     verified = r.state === 'available' ? r : null;
-    if (r.state === 'available') setStatus({ state: 'available', latest: r.version, mode: r.mode, releaseUrl: r.releaseUrl, size: r.file.size });
+    if (r.state === 'available' && appliedVersion && U.compareVersions(r.version, appliedVersion) <= 0) {
+      // Already staged (installer at quit) or written (AppImage): nothing new to download.
+      verified = null;
+      setStatus({ state: 'ready', latest: appliedVersion, mode: r.mode });
+    } else if (r.state === 'available') setStatus({ state: 'available', latest: r.version, mode: r.mode, releaseUrl: r.releaseUrl, size: r.file.size });
     else setStatus({ state: r.state, latest: r.latest, tag: r.tag });
   } catch (e) {
     verified = null;
@@ -107,10 +143,6 @@ async function download(dest) {
   });
 }
 
-/** Re-hash a staged file right before it is executed. */
-function sameHash(file, sha256) {
-  return crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex') === sha256;
-}
 
 /** Install what the last check verified. `now`: restart into it at once (otherwise at quit / next start). */
 async function install(now = true) {
@@ -123,8 +155,9 @@ async function install(now = true) {
       const dir = fs.mkdtempSync(path.join(updatesDir(), 'dl-'));
       const file = await download(path.join(dir, v.file.name));
       stagedInstaller = { file, sha256: v.file.sha256 };
+      appliedVersion = v.version;
       if (now) {
-        runInstaller(true);
+        await runInstaller(true);
         setStatus({ state: 'restarting', latest: v.version });
         setTimeout(() => app.quit(), 300);
       } else setStatus({ state: 'ready', latest: v.version, mode: v.mode });
@@ -135,6 +168,7 @@ async function install(now = true) {
       await download(tmp);
       fs.chmodSync(tmp, 0o755);
       fs.renameSync(tmp, target);
+      appliedVersion = v.version;
       if (now) {
         setStatus({ state: 'restarting', latest: v.version });
         app.relaunch({ execPath: target, args: process.argv.slice(1) });
@@ -154,12 +188,20 @@ async function install(now = true) {
   return publicStatus();
 }
 
-/** Start the staged Windows installer (silently; `relaunch` starts the app afterwards). */
+/**
+ * Start the staged Windows installer silently (`relaunch`: start the app
+ * afterwards), after hashing it once more. Resolves when the process started;
+ * rejects (and keeps the app running) if it could not be started.
+ */
 function runInstaller(relaunch) {
   const s = stagedInstaller;
   stagedInstaller = null;
-  if (!s || !fs.existsSync(s.file) || !sameHash(s.file, s.sha256)) return;
-  spawn(s.file, relaunch ? ['/S', '--force-run'] : ['/S'], { detached: true, stdio: 'ignore' }).unref();
+  return new Promise((resolve, reject) => {
+    if (!s || !fs.existsSync(s.file) || U.fileSha256(s.file) !== s.sha256) return reject(new U.UpdateError('the staged installer changed after verification: discarded'));
+    const child = spawn(s.file, relaunch ? ['/S', '--force-run'] : ['/S'], { detached: true, stdio: 'ignore' });
+    child.once('error', (e) => reject(new U.UpdateError(`could not start the installer (${e.code || e.message})`)));
+    child.once('spawn', () => { child.unref(); resolve(); });
+  });
 }
 
 function init(distDir, devUrl) {
@@ -168,6 +210,14 @@ function init(distDir, devUrl) {
   loadPrefs();
   // Leftovers of an earlier session (an installer that already ran, an aborted download).
   try { fs.rmSync(updatesDir(), { recursive: true, force: true }); } catch { /* ignore */ }
+  if (U.installMode(env()).mode === 'appimage') {
+    const target = process.env.APPIMAGE;
+    try {
+      for (const f of fs.readdirSync(path.dirname(target))) {
+        if (f.startsWith(`${path.basename(target)}.update-`)) fs.rmSync(path.join(path.dirname(target), f), { force: true });
+      }
+    } catch { /* ignore */ }
+  }
 
   // Only our own pages may use the updater.
   const guard = (fn) => (event, ...args) => {
@@ -184,7 +234,7 @@ function init(distDir, devUrl) {
     return publicStatus();
   }));
 
-  app.on('before-quit', () => { if (stagedInstaller) runInstaller(false); });
+  app.on('before-quit', () => { if (stagedInstaller) runInstaller(false).catch(() => { /* the app is quitting: the update is retried next time */ }); });
 
   if (!app.isPackaged) { status = { state: 'unsupported' }; return; }
   if (!PUBLIC_KEYS.length) { status = { state: 'not-configured' }; return; }
@@ -193,4 +243,4 @@ function init(distDir, devUrl) {
   setInterval(tick, 60 * 60 * 1000).unref();
 }
 
-module.exports = { init };
+module.exports = { init, fetchFn };

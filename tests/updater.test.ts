@@ -138,7 +138,10 @@ describe('updater: checking the latest release', () => {
     expect(U.installMode(WIN)).toEqual({ mode: 'nsis', kind: 'nsis' });
     expect(U.installMode({ ...WIN, portableDir: 'D:\\apps' })).toEqual({ mode: 'download', kind: 'portable' });
     expect(U.installMode({ ...WIN, hasUninstaller: false })).toEqual({ mode: 'download', kind: 'zip' });
-    expect(U.installMode({ platform: 'linux', arch: 'x64', appImage: '/home/a/Lab.AppImage', execPath: '/tmp/.mount/x' })).toEqual({ mode: 'appimage', kind: 'appimage' });
+    expect(U.installMode({ platform: 'linux', arch: 'x64', appImage: '/home/a/Lab.AppImage', appDir: '/tmp/.mount_LabX1', execPath: '/tmp/.mount_LabX1/infrastructure-lab' })).toEqual({ mode: 'appimage', kind: 'appimage' });
+    // APPIMAGE inherited from another AppImage (a .deb install started from it): never replace that other file.
+    expect(U.installMode({ platform: 'linux', arch: 'x64', appImage: '/home/a/Editor.AppImage', appDir: '/tmp/.mount_Edit99', execPath: '/opt/Infrastructure Lab/infrastructure-lab' })).toEqual({ mode: 'download', kind: 'deb' });
+    expect(U.installMode({ platform: 'linux', arch: 'x64', appImage: '/home/a/Editor.AppImage', execPath: '/home/a/lab/infrastructure-lab' })).toEqual({ mode: 'download', kind: 'targz' });
     expect(U.installMode({ platform: 'linux', arch: 'x64', appImage: 'relative.AppImage', execPath: '/opt/Infrastructure Lab/x' })).toEqual({ mode: 'download', kind: 'deb' });
     expect(U.installMode({ platform: 'darwin', arch: 'arm64', execPath: '/Applications/x' })).toEqual({ mode: 'download', kind: 'dmg' });
   });
@@ -155,7 +158,9 @@ describe('updater: downloads', () => {
     await U.downloadVerified({ fetchFn: fetchOf(ARTIFACT), url, dest, size: ARTIFACT.length, sha256: SHA });
     expect(fs.readFileSync(dest).equals(ARTIFACT)).toBe(true);
     if (process.platform !== 'win32') expect(fs.statSync(dest).mode & 0o777).toBe(0o600);
-    await expect(U.downloadVerified({ fetchFn: fetchOf(ARTIFACT), url, dest, size: ARTIFACT.length, sha256: SHA })).rejects.toThrow(/EEXIST/);
+    await expect(U.downloadVerified({ fetchFn: fetchOf(ARTIFACT), url, dest, size: ARTIFACT.length, sha256: SHA })).rejects.toThrow(/already exists/);
+    expect(U.fileSha256(dest)).toBe(SHA);
+    expect(fs.readdirSync(d)).toEqual([SETUP]);
   });
 
   it('deletes a file with the wrong content, size or length', async () => {
@@ -180,6 +185,14 @@ describe('updater: the CI signer', () => {
     expect(classify('InfrastructureLab-1.2.4-linux-x86_64.AppImage')).toEqual({ platform: 'linux', arch: 'x64', kind: 'appimage' });
     expect(classify('InfrastructureLab-1.2.4-mac-arm64.dmg')).toEqual({ platform: 'darwin', arch: 'arm64', kind: 'dmg' });
     expect(classify('InfrastructureLab-1.2.4-mac-arm64.zip')).toBeNull();
+  });
+
+  it('skips tags that are not vX.Y.Z (prereleases are not offered), without failing the release', () => {
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), 'lab-sign-'));
+    fs.writeFileSync(path.join(d, 'InfrastructureLab-Setup-1.3.0-rc.1-win-x64.exe'), ARTIFACT);
+    const out = execFileSync(process.execPath, ['scripts/sign-update-manifest.cjs', d, 'v1.3.0-rc.1'], { env: { ...process.env, UPDATE_SIGNING_KEY: privateKey.export({ type: 'pkcs8', format: 'pem' }) as string } }).toString();
+    expect(out).toContain('not a vX.Y.Z tag');
+    expect(fs.existsSync(path.join(d, U.MANIFEST))).toBe(false);
   });
 
   it('writes a manifest and signature that the app accepts', () => {

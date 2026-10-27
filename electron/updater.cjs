@@ -103,7 +103,9 @@ function verifyManifest(bytes, signatureText, publicKeys) {
  */
 function installMode(env) {
   if (env.platform === 'win32' && !env.portableDir && env.hasUninstaller) return { mode: 'nsis', kind: 'nsis' };
-  if (env.platform === 'linux' && env.appImage && path.isAbsolute(env.appImage)) return { mode: 'appimage', kind: 'appimage' };
+  // APPIMAGE is inherited by child processes: trust it only if this process runs from that AppImage's mount (APPDIR).
+  const ownAppImage = env.appImage && path.isAbsolute(env.appImage) && env.appDir && path.isAbsolute(env.appDir) && env.execPath.startsWith(`${env.appDir.replace(/\/+$/, '')}/`);
+  if (env.platform === 'linux' && ownAppImage) return { mode: 'appimage', kind: 'appimage' };
   if (env.platform === 'win32') return { mode: 'download', kind: env.portableDir ? 'portable' : 'zip' };
   if (env.platform === 'linux') return { mode: 'download', kind: env.execPath.startsWith('/opt/') ? 'deb' : 'targz' };
   return { mode: 'download', kind: 'dmg' };
@@ -127,6 +129,7 @@ async function safeFetch(fetchFn, url, accept) {
       current = safeUrl(new URL(loc, current).href);
       continue;
     }
+    if (res.status === 403 || res.status === 429) throw new UpdateError('GitHub refused the request (rate limit): try again later');
     if (res.status !== 200) throw new UpdateError(`download failed: HTTP ${res.status}`);
     return res;
   }
@@ -183,14 +186,18 @@ async function checkForUpdate({ fetchFn, currentVersion, publicKeys, env }) {
 }
 
 /**
- * Download to `dest` (created exclusively, mode 0600), checking the size as it
- * arrives and the SHA-256 at the end. A mismatch deletes the file and throws.
+ * Download to `dest`, checking the size as it arrives and the SHA-256 at the
+ * end. The bytes go to "<dest>.part" (created exclusively, mode 0600), which
+ * is renamed to `dest` only once verified: `dest` never holds unverified data.
+ * A mismatch deletes the partial file and throws.
  */
 async function downloadVerified({ fetchFn, url, dest, size, sha256, onProgress }) {
+  if (fs.existsSync(dest)) throw new UpdateError('the destination file already exists');
   const res = await safeFetch(fetchFn, url, 'application/octet-stream');
   const declared = Number(res.headers.get('content-length'));
   if (declared && declared !== size) throw new UpdateError('download size differs from the signed manifest');
-  const fd = fs.openSync(dest, 'wx', 0o600);
+  const part = `${dest}.part`;
+  const fd = fs.openSync(part, 'wx', 0o600);
   const hash = crypto.createHash('sha256');
   let received = 0;
   let ok = false;
@@ -211,9 +218,23 @@ async function downloadVerified({ fetchFn, url, dest, size, sha256, onProgress }
     ok = true;
   } finally {
     fs.closeSync(fd);
-    if (!ok) fs.rmSync(dest, { force: true });
+    if (!ok) fs.rmSync(part, { force: true });
   }
+  fs.renameSync(part, dest);
   return dest;
+}
+
+/** SHA-256 of a file, read in chunks (no whole-file buffer). */
+function fileSha256(file) {
+  const fd = fs.openSync(file, 'r');
+  const hash = crypto.createHash('sha256');
+  const buf = Buffer.alloc(1024 * 1024);
+  try {
+    for (let n; (n = fs.readSync(fd, buf, 0, buf.length, null)) > 0;) hash.update(buf.subarray(0, n));
+  } finally {
+    fs.closeSync(fd);
+  }
+  return hash.digest('hex');
 }
 
 /** A path in `dir` for `name` that does not exist yet ("name (1).ext" ...). */
@@ -222,12 +243,12 @@ function freePath(dir, name) {
   const base = name.slice(0, name.length - ext.length);
   for (let i = 0; i < 1000; i++) {
     const p = path.join(dir, i ? `${base} (${i})${ext}` : name);
-    if (!fs.existsSync(p)) return p;
+    if (!fs.existsSync(p) && !fs.existsSync(`${p}.part`)) return p;
   }
   throw new UpdateError('no free file name in the download folder');
 }
 
 module.exports = {
   REPO, PRODUCT, MANIFEST, SIGNATURE, ALLOWED_HOSTS, NAME_RE, KINDS, UpdateError,
-  parseVersion, compareVersions, safeUrl, verifyManifest, installMode, chooseFile, safeFetch, readLimited, checkForUpdate, downloadVerified, freePath,
+  parseVersion, compareVersions, safeUrl, verifyManifest, installMode, chooseFile, safeFetch, readLimited, checkForUpdate, downloadVerified, fileSha256, freePath, MAX_REDIRECTS,
 };
