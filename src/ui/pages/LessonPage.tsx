@@ -570,7 +570,7 @@ export function LessonPage({ lessonId, section }: { lessonId: string; section: s
         <>
           {L.primer && <PrimerChecks p={L.primer} />}
           {L.primer && <h2>Graded assessment</h2>}
-          <AssessmentView assessment={ASSESSMENTS[L.assessmentId]} />
+          <AssessmentView assessment={ASSESSMENTS[L.assessmentId]} lessonId={L.id} />
         </>
       )}
     </div>

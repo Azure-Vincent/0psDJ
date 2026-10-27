@@ -12,12 +12,14 @@ export const NAT_LESSON: Lesson = {
 **Network Address Translation (NAT)** means a router rewrites the addresses (and often the ports) in packets as they pass through it. You have almost certainly used it: your home router does it for every phone and laptop in the house.
 
 ### Why NAT exists
-There are only about four billion IPv4 addresses, far too few for every device in the world. So organisations number their internal networks from the **private ranges** defined in RFC 1918: 10.0.0.0/8, 172.16.0.0/12 and 192.168.0.0/16. These addresses are not routed on the Internet; anyone can reuse them inside their own network. When an inside device talks to the Internet, the router replaces the private address with one of the organisation's few **public addresses**, and reverses the change on the replies.
+There are only about four billion IPv4 addresses, far too few for every device in the world. So organisations number their internal networks from the **private ranges** defined in RFC 1918: 10.0.0.0/8, 172.16.0.0/12 and 192.168.0.0/16. These addresses are not routed on the Internet; anyone can reuse them inside their own network. Only these three ranges are "private" in the RFC 1918 sense. Other special ranges look similar but are something else: **169.254.0.0/16** is *link-local* (an address a computer gives itself when DHCP fails, valid only on its own network segment), **127.0.0.0/8** is loopback, and **192.0.2.0/24, 198.51.100.0/24 and 203.0.113.0/24** are reserved for documentation and examples. When an inside device talks to the Internet, the router replaces the private address with one of the organisation's few **public addresses**, and reverses the change on the replies.
 
 This builds on the [IP networking lesson](#/lesson/ipnet/what) (routing, gateways) and on ports from [Transport and DNS](#/lesson/transport/what): NAT changes exactly those addresses and ports.
 
 ### Two directions
-- **Source NAT (SNAT), often as masquerade**: for connections that start **inside** and go out. They leave with the router's public address as the source, so the outside world only ever sees the router. *Masquerade* is SNAT that automatically uses whatever address the outgoing interface has, which is handy when that address comes from DHCP and may change.
+- **Source NAT (SNAT), often as masquerade**: for connections that start **inside** and go out. They leave with the router's public address as the source, so the outside world only ever sees the router. *Masquerade* is SNAT that automatically uses whatever address the outgoing interface has, which is handy when that address comes from DHCP and may change. Choose between the two like this:
+  - The uplink address is **dynamic** (DHCP, PPPoE): use \`masquerade\`. It looks up the interface address for every new connection, and it forgets its translations when the interface goes down, so a new address works straight away.
+  - The uplink address is **fixed**: \`snat to 203.0.113.2\` does the same job with a fixed address and slightly less work per connection.
 - **Destination NAT (DNAT), also called port forwarding**: for connections that start **outside** and come in. A connection to the public address (on a given port) is redirected to a server inside. This is how a web server with a private address is **published** on the Internet.
 
 ### In the lab

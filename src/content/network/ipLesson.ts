@@ -57,6 +57,20 @@ A few rules of thumb:
 - A host treats every address inside its own prefix as **on-link**: it believes it can reach that address directly, without a router.
 - That is why a wrong prefix is a routing problem, not a cosmetic one. Too short (for example /16 instead of /24) and the host tries to reach remote computers directly and nothing answers. Too long and it sends local traffic to the router unnecessarily, or cannot reach some neighbours at all.
 
+### Working out any network by hand
+For a /24 the answer is easy to see, because the network ends at a dot. For other prefixes, use this method. It works for every IPv4 prefix. Example: **192.168.4.77/28**.
+1. **Count the host bits:** 32 − prefix length. For /28: 32 − 28 = **4** host bits.
+2. **Work out the block size:** 2 to the power of the host bits. 2⁴ = **16** addresses per network.
+3. **Find the network address:** networks start at multiples of the block size (in the last number: 0, 16, 32, 48, 64, 80 …). Take the largest multiple that is not bigger than the host's number: 77 → **64**. The network is **192.168.4.64/28**.
+4. **Find the broadcast address:** the next network starts at 64 + 16 = 80, so the broadcast address is the one just before it: **192.168.4.79**.
+5. **Count the usable host addresses:** the block size minus 2, because the network address and the broadcast address cannot be given to a host. 16 − 2 = **14** (192.168.4.65 to .78).
+
+The formula for step 5 is worth remembering: **usable hosts = 2^(32 − prefix) − 2**. A /29 has 2³ − 2 = 6, a /25 has 2⁷ − 2 = 126. (Two exceptions: a /31 is used for point-to-point links with both addresses usable, and a /32 is a single host.)
+
+**Prefixes shorter than /24** work the same way, but the block size applies to the third number instead of the last one. Use 2^(24 − prefix) as the block size in the third number. Example: **172.20.37.9/22**: the block is 2^(24 − 22) = 4 in the third number, the multiples are 0, 4, 8 … 32, 36, 40, so the network is **172.20.36.0/22** and its last address (the broadcast) is **172.20.39.255**. It covers 172.20.36.0 to 172.20.39.255: four /24s.
+
+To check your answer, \`ipcalc 192.168.4.77/28\` prints the network, broadcast and host range, and the [nftables lesson](#/lesson/nftables/internals) has a prefix calculator.
+
 ### How a host decides where to send a packet
 Every computer, not just routers, has a **routing table**: a list of networks it knows about and how to reach each one. On Linux you can see it with \`ip route\`. For every packet it sends, the kernel (the core of the operating system) looks for the entry that matches the destination most precisely. This is called **longest prefix match**: if two routes both match, the one with the longer prefix (the smaller, more specific network) wins.
 
@@ -87,7 +101,10 @@ A router is a computer with network interfaces in more than one network and **fo
 3. Applies its firewall rules for forwarded traffic, if it has any.
 4. Uses ARP to find the next hop on the outgoing network, and sends the packet inside a **new Ethernet frame**. The MAC addresses change at every hop; the source and destination IP addresses inside the packet stay the same.
 
-If forwarding is switched off, a Linux router behaves like an ordinary host and answers packets it should have forwarded with **ICMP host unreachable**.
+If forwarding is switched off, a Linux router behaves like an ordinary host and answers packets it should have forwarded with **ICMP host unreachable**. Three consequences follow from "it is now an ordinary host":
+- It still answers packets addressed to **its own** addresses, so clients can ping their gateway and everything looks fine up to that point.
+- Hosts on the **same** network keep talking to each other, because their traffic never passes through the router.
+- Only traffic **between** networks stops. Setting it back with \`sysctl -w net.ipv4.ip_forward=1\` fixes it at once, but only until the next reboot: the permanent setting lives in a file under \`/etc/sysctl.d/\`.
 
 ### Traffic must work in both directions
 Each router, and each end of the conversation, makes its own routing decision, independently, for every packet. A reply from a server is routed using the **server's** routing table, so the server needs a route back to the client's network (usually its own default gateway).

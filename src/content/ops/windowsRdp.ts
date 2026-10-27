@@ -442,6 +442,7 @@ export const WINDOWS_RDP_ASSESSMENT: Assessment = {
       id: 'windows-rdp-q-order',
       kind: 'order',
       level: 'intermediate',
+      learn: ['lesson/windows-rdp/troubleshoot'],
       prompt: 'Helpdesk reports "Remote Desktop can\'t connect to the remote computer" for app01. Put the checks in the order you should do them (stop at the first failure).',
       items: [
         'Resolve-DnsName app01.corp.lab from the client',
@@ -459,6 +460,7 @@ export const WINDOWS_RDP_ASSESSMENT: Assessment = {
       id: 'windows-rdp-q-tnc',
       kind: 'single',
       level: 'beginner',
+      learn: ['lesson/windows-rdp/troubleshoot'],
       prompt: 'From WS01 you get this. What is the most useful conclusion?',
       exhibit: 'PS C:\\> Test-NetConnection app01.corp.lab -Port 3389\nWARNING: TCP connect to (10.0.20.21 : 3389) failed\n\nComputerName           : app01.corp.lab\nRemoteAddress          : 10.0.20.21\nRemotePort             : 3389\nInterfaceAlias         : Ethernet\nSourceAddress          : 10.0.10.25\nPingSucceeded          : True\nPingReplyDetails (RTT) : 1 ms\nTcpTestSucceeded       : False',
       options: [
@@ -474,6 +476,7 @@ export const WINDOWS_RDP_ASSESSMENT: Assessment = {
       id: 'windows-rdp-q-restart',
       kind: 'single',
       level: 'intermediate',
+      learn: ['lesson/windows-rdp/internals'],
       prompt: 'You are connected to app01 over RDP and need to restart Remote Desktop Services after changing the RDP certificate. What is the safe way?',
       options: [
         { text: 'Run Restart-Service TermService -Force in your RDP session.', misconception: 'Restarting TermService disconnects every RDP session, including yours; if it fails to start you have no way back in.' },
@@ -488,6 +491,7 @@ export const WINDOWS_RDP_ASSESSMENT: Assessment = {
       id: 'windows-rdp-q-4625',
       kind: 'single',
       level: 'intermediate',
+      learn: ['lesson/windows-rdp/config', 'lesson/windows-rdp/troubleshoot'],
       prompt: 'After a new security baseline GPO, helpdesk users cannot RDP to servers but Domain Admins can. app01\'s Security log shows the event below. Where is the fix?',
       exhibit: 'An account failed to log on.\n\nLogon Type:\t\t\t10\n\nAccount For Which Logon Failed:\n\tAccount Name:\t\th.lee\n\tAccount Domain:\t\tCORP\n\nFailure Information:\n\tFailure Reason:\t\tThe user has not been granted the requested logon type at this machine.\n\tStatus:\t\t\t0xC000015B\n\tSub Status:\t\t0x0',
       options: [
@@ -503,6 +507,7 @@ export const WINDOWS_RDP_ASSESSMENT: Assessment = {
       id: 'windows-rdp-q-qwinsta',
       kind: 'single',
       level: 'intermediate',
+      learn: ['lesson/windows-rdp/troubleshoot'],
       prompt: 'On app01 (via the hypervisor console) TermService is Running, the firewall rules are enabled, but clients cannot connect to 3389. You run qwinsta. What is wrong?',
       exhibit: ' SESSIONNAME       USERNAME                 ID  STATE   TYPE        DEVICE\n services                                    0  Disc\n>console           Administrator             1  Active',
       options: [
@@ -518,6 +523,7 @@ export const WINDOWS_RDP_ASSESSMENT: Assessment = {
       id: 'windows-rdp-q-nla-domain',
       kind: 'multi',
       level: 'advanced',
+      learn: ['lesson/windows-rdp/troubleshoot'],
       prompt: 'Domain users get "An authentication error has occurred. The Local Security Authority cannot be contacted." when connecting to app01, but the local Administrator account can log on through RDP. Which causes fit? (Select all that apply.)',
       options: [
         { text: 'app01 uses a DNS server that cannot resolve the corp.lab DC records', correct: true },
@@ -533,6 +539,7 @@ export const WINDOWS_RDP_ASSESSMENT: Assessment = {
       id: 'windows-rdp-q-credssp',
       kind: 'single',
       level: 'intermediate',
+      learn: ['lesson/windows-rdp/troubleshoot'],
       prompt: 'An old, unpatched Windows server cannot be reached from patched clients: "An authentication error has occurred. The function requested is not supported ... This could be due to CredSSP encryption oracle remediation." What is the correct permanent fix?',
       options: [
         { text: 'Set the client policy "Encryption Oracle Remediation" to Vulnerable.', misconception: 'That re-enables the vulnerability (CVE-2018-0886) on every client it applies to. At most an emergency workaround, recorded and removed.' },
@@ -547,6 +554,7 @@ export const WINDOWS_RDP_ASSESSMENT: Assessment = {
       id: 'windows-rdp-q-port',
       kind: 'multi',
       level: 'intermediate',
+      learn: ['lesson/windows-rdp/internals', 'lesson/windows-rdp/config'],
       prompt: 'A colleague changed RDP on app01 to port 3390 by editing PortNumber. Which further steps are required for clients to connect on 3390? (Select all that apply.)',
       options: [
         { text: 'Restart TermService (from console or WinRM)', correct: true },
@@ -562,6 +570,7 @@ export const WINDOWS_RDP_ASSESSMENT: Assessment = {
       id: 'windows-rdp-q-events',
       kind: 'text',
       level: 'intermediate',
+      learn: ['lesson/windows-rdp/operate'],
       prompt: 'Type the event ID in the System log (source Service Control Manager) that records "The start type of the Remote Desktop Services service was changed from demand start to disabled."',
       accept: ['7040'],
       placeholder: 'event ID',
@@ -572,6 +581,7 @@ export const WINDOWS_RDP_ASSESSMENT: Assessment = {
       id: 'windows-rdp-q-getwinevent',
       kind: 'text',
       level: 'advanced',
+      learn: ['lesson/windows-rdp/internals'],
       prompt: 'Type a Get-WinEvent command that returns failed logon events (ID 4625) from the Security log using -FilterHashtable.',
       accept: [/^get-winevent\s+-filterhashtable\s+@\{\s*logname\s*=\s*['"]?security['"]?\s*;\s*id\s*=\s*4625\s*\}.*$/i, /^get-winevent\s+-filterhashtable\s+@\{\s*id\s*=\s*4625\s*;\s*logname\s*=\s*['"]?security['"]?\s*\}.*$/i],
       placeholder: 'PowerShell command',
@@ -582,6 +592,7 @@ export const WINDOWS_RDP_ASSESSMENT: Assessment = {
       id: 'windows-rdp-q-home',
       kind: 'single',
       level: 'beginner',
+      learn: ['lesson/windows-rdp/deploy'],
       prompt: 'A user wants to RDP into their Windows 11 **Home** laptop from the office. What do you tell them?',
       options: [
         { text: 'Enable it in Settings > System > Remote Desktop.', misconception: 'That page offers no host toggle on Home: Home editions cannot accept RDP connections.' },
@@ -595,6 +606,7 @@ export const WINDOWS_RDP_ASSESSMENT: Assessment = {
       id: 'windows-rdp-q-winrm',
       kind: 'single',
       level: 'beginner',
+      learn: ['lesson/windows-rdp/internals'],
       prompt: 'Which port does WinRM (PowerShell remoting) use by default over HTTP, and why is it useful when RDP is broken?',
       options: [
         { text: 'TCP 5985: it is a separate service, so you can run Get-Service, qwinsta or Restart-Service TermService remotely without depending on RDP.', correct: true },

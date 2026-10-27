@@ -384,6 +384,7 @@ export const NTP_ASSESSMENT: Assessment = {
       id: 'ntp-q-chain',
       kind: 'order',
       level: 'beginner',
+      learn: ['lesson/ntp/internals'],
       prompt: 'Order the lab\'s time chain from the most accurate source to the client.',
       items: ['GPS reference clock (stratum 0)', 'ext01, the provider\'s server (stratum 1)', 'rtr01 with chrony (stratum 2)', 'ws01 with systemd-timesyncd (stratum 3)'],
       concepts: ['ntp.sync'],
@@ -393,6 +394,7 @@ export const NTP_ASSESSMENT: Assessment = {
       id: 'ntp-q-timeout',
       kind: 'single',
       level: 'intermediate',
+      learn: ['lesson/ntp/internals'],
       prompt: 'Only the hosts of VLAN 30 log "Timed out waiting for reply from 10.0.10.1:123". On rtr01, tcpdump shows their requests arriving, and this output. What is the cause?',
       exhibit: '# chronyc clients\nHostname                      NTP   Drop Int IntL Last     Cmd   Drop Int  Last\n===============================================================================\n10.0.10.25                     14      0   6   -    40       0      0   -     -\n10.0.30.25                      0     12   6   -    35       0      0   -     -',
       options: [
@@ -408,6 +410,7 @@ export const NTP_ASSESSMENT: Assessment = {
       id: 'ntp-q-leap',
       kind: 'single',
       level: 'intermediate',
+      learn: ['lesson/ntp/internals'],
       prompt: 'Every client shows "System clock synchronized: no" and timesyncd\'s log is clean. timedatectl timesync-status shows "Leap: not synchronized", "Stratum: 16" from rtr01. What do you check next?',
       options: [
         { text: 'chronyc tracking and chronyc sources on rtr01: its own upstream', correct: true },
@@ -422,6 +425,7 @@ export const NTP_ASSESSMENT: Assessment = {
       id: 'ntp-q-port',
       kind: 'text',
       level: 'beginner',
+      learn: ['lesson/ntp/internals'],
       prompt: 'Which transport protocol and port does an NTP server listen on? (format: proto/port)',
       accept: [/^udp\s*\/\s*123$/i, /^123\s*\/\s*udp$/i],
       placeholder: 'udp/123',
@@ -432,6 +436,7 @@ export const NTP_ASSESSMENT: Assessment = {
       id: 'ntp-q-step',
       kind: 'multi',
       level: 'advanced',
+      learn: ['lesson/ntp/internals'],
       prompt: 'Which statements about stepping and slewing are true? (choose all that apply)',
       options: [
         { text: 'Slewing corrects the clock by running it slightly faster or slower, so time never jumps', correct: true },
@@ -446,6 +451,7 @@ export const NTP_ASSESSMENT: Assessment = {
       id: 'ntp-q-kerberos',
       kind: 'single',
       level: 'beginner',
+      learn: ['lesson/ntp/internals', 'lesson/ntp/operate'],
       prompt: 'kinit fails with "Clock skew too great". What is the right fix?',
       options: [
         { text: 'Find out why the client is not synchronized by NTP and fix that', correct: true },

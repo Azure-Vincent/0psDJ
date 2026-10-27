@@ -50,7 +50,7 @@ Each side announces the MSS derived from **its own** interface MTU, and each sen
 
 ### What breaks it
 - **ICMP filtered**: "block all ICMP" rules on firewalls or hosts drop the "fragmentation needed" messages. Stateful firewalls normally accept them as **related** to the connection (\`ct state established,related accept\`); rules placed before that, or stateless ACLs, break PMTUD. Result: a **black hole**.
-- **Mismatched MTU on one link**: if a host or router interface has a smaller MTU than the other end of the same link, frames from the other end are discarded on receipt. No router is involved, so no ICMP is generated at all.
+- **Mismatched MTU on one link**: if a host or router interface has a smaller MTU than the other end of the same link, frames from the other end are discarded on receipt. No router is involved, so no ICMP is generated at all. The same applies to **switches**: they work below IP and never send ICMP. If two servers use jumbo frames (MTU 9000) but a switch between them only handles 1500-byte frames, the switch silently drops every large frame. Small packets (SSH keystrokes) pass, large ones (a backup stream, \`ping -M do -s 8972\`) vanish without an error. Jumbo frames must be enabled on every device in the layer-2 path.
 - **Tunnels and overlays** (VPN, VXLAN, GRE, PPPoE) that reduce the MTU on a path whose endpoints do not know about it.
 
 ### The fixes, from best to worst

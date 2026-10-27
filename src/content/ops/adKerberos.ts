@@ -230,7 +230,7 @@ The full list is in \`%SystemRoot%\\System32\\config\\netlogon.dns\` on each DC.
 On the DCs themselves: preferred DNS = **another DC**, alternate = its own IP, \`127.0.0.1\` last. A DC that points only to itself may wait at boot for its own DNS, which waits for AD (DNS Server event 4013).
 
 ### 2. Kerberos
-Kerberos (RFC 4120) authenticates with **tickets** instead of sending passwords to every server.
+Kerberos (RFC 4120) authenticates with **tickets** instead of sending passwords to every server. The Kerberos **realm** of an AD domain is its DNS name in **upper case**: the domain corp.lab is the realm \`CORP.LAB\`. Realm names are case-sensitive, so on a Linux member \`kinit dana@corp.lab\` looks for a realm that does not exist ("Cannot find KDC for realm"), while \`kinit dana@CORP.LAB\` works.
 1. **AS exchange** (Authentication Service). At logon the client sends an **AS-REQ** for \`krbtgt/CORP.LAB\`. The first attempt is rejected with \`KDC_ERR_PREAUTH_REQUIRED\` (normal); the client resends it with a timestamp encrypted with the user's password-derived key. The KDC decrypts it: wrong key → bad password (Security 4771, code 0x18); timestamp more than **5 minutes** off → \`KRB_AP_ERR_SKEW\` (0x25). Success → **AS-REP** with a **TGT** (Ticket-Granting Ticket), valid 10 hours, renewable for 7 days. DC logs Security **4768**.
 2. **TGS exchange** (Ticket-Granting Service). To open \`\\\\fs01\\data\` the client sends a **TGS-REQ** with its TGT, naming the **SPN** \`cifs/fs01.corp.lab\`. The KDC searches the directory for the account that has that SPN in its \`servicePrincipalName\` attribute and returns a **service ticket** encrypted with **that account's key**. DC logs **4769**. No account → \`KDC_ERR_S_PRINCIPAL_UNKNOWN\` and Windows falls back to NTLM.
 3. **AP exchange**. The client sends the service ticket inside the application protocol (SMB, HTTP Negotiate, LDAP, RDP/CredSSP). fs01 decrypts it with its own key; no DC is contacted. If the key does not match (the SPN belongs to another account, e.g. a duplicate), the server cannot decrypt it: \`KRB_AP_ERR_MODIFIED\`.
@@ -246,12 +246,14 @@ Kerberos timestamps make **time a hard dependency**. The default "Maximum tolera
 - Members (\`Type = NT5DS\`) sync from a DC in their domain.
 - DCs sync from the **PDC emulator** of the domain (or a DC higher in the hierarchy).
 - The PDC emulator of the forest root syncs from a **reliable external source** (\`Type = NTP\`, \`w32tm /config /manualpeerlist:... /syncfromflags:manual /reliable:yes /update\`).
-If the PDC emulator free-runs, the whole domain drifts together (logons still work, but Linux hosts, appliances and other forests using real NTP drift away). If a single client drifts (a VM restored from snapshot), only that client fails.
+If the PDC emulator free-runs, the whole domain drifts together (logons still work, but Linux hosts, appliances and other forests using real NTP drift away). If a single client drifts (a VM restored from snapshot), only that client fails. On that client, \`w32tm /query /source\` shows \`Local CMOS Clock\` (or \`Free-running System Clock\`) instead of a DC: it has left the domain hierarchy. Put it back with \`w32tm /config /syncfromflags:domhier /update\` followed by \`w32tm /resync\`, and check that the hypervisor's own time synchronisation is not fighting W32Time. On the DC, its failed logons show as Security event 4771 with failure code **0x25** (clock skew).
 
 ### 4. Secure channel and machine accounts
 Joining a computer creates a computer object (\`WS07$\`) with a **machine password** known to both the computer (stored as an LSA secret) and AD. Netlogon uses it to build a **secure channel** to a DC at boot, and the computer changes it automatically every 30 days. If the two copies diverge (snapshot restore, object reset, duplicate name), the computer can no longer authenticate: "The trust relationship between this workstation and the primary domain failed." The repair resets the password on both sides: \`Test-ComputerSecureChannel -Repair\` or \`Reset-ComputerMachinePassword\`.
 
 ### 5. Replication
+Replication partners find each other through DNS too, using the \`<DSA-GUID>._msdcs.corp.lab\` CNAME of each DC. Error **8524** ("The DSA operation is unable to proceed because of a DNS lookup failure") in \`repadmin /replsummary\` means that lookup failed: check the DNS client settings of the DC that reports it, and whether its partner registered its records.
+
 Every DC has a writable copy. Each change increments the DC's **USN**; partners remember the highest USN they have seen from each DC (the *up-to-dateness vector*) and **pull** what is new over RPC. Within a site, change notification triggers replication within about 15 seconds; between sites, on the site-link schedule (default 180 minutes). The **KCC** on each DC builds the connection objects automatically. Deleted objects become **tombstones** kept for the **tombstone lifetime** (180 days in forests created on Server 2003 SP1 or later); a DC that has not replicated for longer than that must not be reconnected (it could reintroduce deleted objects as *lingering objects*), so replication refuses with error 8614 and event 2042.
 
 SYSVOL is replicated separately by **DFSR**. AD replication healthy + DFSR broken = GPO version in AD (\`gPCVersion\`) does not match the files on that DC, and clients see inconsistent policy.
@@ -445,6 +447,7 @@ export const AD_KERBEROS_ASSESSMENT: Assessment = {
       id: 'ad-kerberos-q-dns-secondary',
       kind: 'single',
       level: 'beginner',
+      learn: ['lesson/ad-kerberos/internals'],
       prompt: 'A Windows 11 client sometimes fails to apply Group Policy and sometimes cannot map drives; a reboot "fixes" it for a while. Which configuration best explains this?',
       exhibit: 'PS C:\\> Get-DnsClientServerAddress -AddressFamily IPv4\n\nInterfaceAlias  Interface Address ServerAddresses\n                Index     Family\n--------------  --------- ------- ---------------\nEthernet 2             14 IPv4    {10.0.20.5, 8.8.8.8}',
       options: [
@@ -460,6 +463,7 @@ export const AD_KERBEROS_ASSESSMENT: Assessment = {
       id: 'ad-kerberos-q-srv',
       kind: 'text',
       level: 'beginner',
+      learn: ['lesson/ad-kerberos/internals'],
       prompt: 'Which DNS record name (type SRV) does the DC locator query to find any domain controller of `corp.lab`?',
       accept: ['_ldap._tcp.dc._msdcs.corp.lab', '_ldap._tcp.dc._msdcs.corp.lab.'],
       placeholder: '_service._proto....',
@@ -470,6 +474,7 @@ export const AD_KERBEROS_ASSESSMENT: Assessment = {
       id: 'ad-kerberos-q-order',
       kind: 'order',
       level: 'intermediate',
+      learn: ['lesson/ad-kerberos/internals'],
       prompt: 'Put the steps of Dana\'s logon at WS07 and her first access to `\\\\fs01\\data` in order.',
       items: [
         'DNS SRV query for _ldap._tcp.dc._msdcs.corp.lab',
@@ -487,6 +492,7 @@ export const AD_KERBEROS_ASSESSMENT: Assessment = {
       id: 'ad-kerberos-q-skew',
       kind: 'single',
       level: 'intermediate',
+      learn: ['lesson/ad-kerberos/internals'],
       prompt: 'Only one virtual desktop, restored from a snapshot yesterday, cannot authenticate. The DC logs this event for its logons. What do you fix?',
       exhibit: 'Event 4771, Microsoft-Windows-Security-Auditing\nKerberos pre-authentication failed.\nAccount Name:   dana\nService Name:   krbtgt/CORP.LAB\nClient Address: ::ffff:10.0.10.57\nFailure Code:   0x25\n\nPS C:\\> w32tm /query /source     (on the desktop)\nLocal CMOS Clock',
       options: [
@@ -502,6 +508,7 @@ export const AD_KERBEROS_ASSESSMENT: Assessment = {
       id: 'ad-kerberos-q-dupspn',
       kind: 'single',
       level: 'advanced',
+      learn: ['lesson/ad-kerberos/internals'],
       prompt: 'After the intranet application was moved to run as `CORP\\svc-web`, users get password prompts and the client System log shows KRB_AP_ERR_MODIFIED for HTTP/intranet.corp.lab. What is the correct fix?',
       exhibit: 'C:\\> setspn -X\nChecking domain DC=corp,DC=lab\nProcessing entry 7\nHTTP/intranet.corp.lab is registered on these accounts:\n        CN=svc-web,OU=Service Accounts,DC=corp,DC=lab\n        CN=APP01,OU=Servers,DC=corp,DC=lab\n\nfound 1 group of duplicate SPNs.',
       options: [
@@ -517,6 +524,7 @@ export const AD_KERBEROS_ASSESSMENT: Assessment = {
       id: 'ad-kerberos-q-trust',
       kind: 'multi',
       level: 'intermediate',
+      learn: ['lesson/ad-kerberos/internals'],
       prompt: 'Users at WS12 see "The trust relationship between this workstation and the primary domain failed." Which actions are appropriate? (Select all that apply.)',
       options: [
         { text: 'Log on with a local administrator and run nltest /sc_verify:corp.lab to confirm', correct: true },
@@ -532,6 +540,7 @@ export const AD_KERBEROS_ASSESSMENT: Assessment = {
       id: 'ad-kerberos-q-repl',
       kind: 'single',
       level: 'intermediate',
+      learn: ['lesson/ad-kerberos/internals'],
       prompt: 'A user created on dc01 an hour ago cannot log on at a branch PC that uses dc02. What does this output tell you to do first?',
       exhibit: 'C:\\> repadmin /replsummary\nSource DSA          largest delta    fails/total %%   error\n DC01                      01h:12m    5 /   5  100  (8524) The DSA operation is unable to proceed because of a DNS lookup failure.\n\nDestination DSA     largest delta    fails/total %%   error\n DC02                      01h:12m    5 /   5  100  (8524) The DSA operation is unable to proceed because of a DNS lookup failure.',
       options: [
@@ -547,6 +556,7 @@ export const AD_KERBEROS_ASSESSMENT: Assessment = {
       id: 'ad-kerberos-q-gpo1058',
       kind: 'single',
       level: 'intermediate',
+      learn: ['lesson/ad-kerberos/internals'],
       prompt: '`gpupdate /force` on WS07 reports event 1058 for `\\\\corp.lab\\SysVol\\corp.lab\\Policies\\{6AC1786C-...}\\gpt.ini`. User logon and Kerberos work. Which component is most likely at fault?',
       options: [
         { text: 'The Kerberos KDC', misconception: 'Kerberos works (logon succeeds); 1030 would indicate the policy query itself failed.' },
@@ -561,6 +571,7 @@ export const AD_KERBEROS_ASSESSMENT: Assessment = {
       id: 'ad-kerberos-q-restart',
       kind: 'multi',
       level: 'advanced',
+      learn: ['lesson/ad-kerberos/internals', 'lesson/ad-kerberos/operate'],
       prompt: 'dc01\'s SRV records disappeared from DNS after a network change; dc02 is healthy. Which actions are appropriate and proportionate? (Select all that apply.)',
       options: [
         { text: 'Check repadmin /replsummary and dcdiag /test:dns before changing anything', correct: true },
@@ -576,6 +587,7 @@ export const AD_KERBEROS_ASSESSMENT: Assessment = {
       id: 'ad-kerberos-q-pdc-time',
       kind: 'single',
       level: 'intermediate',
+      learn: ['lesson/ad-kerberos/internals'],
       prompt: 'Which machine in a single-domain forest should be configured to synchronise its time from external NTP servers?',
       options: [
         { text: 'Every DC', misconception: 'DCs follow the domain hierarchy (NT5DS) from the PDC emulator; independent external sources can make DCs disagree.' },
@@ -590,6 +602,7 @@ export const AD_KERBEROS_ASSESSMENT: Assessment = {
       id: 'ad-kerberos-q-linux',
       kind: 'single',
       level: 'beginner',
+      learn: ['lesson/ad-kerberos/internals'],
       prompt: 'On an Ubuntu 24.04 member, `kinit dana@corp.lab` fails with "Cannot find KDC for realm "corp.lab" while getting initial credentials". `kinit dana@CORP.LAB` works. Why?',
       options: [
         { text: 'Kerberos realm names are case-sensitive and AD realms are the upper-case DNS domain name', correct: true },

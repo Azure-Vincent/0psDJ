@@ -59,7 +59,17 @@ Before the filter runs, conntrack classifies every packet against its table of f
 
 This is what makes a firewall **stateful**: one rule, \`ct state established,related accept\`, admits all replies to connections that were allowed in the first place, so you only write rules for *new* connections. Without it, replies to connections the host itself opens (DNS answers, package downloads) are dropped, while inbound services still appear to work.
 
-A **stateless** alternative such as \`udp sport 53 accept\` ("accept DNS replies") is a hole: anyone can send a packet *from* port 53.
+A **stateless** alternative such as \`udp sport 53 accept\` ("accept DNS replies") is a hole: anyone can send a packet *from* port 53. The same goes for "accept everything from the DNS server" (\`ip saddr 10.0.10.53 accept\`): it opens **every** port to that host, and source addresses can be faked for one-way traffic. Connection state is the right test for replies.
+
+### Writing a rule step by step
+Build a rule from left to right by answering three questions about the traffic you want to allow:
+1. **From where?** \`ip saddr 10.0.10.0/24\` (a network), \`ip saddr 10.0.99.7\` (one host). Several sources go in a **set** in braces: \`ip saddr { 10.0.10.0/24, 172.16.5.9 }\`. A set matches if any element matches.
+2. **Which protocol and port?** \`tcp dport 22\` or \`udp dport 123\`. Several ports also go in a set: \`tcp dport { 80, 443 }\`. For a service that uses the **same port over both TCP and UDP** (DNS, Kerberos), either write two rules, or match both protocols at once with \`meta l4proto { tcp, udp } th dport 88\` (Kerberos) ("th" means "transport header", which works for TCP and UDP alike).
+3. **What to do?** \`accept\`, \`drop\` or \`reject\`.
+
+Example: allow syslog over both TCP and UDP from two networks: \`ip saddr { 10.0.10.0/24, 10.0.20.0/24 } meta l4proto { tcp, udp } th dport 514 accept\`. Everything this rule does not match falls through to the next rule and finally to the chain's policy, so with \`policy drop\` you only describe what is allowed.
+
+Watch the order: rules are checked top to bottom and the first verdict wins, so a broad \`accept\` above a narrow \`drop\` makes the drop dead code. Put the narrow rule first.
 
 ### Drop vs reject: what the client sees
 | Rule | What goes back | Client symptom |

@@ -53,11 +53,20 @@ Here is the whole journey of one connection, in order. Each step depends on the 
 5. **Identification strings.** Both sides send \`SSH-2.0-<software>\` in clear text.
 6. **KEXINIT (key exchange initialisation).** Each side lists the encryption and signing algorithms it supports, in order of preference. For each category, they use the first algorithm on the client's list that the server also supports. If there is none, the connection stops here.
 7. **Key exchange** (for example \`sntrup761x25519-sha512@openssh.com\` or \`curve25519-sha256\`). Both sides send each other temporary ("ephemeral") public values. From them, each side calculates the same shared secret *K* and a fingerprint of the conversation so far, the exchange hash *H*, without the secret ever crossing the network. The server signs *H* with its **host key** to prove its identity.
-8. **Host key verification.** The client checks the signature, then compares the host key with its \`known_hosts\` file. If it matches, it continues. If the server is unknown, it asks you whether to trust it ("trust on first use"). If the key is different from last time, it refuses with "REMOTE HOST IDENTIFICATION HAS CHANGED".
+8. **Host key verification.** The client checks the signature, then compares the host key with its \`known_hosts\` file. If it matches, it continues. If the server is unknown, it asks you whether to trust it ("trust on first use"). If the key is different from last time, it refuses with "REMOTE HOST IDENTIFICATION HAS CHANGED". Two very different things produce that warning: a server that was legitimately rebuilt or got new keys, and someone intercepting the connection (a man-in-the-middle). The warning cannot tell them apart, so **do not just delete the old line**. First compare the fingerprint in the warning with one from a channel you trust: the server's console (\`ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub\`), the change record, or published fingerprints. Only if they match, remove the old entry (\`ssh-keygen -R srv01\`) and connect again.
 9. **NEWKEYS.** From now on every packet is encrypted and authenticated with keys derived from *K* and *H*.
 10. **User authentication (ssh-userauth).** The client asks which login methods are allowed (by trying the method "none"), then tries them. For **publickey**, it first asks whether a particular key would be accepted, then proves it holds the private key by signing data that includes this session's identifier. The private key itself never leaves the client.
 11. **Authorization and account checks** on the server: account exists, not excluded by \`AllowUsers\`/\`DenyUsers\`/\`AllowGroups\`, valid shell, PAM account rules, \`PermitRootLogin\`.
 12. **Session.** sshd opens a PAM session (logind session, MOTD, environment), allocates a pseudo-terminal and starts the user's shell. Channels carry the terminal data.
+
+### What someone capturing the traffic can see
+Steps 1 to 8 happen **before** NEWKEYS, so they travel unencrypted. That is by design: the two sides cannot encrypt until they have agreed how. Someone with a packet capture of an SSH login, but without the session keys, can therefore read:
+- the IP addresses and ports of both ends (as for any TCP connection);
+- both identification strings, which reveal the software and version (\`SSH-2.0-OpenSSH_9.2p1 Debian-2\`);
+- the KEXINIT lists of supported algorithms, and the algorithms both sides chose;
+- the server's public host key (it is public: it only proves who the server is).
+
+Everything from NEWKEYS on is encrypted: the user name, the login method, the password or key signature, and every command and its output. The observer still sees the **size and timing** of the encrypted packets. To find out *who* logged in, you need the server's log (\`journalctl -u ssh\`), not the capture.
 
 ### Operating-system components on the server
 sshd does not work alone. Several parts of the operating system take part in every login:
@@ -131,10 +140,18 @@ SSH works only if *every* layer below it works: name resolution → client route
   ],
 
   configIntro: `
-sshd reads its configuration file, \`/etc/ssh/sshd_config\`, when it starts and when it is told to reload. Three rules explain most surprises:
+sshd reads its configuration file, \`/etc/ssh/sshd_config\`, when it starts and when it is told to reload. Four rules explain most surprises:
 - **The first value for a setting wins.** If the same keyword appears twice, the second one is ignored. (A few list keywords, such as \`Port\`, \`ListenAddress\`, \`HostKey\` and \`AllowUsers\`, add up instead.) Debian's file starts with \`Include /etc/ssh/sshd_config.d/*.conf\`, so settings in those drop-in files take priority over the main file.
 - **Lines starting with # are comments.** In the default file they document the default values; they do not configure anything. \`#PasswordAuthentication yes\` does nothing.
 - **Edits only take effect after a reload or restart.** Until then, sshd keeps running with the old configuration. Always test the file with \`sshd -t\` before reloading, and check the result with \`sshd -T\`, which prints the settings sshd would actually use. Add \`-C user=alice,addr=10.0.10.25\` to see how Match blocks apply to one particular connection.
+- **A Match block lasts until the next Match line or the end of the file.** Every line after \`Match Address 10.0.30.0/24\` applies only to connections that match, so put global settings first and Match blocks **last**. A narrow exception looks like this: strict global settings, then one block that relaxes a single setting for one network:
+\`\`\`
+PermitRootLogin no
+PasswordAuthentication no
+Match Address 192.168.50.0/24
+    PasswordAuthentication yes
+\`\`\`
+Connections from 192.168.50.x may use passwords; everyone else may not. Root logins stay forbidden for everyone, because the Match block does not change that setting. (The indentation is only for people; sshd ignores it.)
 
 The explorer below runs the simulator's sshd parser on whatever you type and shows the effective result, exactly as \`sshd -T\` would.
 `,

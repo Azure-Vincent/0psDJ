@@ -543,6 +543,7 @@ export const SYSTEMD_ASSESSMENT: Assessment = {
       id: 'systemd-q-enable-vs-start',
       kind: 'single',
       level: 'beginner',
+      learn: ['lesson/systemd/what'],
       prompt: 'On Monday after a reboot, sshd on srv01 is not running. Which output explains why it was running last week but not after the reboot?',
       exhibit: 'root@srv01:~# systemctl status ssh\n○ ssh.service - OpenBSD Secure Shell server\n     Loaded: loaded (/lib/systemd/system/ssh.service; disabled; preset: enabled)\n     Active: inactive (dead) since Mon 2026-10-19 07:58:05 UTC; 98h 41min ago',
       options: [
@@ -558,6 +559,7 @@ export const SYSTEMD_ASSESSMENT: Assessment = {
       id: 'systemd-q-failed-exhibit',
       kind: 'single',
       level: 'beginner',
+      learn: ['lesson/systemd/internals'],
       prompt: 'After `systemctl restart ssh` you see this. What is the next command that best finds the cause?',
       exhibit: '× ssh.service - OpenBSD Secure Shell server\n     Loaded: loaded (/lib/systemd/system/ssh.service; enabled; preset: enabled)\n     Active: failed (Result: exit-code) since Mon 2026-10-19 08:34:26 UTC; 20min ago\n    Process: 498 ExecStartPre=/usr/sbin/sshd -t (code=exited, status=255/EXCEPTION)',
       options: [
@@ -573,6 +575,7 @@ export const SYSTEMD_ASSESSMENT: Assessment = {
       id: 'systemd-q-after-wants',
       kind: 'single',
       level: 'intermediate',
+      learn: ['lesson/systemd/what'],
       prompt: 'A custom unit contains only `After=network-online.target`. At boot the service starts before the network is configured. Why?',
       options: [
         { text: 'After= only orders units that are being started anyway; nothing pulls network-online.target into the boot, so there is nothing to wait for.', correct: true },
@@ -587,6 +590,7 @@ export const SYSTEMD_ASSESSMENT: Assessment = {
       id: 'systemd-q-precedence',
       kind: 'order',
       level: 'intermediate',
+      learn: ['lesson/systemd/internals'],
       prompt: 'A unit named `nginx.service` exists in all of these places. Order them from **highest** precedence (the one systemd uses) to lowest.',
       items: [
         '/etc/systemd/system/nginx.service',
@@ -601,6 +605,7 @@ export const SYSTEMD_ASSESSMENT: Assessment = {
       id: 'systemd-q-dropin',
       kind: 'multi',
       level: 'intermediate',
+      learn: ['lesson/systemd/internals', 'lesson/systemd/config'],
       prompt: 'You want nginx to restart automatically after a crash, without your change being lost at the next package upgrade. Which steps are correct? (Select all that apply.)',
       options: [
         { text: 'sudo systemctl edit nginx and add [Service] Restart=on-failure', correct: true },
@@ -616,6 +621,7 @@ export const SYSTEMD_ASSESSMENT: Assessment = {
       id: 'systemd-q-oneshot',
       kind: 'single',
       level: 'intermediate',
+      learn: ['lesson/systemd/internals'],
       prompt: '`systemctl status nftables` shows `Active: active (exited)`. What does that mean?',
       options: [
         { text: 'It is a Type=oneshot unit with RemainAfterExit=yes: nft loaded the ruleset and exited, and the unit stays active.', correct: true },
@@ -629,6 +635,7 @@ export const SYSTEMD_ASSESSMENT: Assessment = {
       id: 'systemd-q-journal-flags',
       kind: 'text',
       level: 'beginner',
+      learn: ['lesson/systemd/internals', 'lesson/systemd/operate'],
       prompt: 'Write the journalctl command that shows only messages of priority **err or worse** from the **current boot** (any unit).',
       accept: [/^(sudo\s+)?journalctl\s+(-b\s+-p\s*(err|3)|-p\s*(err|3)\s+-b)$/i, /^(sudo\s+)?journalctl\s+(--boot\s+--priority[= ](err|3)|--priority[= ](err|3)\s+--boot)$/i],
       placeholder: 'journalctl ...',
@@ -639,6 +646,7 @@ export const SYSTEMD_ASSESSMENT: Assessment = {
       id: 'systemd-q-resolvconf',
       kind: 'single',
       level: 'intermediate',
+      learn: ['lesson/systemd/config'],
       prompt: 'On an Ubuntu 24.04 server you change the nameserver line in /etc/resolv.conf, but a minute later your change is gone. What do you check first?',
       exhibit: '$ ls -l /etc/resolv.conf\nlrwxrwxrwx 1 root root 39 Apr 23 09:12 /etc/resolv.conf -> ../run/systemd/resolve/stub-resolv.conf',
       options: [
@@ -654,6 +662,7 @@ export const SYSTEMD_ASSESSMENT: Assessment = {
       id: 'systemd-q-exit-codes',
       kind: 'multi',
       level: 'advanced',
+      learn: ['lesson/systemd/internals', 'lesson/systemd/troubleshoot'],
       prompt: 'A new custom unit fails. Match the evidence to its cause: which statements are correct? (Select all that apply.)',
       options: [
         { text: '`status=203/EXEC` means systemd could not execute the ExecStart binary (path, permissions, interpreter, or SELinux label).', correct: true },
@@ -668,6 +677,7 @@ export const SYSTEMD_ASSESSMENT: Assessment = {
       id: 'systemd-q-generated',
       kind: 'single',
       level: 'advanced',
+      learn: ['lesson/systemd/internals'],
       prompt: 'On ns1, dhcpd crashed during the night and was not restarted. Based on this unit, why?',
       exhibit: '# /run/systemd/generator.late/isc-dhcp-server.service\n# Automatically generated by systemd-sysv-generator\n[Service]\nType=forking\nRestart=no\nRemainAfterExit=yes\nExecStart=/etc/init.d/isc-dhcp-server start',
       options: [

@@ -75,6 +75,16 @@ The client builds the chain from the certificates the server sent (untrusted) up
 
 **Why roots are not sent and intermediates must be:** a root sent by the server would prove nothing (anyone can make one). Intermediates connect the server certificate to the root; a server that sends only its own certificate produces "unable to get local issuer certificate" at depth 0 on clean clients, while browsers that cached the intermediate keep working. That combination is the classic "works in my browser, fails in curl".
 
+**Reading \`openssl s_client\` output.** Two parts tell you where a chain breaks:
+- Under **Certificate chain**, each certificate the server sent is listed with its subject (\`s:\`) and its issuer (\`i:\`). Number 0 is the server's own certificate; each next one should be the issuer of the one before it. Count them: a single entry means the server sent no intermediate.
+- The **depth=N** lines show the verification, from the top of the chain down. A \`verify error\` at a depth tells you which certificate's issuer could not be found.
+
+Then decide:
+- The **last \`i:\`** names a certificate that was not sent (normally the root). If the client trusts that root, verification succeeds. If the error appears at the **highest depth** (the last certificate sent) with "unable to get local issuer certificate", the chain is complete but **this client does not have the root** in its trust store: fix the client.
+- If the error appears at **depth 0** and only one certificate was sent, the **intermediate is missing**: fix the server (send the full chain).
+
+Example: a server sends \`0 s:CN = shop.example\` / \`i:CN = Example Issuing CA\` and \`1 s:CN = Example Issuing CA\` / \`i:CN = Example Root\`, and the error is at depth=1: the server did its job; the client lacks Example Root.
+
 ### Keys, CSRs and issuance
 1. Generate a key pair on the server: the **private key never leaves it** (mode 0600/0640, /etc/ssl/private/).
 2. Create a **CSR** (certificate signing request): public key + requested subject and SANs, signed with the private key.

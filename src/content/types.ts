@@ -279,6 +279,8 @@ interface QuestionBase {
   concepts: ConceptId[];
   explanation: RichText;
   level: Level;
+  /** Lesson sections (routes such as lesson/ipnet/internals) that teach what is needed to work out the answer. */
+  learn?: string[];
 }
 
 export interface SingleChoice extends QuestionBase {

@@ -379,6 +379,7 @@ export const LOGGING_ASSESSMENT: Assessment = {
       id: 'logging-q-path',
       kind: 'order',
       level: 'beginner',
+      learn: ['lesson/logging/internals'],
       prompt: 'Order the path of an sshd message from srv01 to the central log server.',
       items: ['sshd writes the message (facility auth)', 'journald stores it', 'rsyslogd on srv01 applies its rules', 'the forwarding action sends it over TCP 514', 'rsyslogd on log01 receives it (imtcp)', 'the template files it under /var/log/remote/srv01/'],
       concepts: ['logs.central'],
@@ -388,6 +389,7 @@ export const LOGGING_ASSESSMENT: Assessment = {
       id: 'logging-q-selector',
       kind: 'single',
       level: 'intermediate',
+      learn: ['lesson/logging/internals'],
       prompt: 'srv01 forwards with this rule. Which messages never reach log01?',
       exhibit: '*.*;auth,authpriv.none @@log01.corp.lab:514',
       options: [
@@ -403,6 +405,7 @@ export const LOGGING_ASSESSMENT: Assessment = {
       id: 'logging-q-udp',
       kind: 'single',
       level: 'intermediate',
+      learn: ['lesson/logging/internals'],
       prompt: 'One server forwards with "*.* @log01.corp.lab:514"; log01 listens on TCP 514 only. What do you see on that server?',
       options: [
         { text: 'No error at all: its messages are silently lost', correct: true },
@@ -416,6 +419,7 @@ export const LOGGING_ASSESSMENT: Assessment = {
       id: 'logging-q-refused',
       kind: 'single',
       level: 'intermediate',
+      learn: ['lesson/logging/internals'],
       prompt: 'Every sender logs "cannot connect to log01.corp.lab:514: Connection refused". log01\'s rsyslog is active and writes its own /var/log/syslog. What is the likely cause?',
       options: [
         { text: 'log01 has no TCP input: the imtcp module or input line is missing (rsyslogd -N1 shows it)', correct: true },
@@ -429,6 +433,7 @@ export const LOGGING_ASSESSMENT: Assessment = {
       id: 'logging-q-port',
       kind: 'text',
       level: 'beginner',
+      learn: ['lesson/logging/what'],
       prompt: 'Which port does classic syslog use (UDP and TCP)?',
       accept: ['514'],
       placeholder: 'port',
@@ -439,6 +444,7 @@ export const LOGGING_ASSESSMENT: Assessment = {
       id: 'logging-q-queue',
       kind: 'multi',
       level: 'advanced',
+      learn: ['lesson/logging/internals'],
       prompt: 'log01 is down for 30 minutes. Which sender configurations keep the messages logged meanwhile and deliver them afterwards? (choose all that apply)',
       options: [
         { text: 'TCP forwarding with queue.type="LinkedList" and action.resumeRetryCount="-1"', correct: true },

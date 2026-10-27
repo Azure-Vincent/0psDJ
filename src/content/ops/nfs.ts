@@ -366,6 +366,7 @@ export const NFS_ASSESSMENT: Assessment = {
       id: 'nfs-q-exportfs',
       kind: 'single',
       level: 'beginner',
+      learn: ['lesson/nfs/internals'],
       prompt: 'You added 10.0.30.0/24 to /srv/projects in /etc/exports on fs01. dev01 (10.0.30.20) still gets "access denied by server". What is missing?',
       options: [
         { text: 'exportfs -ra on fs01 to load the file into the export table', correct: true },
@@ -380,6 +381,7 @@ export const NFS_ASSESSMENT: Assessment = {
       id: 'nfs-q-squash',
       kind: 'single',
       level: 'intermediate',
+      learn: ['lesson/nfs/internals'],
       prompt: 'A share is exported rw with default options. root on the client runs "touch /mnt/backup/x" and gets "Permission denied". /srv/backup on the server is root:root 755. Which fix keeps the export secure?',
       options: [
         { text: 'chown nobody:nogroup /srv/backup on the server', correct: true },
@@ -394,6 +396,7 @@ export const NFS_ASSESSMENT: Assessment = {
       id: 'nfs-q-uid',
       kind: 'single',
       level: 'intermediate',
+      learn: ['lesson/nfs/internals'],
       prompt: 'On srv01, ls -l /mnt/projects shows the files as owned by "1000", and alice cannot write. On ws01 alice can. What do you check first?',
       exhibit: 'srv01$ id alice\nuid=1001(alice) gid=1001(alice) groups=1001(alice),27(sudo),4(adm)',
       options: [
@@ -408,6 +411,7 @@ export const NFS_ASSESSMENT: Assessment = {
       id: 'nfs-q-port',
       kind: 'text',
       level: 'beginner',
+      learn: ['lesson/nfs/internals'],
       prompt: 'Which TCP port must a firewall allow for NFSv4?',
       accept: ['2049'],
       placeholder: 'port',
@@ -418,6 +422,7 @@ export const NFS_ASSESSMENT: Assessment = {
       id: 'nfs-q-errors',
       kind: 'order',
       level: 'intermediate',
+      learn: ['lesson/nfs/troubleshoot'],
       prompt: 'Order these checks from the first to the last when a share "is empty" on a client.',
       items: ['mount -t nfs4 (is it mounted at all?)', 'mount -a and read the error', 'exportfs -v on the server (is the client allowed?)', 'id and ls -ln (which number am I, who owns the files?)'],
       concepts: ['files.nfs'],
@@ -427,6 +432,7 @@ export const NFS_ASSESSMENT: Assessment = {
       id: 'nfs-q-secure',
       kind: 'multi',
       level: 'advanced',
+      learn: ['lesson/nfs/internals'],
       prompt: 'Which choices limit what a compromised NFS client can do to the server\'s files? (choose all that apply)',
       options: [
         { text: 'Keep root_squash', correct: true },

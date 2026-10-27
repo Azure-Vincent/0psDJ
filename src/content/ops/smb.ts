@@ -380,6 +380,7 @@ export const SMB_ASSESSMENT: Assessment = {
       id: 'smb-q-steps',
       kind: 'order',
       level: 'beginner',
+      learn: ['lesson/smb/internals'],
       prompt: 'Order the steps of an SMB connection.',
       items: ['TCP connection to port 445', 'Negotiate the SMB dialect', 'Session setup (log on)', 'Tree connect (open the share)', 'Create / read / write files'],
       concepts: ['files.smb'],
@@ -389,6 +390,7 @@ export const SMB_ASSESSMENT: Assessment = {
       id: 'smb-q-passdb',
       kind: 'single',
       level: 'beginner',
+      learn: ['lesson/smb/internals'],
       prompt: 'carol was created on the Samba server with useradd and passwd. Her SMB logons fail; the server log says NT_STATUS_NO_SUCH_USER. What is missing?',
       options: [
         { text: 'smbpasswd -a carol', correct: true },
@@ -403,6 +405,7 @@ export const SMB_ASSESSMENT: Assessment = {
       id: 'smb-q-errors',
       kind: 'single',
       level: 'intermediate',
+      learn: ['lesson/smb/troubleshoot'],
       prompt: 'net use O: \\\\fs01\\office /user:dana gives "System error 5: Access is denied." What does that tell you?',
       options: [
         { text: 'The logon worked; the share refused dana (valid users, group membership)', correct: true },
@@ -417,6 +420,7 @@ export const SMB_ASSESSMENT: Assessment = {
       id: 'smb-q-readonly',
       kind: 'single',
       level: 'intermediate',
+      learn: ['lesson/smb/internals'],
       prompt: 'A new share has path = /srv/scans and valid users = scanner. /srv/scans is owned by scanner with mode 750. The scanner can list but not upload. Why?',
       options: [
         { text: 'The share is read-only: Samba\'s default is read only = yes', correct: true },
@@ -430,6 +434,7 @@ export const SMB_ASSESSMENT: Assessment = {
       id: 'smb-q-port',
       kind: 'text',
       level: 'beginner',
+      learn: ['lesson/smb/internals'],
       prompt: 'Which TCP port must a firewall allow for SMB2/SMB3?',
       accept: ['445'],
       placeholder: 'port',
@@ -440,6 +445,7 @@ export const SMB_ASSESSMENT: Assessment = {
       id: 'smb-q-secure',
       kind: 'multi',
       level: 'advanced',
+      learn: ['lesson/smb/internals'],
       prompt: 'Which settings make a Samba file server safer? (choose all that apply)',
       options: [
         { text: 'valid users = @group on each share', correct: true },

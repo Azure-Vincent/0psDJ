@@ -125,7 +125,7 @@ A port that is **not a member** of the bridge (missing from \`bridge-ports\`, re
 Security settings matter on virtual switches too: VMware's **Promiscuous mode**, **MAC address changes** and **Forged transmits** (all Reject by default on Distributed Switches) block nested virtualization, bridges inside VMs and some clustering software until they are allowed on that port group.
 
 ### Bonding (link aggregation)
-A **bond** combines NICs: \`mode active-backup\` (1) = one active, failover on carrier loss, needs nothing from the switch; \`mode 802.3ad\` (4) = **LACP**, both links active, the switch ports must be in a matching **port-channel / LAG**; balance-alb (6) and others exist for special cases. \`cat /proc/net/bonding/bond0\` shows the mode, the active slave and the MII status of each link. Hyper-V uses Switch Embedded Teaming (SET), VMware NIC teaming policies on the vSwitch.
+A **bond** combines NICs: \`mode active-backup\` (1) = one active, failover on carrier loss, needs nothing from the switch; \`mode 802.3ad\` (4) = **LACP**, both links active, the switch ports must be in a matching **port-channel / LAG**; balance-alb (6) and others exist for special cases. \`cat /proc/net/bonding/bond0\` shows the mode, the active slave and the MII status of each link. For 802.3ad it also shows the **partner**: the switch that answered LACP. \`Partner Mac Address: 00:00:00:00:00:00\` while the links are up means no switch is speaking LACP on those ports, so the bond does not aggregate: the switch ports need a matching LACP port-channel (or use active-backup). Hyper-V uses Switch Embedded Teaming (SET), VMware NIC teaming policies on the vSwitch.
 `,
 
   deployment: [
