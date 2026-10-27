@@ -61,7 +61,7 @@ export function computerDn(ad: AdState, key: string): string {
 export const findGpo = (ad: AdState, name: string) => Object.values(gpData(ad).gpos).find((g) => g.name.toLowerCase() === name.toLowerCase() || g.id.toLowerCase() === name.replace(/[{}]/g, '').toLowerCase());
 
 /** A GPO's settings as Group Policy sees them: empty GPOs are "Not Applied (Empty)". */
-export const gpoHasComputerSettings = (g: Gpo) => !!g.securitySettings || g.registry.length > 0 || g.firewallRules.length > 0;
+export const gpoHasComputerSettings = (g: Gpo) => !!g.securitySettings || g.registry.length > 0 || g.firewallRules.length > 0 || Object.values(g.firewallProfiles ?? {}).some((p) => Object.keys(p ?? {}).length > 0);
 
 export interface ScopedGpo { gpo: Gpo; link: GpLink; container: string }
 
@@ -195,7 +195,10 @@ export function processGroupPolicy(world: World, host: Host, refreshToken = fals
   undoRegistry(host, prev.registry);
   const registry: GpState['registry'] = [];
   const rules: GpState['rules'] = [];
+  const profiles: NonNullable<GpState['profiles']> = {};
   for (const g of applied) {
+    // Profile settings: a later (higher-precedence) GPO overrides each value it configures.
+    for (const [name, set] of Object.entries(g.firewallProfiles ?? {})) Object.assign((profiles[name as keyof typeof profiles] ??= {}), set);
     for (const v of g.registry) {
       const key = `HKLM:\\${hivePath(v.key)}`;
       const existing = Object.keys(w.registry).find((k) => k.toLowerCase() === key.toLowerCase()) ?? key;
@@ -205,12 +208,12 @@ export function processGroupPolicy(world: World, host: Host, refreshToken = fals
     for (const r of g.firewallRules) rules.push({ ...r, gpo: `${ad.domain}\\${g.name}` });
   }
   const before = prev.applied.join('|');
-  w.gp = { appliedAt: world.clock, fromDc: loc.name, applied: applied.map((g) => g.name), filtered, registry, rules, token };
+  w.gp = { appliedAt: world.clock, fromDc: loc.name, applied: applied.map((g) => g.name), filtered, registry, rules, profiles, token };
   applyFirewall(host);
   // Remote Desktop follows its policy: the listener comes and goes with fDenyTSConnections.
   if (rdpEnabled(host)) { for (const n of ['TermService', 'SessionEnv', 'UmRdpService']) if (w.services[n] && w.services[n].startType !== 'Disabled') startWinService(world, host, n); }
   else if (w.services.TermService?.status === 'Running') stopWinService(world, host, 'TermService');
-  const changed = before !== w.gp.applied.join('|') || registry.length > 0 || rules.length > 0;
+  const changed = before !== w.gp.applied.join('|') || registry.length > 0 || rules.length > 0 || Object.keys(profiles).length > 0;
   winEvent(world, host, 'System', changed ? 1502 : 1500, GP, changed
     ? `The Group Policy settings for the computer were processed successfully. New settings from ${applied.length} Group Policy objects were detected and applied.`
     : 'The Group Policy settings for the computer were processed successfully. There were no changes detected since the last successful processing of Group Policy.');

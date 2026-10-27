@@ -24,8 +24,9 @@ For every technology it answers the same questions:
 
 ## What's inside
 
-- **25 lessons** on networking, interfaces and virtual switches, TLS, remote
-  access, identity (including Kerberos and Group Policy), firewalls, containers, web servers and
+- **26 lessons** on networking, interfaces and virtual switches, TLS, remote
+  access, identity (including Kerberos and Group Policy), firewalls (nftables,
+  pfSense, Windows Defender Firewall), containers, web servers and
   reverse proxies, time synchronisation, central logging, NFS and SMB file sharing, Linux and Windows
   administration, and safe recovery. Each lesson starts in plain language (the short version,
   an everyday analogy, the key ideas each with a concrete example from the lab,
@@ -51,7 +52,7 @@ For every technology it answers the same questions:
   machine configured from the files the design generates. You get terminals
   on each machine and a packet tracer that shows every hop and every firewall
   and NAT decision.
-- **127 troubleshooting tickets**, each injecting a realistic fault into the
+- **132 troubleshooting tickets**, each injecting a realistic fault into the
   lab. You investigate with real commands in terminals, record a diagnosis and
   repair the fault. The app then checks your fix immediately, again after
   rebooting every machine, and against security rules, so "just open the
@@ -88,6 +89,12 @@ For every technology it answers the same questions:
   and a user whose UID differs between hosts; over SMB, a new user without a
   Samba password, a group change that locks someone out of a share, a share
   path with the wrong case, and a scanner share that is read-only by default.
+  A **Windows Defender Firewall** set breaks win01's host firewall one rule at
+  a time: a web rule scoped to w3wp.exe while http.sys (System) owns port 80,
+  a Block rule added "after" an allow rule (Block always wins), a monitoring
+  rule still scoped to the old monitoring network, outbound allow-listing
+  without SMB, and a GPO that switches off local rules
+  (AllowLocalFirewallRules False); pfirewall.log shows each drop.
   A **Group Policy** set breaks a firewall GPO on the way to a member server:
   a computer account left in the default Computers container, a security
   group added after the last restart (the computer's token), an OU that

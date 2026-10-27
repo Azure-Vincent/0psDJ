@@ -36,13 +36,33 @@ export interface WinFwRule {
   localPort: 'Any' | string[];
   /** 'Any', 'LocalSubnet', or addresses/CIDRs. */
   remoteAddress: 'Any' | string[];
+  /** The sender's port (TCP/UDP); unset means Any. */
+  remotePort?: 'Any' | string[];
+  /** This computer's address the packet is sent to (or from, outbound); unset means Any. */
+  localAddress?: 'Any' | string[];
   /** ICMP "type:code" (e.g. "8" = echo request). */
   icmpType?: string;
+  /** Inbound: the program that owns the listening socket ("System" for kernel listeners such as http.sys). */
   program?: string;
   /** Rules created by an administrator (PolicyStoreSourceType Local) vs. shipped defaults. */
   builtIn?: boolean;
   /** Set on rules that came from Group Policy: "ad.corp.lab\\GPO name" (PolicyStoreSource). */
   gpo?: string;
+}
+
+/** Per-profile settings (Get-NetFirewallProfile). */
+export interface FwProfileSettings {
+  enabled: boolean;
+  defaultInbound: 'Block' | 'Allow';
+  defaultOutbound: 'Block' | 'Allow';
+  /** Write dropped packets to pfirewall.log. */
+  logBlocked: boolean;
+  /** Write allowed connections to pfirewall.log. */
+  logAllowed?: boolean;
+  /** pfirewall.log size limit (LogMaxSizeKilobytes, default 4096). */
+  logMaxKb?: number;
+  /** Merge local rules with policy rules (false: only rules from Group Policy count). Group Policy setting. */
+  allowLocalRules?: boolean;
 }
 
 export type StartType = 'Automatic' | 'AutomaticDelayedStart' | 'Manual' | 'Disabled';
@@ -91,7 +111,7 @@ export interface WinState {
   productName: string;
   build: string;
   workgroup: string;
-  firewall: { profiles: Record<FwProfile, { enabled: boolean; defaultInbound: 'Block' | 'Allow'; defaultOutbound: 'Block' | 'Allow'; logBlocked: boolean }>; rules: WinFwRule[] };
+  firewall: { profiles: Record<FwProfile, FwProfileSettings>; rules: WinFwRule[] };
   services: Record<string, WinService>;
   adapters: WinAdapter[];
   /** A small part of the registry: HKLM paths → values. */
@@ -137,6 +157,8 @@ export interface GpState {
   registry: { key: string; valueName: string }[];
   /** Firewall rules delivered by policy. */
   rules: WinFwRule[];
+  /** Firewall profile settings delivered by policy (they override the local ones). */
+  profiles?: Partial<Record<FwProfile, Partial<FwProfileSettings>>>;
   /** The computer's security groups as of its last start (its Kerberos ticket): security filtering uses these. */
   token?: string[];
   /** The last processing error (gpupdate / event 1058, 1006, 1055, 1129). */
@@ -205,6 +227,8 @@ export interface Gpo {
   registry: { key: string; valueName: string; type: 'DWord' | 'String' | 'ExpandString' | 'QWord'; value: string | number }[];
   /** Windows Defender Firewall rules in the GPO (New-NetFirewallRule -PolicyStore DOMAIN\\GPO). */
   firewallRules: WinFwRule[];
+  /** Windows Defender Firewall profile settings in the GPO (Set-NetFirewallProfile -PolicyStore DOMAIN\\GPO). */
+  firewallProfiles?: Partial<Record<FwProfile, Partial<FwProfileSettings>>>;
   /** Security settings (password and lockout policy) that only the default GPOs carry here. */
   securitySettings?: boolean;
   /** Security filtering and delegation: trustee → permission. */
@@ -320,25 +344,102 @@ export function activeProfile(host: Host): FwProfile {
   return host.win!.adapters[0]?.category ?? 'Public';
 }
 
+/** A profile's settings in force: the local ones, overridden by whatever Group Policy set (ActiveStore). */
+export function effectiveProfile(host: Host, name: FwProfile): FwProfileSettings {
+  const local = host.win!.firewall.profiles[name];
+  const gp = host.win!.gp?.profiles?.[name] ?? {};
+  const out = { ...local };
+  for (const [k, v] of Object.entries(gp)) if (v !== undefined) (out as Record<string, unknown>)[k] = v;
+  return out;
+}
+
 function ruleApplies(r: WinFwRule, profile: FwProfile): boolean {
   return r.enabled && (r.profiles === 'Any' || r.profiles.includes(profile));
 }
 
+/** Full image path of a listener's process, as a firewall rule's Program names it. */
+export function listenerImage(process: string): string {
+  return process === 'System' ? 'System' : `C:\\Windows\\System32\\${process}.exe`;
+}
+
+/** Normalise a program path for comparison (%SystemRoot%, %windir%, case). */
+export function normalProgram(p: string): string {
+  return p.replace(/%(systemroot|windir)%/gi, 'C:\\Windows').toLowerCase();
+}
+
+/** "10.0.0.0/16", "LocalSubnet" → an nft address set (IPv4 only; undefined: Any; null: nothing left to match). */
+function addrSet(host: Host, list: 'Any' | string[] | undefined): string | null | undefined {
+  if (!list || list === 'Any') return undefined;
+  const addrs = list.flatMap((a) => {
+    if (a.toLowerCase() === 'localsubnet') return host.win!.adapters.filter((x) => x.address && x.prefix !== null).map((x) => networkOf(x.address!, x.prefix!));
+    // IPv4 addresses and prefixes; IPv6, ranges and keywords such as Internet match no IPv4 packet here.
+    return /^\d{1,3}(\.\d{1,3}){3}(\/\d{1,2})?$/.test(a) ? [a] : [];
+  });
+  return addrs.length ? `{ ${addrs.join(', ')} }` : null;
+}
+
+// Keywords: RPC = the dynamic RPC range, RPCEPMap = the endpoint mapper (135).
+const portExpr = (list: string[]) => list.map((p) => (/^rpc$/i.test(p) ? '49152-65535' : /^rpcepmap$/i.test(p) ? '135' : p)).filter((p) => /^\d+(-\d+)?$/.test(p));
+
+const inRange = (port: number, spec: string) => {
+  const [a, b] = spec.split('-').map(Number);
+  return port >= a && port <= (b ?? a);
+};
+
+/**
+ * Local ports an inbound Program rule can match. The program condition is the
+ * owner of the listening socket: a port where another program listens is left
+ * out; a port where nothing listens stays in (the packet would be refused by
+ * TCP anyway). With LocalPort Any, only the program's own ports count.
+ */
+function programPorts(host: Host, r: WinFwRule, ports: string[] | null): string[] | null {
+  const want = normalProgram(r.program!);
+  if (want === 'any') return ports;
+  const protos = r.protocol === 'TCP' ? ['tcp'] : r.protocol === 'UDP' ? ['udp'] : ['tcp', 'udp'];
+  const ls = winListeners(host).filter((l) => protos.includes(l.proto));
+  const mine = (port: number) => ls.some((l) => l.port === port && normalProgram(listenerImage(l.process)) === want);
+  const other = (port: number) => ls.some((l) => l.port === port && normalProgram(listenerImage(l.process)) !== want);
+  if (!ports) return [...new Set(ls.filter((l) => mine(l.port)).map((l) => String(l.port)))];
+  const out: string[] = [];
+  for (const spec of ports) {
+    const taken = [...new Set(ls.filter((l) => inRange(l.port, spec) && other(l.port) && !mine(l.port)).map((l) => l.port))].sort((a, b) => a - b);
+    if (!taken.length) { out.push(spec); continue; }
+    // Split the range around the ports other programs own.
+    const [a, b0] = spec.split('-').map(Number);
+    const b = b0 ?? a;
+    let from = a;
+    for (const t of taken) {
+      if (t > from) out.push(t - 1 > from ? `${from}-${t - 1}` : String(from));
+      from = t + 1;
+    }
+    if (from <= b) out.push(b > from ? `${from}-${b}` : String(from));
+  }
+  return out;
+}
+
 function ruleMatchText(host: Host, r: WinFwRule): string | null {
   const parts: string[] = [];
-  if (r.remoteAddress !== 'Any') {
-    const addrs = r.remoteAddress.flatMap((a) => {
-      if (a.toLowerCase() === 'localsubnet') return host.win!.adapters.filter((x) => x.address && x.prefix !== null).map((x) => networkOf(x.address!, x.prefix!));
-      return a.includes(':') ? [] : [a];
-    });
-    if (!addrs.length) return null;
-    parts.push(`ip saddr { ${addrs.join(', ')} }`);
+  const inbound = r.direction === 'Inbound';
+  // Inbound: the remote side is the source; outbound: the destination.
+  const remote = addrSet(host, r.remoteAddress);
+  if (remote === null) return null;
+  if (remote) parts.push(`ip ${inbound ? 'saddr' : 'daddr'} ${remote}`);
+  const local = addrSet(host, r.localAddress);
+  if (local === null) return null;
+  if (local) parts.push(`ip ${inbound ? 'daddr' : 'saddr'} ${local}`);
+  let lports: string[] | null = r.localPort === 'Any' ? null : portExpr(r.localPort);
+  if (lports && !lports.length) lports = null;
+  if (r.program && inbound) {
+    lports = programPorts(host, r, lports);
+    if (lports && !lports.length) return null;
   }
-  // Keywords: RPC = the dynamic RPC range, RPCEPMap = the endpoint mapper (135).
-  const ports = r.localPort === 'Any' ? null : r.localPort.map((p) => (/^rpc$/i.test(p) ? '49152-65535' : /^rpcepmap$/i.test(p) ? '135' : p)).filter((p) => /^\d+(-\d+)?$/.test(p)).join(', ') || null;
+  const rports = !r.remotePort || r.remotePort === 'Any' ? null : portExpr(r.remotePort);
   if (r.protocol === 'TCP' || r.protocol === 'UDP') {
     const p = r.protocol.toLowerCase();
-    parts.push(ports ? `${p} dport { ${ports} }` : `meta l4proto ${p}`);
+    // Local port: the destination of inbound packets, the source of outbound ones.
+    if (lports) parts.push(`${p} ${inbound ? 'dport' : 'sport'} { ${lports.join(', ')} }`);
+    if (rports?.length) parts.push(`${p} ${inbound ? 'sport' : 'dport'} { ${rports.join(', ')} }`);
+    if (!lports && !rports?.length) parts.push(`meta l4proto ${p}`);
   } else if (r.protocol === 'ICMPv4') {
     const t = r.icmpType?.split(':')[0];
     const names: Record<string, string> = { 0: 'echo-reply', 3: 'destination-unreachable', 8: 'echo-request', 11: 'time-exceeded' };
@@ -347,6 +448,9 @@ function ruleMatchText(host: Host, r: WinFwRule): string | null {
     const t = r.icmpType?.split(':')[0];
     const names: Record<string, string> = { 1: 'destination-unreachable', 2: 'packet-too-big', 128: 'echo-request', 129: 'echo-reply' };
     parts.push(t && names[t] ? `icmpv6 type ${names[t]}` : 'meta l4proto ipv6-icmp');
+  } else if (lports) {
+    // Protocol Any with a program: the program's ports, TCP and UDP.
+    parts.push(`meta l4proto { tcp, udp } th dport { ${lports.join(', ')} }`);
   }
   return parts.join(' ');
 }
@@ -354,12 +458,13 @@ function ruleMatchText(host: Host, r: WinFwRule): string | null {
 /**
  * Compile the firewall into the ruleset the network engine evaluates. Block rules
  * win over allow rules; with the profile off every packet is accepted. Rule
- * comments carry the display names so decisions read like Windows terms.
+ * comments carry the display names so decisions read like Windows terms. When
+ * Group Policy turns off local rule merging, only policy rules count.
  */
 export function compileFirewall(host: Host): Ruleset {
   const w = host.win!;
   const profile = activeProfile(host);
-  const p = w.firewall.profiles[profile];
+  const p = effectiveProfile(host, profile);
   let handle = 1;
   const mk = (text: string, comment: string): Rule => ({ ...parseRuleExpr(text, handle++), comment });
   const chain = (dir: 'Inbound' | 'Outbound') => {
@@ -368,7 +473,8 @@ export function compileFirewall(host: Host): Ruleset {
       rules.push(mk('ct state established,related accept', 'Stateful: replies to allowed connections'));
       rules.push(mk('iif "lo" accept', 'Loopback'));
       // Local rules and the rules Group Policy delivered (both are in the active store).
-      const applicable = [...w.firewall.rules, ...(w.gp?.rules ?? [])].filter((r) => r.direction === dir && ruleApplies(r, profile));
+      const local = p.allowLocalRules === false ? [] : w.firewall.rules;
+      const applicable = [...local, ...(w.gp?.rules ?? [])].filter((r) => r.direction === dir && ruleApplies(r, profile));
       for (const r of [...applicable.filter((x) => x.action === 'Block'), ...applicable.filter((x) => x.action === 'Allow')]) {
         const m = ruleMatchText(host, r);
         if (m === null) continue;
@@ -420,6 +526,8 @@ export function startWinService(world: World, host: Host, name: string, chain: s
   if (name === 'MpsSvc') applyFirewall(host);
   if (name === 'W32Time') timeSync(world, host);
   winEvent(world, host, 'System', 7036, 'Service Control Manager', `The ${s.displayName} service entered the running state.`);
+  // Program rules match the owner of a listening socket: recompile when listeners change.
+  if (name !== 'MpsSvc') applyFirewall(host);
   return { ok: true };
 }
 
@@ -432,6 +540,7 @@ export function stopWinService(world: World, host: Host, name: string): ServiceR
   s.status = 'Stopped';
   s.pid = null;
   winEvent(world, host, 'System', 7036, 'Service Control Manager', `The ${s.displayName} service entered the stopped state.`);
+  applyFirewall(host);
   return { ok: true };
 }
 

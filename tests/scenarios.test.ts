@@ -132,6 +132,11 @@ const SYMPTOM: Record<string, RegExp> = {
   'krb-dc-ntp-blocked': /There is a time and\/or date difference between the client and server/,
   'krb-dc-kdc-blocked': /1 packets transmitted, 0 received, 100% packet loss/,
   'krb-kdc-stopped': /1 packets transmitted, 0 received, 100% packet loss/,
+  'wfw-program-mismatch': /curl: \(28\) Failed to connect to win01\.corp\.lab port 80 after 10000 ms/,
+  'wfw-block-precedence': /ERRCONNECT_CONNECT_TRANSPORT_FAILED/,
+  'wfw-remote-scope': /1 packets transmitted, 0 received, 100% packet loss/,
+  'wfw-outbound-default': /System error 53 has occurred\.\n\nThe network path was not found\./,
+  'wfw-local-rules-ignored': /curl: \(28\) Failed to connect to win01\.corp\.lab port 80 after 10000 ms/,
   'mtu-uplink-mismatch': /curl: \(28\) Operation timed out after 30000 milliseconds with 0 out of 4718592 bytes received/,
 };
 

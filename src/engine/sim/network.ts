@@ -9,7 +9,8 @@
 // are themselves routed back, so asymmetric failures behave realistically.
 
 import { filterLog, PF_TABLE } from '../pf/model';
-import { WF_TABLE } from '../win/model';
+import { activeProfile, effectiveProfile, isWindows, WF_TABLE } from '../win/model';
+import { writeFile } from '../fs';
 import { evaluate, evaluateNat, renderRule, type EvalResult, type PacketContext, type RejectType } from '../config/nft';
 import { familyOf, inPrefix, normAddr, prefixLength } from '../net/addr';
 import { inCidr, parseCidr, parseIp } from '../net/ip';
@@ -313,6 +314,41 @@ function firewallLog(world: World, host: Host, prefix: string, p: Packet, iif: s
       ? `PROTO=UDP SPT=${p.udp.sport} DPT=${p.udp.dport} LEN=${p.udp.len + 8}`
       : `PROTO=ICMP TYPE=${p.icmp?.type} CODE=${p.icmp?.code}`;
   kernelLog(world, host, `${prefix}IN=${iif ?? ''} OUT=${oif ?? ''} SRC=${p.src} DST=${p.dst} LEN=${packetLength(p)} TOS=0x00 PREC=0x00 TTL=${p.ttl} ID=${p.id & 0xffff} DF ${l4}`);
+}
+
+export const PFIREWALL_LOG = 'C:\\Windows\\System32\\LogFiles\\Firewall\\pfirewall.log';
+const PFIREWALL_HEADER = '#Version: 1.5\r\n#Software: Microsoft Windows Firewall\r\n#Time Format: Local\r\n#Fields: date time action protocol src-ip dst-ip src-port dst-port size tcpflags tcpsyn tcpack tcpwin icmptype icmpcode info path\r\n\r\n';
+const TCP_LETTER: Record<string, string> = { SYN: 'S', ACK: 'A', FIN: 'F', RST: 'R', PSH: 'P' };
+
+/**
+ * Windows Defender Firewall's log (pfirewall.log): a DROP line for each packet
+ * the active profile blocked when LogBlocked is on, an ALLOW line for each new
+ * connection a rule or the default action let through when LogAllowed is on.
+ * Replies to allowed connections and loopback traffic are not logged.
+ */
+function windowsFirewallLog(world: World, host: Host, fw: EvalResult, p: Packet, path: 'RECEIVE' | 'SEND') {
+  if (!isWindows(host)) return;
+  const d = fw.decidedBy;
+  if (!d || d.table !== `inet ${WF_TABLE}`) return;
+  const blocked = fw.verdict !== 'accept';
+  if (!blocked && d.rule && (d.rule.comment?.startsWith('Stateful') || d.rule.comment === 'Loopback')) return;
+  const prof = effectiveProfile(host, activeProfile(host));
+  if (blocked ? !prof.logBlocked : !prof.logAllowed) return;
+  const t = new Date(Math.floor(world.clock + (host.clockOffset ?? 0)));
+  const n = (x: number) => String(x).padStart(2, '0');
+  const stamp = `${t.getUTCFullYear()}-${n(t.getUTCMonth() + 1)}-${n(t.getUTCDate())} ${n(t.getUTCHours())}:${n(t.getUTCMinutes())}:${n(t.getUTCSeconds())}`;
+  const proto = p.tcp ? 'TCP' : p.udp ? 'UDP' : p.dst.includes(':') ? 'ICMPv6' : 'ICMP';
+  const l4 = p.tcp ?? p.udp;
+  const tcp = p.tcp ? `${p.tcp.flags.map((f) => TCP_LETTER[f]).join('') || '-'} ${p.tcp.seq} ${p.tcp.ack} ${p.tcp.window}` : '- - - -';
+  const icmp = p.icmp ? `${p.icmp.type} ${p.icmp.code}` : '- -';
+  const line = `${stamp} ${blocked ? 'DROP' : 'ALLOW'} ${proto} ${p.src} ${p.dst} ${l4?.sport ?? '-'} ${l4?.dport ?? '-'} ${packetLength(p)} ${tcp} ${icmp} - ${path}\r\n`;
+  let prev = host.fs[PFIREWALL_LOG]?.content ?? PFIREWALL_HEADER;
+  // At LogMaxSizeKilobytes the file is renamed to pfirewall.log.old and a new one is started.
+  if (prev.length >= (prof.logMaxKb ?? 4096) * 1024) {
+    writeFile(host, `${PFIREWALL_LOG}.old`, prev, world.clock, { owner: 'SYSTEM', group: 'SYSTEM' });
+    prev = PFIREWALL_HEADER;
+  }
+  writeFile(host, PFIREWALL_LOG, prev + line, world.clock, { owner: 'SYSTEM', group: 'SYSTEM' });
 }
 
 // ---------------------------------------------------------------------------
@@ -742,6 +778,7 @@ function transmitInner(world: World, fromHostId: string, original: Packet, opts:
       if (isLocalAddress(host, p.dst)) {
         const fw = evaluate(host.nft, 'input', toContext(p, host, ingress.name));
         fw.logs.forEach((pre) => firewallLog(world, host, pre, p, ingress!.name, undefined));
+        windowsFirewallLog(world, host, fw, p, 'RECEIVE');
         const raw = opts.rawSocket?.host === host.id && opts.rawSocket.ifaces.includes(ingress.name);
         if (raw && fw.verdict !== 'accept') {
           hops.push({ host: host.id, ingress: ingress.name, ttl: p.ttl, note: `${nat.notes.map((n) => n + '; ').join('')}input hook: ${describeDecision('input', fw)}, but a packet socket (LPF) on ${ingress.name} already received a copy before netfilter: delivered to the application` });
@@ -860,6 +897,7 @@ function transmitInner(world: World, fromHostId: string, original: Packet, opts:
     if (!opts.bypassOutputFilter) {
       const out = evaluate(host.nft, 'output', toContext(p, host, undefined, rd.dev));
       out.logs.forEach((pre) => firewallLog(world, host, pre, p, undefined, rd.dev));
+      windowsFirewallLog(world, host, out, p, 'SEND');
       if (out.verdict !== 'accept') {
         hops.push({ host: host.id, ttl: p.ttl, note: 'blocked by local nft output chain' });
         return { status: 'local-error', host: host.id, hops, errno: 'EPERM', reason: 'blocked by nft output chain' };
