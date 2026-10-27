@@ -629,7 +629,7 @@ The tickets below practise this on the lab: a configuration typo that makes Exec
 Q: \`systemctl status nginx\` shows \`Active: active (running)\`, but clients cannot connect. Which step of the method do you go to next?
 A: Step 5, **does it actually serve**: \`ss -tlnp\` (is it listening, on which address and port?) and a test from a real client. "running" is not the same as "reachable".
 Q: Why run \`nginx -t\` before \`systemctl restart nginx\` rather than after?
-A: If the configuration is broken, the restart would stop nginx and fail to start it again. Testing first means a restart **cannot** take the service down.
+A: If the configuration is broken, the restart would stop nginx and fail to start it again. Testing first catches configuration errors before anything stops; other start failures (a port already in use, an unreadable file) are still possible, which is why a **reload**, which keeps the old workers, is the gentler choice.
 :::
 
 `,

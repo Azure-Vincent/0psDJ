@@ -52,3 +52,14 @@ export function practiceBlocks(text: string): (PracticeBlock & { after: string }
   }
   return out;
 }
+
+/** The text without its practice blocks (for search snippets, which must not reveal answers). */
+export function stripPractice(text: string): string {
+  const lines = text.split('\n');
+  const out: string[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    if (isPracticeStart(lines[i])) { i = readPractice(lines, i).next - 1; continue; }
+    out.push(lines[i]);
+  }
+  return out.join('\n');
+}

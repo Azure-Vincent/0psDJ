@@ -229,7 +229,7 @@ Kerberos error messages are precise once you know what each one means. A login w
 
 :::practice
 Q: kinit fails at once with "Cannot contact any KDC". Is that more likely a firewall drop or a KDC that is not running?
-A: A **fast** failure means something answered with an error: nothing listens on port 88 (the KDC is down). A firewall drop would make kinit wait before failing.
+A: A **fast** failure means something answered with an error: either nothing listens on port 88 (the KDC is down) or a firewall **rejects** the request. A firewall that drops would make kinit wait before failing. Check \`systemctl status krb5-kdc\` and the KDC host's ruleset.
 Q: kinit works, but \`kvno host/fs02.example.org\` says "Server not found in Kerberos database". What do you check?
 A: Whether the **principal exists** with exactly that name (use the FQDN, not an alias or IP) in the right realm: \`kadmin.local -q "getprinc host/fs02.example.org"\`.
 :::

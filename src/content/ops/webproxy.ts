@@ -260,7 +260,7 @@ A 404 or 500 through the proxy may come from nginx or from the application. ngin
 Q: Through the proxy you get \`500 Internal Server Error\` with a JSON body \`{"error":"database unavailable"}\`. Who produced it, and where do you look next?
 A: The **backend application** (its own JSON body). Look at the application's log and its database connection, not at nginx.
 Q: You get a 504 Gateway Time-out through the proxy. How do you tell whether nginx produced it or the backend did?
-A: Read the **body** and nginx's error.log. nginx's own 504 is its small HTML page with an \"upstream timed out\" line in error.log. A backend that is itself a gateway (another proxy, an API gateway) can return its own 504, which nginx passes through unchanged with that backend's body and no such error.log line.
+A: Read the **body** and nginx's error.log. nginx's own 504 is its small HTML page with an "upstream timed out" line in error.log. A backend that is itself a gateway (another proxy, an API gateway) can return its own 504, which nginx passes through unchanged with that backend's body and no such error.log line.
 :::
 
 `,

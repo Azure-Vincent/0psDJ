@@ -265,7 +265,7 @@ The ticket contains the **PAC** (Privilege Attribute Certificate): the user's SI
 :::practice
 Q: A user was added to the group "Finance-Share" five minutes ago and still gets "Access denied" on the finance share. Why, and what makes it work?
 A: Group membership travels in the **PAC** of the user's tickets, which were issued before the change. The user needs a **new TGT** (log off and on), after which new service tickets carry the group.
-Q: A web application runs as \`CORP\svc-intranet\` and users reach it as \`https://portal.corp.lab\`. Which SPN must exist, and on which account?
+Q: A web application runs as \`CORP\\svc-intranet\` and users reach it as \`https://portal.corp.lab\`. Which SPN must exist, and on which account?
 A: \`HTTP/portal.corp.lab\`, on the **svc-intranet** account (the account the service runs as), and on no other account.
 :::
 
@@ -290,7 +290,7 @@ Joining a computer creates a computer object (\`WS07$\`) with a **machine passwo
 Q: A VM was rolled back to a snapshot from two months ago. After it starts, domain logons fail with "The trust relationship ... failed". Why?
 A: The computer changed its machine password since the snapshot, so its restored copy no longer matches the one in AD. The secure channel cannot be built.
 Q: What repairs it without leaving and re-joining the domain?
-A: \`Test-ComputerSecureChannel -Repair -Credential DOMAIN\admin\` (or \`Reset-ComputerMachinePassword\`), run with a local administrator logon.
+A: \`Test-ComputerSecureChannel -Repair -Credential DOMAIN\\admin\` (or \`Reset-ComputerMachinePassword\`), run with a local administrator logon.
 :::
 
 ### 5. Replication
@@ -462,7 +462,7 @@ A: **Time**. \`w32tm /query /source\` (and compare the clock with the DC's).
 Some actions hide the symptom without fixing the cause: adding a hosts-file entry for the DC, raising the clock skew tolerance, accessing a share by IP address (which forces the weaker NTLM), removing and rejoining every broken PC to the domain, or restarting all DCs "to clear it". The real fix is the configuration that caused the problem: the DNS settings, the time source, the SPN on the right account, the snapshot practice, or the firewall rule.
 
 :::practice
-Q: A file share works by IP address (\`\\10.0.20.40\data\`) but not by name. Why is "use the IP address" a workaround, not a fix?
+Q: A file share works by IP address (\`\\\\10.0.20.40\\data\`) but not by name. Why is "use the IP address" a workaround, not a fix?
 A: Access by IP address cannot use Kerberos, so Windows falls back to the weaker **NTLM**. The real problem (DNS, the SPN, Kerberos) is still there.
 Q: Name the real fix for "logons fail on one VM after every snapshot restore" instead of rejoining it each time.
 A: Fix the **practice**: avoid restoring old snapshots of domain members (or repair the secure channel with Test-ComputerSecureChannel -Repair) and make sure time sync comes from the domain hierarchy.

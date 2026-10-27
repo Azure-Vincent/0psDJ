@@ -41,7 +41,7 @@ A: **firewalld**.
 Q: A port is allowed in the input chain, but clients get "Connection refused". Can the firewall be the cause?
 A: Not if it has no reject rule for it: "refused" with an allowing rule means **nothing listens** on that port, and the kernel answers RST. Check \`ss -tlnp\`.
 Q: A server's input chain counters for port 443 stay at 0 while a client tests. What does that tell you?
-A: The packets never **reached** the server: a router's forward chain, the client's output chain or routing stopped them on the way.
+A: Either the packets never **reached** the server (a router's forward chain, the client's output chain or routing stopped them on the way), or an **earlier rule** in the same input chain dropped them before the port 443 rule. tcpdump on the server tells the two apart; \`nft -a list ruleset\` shows which counter moved.
 :::
 
 `,

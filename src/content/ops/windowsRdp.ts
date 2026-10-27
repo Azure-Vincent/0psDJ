@@ -273,8 +273,8 @@ A: The **block** rule. In Windows Defender Firewall a block rule wins over an al
 - \`HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Terminal Services\`: the same settings from **Group Policy**, which override the values above.
 
 :::practice
-Q: \`fDenyTSConnections\` is 0 in \`HKLM\SYSTEM\...\Terminal Server\`, but RDP is still refused as "disabled". Where else do you look?
-A: In the **policy** key \`HKLM\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services\`: a Group Policy setting there overrides the local value.
+Q: \`fDenyTSConnections\` is 0 in \`HKLM\\SYSTEM\\...\\Terminal Server\`, but RDP is still refused as "disabled". Where else do you look?
+A: In the **policy** key \`HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Terminal Services\`: a Group Policy setting there overrides the local value.
 Q: Which value tells you whether the server requires NLA?
 A: \`UserAuthentication\` under the RDP-Tcp key: 1 means NLA is required.
 :::
@@ -298,7 +298,7 @@ The **WinRM** service ("Windows Remote Management (WS-Management)") listens on T
 
 :::practice
 Q: You want to run commands on app01 by IP address from a workgroup laptop. Why does \`Enter-PSSession 10.0.20.21\` fail where \`Enter-PSSession app01.corp.lab\` from a domain machine works?
-A: By IP address (or from a workgroup) Kerberos cannot be used. The laptop must list the target in \`WSMan:\localhost\Client\TrustedHosts\` (or use HTTPS on 5986).
+A: By IP address (or from a workgroup) Kerberos cannot be used. The laptop must list the target in \`WSMan:\\localhost\\Client\\TrustedHosts\` (or use HTTPS on 5986).
 Q: Which command tests whether WinRM answers on a remote server?
 A: \`Test-WSMan SERVER\`.
 :::

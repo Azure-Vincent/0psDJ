@@ -35,7 +35,7 @@ A: **169.254.x.x**: the link-local address a client gives itself when no server 
 
 :::practice
 Q: Which ports must a firewall allow for a DHCP server that uses ordinary UDP sockets, and in which direction?
-A: UDP **67** towards the server (from clients and relays) and UDP **68** towards the clients.
+A: UDP **67** towards the server (from clients and relays), UDP **68** towards local clients, and UDP **67** from the server back to relays (replies to relayed clients go to the relay's port 67, not 68).
 Q: Which program asks for an address on a Debian host configured with \`iface eth0 inet dhcp\`?
 A: **dhclient** (started by ifupdown).
 :::
