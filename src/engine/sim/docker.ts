@@ -642,6 +642,8 @@ export function dockerTick(world: World, docker: Host): void {
 
 function dockerdStart(world: World, host: Host, pid: number): boolean {
   const unit = 'docker.service';
+  // docker.socket (a separate unit) owns the socket: it exists even if dockerd then fails to start.
+  createDockerSocket(world, host);
   const { config, error } = daemonConfig(host);
   if (error) {
     log(world, host, 'dockerd', error, { pid, unit, priority: 'err' });
@@ -665,22 +667,24 @@ function dockerdStart(world: World, host: Host, pid: number): boolean {
   }
   log(world, host, 'dockerd', `time="${new Date(world.clock).toISOString()}" level=info msg="Loading containers: done."`, { pid, unit });
   log(world, host, 'dockerd', `time="${new Date(world.clock).toISOString()}" level=info msg="Docker daemon" commit=de5c9cf containerd-snapshotter=false storage-driver=overlay2 version=${DOCKER_VERSION}`, { pid, unit });
-  createDockerSocket(world, host);
   log(world, host, 'dockerd', `time="${new Date(world.clock).toISOString()}" level=info msg="API listen on /run/docker.sock"`, { pid, unit });
   return true;
 }
 
 export const DOCKER_SOCK = '/var/run/docker.sock';
 
+/** The paths of the API socket: /var/run is a link to /run on Debian; here they are two nodes, checked together. */
+export const DOCKER_SOCK_PATHS = ['/run/docker.sock', DOCKER_SOCK];
+
 /**
  * The API socket, as docker.socket creates it: owner root, group docker, mode
- * 0660 (/var/run is /run on Debian; both paths exist here). It stays when
- * dockerd stops (systemd keeps the socket), and keeps any chmod/chgrp made to it.
+ * 0660. It stays when dockerd stops (systemd keeps the socket), and keeps any
+ * chmod/chgrp made to it.
  */
 function createDockerSocket(world: World, host: Host): void {
-  for (const dir of ['/run', '/var/run']) {
+  for (const path of DOCKER_SOCK_PATHS) {
+    const dir = path.slice(0, path.lastIndexOf('/'));
     if (!host.fs[dir]) mkdir(host, dir, world.clock);
-    const path = `${dir}/docker.sock`;
     if (host.fs[path]?.socket) continue;
     writeFile(host, path, '', world.clock, { mode: 0o660, owner: 'root', group: 'docker' });
     host.fs[path].socket = true;

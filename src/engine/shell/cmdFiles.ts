@@ -89,6 +89,8 @@ export function getFile(ctx: CmdCtx, path: string): { node: FileNode | null; con
   if (!canTraverse(ctx.host, path, ctx.user)) return { node, error: 'Permission denied' };
   if (node.type === 'dir') return { node, error: 'Is a directory' };
   if (!canAccess(node, ctx.user, 'r')) return { node, error: 'Permission denied' };
+  // A Unix socket cannot be opened like a file.
+  if (node.socket) return { node, error: 'No such device or address' };
   return { node, content: node.content };
 }
 
@@ -102,6 +104,7 @@ export function writeChecked(ctx: CmdCtx, path: string, content: string, append 
   if (parent.nfs?.stale) return 'Stale file handle';
   if (parent.nfs?.ro) return 'Read-only file system';
   if (!canTraverse(ctx.host, path, ctx.user)) return 'Permission denied';
+  if (existing?.socket) return 'No such device or address';
   if (existing) {
     if (!canAccess(existing, ctx.user, 'w')) return 'Permission denied';
   } else if (!canAccess(parent, ctx.user, 'w')) return 'Permission denied';
