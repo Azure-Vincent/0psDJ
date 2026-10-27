@@ -185,10 +185,24 @@ Windows Server is administered through a small number of building blocks. Many o
 - **PowerShell and WinRM.** Every task above can be done from PowerShell, locally or remotely over WinRM (\`Invoke-Command\`, \`Enter-PSSession\`), which is how you repair a server whose RDP is broken.
 - **Active Directory.** Domain logons need a domain controller, DNS that can find it, and synchronised clocks.
 
+:::practice
+Q: Name the Windows equivalent of each Linux tool: systemctl, journalctl, nftables, files in /etc.
+A: **Services / Get-Service** (Service Control Manager), **Event Viewer / Get-WinEvent**, **Windows Defender Firewall**, the **registry** (plus Group Policy, which overrides local settings).
+Q: A setting changed in the local registry keeps reverting after about 90 minutes. Which building block is the likely cause?
+A: **Group Policy**: it reapplies its settings at every refresh and overrides the local value. Change it in the GPO.
+:::
+
 ### Remote Desktop Protocol (RDP)
 RDP gives you a graphical desktop on a remote Windows machine, the Windows counterpart of [SSH](#/lesson/ssh/what) (which gives you a text terminal). The server side is the **Remote Desktop Services** service (\`TermService\`), listening on **TCP and UDP port 3389**. It is the standard way to administer Windows Server with a graphical interface. Like SSH, it depends on everything underneath it, so it fails in many distinct ways: disabled, service stopped, port blocked, listener changed, NLA/CredSSP problems, missing user rights, domain authentication, DNS, routing, Group Policy. This lesson gives you a complete diagnostic process for all of them.
 
 > The examples follow a domain in the lab naming plan (\`corp.lab\`, member server \`app01\` 10.0.20.21, DC \`dc01\` 10.0.20.5, client \`WS01\` 10.0.10.25) and their output is representative of Windows Server 2022 and Windows 11 23H2. The **sandbox and the tickets** use the simulated server **win01** (10.0.20.30): a standalone Windows Server 2022 with a Windows PowerShell 5.1 console (services, the event log, the registry, Windows Defender Firewall, local accounts, NetTCPIP and DnsClient cmdlets, ipconfig, netstat, netsh, sc.exe, reg). Connect to it from ws01 with \`xfreerdp /v:win01.corp.lab /u:alice\`. Domain logons (CORP\\alice) work once win01 is joined to the simulated domain ad.corp.lab (dc01): see the [Active Directory lesson](#/lesson/ad-kerberos/what) and Lab 2. Group Policy is simulated too (see the [Group Policy lesson](#/lesson/gpo/what)), and domain logons use Kerberos tickets from dc01 after NLA.
+
+:::practice
+Q: Which service provides RDP on a Windows server, and on which ports does it listen?
+A: **TermService** (Remote Desktop Services), on **TCP and UDP 3389**.
+Q: Why can RDP fail in more distinct ways than "the server is down"?
+A: It depends on many layers: RDP enabled, the service, the listener and its port, the firewall profile, NLA/CredSSP, domain authentication (DNS, DC, time), user rights and Group Policy. Each has its own error.
+:::
 
 `,
 
@@ -259,8 +273,8 @@ A: The **block** rule. In Windows Defender Firewall a block rule wins over an al
 - \`HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Terminal Services\`: the same settings from **Group Policy**, which override the values above.
 
 :::practice
-Q: \`fDenyTSConnections\` is 0 in \`HKLM\SYSTEM\...\Terminal Server\`, but RDP is still refused as "disabled". Where else do you look?
-A: In the **policy** key \`HKLM\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services\`: a Group Policy setting there overrides the local value.
+Q: \`fDenyTSConnections\` is 0 in \`HKLM\\SYSTEM\\...\\Terminal Server\`, but RDP is still refused as "disabled". Where else do you look?
+A: In the **policy** key \`HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Terminal Services\`: a Group Policy setting there overrides the local value.
 Q: Which value tells you whether the server requires NLA?
 A: \`UserAuthentication\` under the RDP-Tcp key: 1 means NLA is required.
 :::
@@ -284,7 +298,7 @@ The **WinRM** service ("Windows Remote Management (WS-Management)") listens on T
 
 :::practice
 Q: You want to run commands on app01 by IP address from a workgroup laptop. Why does \`Enter-PSSession 10.0.20.21\` fail where \`Enter-PSSession app01.corp.lab\` from a domain machine works?
-A: By IP address (or from a workgroup) Kerberos cannot be used. The laptop must list the target in \`WSMan:\localhost\Client\TrustedHosts\` (or use HTTPS on 5986).
+A: By IP address (or from a workgroup) Kerberos cannot be used. The laptop must list the target in \`WSMan:\\localhost\\Client\\TrustedHosts\` (or use HTTPS on 5986).
 Q: Which command tests whether WinRM answers on a remote server?
 A: \`Test-WSMan SERVER\`.
 :::
@@ -441,6 +455,12 @@ RDP configuration lives in the registry, with **Group Policy values overriding t
 | \`Get-Service\`, \`Get-WinEvent\`, \`Get-NetTCPConnection\` | PowerShell equivalents of systemctl, journalctl, ss |
 | \`sconfig\` | Text menu on Server Core and Desktop Experience (option 7: Remote Desktop) |
 
+:::practice
+Q: Which tool shows which GPOs were applied to a server and which one won for each setting?
+A: \`gpresult /h report.html\` (or \`gpresult /r\` for a summary).
+Q: On Server Core, which built-in menu lets you enable Remote Desktop?
+A: \`sconfig\` (option 7).
+:::
 
 `,
   troubleshootingIntro: `
@@ -459,8 +479,22 @@ RDP fails at different stages: finding the server, reaching its port, authentica
 6. **Authorisation.** Security event 4625 with Logon Type 10 and Status 0xC000015B means the user lacks the right "Allow log on through Remote Desktop Services". \`gpresult /h\` shows which Group Policy object sets it.
 7. **Fix it in the right place** (the GPO, not a local override that the next policy refresh reverts), restart only what needs it, and **verify** from the client with the affected user.
 
+:::practice
+Q: \`Test-NetConnection app01 -Port 3389\` fails, but \`Resolve-DnsName\` and ping work. How do you get onto app01 to continue, and what do you check first there?
+A: Through the **console, hypervisor or WinRM** (\`Enter-PSSession app01\`), never via RDP. Then check, in order: RDP enabled (fDenyTSConnections, including the policy key), TermService running, the listener and its port, and the firewall rules for the active profile.
+Q: A local account can log on through RDP, domain accounts cannot. Where is the problem?
+A: In the **domain dependency** of NLA: DNS to the DC, the secure channel (\`nltest /sc_query\`), or time. RDP itself works.
+:::
+
 ### Do not "fix" by weakening security
 Disabling NLA, setting CredSSP to "Vulnerable", adding users to Administrators or turning off the firewall can make a symptom go away. Each one is a workaround that leaves a security hole. If you ever use one to regain access, record it and undo it afterwards.
+
+:::practice
+Q: To restore access quickly during an outage, you temporarily disabled NLA on a server. What must you do afterwards?
+A: Record it as a **workaround**, find and fix the real cause, then **re-enable NLA** and verify that logons still work.
+Q: Why is adding a helpdesk user to the Administrators group a bad fix for "the user is not allowed to log on through RDP"?
+A: It grants far more than the missing right. The fix is the **"Allow log on through Remote Desktop Services"** user right (through Remote Desktop Users or the GPO that defines it).
+:::
 
 `,
 

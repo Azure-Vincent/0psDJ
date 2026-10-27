@@ -152,6 +152,14 @@ NFS combines two things you have met before: a network service on TCP port 2049 
 - **Transport**: NFSv4 over TCP port 2049 (NFSv3 also needs rpcbind 111 and mountd).
 
 > In the lab, **fs01** (10.0.20.60) is the file server: it exports /srv/projects read-write to the office (10.0.10.0/24) and server (10.0.20.0/24) networks and /srv/software read-only to 10.0.0.0/16. **ws01** mounts the project share on /mnt/projects and **srv01** the software share on /opt/software, both from /etc/fstab. Simulated: /etc/exports (client lists by network, address, name and wildcard; rw/ro, root_squash, no_root_squash, all_squash, anonuid/anongid), the export table and \`exportfs -v/-ra\`, \`showmount -e\`, \`mount\`/\`umount\`/\`mount -a\`/\`df\`, fstab mounts at boot with systemd's messages, TCP 2049/111 through routers and firewalls, numeric UID/GID mapping, root squashing, read-only exports and stale handles. Simplified: the mount is a synchronized view refreshed before and after each command (no partial I/O, locking or caching effects), NFSv4.2 only, sec=sys only, no Samba yet.
+
+:::practice
+Q: Which file on the server lists what is shared, and which command makes the kernel use it?
+A: **/etc/exports**; \`exportfs -ra\` loads it into the export table.
+Q: Which file on a client makes an NFS share mount at every boot?
+A: **/etc/fstab** (a line with type nfs4 and \`_netdev\`).
+:::
+
 `,
 
   internals: `
@@ -309,6 +317,13 @@ Configuration lives at both ends:
 - After editing /etc/fstab: \`mount -a\` now, not at the next reboot.
 - Before adding a client or user: compare \`id USER\` on the client and the server.
 
+:::practice
+Q: You remove a client network from an export and run \`exportfs -ra\`. What happens to clients in that network that have the share mounted?
+A: Their existing mounts **break** (errors such as stale handles or access denied). Plan the change with their owners.
+Q: You added a line to /etc/fstab on a client. Why run \`mount -a\` now instead of waiting for the next reboot?
+A: To find a mistake **now**: a bad fstab line discovered at boot can leave the share missing (or delay the boot).
+:::
+
 `,
   troubleshootingIntro: `
 ### Mounted? Allowed? Who am I? May I?
@@ -318,6 +333,14 @@ NFS access passes four gates in order. Each question below matches one gate, and
 2. **Is this client allowed?** On the server, \`exportfs -v\` (or \`showmount -e SERVER\` from the client) shows the export table that is actually loaded. Is the client's address covered? Remember that editing /etc/exports changes nothing until \`exportfs -ra\` loads it.
 3. **Who am I on the server?** NFS sends user and group **numbers**, not names. Compare \`id\` on the client with \`ls -ln\` (numeric owners). root on the client is turned into "nobody" on the server (**root_squash**), and every other user must have the same number on both machines.
 4. **May I?** Check \`ls -ld\` of the directory on the server for that number. "Read-only file system" means the export or the mount is read-only (ro).
+
+:::practice
+Q: \`mount -a\` on a client fails with "access denied by server while mounting". Which gate, and where do you look?
+A: Gate 2, **is this client allowed**: check \`exportfs -v\` on the server (and whether /etc/exports was loaded with \`exportfs -ra\`).
+Q: The share is mounted and allowed, but user tom gets "Permission denied" writing to a directory owned by tom on the server. What do you compare?
+A: **UID numbers**: \`id tom\` on the client versus \`ls -ln\` on the server. If the numbers differ, the server does not see tom as the owner.
+:::
+
 `,
 
   errorMap: [

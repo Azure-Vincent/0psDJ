@@ -21,10 +21,24 @@ Think of it as a hotel reception: you arrive with nothing, ask at the desk, and 
 ### Why it matters
 Nearly every laptop, phone, printer and virtual machine uses DHCP. When it fails, the symptoms rarely mention DHCP. The client ends up with **no address**, with a **169.254.x.x** address (a "link-local" address that Windows and some Linux systems give themselves when nobody answers), or with an address but a **wrong gateway or DNS server**. That last case looks exactly like a routing or DNS problem, which is why it helps to know what DHCP hands out.
 
+:::practice
+Q: A laptop has an address in the right network and can reach local printers, but no web sites by name or by address. DHCP is used. Which handed-out setting is most likely wrong?
+A: The **default gateway** (option routers): local traffic works without it, everything beyond the network needs it.
+Q: Which address range tells you a client asked for DHCP and nobody answered?
+A: **169.254.x.x**: the link-local address a client gives itself when no server answers.
+:::
+
 ### Where it runs
 - **Client**: dhclient (ISC, used by Debian's ifupdown), systemd-networkd or NetworkManager on Linux; the DHCP Client service on Windows.
 - **Server**: ISC dhcpd (the package \`isc-dhcp-server\`, used in this lab), its successor **Kea**, dnsmasq, the Windows Server DHCP role, and most routers and firewalls.
 - DHCP travels over **UDP** (see [Transport and DNS](#/lesson/transport/what)): the server listens on port **67**, the client on port **68**.
+
+:::practice
+Q: Which ports must a firewall allow for a DHCP server that uses ordinary UDP sockets, and in which direction?
+A: UDP **67** towards the server (from clients and relays), UDP **68** towards local clients, and UDP **67** from the server back to relays (replies to relayed clients go to the relay's port 67, not 68).
+Q: Which program asks for an address on a Debian host configured with \`iface eth0 inet dhcp\`?
+A: **dhclient** (started by ifupdown).
+:::
 
 ### In the lab
 ns1 (10.0.10.53) runs isc-dhcp-server for the office network 10.0.10.0/24. It hands out 10.0.10.100–150, with router 10.0.10.1 and DNS server 10.0.10.53. The laptop **ws02** is configured with \`iface eth0 inet dhcp\` and gets its address at boot.
@@ -274,8 +288,23 @@ Start with what the client actually got, because that tells you which half of th
 5. **Is the client behind a relay?** On the router, check \`systemctl status isc-dhcp-relay\` and \`cat /etc/default/isc-dhcp-relay\`, then run \`tcpdump\` on the client side **and** on the server side of the router. Requests leave but no replies come back: look at the server or the routing between them. Replies come back but nothing goes out on the client side: the relay is not receiving them (\`-iu\` missing, or a firewall in front of its fallback socket).
 6. **Look at the wire.** \`tcpdump -n -i eth0 port 67 or port 68\` on the server shows exactly which messages arrive and leave.
 
+:::practice
+Q: A client has 10.0.10.117 and a working gateway, but names do not resolve. Is DORA broken?
+A: **No.** The exchange worked; the server's **DNS option** (domain-name-servers) is wrong. Check the lease file and dhcpd.conf.
+Q: The server's journal shows \`DHCPDISCOVER from … via 10.0.30.1: unknown network segment\`. What is missing on the server?
+A: A \`subnet\` declaration that contains the relay's giaddr **10.0.30.1** (for example 10.0.30.0/24 with a range).
+:::
+
 ### Clients that lose their address later
 If a client had an address and later lost it, the problem is with **renewal**, not with the first request. Read the client's history with \`journalctl -t dhclient\` (as root). A typical pattern: REQUESTs "to 10.0.10.53" with no ACK (that is T1), then REQUESTs "to 255.255.255.255" (T2), then DISCOVERs. That means the server stopped answering at least one lease time ago. \`ip -4 addr\` shows how long the current address is still valid (\`valid_lft\`).
+
+:::practice
+Q: A client's log shows REQUESTs "to 10.0.10.53" with no answer, then REQUESTs "to 255.255.255.255", then DISCOVERs. Which lease phases are these?
+A: Renewing at **T1** (unicast to its server), rebinding at **T2** (broadcast to any server), then starting again after the lease **expired**.
+Q: Several clients lose their addresses one by one over a morning, at different times. What is the most likely single cause?
+A: The **DHCP server** (or the path to it) stopped answering: each client only notices when its own lease runs out.
+:::
+
 `,
 
   errorMap: [

@@ -25,6 +25,13 @@ Encryption alone is not enough: you also need to know **who** you are encrypting
 
 A server certificate is accepted only when all of these are true: the client can build a chain from it, through the intermediates, to a root in its trust store; every certificate in the chain is within its validity period; and the name the client asked for appears in the server's certificate.
 
+:::practice
+Q: A certificate is signed correctly, unexpired, and lists the right name, but the client still rejects it with "unable to get local issuer certificate". Which of the conditions is not met?
+A: The client cannot build a chain to a **root in its own trust store**: the root is missing on the client, or an intermediate was not sent.
+Q: Why is a certificate compared to a passport?
+A: It ties an identity (the names) to a key, it is issued by an authority you must already trust (the CA), and it is only valid for a limited period.
+:::
+
 ### The four questions a client asks
 | Question | Fails as (curl / OpenSSL) |
 |---|---|
@@ -32,6 +39,13 @@ A server certificate is accepted only when all of these are true: the client can
 | Is every certificate in its validity period? | (60) certificate has expired (10), not yet valid (9) |
 | Does the certificate cover the name I asked for? | (60) no alternative certificate subject name matches target host name |
 | Does the server own the private key? | Handshake failure: the server cannot sign. In practice the server refuses to start (key mismatch) |
+
+:::practice
+Q: curl reports "certificate has expired". Which of the four questions failed?
+A: The **validity period** check: the certificate is outside its notBefore/notAfter dates (or the client's clock is wrong).
+Q: curl reports "no alternative certificate subject name matches target host name". Which question failed, and what is the fix?
+A: The **name** check: the name you used is not in the certificate's subjectAltName. Get a certificate that lists it, or use a name that is listed.
+:::
 
 ### In the lab
 srv01 serves **https://www.corp.lab/** (www is a CNAME for srv01) with nginx. Its certificate comes from the internal PKI: **Corp Lab Root CA** → **Corp Lab Issuing CA 1** → **www.corp.lab** (subjectAltName www.corp.lab and srv01.corp.lab). Every corp.lab machine trusts the root through Debian's ca-certificates. ext01 (203.0.113.80) is an Internet site whose certificate comes from a (fictitious) public CA in the default trust store.
@@ -239,6 +253,13 @@ How to read the depth of an OpenSSL error (depth 0 is the server's own certifica
 | 1 (or the top of the chain), error 20 | the client does not trust the root |
 | 0, error 10 | the server certificate has expired; at another depth, that CA's certificate expired |
 | 0, error 18 | the server uses a self-signed certificate |
+
+:::practice
+Q: You installed a renewed certificate on srv01, but \`openssl s_client\` still shows the old expiry date. What is the most likely reason?
+A: nginx has **not loaded** the new files: it reads them only at start and reload. Run \`nginx -t\`, then \`systemctl reload nginx\` (and check the journal if the reload fails).
+Q: Only one colleague's laptop gets "certificate is not yet valid" for every internal site. Where do you look?
+A: At that laptop: its **clock** is probably behind. The server is fine, since other clients succeed.
+:::
 
 `,
 

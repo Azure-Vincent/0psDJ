@@ -20,9 +20,23 @@ Think of an office building with one big open floor. VLANs are like putting up g
 - **Smaller broadcast domains**: less broadcast noise (ARP, DHCP), and a problem in one VLAN, such as a broadcast storm, stays in that VLAN.
 - **Flexibility**: which VLAN a port belongs to is configuration, not cabling. Moving a desk to another department means changing one port setting.
 
+:::practice
+Q: A guest Wi-Fi and the office PCs share the same switches. How do VLANs keep guests away from office servers?
+A: Guests get their own VLAN and subnet. Their broadcasts never reach the office VLAN, and anything between the two must pass the **router or firewall**, where rules can block it.
+Q: A broadcast storm starts in VLAN 40. Which other VLANs on the same switch are flooded?
+A: **None.** A broadcast stays inside its own VLAN.
+:::
+
 ### Two kinds of switch ports
 - **Access port**: belongs to one VLAN. Frames go in and out **untagged** (unchanged), so the connected computer does not need to know VLANs exist. Used for PCs, printers and most servers.
 - **Trunk port**: carries several VLANs over one cable. Each frame carries an **802.1Q tag**, a small label with the VLAN number, so the device at the other end can tell the VLANs apart. Used between switches, and towards routers or hypervisors that serve several VLANs. One VLAN per trunk may travel **untagged**; it is called the *native VLAN* (or PVID on Linux).
+
+:::practice
+Q: Which port type do you use for a desktop PC, and which for the link to a hypervisor that runs VMs in VLANs 10, 20 and 30?
+A: The PC: an **access port** (one VLAN, untagged). The hypervisor: a **trunk** carrying VLANs 10, 20 and 30 tagged.
+Q: A frame for the native VLAN travels over a trunk. Does it carry an 802.1Q tag?
+A: **No.** The native VLAN (PVID) travels untagged; all other VLANs on the trunk are tagged.
+:::
 
 ### In the lab
 **sw01** is a Debian machine acting as a switch, using a **VLAN-aware Linux bridge** called br0, configured with ifupdown2 (the same way as Cumulus Linux or Debian). It has three VLANs: VLAN 10 for the office (ws01, ws02, ns1), VLAN 20 for servers (srv01) and VLAN 30 for development (dev01). rtr01 connects to VLANs 10 and 20 through two access ports, and to VLAN 30 through a **trunk** (its port eth3, tagged with VLAN 30), using the sub-interface **eth3.30**. A router serving VLANs over a trunk like this is called *router-on-a-stick*.
@@ -184,6 +198,13 @@ A VLAN problem usually looks like this: the cable is plugged in, the link is up,
 4. **Does the router tag with the right VLAN number?** \`ip -d link show\` on the router should say "vlan protocol 802.1Q id 30" for eth3.30.
 5. **Is the fix saved?** Compare \`bridge vlan show\` (what runs now) with /etc/network/interfaces (what is saved). \`ifreload -a\` or a reboot applies the file, so make sure the file is right.
 
+:::practice
+Q: A PC's \`ip neigh\` shows its gateway FAILED. On the switch, \`bridge fdb show\` lists the PC's MAC in VLAN 20, but the plan says VLAN 10. What is the fix?
+A: Move the PC's **switch port** to VLAN 10 (bridge-access 10), apply it, and save it in /etc/network/interfaces. The PC's IP configuration is fine.
+Q: Which tcpdump option shows the VLAN tag of each frame on a trunk?
+A: \`-e\` (print the Ethernet header): for example \`tcpdump -e -n -i eth3\`.
+:::
+
 ### Typical mistakes
 - **Access port in the wrong VLAN**: the link is up and the host is configured correctly, but nobody answers its ARP request for the gateway. The host may even get an address from another VLAN's DHCP server.
 - **VLAN missing from a trunk** (sometimes called "pruned"): a whole VLAN loses its gateway, while the hosts inside it can still talk to each other.
@@ -191,12 +212,26 @@ A VLAN problem usually looks like this: the cable is plugged in, the link is up,
 - **Wrong sub-interface ID**: the router tags with VLAN 3 instead of 30. Everything looks fine on the router itself, which makes this one hard to spot.
 - **Forgetting runtime versus saved configuration**: \`bridge vlan add\` fixes it now, but only the file survives a reboot.
 
+:::practice
+Q: All hosts in VLAN 50 can ping each other, but none can reach their gateway. Other VLANs are fine. Which mistake fits?
+A: **VLAN 50 is missing from the trunk** towards the router (or the router's sub-interface uses the wrong VLAN ID).
+Q: You fixed a port's VLAN with \`bridge vlan add\`. What happens at the next reboot if you did nothing else?
+A: The fix is **lost**: only /etc/network/interfaces survives a reboot.
+:::
+
 ### Keeping VLANs secure
 VLANs separate broadcast domains. They are not a firewall on their own. Good practice:
 - **Allow only the VLANs that are needed on each trunk.** A trunk that carries every VLAN lets a mistake (or an attacker) on one switch reach all of them.
 - **Make end-user ports access ports, never trunks.** A trunk on a desk port lets the connected device send into any VLAN by tagging its frames. "Every port a trunk, so moves need no reconfiguration" is convenient and unsafe.
 - **Use an unused VLAN as the native VLAN, or tag every VLAN on trunks.** Untagged traffic on a trunk belongs to the native VLAN; if that is VLAN 1 and also used by hosts, a "double-tagged" frame can hop into another VLAN.
 - **Filter traffic between VLANs where it is routed** (on the router or firewall). Routing is what connects VLANs, so that is where the policy belongs.
+
+:::practice
+Q: Why is putting every switch port into trunk mode, so that desk moves need no reconfiguration, a security problem?
+A: A device on a trunk port can **tag its own frames** and send into any VLAN the trunk carries, bypassing the router's filtering.
+Q: Where should the rules that control traffic between the server VLAN and the office VLAN live?
+A: On the **router or firewall** that routes between them.
+:::
 
 `,
 

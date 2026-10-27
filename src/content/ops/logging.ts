@@ -160,6 +160,14 @@ Each server already keeps its own logs (in the systemd journal and in files unde
 - **Transport**: syslog over UDP or TCP 514 (TLS 6514, RELP 2514).
 
 > In the lab, **log01** (10.0.20.50) is the log server: rsyslog receives on TCP and UDP 514 and writes /var/log/remote/HOST/PROGRAM.log. **rtr01, ns1, srv01 and dock01** run rsyslog with Debian's default rules plus /etc/rsyslog.d/50-central.conf, which forwards everything over TCP with a memory queue. Simulated: rsyslog.conf and its includes (module/input, legacy $ directives, selectors with ;, none, =, !, files, @/@@ and action(type="omfwd"), templates with %HOSTNAME%/%PROGRAMNAME%, property filters, & stop), facilities derived from the program (sshd: auth, sudo/PAM: authpriv), real syslog traffic on UDP/TCP 514 through routers and firewalls, suspended/resumed actions and queues, \`logger\` and \`rsyslogd -N1\`. Simplified: forwarding happens between commands (in the background) rather than continuously, one TCP connection per batch, no TLS/RELP, no rate limiting, no log rotation.
+
+:::practice
+Q: Which component on a log server decides that messages from srv01 end up in /var/log/remote/srv01/?
+A: A **template** used by a rule on the receiver (for example with %HOSTNAME% in the path), after an **input** (imtcp/imudp) received them.
+Q: Which ports are used for syslog over plain UDP/TCP, over TLS, and with RELP?
+A: **514** (UDP or TCP), **6514** (TLS), **2514** (RELP, commonly).
+:::
+
 `,
 
   internals: `
@@ -322,6 +330,13 @@ Validate with \`rsyslogd -N1\` before every restart: rsyslog skips what it canno
 - Validate (\`rsyslogd -N1\`), restart, then **prove** delivery with a \`logger\` test from a sender, for the facility that matters (authpriv).
 - A restart of a sender drops what its memory queue holds; restart the log server only when the senders have queues.
 
+:::practice
+Q: After changing the forwarding rule on a sender, how do you prove that authentication messages now reach the log server?
+A: Send a test with the right facility, for example \`logger -p authpriv.notice -t test probe\`, and find it in the receiver's file for that host.
+Q: Why can restarting a sender lose messages even when forwarding uses TCP with a memory queue?
+A: A **memory** queue lives in the process: whatever it holds at the moment of the restart is gone. (A disk-assisted queue survives.)
+:::
+
 `,
   troubleshootingIntro: `
 ### Follow one message from start to finish
@@ -333,6 +348,14 @@ The easiest way to troubleshoot logging is to create a test message yourself and
 4. **Filing.** \`ls -l /var/log/remote/HOST/\` shows where the message was written. It may have arrived and simply been filed under another name.
 
 The usual symptom is **silence**, not an error: UDP gives no feedback, a selector can leave messages out, and rsyslog can skip a configuration line it does not understand. Messages can go missing **without any error anywhere**, so monitor for hosts that stop sending.
+
+:::practice
+Q: \`logger -t test probe\` on srv01 appears in srv01's own journal, but never on log01. \`journalctl -u rsyslog\` on srv01 shows "action suspended … Connection refused". Which gate failed?
+A: The **receiver**: something answered but nothing listens on 514 there (a missing input or module, or rsyslog not running). Check \`ss -tulnp\` and \`rsyslogd -N1\` on log01.
+Q: Messages from one server stopped arriving last week and nobody noticed. Why is that typical of central logging, and what prevents it?
+A: Logging fails **silently** (UDP loss, selectors, skipped lines). Monitor for hosts that **stop sending**.
+:::
+
 `,
 
   errorMap: [

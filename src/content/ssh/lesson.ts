@@ -16,11 +16,25 @@ On the server, a background program called **sshd** (the SSH daemon) listens for
 ### What SSH builds on
 An SSH connection uses almost everything from module A: the server's name has to resolve ([Transport and DNS](#/lesson/transport/what)), packets need a route there and back ([IP networking](#/lesson/ipnet/what)), a TCP connection to port 22 has to succeed, and every firewall on the way has to allow it. Only then does SSH itself start. That is why SSH problems are often not SSH problems at all, and why this lesson teaches you to read the exact error message to find the layer that failed.
 
+:::practice
+Q: List, in order, what must work before sshd itself is even involved in a connection.
+A: Name resolution, a route there **and back**, every firewall on the path, and a TCP connection to port 22 that the server's kernel completes because something listens.
+Q: \`ssh srv01\` fails with "Connection timed out". Is that most likely an SSH configuration problem?
+A: **No.** SSH never started: the TCP connection got no answer. Look at the network and firewalls first.
+:::
+
 ### Problems it solves
 - **Privacy and integrity.** Older tools (Telnet, rlogin, rsh) sent passwords and keystrokes as plain text that anyone on the path could read. Everything SSH sends after its key exchange is encrypted and protected against tampering.
 - **Proving the server's identity.** The client checks a cryptographic **host key** that belongs to the server. If the key changes, the client notices: you may be talking to a rebuilt server, the wrong machine because of a bad DNS record, or an attacker in the middle.
 - **Proving the user's identity.** Passwords are only ever sent inside the encrypted channel, and **public-key authentication** avoids sending a reusable secret at all.
 - **Several things over one connection.** A single connection can carry an interactive shell, remote commands, file transfer (the SFTP subsystem) and port forwarding, each as a separate **channel**.
+
+:::practice
+Q: Why is Telnet unacceptable for administering a server across a shared network?
+A: It sends the password and every keystroke as **plain text**, readable by anyone on the path. SSH encrypts everything after its key exchange.
+Q: A user copies files with sftp and has a shell open, both to the same server over one SSH connection. What makes that possible?
+A: **Channels**: one SSH connection carries several independent channels (a shell, the SFTP subsystem, port forwards).
+:::
 
 ### Where you meet it
 - Administrators connecting from a workstation, or through a **bastion** (jump host), to servers: \`ssh -J bastion srv01\`.
@@ -35,6 +49,14 @@ An SSH connection uses almost everything from module A: the server's name has to
 - Your client's record of known servers: \`~/.ssh/known_hosts\`.
 
 > This lesson uses OpenSSH 9.2 on Debian 12, both as server and client. The simulator reproduces this version's messages and log lines; other versions differ in details (for example, Ubuntu 22.10 and later start sshd through systemd socket activation).
+
+:::practice
+Q: Which file on your workstation holds the host keys of servers you have trusted before, and which file on a server lists the public keys allowed to log in as a user?
+A: Your **~/.ssh/known_hosts**; the user's **~/.ssh/authorized_keys** on the server.
+Q: Which tool installs your public key into a server account's authorized_keys?
+A: \`ssh-copy-id user@server\`.
+:::
+
 `,
   internals: `
 ### Three protocol layers (RFC 4251)
@@ -257,6 +279,13 @@ Restarting sshd, or opening the firewall "to see if that helps", often hides the
 
 The client is deliberately vague about login failures, so that it does not help attackers guess which part was wrong. The reason (wrong password, user not allowed, bad file permissions) is only written in the **server's log**, so always read it.
 
+:::practice
+Q: A login fails with "Permission denied (publickey,password)". The client gives no detail. Where is the reason written?
+A: In the **server's log** (\`journalctl -u ssh\`): for example "Failed password", "not allowed because …" or a bad-permissions message.
+Q: A colleague suggests restarting sshd "to see if it helps" with a login that is refused. Why is that a poor first step?
+A: The login is refused, so sshd is already running and answering. A restart can hide the cause (or, with a broken configuration, stop sshd entirely). Read the error and the server log, and test one hypothesis at a time.
+:::
+
 ### Scoring engines and other programs (Go's SSH client)
 Competition scoring engines (CCDC and similar), monitoring and automation tools are often written in Go and report **Go's** error text, not OpenSSH's. They usually log in with a password, try it **once**, and ignore host keys. Translate the message, then investigate exactly as above:
 
@@ -273,6 +302,14 @@ Competition scoring engines (CCDC and similar), monitoring and automation tools 
 | \`Process exited with status 1\` (check command) | This account is currently not available. | Login worked; the shell or command failed (nologin shell, missing home) | \`getent passwd U\` |
 
 The same Go message ("attempted methods [none password]") covers several unrelated causes: the server log tells them apart ("Failed password", "pam_faillock … temporarily locked", "not allowed because …"). A check that turns from **refused** to **timed out** means two things changed: the service came back but something now drops the packets (a firewall rule added in the meantime) — fix both, and make sure the service starts at boot. A check that fails, passes, then fails again usually means a lockout that expires and is re-triggered, or a password someone keeps changing back. Practise these in the **Scored services** tickets.
+
+:::practice
+Q: A scoring engine reports \`ssh: handshake failed: ssh: unable to authenticate, attempted methods [none password], no supported methods remain\`. Did the TCP connection work?
+A: **Yes.** The handshake reached authentication and the server **refused the password** (wrong or changed password, lockout, AllowUsers, …). Read \`journalctl -u ssh\` to see which.
+Q: The engine's message changes from "connection refused" to "check timed out" after a teammate's change. What two things changed?
+A: sshd came **back** (so no more RST), but something now **drops** the packets, typically a firewall rule added meanwhile. Fix both, and make sure sshd starts at boot.
+:::
+
 `,
 
   errorMap: [

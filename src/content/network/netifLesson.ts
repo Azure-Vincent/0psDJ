@@ -31,11 +31,25 @@ Not every interface is a physical network card. The kernel has many **types** of
 ### Virtual switches
 A **hypervisor** is the software that runs virtual machines (KVM, Proxmox, VMware ESXi, Hyper-V). Every hypervisor contains a software switch. A VM's virtual NIC is "cabled" to a port of that switch, and the switch has uplinks to physical NICs. Linux uses the **bridge** (KVM, Proxmox \`vmbr0\`, libvirt \`virbr0\`, Docker \`docker0\`) or **Open vSwitch**; VMware has the **vSphere Standard/Distributed Switch**; Hyper-V the **Hyper-V Virtual Switch**. They all behave like a physical switch: they learn MAC addresses, they can be VLAN-aware, and a VM attached to the wrong port group/VLAN is exactly as isolated as a server plugged into the wrong switch port.
 
+:::practice
+Q: A VM was moved to a different port group in VMware, and now it cannot reach its old neighbours. Its configuration did not change. Why?
+A: The port group decides which **virtual switch and VLAN** the VM is cabled to. A different port group is like plugging a server into another switch port in another VLAN.
+Q: Which Linux bridge does Docker create by default, and which one does libvirt create?
+A: **docker0** (Docker) and **virbr0** (libvirt's default NAT network).
+:::
+
 ### Why this is a troubleshooting topic
 From the outside, an interface problem looks like "the server is down". But the cause is on the server itself, and often invisible from the network:
 - The configuration names an interface that **does not exist** (renamed after a hypervisor migration, new NIC driver, cloned VM).
 - The interface is **administratively down** (\`ip link set dev X down\`, \`auto\` missing in /etc/network/interfaces) or has **no carrier** (cable, switch port shut, virtual NIC "disconnected" in the hypervisor).
 - A switch or bridge port is up but **not a member** of the bridge/VLAN, so frames go nowhere.
+
+:::practice
+Q: Name three causes on the server itself that make it look "down" from the network, although it is running.
+A: The configuration names an interface that **does not exist**; the interface is **administratively down**; it has **no carrier** (cable, shut switch port, or a disconnected virtual NIC). A port that is up but not in the bridge or VLAN is a fourth.
+Q: A cloned VM boots without network. Its configuration says eth0, but \`ip -br link\` shows ens19. Which of those causes is it?
+A: The configuration names an interface that **does not exist** (the clone has a different NIC name). Update the configuration or pin the name.
+:::
 
 ### In the lab
 - **sw01** is a Linux **VLAN-aware bridge** (\`br0\`) with ports swp1–swp9: \`ip -br link\`, \`ip -d link show br0\`, \`bridge link\`, \`bridge vlan show\`, \`bridge fdb show\`. Its configuration is ifupdown2 (/etc/network/interfaces with \`bridge-ports\`, \`bridge-access\`, \`bridge-vids\`).
@@ -289,6 +303,14 @@ Each check below depends on the one before it: an interface that does not exist 
 4. **Does it have its address and routes?** \`ip -br addr\` and \`ip route\`.
 5. **Can it reach its neighbour?** Ping the gateway, then look at \`ip neigh\`. **FAILED** while both sides have carrier means the layer-2 path between them is broken: wrong VLAN, port not in the bridge, or the wrong port group on the virtual switch.
 6. **Check the switch or bridge side too:** \`bridge link\` (is the port a member?), \`bridge vlan show\` (is it in the right VLAN?), \`bridge fdb show\` (has the switch learned the server's MAC address on that port?).
+
+:::practice
+Q: \`ip -br link\` shows eth0 UP with LOWER_UP, \`ip -br addr\` shows the right address, but the gateway is FAILED in \`ip neigh\`, and the router's side also has carrier. Which layer is left?
+A: The **layer-2 path** between them: wrong VLAN, a port missing from the bridge, or the wrong port group. Check the switch side with \`bridge link\`, \`bridge vlan show\` and \`bridge fdb show\`.
+Q: An interface shows NO-CARRIER on a VM. Name two places outside the VM to check.
+A: The VM's virtual NIC setting in the hypervisor (**"Connected"** unticked) and the **virtual switch uplink** (or the physical switch port behind it).
+:::
+
 `,
 
 

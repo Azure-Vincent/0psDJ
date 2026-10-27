@@ -240,8 +240,22 @@ Its files come from an **image**: a stack of read-only **layers** containing the
 - **Networks**: the default bridge \`docker0\` (172.17.0.0/16), **user-defined bridges** (with built-in DNS), \`host\`, \`none\`, \`macvlan\`.
 - **Docker Compose v2** (\`docker compose\`): a CLI plugin that creates the containers, networks and volumes of a multi-service application from \`compose.yaml\`.
 
+:::practice
+Q: A user who is not root runs \`docker ps\` and gets "permission denied while trying to connect to the Docker daemon socket". Which piece refuses them?
+A: The Unix socket **/var/run/docker.sock**: only root and members of the \`docker\` group may use it. (Membership is effectively root access, so grant it carefully.)
+Q: Which data survives \`docker rm\` of a container: its writable layer, a named volume, a bind-mounted host directory?
+A: The **named volume** and the **bind-mounted directory**. The writable layer is deleted with the container.
+:::
+
 ### How it connects to earlier lessons
 Container networking reuses what you already know. Each container gets a virtual interface and an IP address on a Linux bridge (a [virtual switch](#/lesson/netif/what)); the host [routes and NATs](#/lesson/nat/what) container traffic to the outside; a "published port" is a DNAT rule from a host port to the container's port; and Docker adds its rules to the host [firewall](#/lesson/nftables/what). Containers are started and supervised by the Docker daemon, which itself is a [systemd service](#/lesson/systemd/what).
+
+:::practice
+Q: A container's published port 8080 is reachable. Which earlier-lesson mechanism makes traffic to host port 8080 arrive at the container's port 80?
+A: A **DNAT** rule (destination NAT), the same mechanism as a port forward on a router.
+Q: What does a container's eth0 connect to on the host?
+A: A **veth pair**, whose other end is a port of a Linux **bridge** (docker0 or a br-… user-defined network): a virtual switch.
+:::
 
 ### Where you meet it
 Internal web applications, CI runners, monitoring stacks (Prometheus/Grafana), reverse proxies, databases for development, vendor appliances shipped as images. As an infrastructure administrator you often do not own the application, but you own the host, its network and firewall, and you are the one asked why "the container is up but nobody can reach it".
@@ -490,6 +504,13 @@ Always check what is really in effect: \`docker compose config\` for the project
 - Before recreating a broken container, save its evidence: \`docker logs web > web-$(date +%F-%H%M).log\` and \`docker inspect web > web-inspect.json\`.
 - Never "clean up" with \`docker system prune -a --volumes\` or \`docker compose down -v\` on a server without knowing which volumes hold data.
 
+:::practice
+Q: Why save \`docker logs\` and \`docker inspect\` output before recreating a crashing container?
+A: Recreating **deletes** the old container with its logs and runtime details, which are your evidence of why it failed.
+Q: A teammate wants to free disk space with \`docker compose down -v\` on a database host. What do you check first?
+A: Which **volumes** the project uses: \`-v\` deletes the named volumes, and with them the database files.
+:::
+
 `,
   troubleshootingIntro: `
 ### Work layer by layer, and stop at the first check that fails
@@ -503,8 +524,22 @@ Always check what is really in effect: \`docker compose config\` for the project
 6. **The path from the host.** \`docker port\` and \`ss -tlnp\` show the published ports; \`iptables -t nat -L DOCKER -n\` and \`iptables -L DOCKER-USER -n -v\` show Docker's NAT and filter rules. Then test with curl from the host and from another machine.
 7. **Resources.** \`docker stats\` (CPU and memory), \`docker system df\` and \`df -h\` (disk), \`journalctl -k | grep -i oom\` (the kernel killing processes for lack of memory). \`docker events\` gives a timeline of die, oom and health_status events.
 
+:::practice
+Q: \`docker ps\` says "Cannot connect to the Docker daemon". Which layer failed, and which two commands come next?
+A: The **daemon** itself. Next: \`systemctl status docker\` and \`journalctl -u docker\`.
+Q: A container is "Up", \`docker exec web curl -s localhost:8000\` works, but \`curl http://dock01:8080\` from another host times out. Which layers have you cleared, and which is left?
+A: The daemon, the container's state and the program are fine. What is left is the **path from the host**: the published port, Docker's NAT and DOCKER-USER rules, and firewalls on the way.
+:::
+
 ### Workaround versus fix
 Some changes make the symptom disappear but create a security problem: running the container with \`--network host\`, as root, with \`chmod 777\` on a volume, with \`--privileged\`, or switching off the host firewall. The real fix is the specific setting that was wrong: the listen address, the port mapping, the network, the user ID or SELinux label, or the missing environment variable.
+
+:::practice
+Q: A container can only write its data after you \`chmod 777\` the volume directory. What is the real fix?
+A: Give the directory to the **user ID the container runs as** (for example \`chown 999:999\`) and keep restrictive modes; on SELinux hosts, use the right label (\`:z\`/\`:Z\`).
+Q: Running a container with \`--network host\` makes it reachable. Why is that a workaround?
+A: It hides the real problem (usually a listen address or a port mapping) and removes the container's network isolation.
+:::
 
 `,
 

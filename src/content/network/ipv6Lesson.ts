@@ -28,6 +28,13 @@ The good news is that the ideas from the [IP networking lesson](#/lesson/ipnet/w
 | ICMP | optional for most functions | **essential** (ND, PMTUD): must not be blocked |
 | Header checksum / fragmentation by routers | yes | no |
 
+:::practice
+Q: A host has the addresses fe80::5054:ff:fe12:3456 and 2001:db8:30::5054:ff:fe12:3456 on one interface. Is that a misconfiguration?
+A: **No.** Every IPv6 interface has a **link-local** address, and usually one or more global addresses as well.
+Q: A firewall admin blocks all ICMP for IPv6 "for security". What breaks?
+A: Almost everything: **Neighbor Discovery** (finding MAC addresses), router discovery and path MTU discovery all use ICMPv6.
+:::
+
 ### In the lab
 The **IPv6 pilot** runs in the development VLAN 30: rtr01 advertises **2001:db8:30::/64** with **radvd** (M and O flags set); dev01 configures itself (SLAAC), the laptop dev02 gets its address and DNS server from **DHCPv6** (dhcpd -6 on rtr01) and only its default route from the RA. srv01 has the static address **2001:db8:20::10**, ns1 has **2001:db8:10::53** (the DNS server handed out by DHCPv6) and publishes an **AAAA** record for srv01. The office clients stay IPv4-only, like many real networks in transition. (2001:db8::/32 is the documentation prefix.)
 
@@ -260,6 +267,14 @@ On a dual-stack network, IPv4 can hide IPv6 problems (and the other way round), 
 4. **Do names resolve to IPv6 addresses?** \`dig AAAA name\` shows the IPv6 record; \`getent ahosts name\` shows all addresses in the order applications will try them.
 5. **Host using DHCPv6 has no address (only fe80::)?** Follow the four messages. On the client, \`journalctl -t dhclient\` shows whether it only sends Solicit or also receives an Advertise. On the server, \`journalctl -u isc-dhcp-server\` shows whether the Solicit arrived and an Advertise was sent. \`tcpdump -n port 546 or port 547\` on both ends shows the packets. If tcpdump sees the Solicit but the server stays silent, its firewall input chain blocks UDP 547. If the server sends an Advertise but the client never logs it, the client's input chain blocks UDP 546. If the service has failed, \`systemctl status isc-dhcp-server\` explains why (for example "No subnet6 declaration").
 6. **Compare the two families directly:** \`curl -4\` versus \`curl -6\`, \`ssh -4\` versus \`ssh -6\`. If only one fails, you know which half to look at.
+
+:::practice
+Q: A host's only IPv6 address starts with fe80::. What did it never receive, and where do you look?
+A: A **router advertisement**. Check the router (radvd running, forwarding on), the VLAN, and any firewall dropping ICMPv6 RAs. \`rdisc6 eth0\` asks the routers to announce themselves.
+Q: \`curl -4 https://intranet/\` works and \`curl -6 https://intranet/\` times out. What have you learned?
+A: The problem is in the **IPv6 path only** (routing, forwarding, a firewall or ND), not in the web server or DNS in general. Follow the IPv6 steps from the address upwards.
+:::
+
 `,
 
 

@@ -346,6 +346,13 @@ Current DNS Server: 10.0.10.53
 \`\`\`
 With resolved, \`dig\` against 127.0.0.53 tests the stub; \`dig @10.0.10.53\` tests the real server. Windows: \`ipconfig /all\` (DNS Servers), \`Resolve-DnsName\`, \`ipconfig /flushdns\`, \`Set-DnsClientServerAddress\`.
 
+:::practice
+Q: On an Ubuntu server, /etc/resolv.conf is a symlink to stub-resolv.conf and says \`nameserver 127.0.0.53\`. Where do you change the real DNS server?
+A: In the **netplan YAML** (\`nameservers: addresses:\`), then \`netplan apply\`. Check the result with \`resolvectl status\`.
+Q: A DHCP client (like ws02) has the wrong DNS server in a regular /etc/resolv.conf file. Why is editing that file not the fix?
+A: dhclient **rewrites** it at every renewal. Fix the DHCP server's \`option domain-name-servers\`, then renew the lease.
+:::
+
 `,
 
   configFiles: [
@@ -409,6 +416,13 @@ In the lab, ws01 answers: "Unit NetworkManager.service could not be found.", "Un
 
 > **Remote sessions.** Re-applying an interface, restarting a network manager, releasing a DHCP lease or restarting an adapter on Windows all **disconnect sessions over that interface**. If the new configuration is wrong, you will not get back in. Have a console (hypervisor, IPMI/iLO/iDRAC, serial) or a scheduled rollback ready before you start.
 
+:::practice
+Q: \`systemctl status NetworkManager\` shows active, /etc/netplan is empty, and networking.service is not found. Which tool do you use to change the address?
+A: **nmcli** (NetworkManager): edit the connection profile, then bring it up.
+Q: \`networkctl list\` shows your main NIC as "unmanaged". What does that tell you about systemd-networkd?
+A: networkd is **not** managing that link (no .network file matches it, or another manager is in charge), so networkd configuration will not change it.
+:::
+
 ### Procedures per network manager
 **ifupdown (Debian, the lab)**
 - Inspect: \`systemctl status networking\`, \`cat /etc/network/interfaces\`, \`journalctl -u networking -b\`.
@@ -471,6 +485,14 @@ lo      loopback  connected (externally)  lo
 Abnormal: STATE \`disconnected\` or \`connecting (getting IP configuration)\` (DHCP not answering), a device "unmanaged" (NM ignores it), CONNECTIVITY \`limited\` (no route to the Internet check host).
 
 > Restarting the network is never the fix for "DNS does not resolve" or "the website is down": find the failing layer first.
+
+:::practice
+Q: You changed the address in a netplan file on a remote server over SSH. Which command applies it with an automatic rollback?
+A: \`sudo netplan try\`: it reverts after 120 seconds unless you confirm.
+Q: On a Debian ifupdown host you want to change eth0's address. Why should you run \`ifdown eth0\` **before** editing the stanza?
+A: ifdown removes what the **file says now**. If you edit first, ifdown tries to remove the new address, and the old one stays configured.
+:::
+
 ### Safe recovery for remote servers
 - **Out-of-band access first**: hypervisor console (Proxmox/VMware/Hyper-V), IPMI/iLO/iDRAC remote console, serial console, cloud provider serial console. Test it *before* the change.
 - **Keep a known-good copy**: \`sudo cp -a /etc/network/interfaces /root/interfaces.good\` (or the netplan YAML / NM keyfile).
@@ -485,6 +507,13 @@ With \`at\`: \`echo 'cp /root/interfaces.good /etc/network/interfaces; systemctl
 - **Use the tool's own safety net**: \`netplan try\`; on NetworkManager, \`nmcli connection modify\` + \`nmcli connection up\` (a failed activation leaves the device disconnected, so pair it with a rollback timer too).
 - **Change one thing at a time, test from a second session**, and keep the first session open until the new one works.
 
+:::practice
+Q: Before changing the only network interface of a remote server, what two safety nets do you set up?
+A: **Out-of-band access** (hypervisor or iLO console, tested beforehand) and an automatic **rollback** (a \`systemd-run --on-active\` timer, \`at\`, or \`netplan try\`), plus a copy of the working file.
+Q: After the change, your new SSH session works. What do you do with the rollback timer, and why only now?
+A: **Cancel it** (\`systemctl stop net-rollback.timer\`). Only after a successful test from a new session; cancelling earlier removes the safety net.
+:::
+
 `,
   troubleshootingIntro: `
 ### A method for "the network does not work"
@@ -496,6 +525,13 @@ With \`at\`: \`echo 'cp /root/interfaces.good /etc/network/interfaces; systemctl
 6. **Apply safely**: console or scheduled rollback, one change at a time, verify from a second session, then verify persistence.
 
 The tickets below cover a wrong prefix, a wrong gateway, a router that stopped forwarding, a wrong resolver address, a server without default route, a DHCP server handing out the wrong router, a switch port in the wrong VLAN, a missing IPv6 gateway, and two multi-fault case studies.
+
+:::practice
+Q: \`ip -br link\` shows UP/LOWER_UP, \`ip -br addr\` is correct, but \`ip route\` has no default line. Will DNS and HTTP to other networks work? Where do you stop?
+A: **No**, and you stop **at the route**: without a default gateway nothing beyond the local network is reachable. DNS and HTTP failures are consequences, not separate problems.
+Q: \`ip route\` is correct now, but the file on disk still has the old gateway. Why is the job not finished?
+A: The live state will be **rebuilt from the file** at the next reboot or network restart, and the fault returns. Fix the file and verify persistence.
+:::
 
 ### Investigating with real output (lab, Debian 12)
 **Link: \`ip -br link\`, \`ethtool eth0\`**
@@ -550,6 +586,13 @@ Check \`status:\` and \`SERVER:\`. Abnormal: ";; communications error to 10.0.10
 \`ss -tlnp\` on the server lists listeners; \`nc -zv host 22\` tests from the client; \`tcpdump -n -i eth0 arp\` or \`port 53\` proves what is on the wire (e.g. repeated "ARP, Request who-has 10.0.10.254" with no reply); \`nft list ruleset\` shows what the host firewall drops.
 
 **Real systems only (not in the simulator):** \`nmcli\`, \`networkctl\`, \`resolvectl\`, \`netplan\`. The Operate & recover tab covers them with output from named platforms.
+
+:::practice
+Q: \`ethtool eth0\` on a gigabit server shows \`Speed: 100Mb/s\` and \`Duplex: Half\`. What does that suggest?
+A: A **negotiation or cabling problem** (a bad cable, a forced setting on one end): the link works but slowly, with errors under load.
+Q: \`dig srv01.corp.lab\` returns \`status: NXDOMAIN\` from \`SERVER: 10.0.10.53\`. Is the network path to the DNS server the problem?
+A: **No.** The server answered. The name does not exist in the zone (or you asked the wrong server): look at the zone data.
+:::
 
 `,
 

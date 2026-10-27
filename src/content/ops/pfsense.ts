@@ -197,6 +197,14 @@ The lab's perimeter firewall **fw01** is a simulated pfSense CE 2.7.2: WAN \`vtn
 - It is not a switch: VLAN tags must be carried to it on a trunk by the switch or hypervisor.
 - It does not filter traffic that never crosses it (two hosts in the same VLAN talk directly).
 - It is not configured by editing files: the GUI (or console menu) writes \`config.xml\`, from which everything else is generated.
+
+:::practice
+Q: Two hosts in VLAN 30 cannot talk to each other. Can a rule on pfSense's OPT1 tab be the cause?
+A: **No.** Traffic inside one VLAN goes through the switch directly and never crosses pfSense, so its rules never see it. Look at the hosts and the switch.
+Q: Why should you not edit files under /var/unbound on pfSense to change DNS settings?
+A: pfSense is configured through **config.xml** (via the GUI or console); those files are regenerated from it and your edit is overwritten.
+:::
+
 `,
 
   internals: `
@@ -445,6 +453,14 @@ pfSense settings are made in the GUI and stored in \`/cf/conf/config.xml\`. The 
 - Prefer **filter reload** (Apply) and targeted **state kills** over Reset States, interface re-saves or reboots.
 - Before changing rules that carry your own management traffic, keep the console reachable. If you lock yourself out: console → option 8 → \`easyrule pass lan tcp 10.0.10.25 10.0.10.1 443\`, or \`pfctl -d\` (filtering and NAT stop), fix the rule in the GUI, \`pfctl -e\` / reload the filter; or console option 15 to restore the previous configuration.
 - Never fix a block by disabling pf or adding "any to any" on WAN; fix the specific rule.
+
+:::practice
+Q: You must change the LAN rule that carries your own webGUI access. What do you make sure of before you click Apply?
+A: That the **console** is reachable (so you can recover with easyrule or option 15 if you lock yourself out), and that the anti-lockout rule or another pass rule still covers your admin PC.
+Q: A colleague proposes adding "pass any to any" on WAN to make a port forward work. What is the right response?
+A: Refuse: it exposes everything behind the firewall. Find the **specific** missing piece (the associated rule, Block private networks, the server's gateway) and fix that.
+:::
+
 `,
   troubleshootingIntro: `
 ### Which part of pfSense made the decision?
@@ -457,6 +473,13 @@ Traffic through pfSense passes several stages: the client's own settings, the in
 5. **Check routing.** Diagnostics > Routes shows the default route, static routes to internal networks and gateway status. Does the far side have a route back to the client (only needed when the traffic is not NATed)?
 6. **Check NAT.** Is Outbound NAT in Manual mode (which does not add new subnets by itself)? Does the port forward have its associated firewall rule? Does the inside server use pfSense as its gateway? Is "Block private networks" ticked on a lab WAN that uses a private address?
 7. **Capture to prove it.** Diagnostics > Packet Capture on the incoming and the outgoing interface shows where the packet stops, and whether its source address was translated.
+
+:::practice
+Q: A client on OPT1 cannot reach a server. The firewall log, filtered by the client's IP, shows "Default deny rule IPv4" on OPT1. Which step of the method does this answer, and what is the fix?
+A: Step 3, **the rules on the ingress interface**: no pass rule matched on OPT1. Add a pass rule for that traffic on the OPT1 tab (above any broader block).
+Q: After you blocked a host, its existing connection keeps working. Which step explains it?
+A: Step 4, **states**: the connection matches an existing state, which pf honours before rules. Kill that host's states.
+:::
 
 `,
 

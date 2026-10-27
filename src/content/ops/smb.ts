@@ -155,6 +155,14 @@ Unlike [NFS](#/lesson/nfs/what), which trusts the user numbers a client sends, S
 - **Clients**: \`net use\` and Explorer on Windows, \`smbclient\` (and \`mount -t cifs\`) on Linux, over TCP 445.
 
 > In the lab, **fs01** (10.0.20.60) runs Samba next to its NFS server: [office] is /srv/office (read-write for the Unix group staff), [software] is /srv/software (read-only). alice and dana have Samba passwords. **ws01** uses smbclient; **win01** maps drives with \`net use\`. Simulated: smb.conf (shares, valid users / invalid users with @groups, read only / writable / read list / write list, guest ok, force user / force group, create and directory masks, hosts allow / hosts deny, restrict anonymous, unknown parameters), Samba's password database (\`smbpasswd\`, \`pdbedit\`), the connection steps over TCP 445 with SMB2 packets (negotiate, session setup, tree connect) and their NT_STATUS errors, file operations as the server-side Unix account, per-client logs with log level 2, \`testparm\`, \`smbstatus\`, \`net use\` with Windows system errors. Simplified: NTLMv2 only (no Kerberos or AD membership); protocol, signing, encryption, interfaces, vfs objects and inherit permissions are accepted but not enforced; smbclient runs with -c only, Windows does not browse mapped drives, no mount.cifs, no NetBIOS (nmbd).
+
+:::practice
+Q: Which two layers both have to allow a user to write a file through Samba?
+A: The **share** in smb.conf (writable for that user) and the **Unix permissions** of the folder for the user's Unix account.
+Q: Which TCP port must be reachable for SMB from Windows 10 clients?
+A: **445**.
+:::
+
 `,
 
   internals: `
@@ -321,6 +329,13 @@ Check with \`testparm -s\` after every edit.
 - New users: \`useradd\` **and** \`smbpasswd -a\`, then add them to the share's group with \`usermod -aG\`.
 - Raise \`log level\` (2 is enough) while troubleshooting; the per-client log names the failing step.
 
+:::practice
+Q: List the three commands that make a new user able to use a group share on a standalone Samba server.
+A: \`useradd NAME\` (the Unix account), \`smbpasswd -a NAME\` (the Samba password), and \`usermod -aG GROUP NAME\` (membership of the share's group).
+Q: Which command shows what Samba understood from smb.conf after your edit?
+A: \`testparm -s\`.
+:::
+
 `,
   troubleshootingIntro: `
 ### Connect, log on, open the share, use the file
@@ -332,6 +347,14 @@ Every SMB access goes through four steps, in this order, and each one fails in i
 4. **Use the file.** "ACCESS_DENIED opening remote file" means the share is read-only (Samba's default!) or the Linux permissions do not allow this account to write.
 
 Windows only shows a number (53, 1326, 5, 67). The server's log tells you why, so read it.
+
+:::practice
+Q: \`net use\` reports System error 1326. Which step failed, and where is the reason?
+A: Step 2, **log on**: the user name or password was rejected. The server's per-client log ("Auth:" line) says why; \`pdbedit -L\` shows whether Samba knows the user.
+Q: \`smbclient -L fs01\` times out from a client. Which step failed, and what is the likely cause?
+A: Step 1, **connect**: a firewall drops TCP 445 (a refused connection would mean smbd is not running).
+:::
+
 `,
 
   errorMap: [

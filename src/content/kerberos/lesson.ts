@@ -26,11 +26,32 @@ Kerberos is everywhere identity matters: every **Active Directory** logon and fi
 - **Keytab**: a file with a service's long-term keys (\`/etc/krb5.keytab\`): the service's password.
 - **Credential cache**: where your tickets live (\`/tmp/krb5cc_UID\`); \`klist\` shows it.
 
+:::practice
+Q: Which principal would a web service on intranet.example.org in the realm EXAMPLE.ORG use?
+A: \`HTTP/intranet.example.org@EXAMPLE.ORG\`.
+Q: What is a keytab, and why must it be protected like a password?
+A: A file holding a service's **long-term keys**. Anyone who reads it can impersonate that service.
+:::
+
 ### Finding the KDC
 Clients either list KDCs in \`/etc/krb5.conf\` or look them up in **DNS SRV records**: \`_kerberos._udp.corp.lab\` → "priority 0, weight 0, port 88, host ns1.corp.lab". The name follows the pattern \`_service._protocol.domain\`, where the domain is the realm in lower case: realm CORP.LAB → \`_kerberos._udp.corp.lab\` (and \`_kerberos._tcp.corp.lab\`; \`_kerberos-adm._tcp\` finds the admin server). Realm names themselves are case-sensitive and written in upper case by convention, so \`alice@corp.lab\` is a different (usually non-existent) realm from \`alice@CORP.LAB\`. SRV records are the same mechanism Active Directory clients use to find domain controllers (\`_ldap._tcp.dc._msdcs.DOMAIN\`, \`_kerberos._tcp.DOMAIN\`): **broken DNS = broken logons**.
 
+:::practice
+Q: krb5.conf for the realm EXAMPLE.ORG lists no KDC. Which DNS names does the library look up?
+A: \`_kerberos._udp.example.org\` and \`_kerberos._tcp.example.org\` (the realm in lower case).
+Q: A DNS change removed the Kerberos SRV records. What does kinit report on clients that do not list a KDC in krb5.conf?
+A: "**Cannot find KDC** for realm …": the client does not know where to send its request.
+:::
+
 ### Why it is a troubleshooting topic
 Kerberos depends on four things that belong to other teams: **DNS** (to find the KDC and to build service names), **time** (5 minutes of skew is fatal), **the network** (UDP/TCP 88 to the KDC) and **keys** that must match on the KDC and in each server's keytab. Error messages are precise once you know what each one means.
+
+:::practice
+Q: Name the four things outside the KDC that Kerberos depends on.
+A: **DNS** (finding the KDC, naming services), **time** (5-minute tolerance), **the network** (port 88 to the KDC) and **keys** that match in each server's keytab.
+Q: Which team would you contact first when kinit fails with "Clock skew too great"?
+A: Whoever runs **time synchronisation** (NTP) for that machine: the fix is the time source, not Kerberos.
+:::
 
 ### In the lab
 corp.lab is the realm **CORP.LAB**. ns1 runs the MIT KDC and kadmind; the corp.lab zone has the SRV records; every corp.lab machine has \`/etc/krb5.conf\` (no KDC listed: DNS is used) and systemd-timesyncd. srv01 has a keytab for \`host/srv01.corp.lab\`. alice's Kerberos password is \`Corp-Lab-2026\`; the admin principal \`alice/admin\` has \`Corp-Admin-2026\`.
@@ -206,10 +227,24 @@ Kerberos error messages are precise once you know what each one means. A login w
 4. **Always check the KDC's log.** \`journalctl -u krb5-kdc\` shows every request and its result.
 5. **Prove the fix with a login that cannot fall back** to another method: \`ssh -o PubkeyAuthentication=no -o PasswordAuthentication=no\`.
 
+:::practice
+Q: kinit fails at once with "Cannot contact any KDC". Is that more likely a firewall drop or a KDC that is not running?
+A: A **fast** failure means something answered with an error: either nothing listens on port 88 (the KDC is down) or a firewall **rejects** the request. A firewall that drops would make kinit wait before failing. Check \`systemctl status krb5-kdc\` and the KDC host's ruleset.
+Q: kinit works, but \`kvno host/fs02.example.org\` says "Server not found in Kerberos database". What do you check?
+A: Whether the **principal exists** with exactly that name (use the FQDN, not an alias or IP) in the right realm: \`kadmin.local -q "getprinc host/fs02.example.org"\`.
+:::
+
 ### Where to look
 - Client: \`kinit\`, \`klist\`, \`kvno host/NAME\`, \`ssh -v\`, \`date\` or \`timedatectl\`, \`host -t SRV _kerberos._udp.DOMAIN\`.
 - KDC: \`journalctl -u krb5-kdc\` (one line per request: AS_REQ or TGS_REQ, the client, the service and the result: ISSUE, NEEDED_PREAUTH, PREAUTH_FAILED, CLIENT_NOT_FOUND, LOOKING_UP_SERVER ...), and \`kadmin.local -q "getprinc NAME"\`.
 - Server: \`klist -ke\` (the keytab), \`sshd -T | grep gssapi\`, the sshd log (GSSAPI errors only appear at LogLevel DEBUG1).
+
+:::practice
+Q: Where do you see, for each request, whether the KDC issued a ticket or why it refused?
+A: In the KDC's log: \`journalctl -u krb5-kdc\` (results such as ISSUE, PREAUTH_FAILED, CLIENT_NOT_FOUND).
+Q: Which command shows the key versions stored in a server's keytab?
+A: \`klist -ke\` on the server.
+:::
 
 `,
 

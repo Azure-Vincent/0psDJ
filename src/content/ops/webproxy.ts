@@ -260,7 +260,7 @@ A 404 or 500 through the proxy may come from nginx or from the application. ngin
 Q: Through the proxy you get \`500 Internal Server Error\` with a JSON body \`{"error":"database unavailable"}\`. Who produced it, and where do you look next?
 A: The **backend application** (its own JSON body). Look at the application's log and its database connection, not at nginx.
 Q: You get a 504 Gateway Time-out through the proxy. How do you tell whether nginx produced it or the backend did?
-A: Read the **body** and nginx's error.log. nginx's own 504 is its small HTML page with an \"upstream timed out\" line in error.log. A backend that is itself a gateway (another proxy, an API gateway) can return its own 504, which nginx passes through unchanged with that backend's body and no such error.log line.
+A: Read the **body** and nginx's error.log. nginx's own 504 is its small HTML page with an "upstream timed out" line in error.log. A backend that is itself a gateway (another proxy, an API gateway) can return its own 504, which nginx passes through unchanged with that backend's body and no such error.log line.
 :::
 
 `,
@@ -362,6 +362,13 @@ Everything is read at start/reload: run \`nginx -t\` first, read the result of t
 - Keep a copy (\`cp nginx.conf nginx.conf.bak\`), run \`nginx -t\`, then reload, then test through the proxy with a deep path.
 - A restart turns any latent configuration error into an outage of **every site** on the server; prefer reload, and check \`systemctl is-active nginx\` after reboots.
 
+:::practice
+Q: You are about to point a location at a new backend. What do you test first, and from which machine?
+A: The exact upstream URL that proxy_pass will use, with curl **from the proxy host** (that is where the second connection starts).
+Q: Why prefer \`systemctl reload nginx\` over restart after editing the configuration?
+A: A reload validates first and keeps the old workers if the file is broken. A restart turns a configuration error into an outage of **every site** on the server.
+:::
+
 `,
   troubleshootingIntro: `
 ### Which hop is broken?
@@ -372,6 +379,13 @@ A request through a proxy makes two trips: client to proxy, then proxy to backen
 3. **Proxy to backend.** Repeat the test **from the proxy machine** (\`nc -zv\`, \`curl\`), because that is where the second connection starts. Refused: the backend's port is wrong or the application is down. Timed out: a firewall that allows clients but not the proxy.
 4. **What the backend received.** The backend's own log shows the path and Host header that actually arrived, which may differ from what the client sent (because of the proxy_pass URI rule or the Host header).
 
+:::practice
+Q: \`curl -i http://apps.corp.lab/wiki/\` from a client prints "Couldn't connect to server". Which hop is broken?
+A: The **first** one, client to proxy: nginx is down, listening elsewhere, or a firewall in front of the proxy blocks it. The backend has not been involved yet.
+Q: Through the proxy you get 502. From the proxy machine, \`nc -zv 10.0.20.41 9000\` says "Connection refused". What is wrong?
+A: Nothing listens on the **backend's** port 9000: the application is down or proxy_pass names the wrong port.
+:::
+
 ### Status codes from a proxy
 | Code | Who answers | Meaning |
 |---|---|---|
@@ -379,6 +393,13 @@ A request through a proxy makes two trips: client to proxy, then proxy to backen
 | 504 Gateway Time-out | the proxy | The backend did not accept or answer in time |
 | 503 | the proxy (HAProxy, maintenance page) or the app | No backend available, or the application says it is unavailable |
 | 404, 500 with the app's own page | the backend | The request arrived; the application rejected it |
+
+:::practice
+Q: A request returns 404 with the application's own JSON body. Did the request reach the backend?
+A: **Yes.** The backend answered: the path it received does not exist there (often because of the proxy_pass URI rule). Check the backend's log for the path that arrived.
+Q: Which status does nginx return when the backend accepted no connection within proxy_connect_timeout?
+A: **504 Gateway Time-out**.
+:::
 
 `,
 

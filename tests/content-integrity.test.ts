@@ -8,7 +8,8 @@ import { CERT_EXAMS } from '../src/content/certification';
 import { COMMAND_REFS } from '../src/content/commands';
 import { CURRICULUM } from '../src/content/curriculum';
 import { ASSESSMENTS, LESSONS, getLesson } from '../src/content/lessons';
-import { practiceBlocks } from '../src/content/practice';
+import { practiceBlocks, stripPractice } from '../src/content/practice';
+import { readFileSync, readdirSync } from 'node:fs';
 import { FILE_REFS, PROCEDURES, REF_ENTRIES, getRef } from '../src/content/reference';
 import { ALL_SCENARIOS } from '../src/engine/scenarios';
 import { GUIDED_LABS } from '../src/engine/labs';
@@ -164,13 +165,15 @@ describe('curriculum', () => {
 });
 
 describe('practice blocks', () => {
-  // Reference lists rather than concepts: no practice needed.
-  const NO_PRACTICE = new Set(['ad-kerberos: Services involved, by machine']);
+  // Orientation sections and reference lists teach no concept of their own, so they need no practice.
+  const ORIENTATION = new Set(['In the lab', 'In the simulator', 'The example network', 'Where you meet it', 'Problems it solves', 'The problems it solves', 'Why it matters', 'What you will be able to answer']);
+  const NO_PRACTICE = new Set(['ad-kerberos: Services involved, by machine', 'systemd: Unit file directives']);
+  const TABS = ['what', 'internals', 'configIntro', 'operateIntro', 'troubleshootingIntro'] as const;
   const sections = (text: string) => text.split(/^(?=### )/m).filter((x) => x.startsWith('### '));
-  it('every concept section in "How it works" ends with a practice block', () => {
-    for (const L of LESSONS) for (const sec of sections(L.internals)) {
+  it('every concept section of every tab ends with a practice block', () => {
+    for (const L of LESSONS) for (const tab of TABS) for (const sec of sections(L[tab] ?? '')) {
       const title = sec.split('\n')[0].slice(4);
-      if (NO_PRACTICE.has(`${L.id}: ${title}`)) continue;
+      if ((tab === 'what' && ORIENTATION.has(title)) || NO_PRACTICE.has(`${L.id}: ${title}`)) continue;
       const blocks = practiceBlocks(sec);
       expect(blocks.length, `${L.id}: ${title} has no practice block`).toBeGreaterThan(0);
       expect(blocks[blocks.length - 1].after.trim(), `${L.id}: ${title}: text after the practice block`).toBe('');
@@ -178,7 +181,7 @@ describe('practice blocks', () => {
   });
   it('every practice block is closed and every question has an answer that is not a graded question', () => {
     const prompts = new Set(Object.values(ASSESSMENTS).flatMap((A) => A.questions.map((q) => q.prompt.trim())));
-    for (const L of LESSONS) for (const text of [L.what, L.internals]) for (const b of practiceBlocks(text)) {
+    for (const L of LESSONS) for (const tab of TABS) for (const b of practiceBlocks(L[tab] ?? '')) {
       const where = `${L.id}: ${b.pairs[0]?.q ?? '(empty block)'}`;
       expect(b.closed, `${where}: missing ":::"`).toBe(true);
       expect(b.stray, `${where}: lines outside Q/A`).toEqual([]);
@@ -188,6 +191,18 @@ describe('practice blocks', () => {
         expect(prompts.has(q.trim()), `${L.id}: copies a graded question: ${q}`).toBe(false);
       }
     }
+  });
+  it('practice source lines keep their backslashes (template literals swallow single ones)', () => {
+    for (const f of readdirSync('src/content', { recursive: true }) as string[]) {
+      if (!f.endsWith('.ts')) continue;
+      readFileSync(`src/content/${f}`, 'utf8').split('\n').forEach((l, i) => {
+        if (!/^[QA]: /.test(l)) return;
+        expect(l.replace(/\\\\/g, '').replace(/\\`/g, ''), `${f}:${i + 1}`).not.toContain('\\');
+      });
+    }
+  });
+  it('search snippets leave out practice answers', () => {
+    expect(stripPractice('a\n:::practice\nQ: q\nA: secret\n:::\nb')).toBe('a\nb');
   });
   it('the parser reports broken blocks', () => {
     expect(practiceBlocks(':::practice\nQ: x\nA: y\n### Next')[0].closed).toBe(false);
