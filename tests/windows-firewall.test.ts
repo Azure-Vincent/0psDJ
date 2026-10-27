@@ -108,6 +108,46 @@ describe('Windows Defender Firewall: rule conditions', () => {
   });
 });
 
+describe('Windows Defender Firewall: review regressions', () => {
+  it('ICMP rules with a program match only Program System; outbound program rules match nothing', () => {
+    const { lab, run } = win();
+    run('New-NetFirewallRule -DisplayName "Echo (w3wp)" -Protocol ICMPv4 -IcmpType 8 -Program "C:\\x\\w3wp.exe" -Action Allow');
+    expect(lab.run('ws01', 'alice', 'ping -c 1 -W 1 win01').code).toBe(1);
+    run('Set-NetFirewallRule -DisplayName "Echo (w3wp)" -Program System');
+    expect(lab.run('ws01', 'alice', 'ping -c 1 -W 1 win01').code).toBe(0);
+    run('Set-NetFirewallProfile -All -DefaultOutboundAction Block');
+    run('New-NetFirewallRule -DisplayName "Any app out" -Direction Outbound -Program "C:\\x.exe" -Action Allow');
+    expect(run('Test-NetConnection 10.0.20.10 -Port 22 -InformationLevel Quiet').output.split('\n').pop()).toBe('False');
+  });
+
+  it('address ranges and masks compile; invalid addresses are refused', () => {
+    const { lab, run } = win();
+    run('Enable-NetFirewallRule -Name FPS-ICMP4-ERQ-In');
+    run('Set-NetFirewallRule -Name FPS-ICMP4-ERQ-In -RemoteAddress 10.0.10.20-10.0.10.30');
+    expect(lab.run('ws01', 'alice', 'ping -c 1 -W 1 win01').code).toBe(0);
+    run('Set-NetFirewallRule -Name FPS-ICMP4-ERQ-In -RemoteAddress 10.0.10.26-10.0.10.30');
+    expect(lab.run('ws01', 'alice', 'ping -c 1 -W 1 win01').code).toBe(1);
+    run('Set-NetFirewallRule -Name FPS-ICMP4-ERQ-In -RemoteAddress 10.0.0.0/255.255.0.0');
+    expect(lab.run('ws01', 'alice', 'ping -c 1 -W 1 win01').code).toBe(0);
+    expect(run('Set-NetFirewallRule -Name FPS-ICMP4-ERQ-In -RemoteAddress 10.0.10.300').output).toContain('The address is invalid.');
+    expect(run('Set-NetFirewallRule -Name FPS-ICMP4-ERQ-In -RemoteAddress Internet').code).toBe(0);
+  });
+
+  it('nothing is logged with the profile off; a user rule named Loopback is logged', () => {
+    const { lab, run } = win();
+    run('Set-NetFirewallProfile -All -LogAllowed True -LogBlocked True');
+    run('Set-NetFirewallProfile -Name Private -Enabled False');
+    lab.run('ws01', 'alice', 'nc -zv -w 2 win01 3389');
+    expect(run(`Test-Path ${LOG}`).output).toBe('False');
+    run('Set-NetFirewallProfile -Name Private -Enabled True');
+    run('Disable-NetFirewallRule -DisplayGroup "Remote Desktop"');
+    run('New-NetFirewallRule -DisplayName Loopback -Protocol TCP -LocalPort 3389 -Action Allow');
+    expect(lab.run('ws01', 'alice', 'nc -zv -w 2 win01 3389').code).toBe(0);
+    expect(run(`Get-Content ${LOG}`).output).toMatch(/ALLOW TCP 10\.0\.10\.25 10\.0\.20\.30 \d+ 3389 /);
+    expect(run('Set-NetFirewallProfile -All -LogMaxSizeKilobytes 0').output).toContain('is less than the minimum allowed range of 1');
+  });
+});
+
 describe('Windows Defender Firewall: Group Policy profile settings', () => {
   it('AllowLocalFirewallRules False in a GPO makes local rules count for nothing', () => {
     const w = buildSshLab();

@@ -8,7 +8,7 @@
 // packet filter the network engine evaluates.
 
 import { parseRuleExpr, type Rule, type Ruleset } from '../config/nft';
-import { networkOf } from '../net/ip';
+import { formatIp, networkOf, parseCidr, parseIp } from '../net/ip';
 import { linkLocalFromMac } from '../net/ip6';
 import type { Host, World } from '../types';
 import type { ZoneRecord } from '../config/zone';
@@ -367,13 +367,56 @@ export function normalProgram(p: string): string {
   return p.replace(/%(systemroot|windir)%/gi, 'C:\\Windows').toLowerCase();
 }
 
-/** "10.0.0.0/16", "LocalSubnet" → an nft address set (IPv4 only; undefined: Any; null: nothing left to match). */
+/** The fewest prefixes that cover an IPv4 range (nft sets take prefixes, not ranges). */
+function rangeToCidrs(from: number, to: number): string[] {
+  const out: string[] = [];
+  let a = from;
+  while (a <= to) {
+    let len = 32;
+    // Grow the block while it stays aligned on `a` and inside the range.
+    while (len > 0) {
+      const size = 2 ** (32 - len + 1);
+      if (a % size !== 0 || a + size - 1 > to) break;
+      len--;
+    }
+    out.push(`${formatIp(a)}/${len}`);
+    a += 2 ** (32 - len);
+  }
+  return out;
+}
+
+/** Address keywords New-NetFirewallRule accepts besides addresses, prefixes and ranges. */
+export const FW_ADDRESS_KEYWORDS = ['Any', 'LocalSubnet', 'LocalSubnet4', 'LocalSubnet6', 'DNS', 'DHCP', 'WINS', 'DefaultGateway', 'Internet', 'Intranet', 'IntranetRemoteAccess', 'PlayToDevice'];
+
+/** A RemoteAddress/LocalAddress value as Windows accepts it: keyword, address, prefix (or mask) or range. */
+export function validFwAddress(a: string): boolean {
+  if (FW_ADDRESS_KEYWORDS.some((k) => k.toLowerCase() === a.toLowerCase())) return true;
+  const v4 = (x: string) => parseIp(x) !== null;
+  if (a.includes('-')) { const [x, y] = a.split('-'); return (v4(x) && v4(y)) || (x.includes(':') && y.includes(':')); }
+  if (a.includes(':')) return /^[0-9a-f:]+(\/\d{1,3})?$/i.test(a);
+  const [ip, pre] = a.split('/');
+  return v4(ip) && (pre === undefined || (/^\d{1,2}$/.test(pre) && Number(pre) <= 32) || v4(pre));
+}
+
+/**
+ * "10.0.0.0/16", "10.0.10.20-10.0.10.30", "LocalSubnet" → an nft address set
+ * (IPv4; undefined: Any; null: nothing left to match). IPv6 values and the
+ * keywords other than LocalSubnet match no packet here.
+ */
 function addrSet(host: Host, list: 'Any' | string[] | undefined): string | null | undefined {
   if (!list || list === 'Any') return undefined;
   const addrs = list.flatMap((a) => {
-    if (a.toLowerCase() === 'localsubnet') return host.win!.adapters.filter((x) => x.address && x.prefix !== null).map((x) => networkOf(x.address!, x.prefix!));
-    // IPv4 addresses and prefixes; IPv6, ranges and keywords such as Internet match no IPv4 packet here.
-    return /^\d{1,3}(\.\d{1,3}){3}(\/\d{1,2})?$/.test(a) ? [a] : [];
+    if (/^localsubnet4?$/i.test(a)) return host.win!.adapters.filter((x) => x.address && x.prefix !== null).map((x) => networkOf(x.address!, x.prefix!));
+    if (a.includes(':')) return [];
+    if (a.includes('-')) {
+      const [x, y] = a.split('-').map(parseIp);
+      return x !== null && y !== null && x <= y ? rangeToCidrs(x, y) : [];
+    }
+    // A prefix may be written as a mask: 10.0.0.0/255.255.0.0.
+    const [ip, pre] = a.split('/');
+    const mask = pre !== undefined && pre.includes('.') ? parseIp(pre) : null;
+    const text = mask !== null ? `${ip}/${32 - Math.log2(2 ** 32 - mask)}` : a;
+    return parseCidr(text) ? [text] : [];
   });
   return addrs.length ? `{ ${addrs.join(', ')} }` : null;
 }
@@ -394,7 +437,6 @@ const inRange = (port: number, spec: string) => {
  */
 function programPorts(host: Host, r: WinFwRule, ports: string[] | null): string[] | null {
   const want = normalProgram(r.program!);
-  if (want === 'any') return ports;
   const protos = r.protocol === 'TCP' ? ['tcp'] : r.protocol === 'UDP' ? ['udp'] : ['tcp', 'udp'];
   const ls = winListeners(host).filter((l) => protos.includes(l.proto));
   const mine = (port: number) => ls.some((l) => l.port === port && normalProgram(listenerImage(l.process)) === want);
@@ -429,9 +471,17 @@ function ruleMatchText(host: Host, r: WinFwRule): string | null {
   if (local) parts.push(`ip ${inbound ? 'daddr' : 'saddr'} ${local}`);
   let lports: string[] | null = r.localPort === 'Any' ? null : portExpr(r.localPort);
   if (lports && !lports.length) lports = null;
-  if (r.program && inbound) {
-    lports = programPorts(host, r, lports);
-    if (lports && !lports.length) return null;
+  const program = r.program && normalProgram(r.program) !== 'any' ? normalProgram(r.program) : null;
+  if (program) {
+    // Outbound program conditions are not modelled (the simulator does not track which process sends):
+    // such a rule matches nothing rather than every program.
+    if (!inbound) return null;
+    // ICMP is answered by the kernel: only Program System matches it.
+    if (r.protocol === 'ICMPv4' || r.protocol === 'ICMPv6') { if (program !== 'system') return null; }
+    else {
+      lports = programPorts(host, r, lports);
+      if (lports && !lports.length) return null;
+    }
   }
   const rports = !r.remotePort || r.remotePort === 'Any' ? null : portExpr(r.remotePort);
   if (r.protocol === 'TCP' || r.protocol === 'UDP') {
@@ -449,8 +499,8 @@ function ruleMatchText(host: Host, r: WinFwRule): string | null {
     const names: Record<string, string> = { 1: 'destination-unreachable', 2: 'packet-too-big', 128: 'echo-request', 129: 'echo-reply' };
     parts.push(t && names[t] ? `icmpv6 type ${names[t]}` : 'meta l4proto ipv6-icmp');
   } else if (lports) {
-    // Protocol Any with a program: the program's ports, TCP and UDP.
-    parts.push(`meta l4proto { tcp, udp } th dport { ${lports.join(', ')} }`);
+    // Protocol Any with ports (a program's ports): TCP and UDP.
+    parts.push(`meta l4proto { tcp, udp } th ${inbound ? 'dport' : 'sport'} { ${lports.join(', ')} }`);
   }
   return parts.join(' ');
 }
@@ -523,11 +573,10 @@ export function startWinService(world: World, host: Host, name: string, chain: s
   s.status = 'Running';
   s.pid = allocPid(host);
   if (name === 'TermService') w.rdpPort = Number(w.registry[RDP_TCP_KEY]?.PortNumber ?? 3389);
-  if (name === 'MpsSvc') applyFirewall(host);
   if (name === 'W32Time') timeSync(world, host);
   winEvent(world, host, 'System', 7036, 'Service Control Manager', `The ${s.displayName} service entered the running state.`);
-  // Program rules match the owner of a listening socket: recompile when listeners change.
-  if (name !== 'MpsSvc') applyFirewall(host);
+  // MpsSvc loads the policy; for other services the listeners changed, which Program rules depend on.
+  applyFirewall(host);
   return { ok: true };
 }
 

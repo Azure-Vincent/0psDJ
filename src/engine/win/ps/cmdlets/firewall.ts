@@ -3,7 +3,7 @@
 
 import { gpoForStore, touchGpo } from './gpo';
 import type { Host, World } from '../../../types';
-import { applyFirewall, effectiveProfile, FW_PROFILES, winEvent, type FwProfile, type FwProfileSettings, type Gpo, type WinFwRule } from '../../model';
+import { applyFirewall, effectiveProfile, FW_PROFILES, validFwAddress, winEvent, type FwProfile, type FwProfileSettings, type Gpo, type WinFwRule } from '../../model';
 import { registerView } from '../format';
 import { cmdlet, type Call, type ParamDef } from '../runtime';
 import { flatten, getProp, hasWildcard, isObj, obj, toStr, wildcard, type PSObject, type PSValue } from '../values';
@@ -244,9 +244,17 @@ function applySettings(c: Call, r: WinFwRule): boolean {
   r.protocol = proto;
   r.localPort = ports;
   r.profiles = profiles;
+  const addrs = (param: string) => (c.has(param) ? portList(c.p[param]) : undefined);
+  const remote = addrs('RemoteAddress');
+  const local = addrs('LocalAddress');
+  const bad = [remote, local].flatMap((l) => (l && l !== 'Any' ? l : [])).find((a) => !validFwAddress(a));
+  if (bad) {
+    c.error('The address is invalid. Addresses may be specified as IP addresses, ranges, or subnets. Also, the following address keywords are allowed in certain places: LocalSubnet, DNS, DHCP, WINS, DefaultGateway, Internet, Intranet, IntranetRemoteAccess, PlayToDevice. Keywords can be restricted to IPv4 or IPv6 by appending a 4 or 6 (for example, IPv6 local subnet would be specified as LocalSubnet6).', { category: 'InvalidArgument', target: 'MSFT_NetFirewallRule', exception: 'CimException', id: `HRESULT 0x80070057,${c.name}` });
+    return false;
+  }
   r.remotePort = rports;
-  if (c.has('RemoteAddress')) r.remoteAddress = portList(c.p.RemoteAddress);
-  if (c.has('LocalAddress')) r.localAddress = portList(c.p.LocalAddress);
+  if (remote) r.remoteAddress = remote;
+  if (local) r.localAddress = local;
   if (c.has('Program')) r.program = /^any$/i.test(c.str('Program')!) ? undefined : c.str('Program');
   if (c.has('IcmpType')) r.icmpType = c.str('IcmpType');
   if (c.has('Description')) r.description = c.str('Description');
@@ -331,13 +339,23 @@ fwCmdlet('Remove-NetFirewallRule', 'Deletes one or more firewall rules that matc
   applyFirewall(c.ctx.host);
 });
 
-/** Rules whose filters a Get-NetFirewall*Filter call returns: the piped rules, or all rules in the store. */
+/**
+ * Rules whose filters a Get-NetFirewall*Filter call returns: each piped rule
+ * looked up in the store it was read from (local or a GPO, told apart by
+ * PolicyStoreSource), or every rule in -PolicyStore (ActiveStore by default).
+ */
 function filterRules(c: Call): WinFwRule[] {
   const piped = [...flatten(c.p.AssociatedNetFirewallRule ?? null), ...c.input].filter(isObj);
-  const store = storeRules(c, false, c.str('PolicyStore') ?? (piped.map((o) => toStr(o.__store ?? '')).find(Boolean) || undefined));
-  if (!store) return [];
-  const names = piped.map((o) => toStr(o.__rule ?? getProp(o, 'Name')));
-  return store.rules.filter((r) => !piped.length || names.includes(r.name));
+  if (!piped.length) return storeRules(c, false)?.rules ?? [];
+  const out: WinFwRule[] = [];
+  for (const o of piped) {
+    const store = storeRules(c, false, toStr(o.__store ?? '') || c.str('PolicyStore') || undefined);
+    const name = toStr(o.__rule ?? getProp(o, 'Name'));
+    const source = toStr(getProp(o, 'PolicyStoreSource') ?? '');
+    const hit = store?.rules.find((r) => r.name === name && (!source || store.gpo || (r.gpo ?? 'PersistentStore') === source));
+    if (hit && !out.includes(hit)) out.push(hit);
+  }
+  return out;
 }
 
 const FILTER_PARAMS: ParamDef[] = [{ name: 'All', type: 'switch' }, { name: 'AssociatedNetFirewallRule', type: 'any' }, { name: 'PolicyStore', type: 'string' }];
@@ -436,7 +454,8 @@ fwCmdlet('Set-NetFirewallProfile', 'Configures settings that apply to the per-pr
   if (en === null || inA === null || outA === null || log === null || logA === null || merge === null) return;
   const maxKb = c.has('LogMaxSizeKilobytes') ? Number(c.p.LogMaxSizeKilobytes) : undefined;
   if (maxKb !== undefined && !(Number.isInteger(maxKb) && maxKb >= 1 && maxKb <= 32767)) {
-    c.error(`Cannot validate argument on parameter 'LogMaxSizeKilobytes'. The ${maxKb} argument is greater than the maximum allowed range of 32767. Supply an argument that is less than or equal to 32767 and then try the command again.`, { category: 'InvalidData', target: '', exception: 'ParameterBindingValidationException', id: `ParameterArgumentValidationError,${c.name}` });
+    const why = maxKb > 32767 ? 'is greater than the maximum allowed range of 32767. Supply an argument that is less than or equal to 32767' : 'is less than the minimum allowed range of 1. Supply an argument that is greater than or equal to 1';
+    c.error(`Cannot validate argument on parameter 'LogMaxSizeKilobytes'. The ${maxKb} argument ${why} and then try the command again.`, { category: 'InvalidData', target: '', exception: 'ParameterBindingValidationException', id: `ParameterArgumentValidationError,${c.name}` });
     return;
   }
   const host = c.ctx.host;

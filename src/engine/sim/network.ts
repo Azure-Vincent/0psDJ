@@ -330,9 +330,16 @@ function windowsFirewallLog(world: World, host: Host, fw: EvalResult, p: Packet,
   if (!isWindows(host)) return;
   const d = fw.decidedBy;
   if (!d || d.table !== `inet ${WF_TABLE}`) return;
-  const blocked = fw.verdict !== 'accept';
-  if (!blocked && d.rule && (d.rule.comment?.startsWith('Stateful') || d.rule.comment === 'Loopback')) return;
   const prof = effectiveProfile(host, activeProfile(host));
+  // With the profile off the firewall decides nothing, so it logs nothing.
+  if (!prof.enabled) return;
+  const blocked = fw.verdict !== 'accept';
+  if (!blocked && d.rule) {
+    // The first two rules of each chain are the implicit ones (replies to allowed connections, loopback).
+    const chain = host.nft.tables.find((t) => t.name === WF_TABLE)?.chains.find((c) => c.name === d.chain);
+    const at = chain ? chain.rules.indexOf(d.rule) : -1;
+    if (at === 0 || at === 1) return;
+  }
   if (blocked ? !prof.logBlocked : !prof.logAllowed) return;
   const t = new Date(Math.floor(world.clock + (host.clockOffset ?? 0)));
   const n = (x: number) => String(x).padStart(2, '0');
