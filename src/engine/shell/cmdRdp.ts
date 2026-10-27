@@ -80,7 +80,7 @@ const xfreerdp: CommandDef = {
       out.length = 0;
     }
     if (r.stage === 'logon' && r.message) {
-      out.push(`[Infrastructure Lab: the session opened, but ${r.server!.hostname.toUpperCase()}'s logon screen shows "${r.message}" and logs the user off.]`,
+      out.push(`[Cyber Owl Lab: the session opened, but ${r.server!.hostname.toUpperCase()}'s logon screen shows "${r.message}" and logs the user off.]`,
         log('INFO', 'com.freerdp.core', 'freerdp_disconnect: ERRINFO_LOGOFF_BY_USER (0x0000000C):The disconnection was initiated by the user logging off their session on the server.'));
       return err(out.join('\n'), 12);
     }
@@ -90,7 +90,7 @@ const xfreerdp: CommandDef = {
       return ok(out.join('\n'));
     }
     out.push(log('INFO', 'com.freerdp.gdi', 'Local framebuffer format  PIXEL_FORMAT_BGRX32'), log('INFO', 'com.freerdp.gdi', 'Remote framebuffer format PIXEL_FORMAT_BGRA32'),
-      `[Infrastructure Lab: connected. ${server.hostname.toUpperCase()} logged ${r.account} on in a Remote Desktop session (no graphics in the simulator); the client disconnects now.]`,
+      `[Cyber Owl Lab: connected. ${server.hostname.toUpperCase()} logged ${r.account} on in a Remote Desktop session (no graphics in the simulator); the client disconnects now.]`,
       log('INFO', 'com.freerdp.core', 'freerdp_disconnect: ERRINFO_LOGOFF_BY_USER (0x0000000C):The disconnection was initiated by the user logging off their session on the server.'));
     return ok(out.join('\n'));
   },

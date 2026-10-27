@@ -1,14 +1,23 @@
-# Infrastructure Lab
+# Cyber Owl Lab
 
-Infrastructure Lab is a free, offline desktop application for learning how to run,
+Cyber Owl Lab is a free, offline desktop application for learning how to run,
 troubleshoot and recover the services that real networks depend on: IP routing,
 DNS, DHCP, NAT, VLANs, IPv6, MTU, TLS certificates, SSH, firewalls, Linux
 services, Windows/RDP, Active Directory, Docker and pfSense.
 
+> Cyber Owl Lab was called **Infrastructure Lab** up to version 1.2.4. Installing
+> the new version keeps your progress (it is stored under the app's internal
+> name, `infrastructure-lab`, which has not changed). After upgrading:
+> - **Windows**: the installer replaces the app and its Start-menu and desktop
+>   shortcuts; re-pin it to the taskbar if you had pinned Infrastructure Lab.
+> - **Linux (.deb)**: the command is now `cyber-owl-lab`.
+> - **macOS**: drag Cyber Owl Lab to Applications, then delete the old
+>   Infrastructure Lab app (your progress is kept).
+
 ## Purpose
 
 Most courses explain what a service is; few teach what to do when it breaks.
-Infrastructure Lab is for students and new administrators: teams preparing for
+Cyber Owl Lab is for students and new administrators: teams preparing for
 defensive competitions such as CCDC, Network+ and CCNA candidates, and junior
 sysadmins. It trains the skill that matters in an outage: **finding the cause
 from evidence** instead of guessing, fixing it safely, and proving that the fix
@@ -187,7 +196,7 @@ Open a terminal in the project folder and run:
 ```
 
 The first run installs the dependencies and builds the app (one to two
-minutes); later runs start immediately. To add **Infrastructure Lab** to your
+minutes); later runs start immediately. To add **Cyber Owl Lab** to your
 application menu, run `./launch.sh --add-to-menu` once
 (`./launch.sh --remove-from-menu` removes it). If you get "Permission denied",
 run `sh launch.sh` instead.
@@ -197,11 +206,12 @@ into the application menu and needs no Node.js afterwards:
 
 ```bash
 npm install && npm run dist:linux
-sudo apt install ./release/InfrastructureLab-*-linux-amd64.deb
+sudo apt install ./release/CyberOwlLab-*-linux-amd64.deb
 ```
 
-Start it from the menu or with `infrastructure-lab`; remove it with
-`sudo apt remove infrastructure-lab`. The same command also produces an
+Start it from the menu or with `cyber-owl-lab`; remove it with
+`sudo apt remove infrastructure-lab` (the package keeps the app's first name
+so that upgrades from Infrastructure Lab work). The same command also produces an
 AppImage and a `.tar.gz` in `release/` for other distributions.
 
 > **Ubuntu 23.10 and later:** these releases restrict the user namespaces that
@@ -215,11 +225,11 @@ AppImage and a `.tar.gz` in `release/` for other distributions.
 [latest release](https://github.com/Azure-Vincent/0psDJ/releases/latest) and
 download one of:
 
-- **`InfrastructureLab-Setup-<version>-win-x64.exe`**: the installer. Double-click
+- **`CyberOwlLab-Setup-<version>-win-x64.exe`**: the installer. Double-click
   it; it installs for your user only (no administrator rights needed), starts
-  the app, and adds **Infrastructure Lab** to the Start menu and the desktop.
+  the app, and adds **Cyber Owl Lab** to the Start menu and the desktop.
   Remove it from **Settings → Apps**.
-- **`InfrastructureLab-<version>-win-x64-portable.exe`**: no installation; double-click
+- **`CyberOwlLab-<version>-win-x64-portable.exe`**: no installation; double-click
   it to run (handy on a USB stick or a locked-down PC). It starts a little slower
   because it unpacks itself each time.
 
@@ -249,8 +259,25 @@ unsigned, so open it the first time with **right-click → Open**.
 
 ### Updating
 
-On Windows, download and run the new installer (or portable `.exe`) from the
-latest release. From source, download the new source (or `git pull`) and start
+The desktop app can update itself: **Settings → Updates** shows the installed
+version, checks the latest GitHub release and installs it. By default it checks
+automatically every few hours and installs verified updates when you quit the
+app (never in the middle of a session); both can be switched off there.
+
+- **Windows installer** and **Linux AppImage**: updated in place.
+- **Portable `.exe`, `.zip`, `.deb`, `.tar.gz`, macOS**: these cannot replace
+  themselves, so the verified file is saved to your Downloads folder for you
+  to install.
+
+An update is installed only if the release's manifest is signed with the
+project's private key (Ed25519; the app contains the public key) and the
+downloaded file matches the size and SHA-256 in that signed manifest. A
+tampered or substituted file, a download from anywhere other than GitHub, or
+an older version is refused, and nothing is installed. The check sends GitHub
+nothing but an ordinary request for the latest release.
+
+Without the automatic updater, on Windows download and run the new installer
+(or portable `.exe`) from the latest release. From source, download the new source (or `git pull`) and start
 the app again with `./launch.sh` (Linux/macOS) or `launch.cmd --rebuild` (Windows). Your progress
 is stored separately and is kept; it can also be exported and imported under
 **Settings**.
@@ -290,6 +317,52 @@ npm run typecheck    # TypeScript checks
 | `electron/`, `build/`, `scripts/` | desktop shell, packaging configuration and Linux launch helpers |
 | `tests/` | tests, including a content-integrity suite that checks every cross-link |
 | `docs/ARCHITECTURE.md` | design documents and how to add a new service |
+
+### Names that must not change (maintainers)
+
+The display name is **Cyber Owl Lab** (`build.productName`), but three
+identifiers keep the app's first name on purpose:
+- the package `name` **`infrastructure-lab`**: Electron names the user-data
+  folder after it (all progress lives there), and it is the .deb package name
+  that apt upgrades;
+- the `appId` **`lab.infrastructure.desktop`**: Windows finds the existing
+  installation by it, and signed update manifests name it as their product;
+- the browser-storage keys (`infralab.*`) in the app.
+
+Changing any of them makes every user start over or end up with two installs.
+
+### Release signing (maintainers)
+
+Installed apps accept an update only if its `update-manifest.json` is signed
+with the project key. Set this up once:
+
+1. `node scripts/update-keygen.cjs` creates `update-signing-key.pem` (git-ignored)
+   and adds the public key to `electron/update-public-keys.cjs`. Commit that file.
+2. In GitHub, create the environment **release** (Settings → Environments) and
+   store the whole private key file there as the secret **`UPDATE_SIGNING_KEY`**
+   (not as a repository secret). Then protect it:
+   - **Deployment branches and tags → Selected branches and tags**: add the tag
+     pattern `v*` only (and `main` if you create releases with a manual run);
+   - **Required reviewers**: yourself (and any co-maintainer);
+   - a **tag ruleset** (Settings → Rules) so that only maintainers can create
+     or move `v*` tags.
+
+   Only the `release` job of `.github/workflows/build.yml` can read the key, only
+   for a protected tag, and only after approval: a collaborator cannot change
+   the signing script on a branch and run it with the key.
+3. Move the private key file offline (a password manager) and delete it from
+   the working copy.
+
+Each release (a pushed `v*` tag, or a manual run with a release tag) then gets
+`update-manifest.json` and `update-manifest.json.sig` next to the executables.
+Without the secret, a release is published without them and apps do not offer
+it. Builds made before step 1 contain no key and never self-update; users of
+those builds install the first signed version by hand once.
+To rotate the key, add the new public key to `update-public-keys.cjs`, release
+that version with the old key, then switch the secret to the new key and remove
+the old public key in a later release. If the private key leaks, remove its
+public key in a release signed with another key you trust, and revoke the
+secret.
 
 ## Accuracy
 

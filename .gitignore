@@ -6,3 +6,7 @@ release/
 
 # local scratch tests
 tests/zz-*
+
+# update signing key (scripts/update-keygen.cjs): never commit
+update-signing-key.pem
+*.signing-key.pem

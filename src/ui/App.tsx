@@ -14,6 +14,7 @@ import { History } from './pages/History';
 import { Settings } from './pages/Settings';
 import { Search } from './pages/Search';
 import { Builder } from './pages/Builder';
+import { useUpdateStatus } from './updater';
 import { LESSONS } from '../content/lessons';
 import { CURRICULUM } from '../content/curriculum';
 
@@ -53,6 +54,7 @@ function Shell() {
   const route = useRoute();
   const { progress } = useProgress();
   const [q, setQ] = useState('');
+  const [update] = useUpdateStatus();
   // The sidebar can be hidden to give lessons, labs and terminals the full width (Ctrl+\ toggles it).
   const [collapsed, setCollapsed] = useState(readCollapsed);
   const toggleSidebar = () => setCollapsed((c) => !c);
@@ -116,7 +118,7 @@ function Shell() {
       )}
       <aside className="sidebar" hidden={collapsed}>
         <div className="brand">
-          <span aria-hidden>⧉</span> Infrastructure Lab
+          <span aria-hidden>🦉</span> Cyber Owl Lab
           <button className="rail-toggle" style={{ marginLeft: 'auto' }} onClick={toggleSidebar} aria-label="Hide sidebar" aria-expanded title="Hide sidebar (Ctrl+\)">«</button>
         </div>
         <form className="search" onSubmit={(e) => { e.preventDefault(); if (q.trim()) go(`search?q=${encodeURIComponent(q.trim())}`); }}>
@@ -129,7 +131,12 @@ function Shell() {
             ),
           )}
         </nav>
-        <div className="sidebar-foot">Offline · progress saved locally</div>
+        <div className="sidebar-foot">
+          Offline · progress saved locally
+          {update && ['available', 'ready', 'downloaded'].includes(update.state) && (
+            <div><a href="#/settings">{update.state === 'ready' ? `Version ${update.latest} applies at the next start` : `Update ${update.latest ?? ''} available`}</a></div>
+          )}
+        </div>
       </aside>
       <main className="main">{page}</main>
     </div>

@@ -173,7 +173,7 @@ native({
       if (!from) { out.push(`${line}Request timed out.`); silent++; }
       else { out.push(`${line}${from}${note}`); silent = 0; }
       if (done) break;
-      if (silent >= 5) { out.push('', '[Infrastructure Lab: stopped after 5 silent hops; real tracert continues to the hop limit.]'); break; }
+      if (silent >= 5) { out.push('', '[Cyber Owl Lab: stopped after 5 silent hops; real tracert continues to the hop limit.]'); break; }
     }
     out.push('', 'Trace complete.');
     return ok(out.join('\n'));
@@ -253,7 +253,7 @@ native({
     const typeArg = args.find((a) => /^-(type|q|querytype)=/i.test(a));
     const qtype = (typeArg?.split('=')[1] ?? 'A').toUpperCase();
     const [name, serverArg] = pos;
-    if (!name) return ok('Default Server:  UnKnown\nAddress:  ' + (winResolver(ctx.host).nameservers[0] ?? '') + '\n\n> [Infrastructure Lab: interactive nslookup is not simulated; pass the name to look up]', 1);
+    if (!name) return ok('Default Server:  UnKnown\nAddress:  ' + (winResolver(ctx.host).nameservers[0] ?? '') + '\n\n> [Cyber Owl Lab: interactive nslookup is not simulated; pass the name to look up]', 1);
     const host = ctx.host;
     const server = serverArg ?? winResolver(host).nameservers[0];
     if (!server) return ok('*** Can\'t find server address for \'\':\n*** Default servers are not available\nServer:  UnKnown\nAddress:  127.0.0.1\n\n*** UnKnown can\'t find ' + name + ': No response from server', 1);
@@ -341,7 +341,7 @@ native({
   run(args, ctx) {
     if (!has(args, '/r', '/s')) return ok('Usage: shutdown [/i | /l | /s | /sg | /r | /g | /a | /p | /h | /e | /o] [/hybrid] [/soft] [/fw] [/f]\n    [/m \\\\computer][/t xxx][/d [p|u:]xx:yy [/c "comment"]]', has(args, '/?') ? 0 : 1);
     if (!admin(ctx)) return ok(`${ctx.host.hostname.toUpperCase()}: Access is denied.(5)`, 5);
-    if (has(args, '/s')) return ok('[Infrastructure Lab: shutting the server down would end the lab; use shutdown /r to restart it]', 1);
+    if (has(args, '/s')) return ok('[Cyber Owl Lab: shutting the server down would end the lab; use shutdown /r to restart it]', 1);
     winEvent(ctx.world, ctx.host, 'System', 1074, 'User32', `The process C:\\Windows\\system32\\shutdown.exe (${ctx.host.hostname.toUpperCase()}) has initiated the restart of computer ${ctx.host.hostname.toUpperCase()} on behalf of user ${ctx.host.hostname.toUpperCase()}\\${ctx.user.name} for the following reason: No title for this reason could be found`);
     ctx.reboot = true;
     return ok('');
@@ -386,7 +386,7 @@ native({
     if (verb === 'config') {
       const i = rest.findIndex((x) => x.toLowerCase() === 'start=' || x.toLowerCase().startsWith('start='));
       const val = i < 0 ? undefined : rest[i].includes('=') && rest[i].length > 6 ? rest[i].slice(6) : rest[i + 1];
-      if (i >= 0 && rest[i].length > 6) return ok('[SC] ChangeServiceConfig: The parameter is incorrect.\n\n[Infrastructure Lab: sc.exe needs a space after "start=": sc.exe config NAME start= auto]', 87);
+      if (i >= 0 && rest[i].length > 6) return ok('[SC] ChangeServiceConfig: The parameter is incorrect.\n\n[Cyber Owl Lab: sc.exe needs a space after "start=": sc.exe config NAME start= auto]', 87);
       const map: Record<string, typeof svc.startType> = { auto: 'Automatic', 'delayed-auto': 'AutomaticDelayedStart', demand: 'Manual', disabled: 'Disabled' };
       if (!val || !map[val.toLowerCase()]) return ok('[SC] ChangeServiceConfig: The parameter is incorrect.', 87);
       svc.startType = map[val.toLowerCase()];
@@ -625,7 +625,7 @@ native({
   run(args, ctx) {
     const a = args.map((x) => x.toLowerCase());
     const w = ctx.host.win!;
-    if (a[0] !== 'advfirewall') return ok(`The following command was not found: ${args.join(' ')}.\n\n[Infrastructure Lab: netsh advfirewall is simulated; use the NetTCPIP cmdlets (Get-NetIPAddress, Set-DnsClientServerAddress) for interface settings.]`, 1);
+    if (a[0] !== 'advfirewall') return ok(`The following command was not found: ${args.join(' ')}.\n\n[Cyber Owl Lab: netsh advfirewall is simulated; use the NetTCPIP cmdlets (Get-NetIPAddress, Set-DnsClientServerAddress) for interface settings.]`, 1);
     const profileArg = (p: string): FwProfile[] | null => (p === 'allprofiles' ? FW_PROFILES : p === 'currentprofile' ? [activeProfile(ctx.host)] : p === 'domainprofile' ? ['Domain'] : p === 'privateprofile' ? ['Private'] : p === 'publicprofile' ? ['Public'] : null);
     if (a[1] === 'show') {
       const ps = profileArg(a[2] ?? '');

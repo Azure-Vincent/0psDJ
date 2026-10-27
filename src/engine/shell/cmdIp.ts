@@ -288,7 +288,7 @@ export const ip: CommandDef = {
           return ok('');
         }
         if (type === 'veth' || type === 'bridge' || type === 'bond') {
-          return err(`[Infrastructure Lab: "${type}" interfaces are taught in the lesson but not simulated on lab hosts (no network namespaces or host bridges). Supported: type vlan, type dummy.]`, 2);
+          return err(`[Cyber Owl Lab: "${type}" interfaces are taught in the lesson but not simulated on lab hosts (no network namespaces or host bridges). Supported: type vlan, type dummy.]`, 2);
         }
         if (rest.indexOf('link') < 0 || rest.indexOf('name') < 0 || type !== 'vlan' || rest.indexOf('id') < 0) return err('Usage: ip link add link DEV name NAME type vlan id ID | ip link add NAME type dummy', 255);
         const parent = host.ifaces.find((i) => i.name === parentName);

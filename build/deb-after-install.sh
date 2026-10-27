@@ -6,16 +6,25 @@
 # for unprivileged users, it passes, and the app would then have to start
 # with --no-sandbox. We also check the AppArmor restriction.
 
-APP_DIR='/opt/Infrastructure Lab'
+APP_DIR='/opt/Cyber Owl Lab'
+
+# Up to version 1.2.4 the app was "Infrastructure Lab" (/opt/Infrastructure Lab, command
+# infrastructure-lab): drop the old command, whose target an upgrade removed.
+if type update-alternatives >/dev/null 2>&1; then
+    update-alternatives --remove-all 'infrastructure-lab' >/dev/null 2>&1 || true
+fi
+if [ -L '/usr/bin/infrastructure-lab' ] && [ ! -e '/usr/bin/infrastructure-lab' ]; then
+    rm -f '/usr/bin/infrastructure-lab'
+fi
 
 if type update-alternatives >/dev/null 2>&1; then
     # Remove a previous link that does not use update-alternatives
-    if [ -L '/usr/bin/infrastructure-lab' ] && [ -e '/usr/bin/infrastructure-lab' ] && [ "$(readlink '/usr/bin/infrastructure-lab')" != '/etc/alternatives/infrastructure-lab' ]; then
-        rm -f '/usr/bin/infrastructure-lab'
+    if [ -L '/usr/bin/cyber-owl-lab' ] && [ -e '/usr/bin/cyber-owl-lab' ] && [ "$(readlink '/usr/bin/cyber-owl-lab')" != '/etc/alternatives/cyber-owl-lab' ]; then
+        rm -f '/usr/bin/cyber-owl-lab'
     fi
-    update-alternatives --install '/usr/bin/infrastructure-lab' 'infrastructure-lab' "$APP_DIR/infrastructure-lab" 100 || ln -sf "$APP_DIR/infrastructure-lab" '/usr/bin/infrastructure-lab'
+    update-alternatives --install '/usr/bin/cyber-owl-lab' 'cyber-owl-lab' "$APP_DIR/cyber-owl-lab" 100 || ln -sf "$APP_DIR/cyber-owl-lab" '/usr/bin/cyber-owl-lab'
 else
-    ln -sf "$APP_DIR/infrastructure-lab" '/usr/bin/infrastructure-lab'
+    ln -sf "$APP_DIR/cyber-owl-lab" '/usr/bin/cyber-owl-lab'
 fi
 
 # Chromium sandbox: unprivileged user namespaces if they work for normal users,

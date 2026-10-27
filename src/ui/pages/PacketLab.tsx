@@ -57,7 +57,7 @@ export function PacketLab() {
     const blob = new Blob([bytes], { type: 'application/vnd.tcpdump.pcap' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = `infralab-${presetId}.pcap`;
+    a.download = `cyber-owl-lab-${presetId}.pcap`;
     a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   };

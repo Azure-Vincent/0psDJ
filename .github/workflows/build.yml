@@ -58,7 +58,7 @@ jobs:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
       - uses: actions/upload-artifact@v4
         with:
-          name: InfrastructureLab-${{ runner.os }}
+          name: CyberOwlLab-${{ runner.os }}
           path: |
             release/*.AppImage
             release/*.deb
@@ -71,18 +71,53 @@ jobs:
   # A pushed version tag (or a release published on GitHub, which creates the tag)
   # gets the executables attached as release assets. A manual run with a
   # release tag creates the tag on the built commit and the release.
+  #
+  # The update signing key (secret UPDATE_SIGNING_KEY) is used only here, to
+  # sign update-manifest.json: the list of artifacts with their SHA-256 that
+  # the desktop app verifies before it installs an update. Store the secret in
+  # the "release" environment, limit that environment to v* tags (deployment
+  # branches and tags), protect v* tags with a ruleset, and give it required
+  # reviewers: then no one can use the key from other code or without approval.
   release:
     needs: package
     if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.release_tag != '')
     runs-on: ubuntu-latest
+    environment: release
     permissions:
       contents: write
+    # Actions in this job are pinned to commit SHAs (tags can be moved): the job
+    # holds the signing key. The runner's preinstalled Node runs the signer.
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           path: dist-artifacts
           merge-multiple: true
-      - uses: softprops/action-gh-release@v2
+      # Sign only what a pushed v* tag built, or a manual run from main: a manual
+      # run on any other ref (an old tag, a branch) could otherwise get old or
+      # unreviewed code signed under a newer version number.
+      - name: Sign the update manifest
+        env:
+          UPDATE_SIGNING_KEY: ${{ secrets.UPDATE_SIGNING_KEY }}
+          TAG: ${{ inputs.release_tag || github.ref_name }}
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+        run: |
+          if [ -z "$UPDATE_SIGNING_KEY" ]; then
+            echo "::warning::UPDATE_SIGNING_KEY is not set: this release gets no signed update manifest, so installed apps will not offer it as an update."
+            exit 0
+          fi
+          if [ "$EVENT" = "push" ] && [ "$REF" != "refs/tags/$TAG" ]; then
+            echo "::error::tag $TAG does not match $REF"; exit 1
+          fi
+          if [ "$EVENT" = "workflow_dispatch" ] && [ "$REF" != "refs/heads/main" ]; then
+            echo "::warning::manual release from $REF (not main): published without an update manifest."
+            exit 0
+          fi
+          node scripts/sign-update-manifest.cjs dist-artifacts "$TAG"
+      - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           tag_name: ${{ inputs.release_tag || github.ref_name }}
           target_commitish: ${{ github.sha }}

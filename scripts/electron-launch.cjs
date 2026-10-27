@@ -38,7 +38,7 @@ function sandboxAvailable() {
 if (process.platform === 'linux' && !args.includes('--no-sandbox')) {
   if (process.getuid && process.getuid() === 0) args.unshift('--no-sandbox');
   else if (!sandboxAvailable()) {
-    console.error('Infrastructure Lab: this system restricts unprivileged user namespaces and chrome-sandbox is not setuid root; starting with --no-sandbox.');
+    console.error('Cyber Owl Lab: this system restricts unprivileged user namespaces and chrome-sandbox is not setuid root; starting with --no-sandbox.');
     args.unshift('--no-sandbox');
   }
 }

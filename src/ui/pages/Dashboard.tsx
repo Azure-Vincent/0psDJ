@@ -29,7 +29,7 @@ export function Dashboard() {
 
   return (
     <div className="page">
-      <h1>Infrastructure Lab</h1>
+      <h1>Cyber Owl Lab</h1>
       <p className="muted">Learn how infrastructure services work internally, and practise diagnosing them from evidence. Everything runs locally and offline.</p>
       <div className="grid3" style={{ marginTop: 12 }}>
         {LESSONS.map((L) => {

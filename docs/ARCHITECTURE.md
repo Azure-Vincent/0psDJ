@@ -1,4 +1,4 @@
-# Infrastructure Lab: design
+# Cyber Owl Lab: design
 
 This document covers the six design deliverables requested before implementation:
 architecture and stack, curriculum dependency map, interface layout, data model,
@@ -11,7 +11,7 @@ exists today (✅ implemented, 🟡 partial, ⏳ planned).
 
 | Concern | Choice | Why |
 |---|---|---|
-| Desktop shell | **Electron** (`electron/main.cjs`) | One codebase for Windows, Linux and macOS; ships its own Chromium, so rendering of SVG diagrams and terminals is identical everywhere; fully offline (`loadFile` of the built bundle). Tauri was considered (smaller binaries) but needs a Rust toolchain per platform and WebView differences (WebKitGTK/WebView2/WKWebView) would make diagram and terminal behaviour platform-dependent. |
+| Desktop shell | **Electron** (`electron/main.cjs`) | One codebase for Windows, Linux and macOS; ships its own Chromium, so rendering of SVG diagrams and terminals is identical everywhere; fully offline (`loadFile` of the built bundle); the only network use is the optional self-update in the main process (`electron/updater.cjs`, `update-service.cjs`): an Ed25519-signed release manifest verified against the public keys in `update-public-keys.cjs`, then size- and SHA-256-checked downloads from GitHub hosts only; the page reaches it through a preload bridge that accepts no URLs or paths. Tauri was considered (smaller binaries) but needs a Rust toolchain per platform and WebView differences (WebKitGTK/WebView2/WKWebView) would make diagram and terminal behaviour platform-dependent. |
 | UI | **React 18 + TypeScript**, plain CSS with design tokens | Mature, well-known, no UI-kit lock-in. Light/dark themes via CSS custom properties and `prefers-color-scheme`. |
 | Build | **Vite** (`base: './'`) | Fast dev server; production bundle loads from `file://` inside Electron. |
 | Simulation engine | **Pure TypeScript, no DOM** (`src/engine`) | Deterministic and unit-testable in Node. The same engine drives the terminal, the sequence diagram, the dependency map, the packet lab and the verification of troubleshooting fixes. |

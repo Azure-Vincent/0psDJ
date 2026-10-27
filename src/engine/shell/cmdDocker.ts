@@ -239,7 +239,7 @@ function runCmd(ctx: CmdCtx, docker: Host, args: string[]): CmdResult {
     if (removeAfter) deleteContainer(docker, after);
     return err([...out, ...logs].join('\n'), after.state.exitCode);
   }
-  return ok([...out, ...logs, '', `[Infrastructure Lab: the container keeps running in the foreground; the simulator detaches here. Use -d to start it in the background, docker logs -f ${cname} to follow it.]`].join('\n'));
+  return ok([...out, ...logs, '', `[Cyber Owl Lab: the container keeps running in the foreground; the simulator detaches here. Use -d to start it in the background, docker logs -f ${cname} to follow it.]`].join('\n'));
 }
 
 function containerArg(docker: Host, ref: string | undefined, cmd: string): ContainerConfig | CmdResult {
@@ -351,7 +351,7 @@ function execCmd(ctx: CmdCtx, docker: Host, args: string[]): CmdResult {
     return ok(prog === 'printenv' && argv[1] ? vars.filter((v) => v.startsWith(argv[1] + '=')).map((v) => v.split('=').slice(1).join('=')).join('\n') : vars.join('\n'));
   }
   if ((prog === 'sh' || prog === 'bash') && argv[1] === '-c') return ctx.run(argv.slice(2).join(' '), `${live.id}:${user}`);
-  if ((prog === 'sh' || prog === 'bash') && argv.length === 1) return err('[Infrastructure Lab: interactive shells in containers are not simulated; run single commands: docker exec NAME cat /etc/resolv.conf]', 1);
+  if ((prog === 'sh' || prog === 'bash') && argv.length === 1) return err('[Cyber Owl Lab: interactive shells in containers are not simulated; run single commands: docker exec NAME cat /etc/resolv.conf]', 1);
   const quote = (s: string) => (/^[\w./:=@%+-]+$/.test(s) ? s : `'${s.replace(/'/g, `'\\''`)}'`);
   return ctx.run(argv.map(quote).join(' '), `${live.id}:${user}`);
 }
@@ -473,7 +473,7 @@ function composeCmd(ctx: CmdCtx, docker: Host, args: string[]): CmdResult {
       const r = composeUp(ctx.world, docker, p, svcArgs, rest.includes('--remove-orphans'));
       if (r.code || rest.includes('-d') || rest.includes('--detach')) return { out: r.out, code: r.code };
       const logs = projectContainers(docker, p.name).flatMap((c) => containerLogs(ctx.world, docker, c).map((l) => `${c.labels['com.docker.compose.service']}-1  | ${l.line}`));
-      return ok([r.out, 'Attaching to ' + projectContainers(docker, p.name).map((c) => `${c.labels['com.docker.compose.service']}-1`).join(', '), ...logs, '', '[Infrastructure Lab: the simulator detaches here; the containers keep running. Use docker compose up -d.]'].join('\n'));
+      return ok([r.out, 'Attaching to ' + projectContainers(docker, p.name).map((c) => `${c.labels['com.docker.compose.service']}-1`).join(', '), ...logs, '', '[Cyber Owl Lab: the simulator detaches here; the containers keep running. Use docker compose up -d.]'].join('\n'));
     }
     case 'down': return ok(composeDown(ctx.world, docker, p, rest.includes('-v') || rest.includes('--volumes')));
     case 'ps': {

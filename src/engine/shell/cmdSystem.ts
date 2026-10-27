@@ -484,7 +484,7 @@ const iptables: CommandDef = {
     }
     const ipFilter = ctx.host.nft.tables.find((t) => t.family === 'ip' && t.name === 'filter');
     const note = ctx.host.nft.tables.some((t) => t.family === 'inet')
-      ? '\n# Note (Infrastructure Lab): this host\'s rules live in the nftables "inet filter" table.\n# iptables-nft only shows tables it created ("ip filter"), so the chains above look empty\n# even though traffic IS being filtered. Use "nft list ruleset".'
+      ? '\n# Note (Cyber Owl Lab): this host\'s rules live in the nftables "inet filter" table.\n# iptables-nft only shows tables it created ("ip filter"), so the chains above look empty\n# even though traffic IS being filtered. Use "nft list ruleset".'
       : '';
     if (args.includes('-S')) return ok(`-P INPUT ACCEPT\n-P FORWARD ACCEPT\n-P OUTPUT ACCEPT${note}`);
     if (ipFilter) return ok(renderRuleset({ tables: [ipFilter], nextHandle: 0 }));
@@ -824,7 +824,7 @@ const dhclient: CommandDef = {
       const shown = flags.has('-v') ? lines : [];
       if (!bound && !flags.has('-S')) {
         // dhclient -6 keeps soliciting until a server answers; the simulator returns to the prompt.
-        shown.push('[Infrastructure Lab: no DHCPv6 lease yet. dhclient -6 keeps soliciting in the background (every 2 minutes in the simulator); check "journalctl -t dhclient", the firewalls and the server.]');
+        shown.push('[Cyber Owl Lab: no DHCPv6 lease yet. dhclient -6 keeps soliciting in the background (every 2 minutes in the simulator); check "journalctl -t dhclient", the firewalls and the server.]');
       }
       return { out: shown.join('\n'), code: bound ? 0 : 2 };
     }
