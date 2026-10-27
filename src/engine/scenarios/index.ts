@@ -23,6 +23,7 @@ import { NFS_SCENARIOS } from './nfsScenarios';
 import { SMB_SCENARIOS } from './smbScenarios';
 import { GPO_SCENARIOS } from './gpoScenarios';
 import { WIN_KRB_SCENARIOS } from './winKrbScenarios';
+import { WFW_SCENARIOS } from './wfwScenarios';
 import type { Scenario } from './types';
 
 /** Every troubleshooting scenario, grouped by the lesson that introduces it. */
@@ -37,6 +38,7 @@ export const SCENARIO_SETS: { id: string; title: string; scenarios: Scenario[] }
   { id: 'tls', title: 'TLS and certificates', scenarios: TLS_SCENARIOS },
   { id: 'kerberos', title: 'Kerberos and DNS service records', scenarios: KRB_SCENARIOS },
   { id: 'windows', title: 'Windows Server and Remote Desktop', scenarios: WIN_SCENARIOS },
+  { id: 'windows-firewall', title: 'Windows Defender Firewall', scenarios: WFW_SCENARIOS },
   { id: 'domain', title: 'Active Directory domain', scenarios: DOMAIN_SCENARIOS },
   { id: 'gpo', title: 'Group Policy', scenarios: GPO_SCENARIOS },
   { id: 'win-kerberos', title: 'Kerberos for Windows logons', scenarios: WIN_KRB_SCENARIOS },

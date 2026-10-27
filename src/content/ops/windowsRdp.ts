@@ -256,7 +256,7 @@ A: **No.** 1149 only means authentication succeeded at the network level. Look a
 :::
 
 ### Windows Defender Firewall
-Stateful, per-**profile**: *Domain* (the adapter can reach a DC of the joined domain), *Private*, *Public* (the default for unknown networks). Each rule applies to one or more profiles. The built-in group **"Remote Desktop"** contains "Remote Desktop - User Mode (TCP-In)", "Remote Desktop - User Mode (UDP-In)" and "Remote Desktop - Shadow (TCP-In)"; enabling RDP in the GUI enables them. They allow **port 3389** only. Rules can also come from Group Policy, and a block rule wins over an allow rule.
+Stateful, per-**profile**: *Domain* (the adapter can reach a DC of the joined domain), *Private*, *Public* (the default for unknown networks). Each rule applies to one or more profiles. The built-in group **"Remote Desktop"** contains "Remote Desktop - User Mode (TCP-In)", "Remote Desktop - User Mode (UDP-In)" and "Remote Desktop - Shadow (TCP-In)"; enabling RDP in the GUI enables them. They allow **port 3389** only. Rules can also come from Group Policy, and a block rule wins over an allow rule. The [Windows Defender Firewall lesson](#/lesson/windows-firewall/internals) covers rule conditions, the firewall log and policy rules in depth.
 
 :::practice
 Q: The built-in Remote Desktop rules are enabled for the Domain profile only. A server shows its profile as Public. Can clients connect on 3389?

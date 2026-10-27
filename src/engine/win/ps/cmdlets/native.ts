@@ -5,7 +5,7 @@
 
 import { isIp } from '../../../net/ip';
 import { dnsQuery } from '../../../sim/dns';
-import { applyFirewall, FW_PROFILES, startWinService, stopWinService, winEvent, winListeners, winResolver, type FwProfile, type WinFwRule } from '../../model';
+import { activeProfile, applyFirewall, FW_PROFILES, startWinService, stopWinService, winEvent, winListeners, winResolver, type FwProfile, type WinFwRule } from '../../model';
 import { echo, maskOf, resolve4, winMac } from '../netops';
 import { native, type PsCtx } from '../runtime';
 import { findReg, regKey, regValueChanged } from './files';
@@ -599,19 +599,24 @@ function kv(args: string[]): Record<string, string> {
   return out;
 }
 
-function profileBlock(ctx: PsCtx, p: FwProfile, onlyState: boolean): string[] {
+/** One profile's block of "netsh advfirewall show": everything, or only state / firewallpolicy / logging. */
+function profileBlock(ctx: PsCtx, p: FwProfile, part: string | undefined): string[] {
   const s = ctx.host.win!.firewall.profiles[p];
-  const out = ['', `${p} Profile Settings: `, '-'.repeat(70), `${'State'.padEnd(38)}${s.enabled ? 'ON' : 'OFF'}`];
-  if (!onlyState) {
-    out.push(`${'Firewall Policy'.padEnd(38)}${s.defaultInbound}Inbound,${s.defaultOutbound}Outbound`, `${'LocalFirewallRules'.padEnd(38)}N/A (GPO-store only)`, `${'LocalConSecRules'.padEnd(38)}N/A (GPO-store only)`, `${'InboundUserNotification'.padEnd(38)}Disable`, `${'RemoteManagement'.padEnd(38)}Disable`, `${'UnicastResponseToMulticast'.padEnd(38)}Enable`, '', 'Logging:', `${'LogAllowedConnections'.padEnd(38)}Disable`, `${'LogDroppedConnections'.padEnd(38)}${s.logBlocked ? 'Enable' : 'Disable'}`, `${'FileName'.padEnd(38)}%systemroot%\\system32\\LogFiles\\Firewall\\pfirewall.log`, `${'MaxFileSize'.padEnd(38)}4096`);
-  }
-  return out;
+  const row = (k: string, v: string) => `${k.padEnd(38)}${v}`;
+  const state = [row('State', s.enabled ? 'ON' : 'OFF')];
+  const policy = [row('Firewall Policy', `${s.defaultInbound}Inbound,${s.defaultOutbound}Outbound`)];
+  const logging = [row('LogAllowedConnections', s.logAllowed ? 'Enable' : 'Disable'), row('LogDroppedConnections', s.logBlocked ? 'Enable' : 'Disable'), row('FileName', '%systemroot%\\system32\\LogFiles\\Firewall\\pfirewall.log'), row('MaxFileSize', String(s.logMaxKb ?? 4096))];
+  const head = ['', `${p} Profile Settings: `, '-'.repeat(70)];
+  if (part === 'state') return [...head, ...state];
+  if (part === 'firewallpolicy') return [...head, ...policy];
+  if (part === 'logging') return [...head, ...logging];
+  return [...head, ...state, ...policy, row('LocalFirewallRules', 'N/A (GPO-store only)'), row('LocalConSecRules', 'N/A (GPO-store only)'), row('InboundUserNotification', 'Disable'), row('RemoteManagement', 'Disable'), row('UnicastResponseToMulticast', 'Enable'), '', 'Logging:', ...logging];
 }
 
 function showRule(r: WinFwRule): string[] {
   const row = (k: string, v: string) => `${(k + ':').padEnd(38)}${v}`;
   return ['', row('Rule Name', r.displayName), '-'.repeat(70), row('Enabled', r.enabled ? 'Yes' : 'No'), row('Direction', r.direction === 'Inbound' ? 'In' : 'Out'), row('Profiles', r.profiles === 'Any' ? 'Domain,Private,Public' : r.profiles.join(',')),
-    row('Grouping', r.group), row('LocalIP', 'Any'), row('RemoteIP', r.remoteAddress === 'Any' ? 'Any' : r.remoteAddress.join(',')), row('Protocol', r.protocol), ...(r.protocol === 'TCP' || r.protocol === 'UDP' ? [row('LocalPort', r.localPort === 'Any' ? 'Any' : r.localPort.join(',')), row('RemotePort', 'Any')] : []),
+    row('Grouping', r.group), row('LocalIP', !r.localAddress || r.localAddress === 'Any' ? 'Any' : r.localAddress.join(',')), row('RemoteIP', r.remoteAddress === 'Any' ? 'Any' : r.remoteAddress.join(',')), row('Protocol', r.protocol), ...(r.protocol === 'TCP' || r.protocol === 'UDP' ? [row('LocalPort', r.localPort === 'Any' ? 'Any' : r.localPort.join(',')), row('RemotePort', !r.remotePort || r.remotePort === 'Any' ? 'Any' : r.remotePort.join(','))] : []),
     row('Edge traversal', 'No'), row('Action', r.action)];
 }
 
@@ -621,15 +626,25 @@ native({
     const a = args.map((x) => x.toLowerCase());
     const w = ctx.host.win!;
     if (a[0] !== 'advfirewall') return ok(`The following command was not found: ${args.join(' ')}.\n\n[Infrastructure Lab: netsh advfirewall is simulated; use the NetTCPIP cmdlets (Get-NetIPAddress, Set-DnsClientServerAddress) for interface settings.]`, 1);
-    const profileArg = (p: string): FwProfile[] | null => (p === 'allprofiles' ? FW_PROFILES : p === 'currentprofile' ? [w.adapters[0]?.category ?? 'Public'] : p === 'domainprofile' ? ['Domain'] : p === 'privateprofile' ? ['Private'] : p === 'publicprofile' ? ['Public'] : null);
+    const profileArg = (p: string): FwProfile[] | null => (p === 'allprofiles' ? FW_PROFILES : p === 'currentprofile' ? [activeProfile(ctx.host)] : p === 'domainprofile' ? ['Domain'] : p === 'privateprofile' ? ['Private'] : p === 'publicprofile' ? ['Public'] : null);
     if (a[1] === 'show') {
       const ps = profileArg(a[2] ?? '');
       if (!ps) return ok('The syntax supplied for this command is not valid. Check help for the correct syntax.\n\nUsage: show allprofiles|currentprofile|domainprofile|privateprofile|publicprofile [state|firewallpolicy|logging]', 1);
-      return ok([...ps.flatMap((p) => profileBlock(ctx, p, a[3] === 'state')), 'Ok.', ''].join('\n'));
+      if (a[3] && !['state', 'firewallpolicy', 'logging'].includes(a[3])) return ok('The syntax supplied for this command is not valid. Check help for the correct syntax.\n\nUsage: show allprofiles|currentprofile|domainprofile|privateprofile|publicprofile [state|firewallpolicy|logging]', 1);
+      return ok([...ps.flatMap((p) => profileBlock(ctx, p, a[3])), '', 'Ok.', ''].join('\n'));
     }
     if (a[1] === 'set') {
       const ps = profileArg(a[2] ?? '');
-      if (!ps || a[3] !== 'state' || !['on', 'off'].includes(a[4] ?? '')) return ok('The syntax supplied for this command is not valid. Check help for the correct syntax.\n\nUsage: set allprofiles|currentprofile|domainprofile|privateprofile|publicprofile state on|off', 1);
+      // set <profile> logging droppedconnections|allowedconnections enable|disable
+      if (ps && a[3] === 'logging' && ['droppedconnections', 'allowedconnections'].includes(a[4] ?? '') && ['enable', 'disable'].includes(a[5] ?? '')) {
+        if (!admin(ctx)) return ok('The requested operation requires elevation (Run as administrator).\n', 1);
+        for (const p of ps) {
+          if (a[4] === 'droppedconnections') w.firewall.profiles[p].logBlocked = a[5] === 'enable';
+          else w.firewall.profiles[p].logAllowed = a[5] === 'enable';
+        }
+        return ok('Ok.\n');
+      }
+      if (!ps || a[3] !== 'state' || !['on', 'off'].includes(a[4] ?? '')) return ok('The syntax supplied for this command is not valid. Check help for the correct syntax.\n\nUsage: set allprofiles|currentprofile|domainprofile|privateprofile|publicprofile state on|off\n       set allprofiles|currentprofile|domainprofile|privateprofile|publicprofile logging droppedconnections|allowedconnections enable|disable', 1);
       if (!admin(ctx)) return ok('The requested operation requires elevation (Run as administrator).\n', 1);
       for (const p of ps) w.firewall.profiles[p].enabled = a[4] === 'on';
       applyFirewall(ctx.host);

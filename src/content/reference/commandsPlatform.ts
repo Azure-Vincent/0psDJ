@@ -415,6 +415,72 @@ found 1 group of duplicate SPNs.`,
     symptoms: ['Login fails'],
   },
   {
+    id: 'get-netfirewallprofile', name: 'Get-NetFirewallProfile / Set-NetFirewallProfile', platform: 'Windows', category: 'Firewall',
+    purpose: 'Shows and changes the per-profile settings of Windows Defender Firewall: on/off, default inbound and outbound actions, logging, and (from Group Policy) whether local rules count.',
+    syntax: 'Get-NetFirewallProfile [-Name Domain|Private|Public] [-PolicyStore PersistentStore|ActiveStore|RSOP|"DOMAIN\\GPO"]\nSet-NetFirewallProfile [-All | -Name ...] [-Enabled True|False] [-DefaultInboundAction Block|Allow] [-DefaultOutboundAction Allow|Block] [-LogBlocked True] [-LogAllowed True] [-LogMaxSizeKilobytes n] [-AllowLocalFirewallRules False] [-PolicyStore ...]',
+    args: [
+      { arg: '-PolicyStore ActiveStore', meaning: 'The settings in force: local values overridden by Group Policy. Without it you see the local store only' },
+      { arg: '-PolicyStore "ad.corp.lab\\GPO name"', meaning: 'Read or write the settings inside a GPO (on a DC or management host)' },
+      { arg: '-LogBlocked True', meaning: 'Write dropped packets to pfirewall.log (per profile; off by default)' },
+      { arg: '-DefaultOutboundAction Block', meaning: 'Outbound allow-listing: the machine\'s own connections need outbound rules' },
+      { arg: '-AllowLocalFirewallRules False', meaning: 'Group Policy only: ignore local rules, enforce only rules from policy' },
+    ],
+    example: {
+      command: 'Get-NetFirewallProfile -PolicyStore ActiveStore | Format-Table Name, Enabled, DefaultInboundAction, DefaultOutboundAction, LogBlocked',
+      output: raw`Name    Enabled DefaultInboundAction DefaultOutboundAction LogBlocked
+----    ------- -------------------- --------------------- ----------
+Domain     True                Block                 Allow       True
+Private    True                Block                 Allow      False
+Public     True                Block                 Allow      False`,
+    },
+    interpretation: 'Read the row of the **active** profile (`Get-NetConnectionProfile` gives the category). Enabled False or DefaultInboundAction Allow means the firewall does not protect that network. A setting that Group Policy configures shows up in ActiveStore and RSOP; the local view says what the admin set, which may not be in force.',
+    limitations: 'Shows settings, not decisions: to see what was dropped, turn on LogBlocked and read pfirewall.log. Rules are listed with Get-NetFirewallRule.',
+    errors: [
+      { message: 'Set-NetFirewallProfile : The request is not supported.', meaning: 'You tried to change the RSOP store (settings from Group Policy): change the GPO instead.' },
+      { message: 'Set-NetFirewallProfile : Access is denied.', meaning: 'Not an elevated administrator session.' },
+    ],
+    permissions: 'Reading: any user. Changing: Administrator; settings from Group Policy only in the GPO.',
+    risks: '-Enabled False or -DefaultInboundAction Allow opens every listening port on that network. -DefaultOutboundAction Block without outbound rules breaks every connection the machine starts.',
+    compat: 'Windows 8/Server 2012 and later; Windows Server 2019/2022, Windows 10/11; PowerShell 5.1.',
+    services: ['Firewall', 'Group Policy', 'Windows networking'],
+    protocols: ['TCP', 'UDP', 'ICMP'],
+    symptoms: ['Traffic blocked by firewall', 'Connection timed out'],
+  },
+  {
+    id: 'netsh-advfirewall', name: 'netsh advfirewall', platform: 'Windows', category: 'Firewall',
+    purpose: 'The legacy command line for Windows Defender Firewall: profile state and logging, and rules. Still common in scripts, installers and older documentation.',
+    syntax: 'netsh advfirewall show allprofiles|currentprofile [state|logging]\nnetsh advfirewall set allprofiles state on|off\nnetsh advfirewall set allprofiles logging droppedconnections enable\nnetsh advfirewall firewall add rule name="..." dir=in action=allow protocol=TCP localport=8080 [remoteip=10.0.10.0/24]\nnetsh advfirewall firewall show rule name="..."',
+    args: [
+      { arg: 'show currentprofile', meaning: 'Settings of the profile in force: state, policy (default actions), logging' },
+      { arg: 'set allprofiles logging droppedconnections enable', meaning: 'Same as Set-NetFirewallProfile -All -LogBlocked True' },
+      { arg: 'firewall add rule ... localport=8080 remoteip=...', meaning: 'Create a rule; the same local store as New-NetFirewallRule' },
+      { arg: 'firewall show rule name=all', meaning: 'Every rule with its conditions (long)' },
+    ],
+    example: {
+      command: 'netsh advfirewall show currentprofile logging',
+      output: raw`Private Profile Settings:
+----------------------------------------------------------------------
+LogAllowedConnections                 Disable
+LogDroppedConnections                 Enable
+FileName                              %systemroot%\system32\LogFiles\Firewall\pfirewall.log
+MaxFileSize                           4096
+
+Ok.`,
+    },
+    interpretation: '"Ok." means the command succeeded. In show output, "LocalFirewallRules N/A (GPO-store only)" reminds you that rule merging is a Group Policy setting.',
+    limitations: 'Older syntax with fewer conditions than the NetSecurity cmdlets, and rule names are display names (not unique). Prefer PowerShell for new scripts.',
+    errors: [
+      { message: 'The requested operation requires elevation (Run as administrator).', meaning: 'Not an elevated session.' },
+      { message: 'No rules match the specified criteria.', meaning: 'No rule with that exact display name.' },
+    ],
+    permissions: 'Reading: any user. Changing: Administrator.',
+    risks: '"set allprofiles state off" turns the firewall off on every network.',
+    compat: 'Windows Vista/Server 2008 and later.',
+    services: ['Firewall'],
+    protocols: ['TCP', 'UDP', 'ICMP'],
+    symptoms: ['Traffic blocked by firewall'],
+  },
+  {
     id: 'gpupdate', name: 'gpupdate', platform: 'Windows', category: 'Identity',
     purpose: 'Triggers a Group Policy refresh now instead of waiting for the background interval (90 minutes plus a random offset of up to 30 minutes on members).',
     syntax: 'gpupdate [/target:computer|user] [/force] [/wait:seconds] [/logoff] [/boot]',

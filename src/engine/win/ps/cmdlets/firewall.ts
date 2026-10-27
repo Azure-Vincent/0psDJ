@@ -3,7 +3,7 @@
 
 import { gpoForStore, touchGpo } from './gpo';
 import type { Host, World } from '../../../types';
-import { applyFirewall, FW_PROFILES, winEvent, type FwProfile, type Gpo, type WinFwRule } from '../../model';
+import { applyFirewall, effectiveProfile, FW_PROFILES, validFwAddress, winEvent, type FwProfile, type FwProfileSettings, type Gpo, type WinFwRule } from '../../model';
 import { registerView } from '../format';
 import { cmdlet, type Call, type ParamDef } from '../runtime';
 import { flatten, getProp, hasWildcard, isObj, obj, toStr, wildcard, type PSObject, type PSValue } from '../values';
@@ -21,6 +21,7 @@ registerView('MSFT_NetFirewallProfile', {
 });
 registerView('MSFT_NetProtocolPortFilter', { kind: 'list', props: ['Protocol', 'LocalPort', 'RemotePort', 'IcmpType', 'DynamicTarget'] });
 registerView('MSFT_NetAddressFilter', { kind: 'list', props: ['LocalAddress', 'RemoteAddress'] });
+registerView('MSFT_NetApplicationFilter', { kind: 'list', props: ['Program', 'Package'] });
 
 export function profileText(r: WinFwRule): string {
   return r.profiles === 'Any' ? 'Any' : r.profiles.join(', ');
@@ -34,12 +35,18 @@ function ruleObj(r: WinFwRule, store = ''): PSObject {
   });
 }
 
+const listValue = (v: 'Any' | string[] | undefined): PSValue => (!v || v === 'Any' ? 'Any' : v.length === 1 ? v[0] : v);
+
 function portFilterObj(r: WinFwRule): PSObject {
-  return obj('MSFT_NetProtocolPortFilter', { Protocol: r.protocol, LocalPort: r.localPort === 'Any' ? 'Any' : r.localPort.length === 1 ? r.localPort[0] : r.localPort, RemotePort: 'Any', IcmpType: r.icmpType ?? 'Any', DynamicTarget: 'Any', __rule: r.name });
+  return obj('MSFT_NetProtocolPortFilter', { Protocol: r.protocol, LocalPort: listValue(r.localPort), RemotePort: listValue(r.remotePort), IcmpType: r.icmpType ?? 'Any', DynamicTarget: 'Any', __rule: r.name });
 }
 
 function addressFilterObj(r: WinFwRule): PSObject {
-  return obj('MSFT_NetAddressFilter', { LocalAddress: 'Any', RemoteAddress: r.remoteAddress === 'Any' ? 'Any' : r.remoteAddress.length === 1 ? r.remoteAddress[0] : r.remoteAddress, __rule: r.name });
+  return obj('MSFT_NetAddressFilter', { LocalAddress: listValue(r.localAddress), RemoteAddress: listValue(r.remoteAddress), __rule: r.name });
+}
+
+function appFilterObj(r: WinFwRule): PSObject {
+  return obj('MSFT_NetApplicationFilter', { Program: r.program ?? 'Any', Package: '', __rule: r.name });
 }
 
 function notFound(c: Call, prop: string, value: string): void {
@@ -216,7 +223,12 @@ function applySettings(c: Call, r: WinFwRule): boolean {
     c.error('The port is invalid. When Protocol is TCP or UDP, individual ports or ranges are allowed. Also, the following keywords are allowed: RPC, RPCEPMap, Any, IPHTTPSIn, PlayToDiscovery.', { category: 'InvalidArgument', target: 'MSFT_NetFirewallRule', exception: 'CimException', id: `HRESULT 0x80070057,${c.name}` });
     return false;
   }
-  if (ports !== 'Any' && proto !== 'TCP' && proto !== 'UDP') {
+  const rports = c.has('RemotePort') ? portList(c.p.RemotePort) : r.remotePort ?? 'Any';
+  if (!validPorts(rports)) {
+    c.error('The port is invalid. When Protocol is TCP or UDP, individual ports or ranges are allowed. Also, the following keywords are allowed: RPC, RPCEPMap, Any, IPHTTPSIn, PlayToDiscovery.', { category: 'InvalidArgument', target: 'MSFT_NetFirewallRule', exception: 'CimException', id: `HRESULT 0x80070057,${c.name}` });
+    return false;
+  }
+  if ((ports !== 'Any' || rports !== 'Any') && proto !== 'TCP' && proto !== 'UDP') {
     c.error('The port is invalid. When Protocol is TCP or UDP, individual ports or ranges are allowed. Also, the following keywords are allowed: RPC, RPCEPMap, Any, IPHTTPSIn, PlayToDiscovery.', { category: 'InvalidArgument', target: 'MSFT_NetFirewallRule', exception: 'CimException', id: `HRESULT 0x80070057,${c.name}` });
     return false;
   }
@@ -232,8 +244,18 @@ function applySettings(c: Call, r: WinFwRule): boolean {
   r.protocol = proto;
   r.localPort = ports;
   r.profiles = profiles;
-  if (c.has('RemoteAddress')) r.remoteAddress = portList(c.p.RemoteAddress);
-  if (c.has('Program')) r.program = c.str('Program');
+  const addrs = (param: string) => (c.has(param) ? portList(c.p[param]) : undefined);
+  const remote = addrs('RemoteAddress');
+  const local = addrs('LocalAddress');
+  const bad = [remote, local].flatMap((l) => (l && l !== 'Any' ? l : [])).find((a) => !validFwAddress(a));
+  if (bad) {
+    c.error('The address is invalid. Addresses may be specified as IP addresses, ranges, or subnets. Also, the following address keywords are allowed in certain places: LocalSubnet, DNS, DHCP, WINS, DefaultGateway, Internet, Intranet, IntranetRemoteAccess, PlayToDevice. Keywords can be restricted to IPv4 or IPv6 by appending a 4 or 6 (for example, IPv6 local subnet would be specified as LocalSubnet6).', { category: 'InvalidArgument', target: 'MSFT_NetFirewallRule', exception: 'CimException', id: `HRESULT 0x80070057,${c.name}` });
+    return false;
+  }
+  r.remotePort = rports;
+  if (remote) r.remoteAddress = remote;
+  if (local) r.localAddress = local;
+  if (c.has('Program')) r.program = /^any$/i.test(c.str('Program')!) ? undefined : c.str('Program');
   if (c.has('IcmpType')) r.icmpType = c.str('IcmpType');
   if (c.has('Description')) r.description = c.str('Description');
   return true;
@@ -317,28 +339,73 @@ fwCmdlet('Remove-NetFirewallRule', 'Deletes one or more firewall rules that matc
   applyFirewall(c.ctx.host);
 });
 
-fwCmdlet('Get-NetFirewallPortFilter', 'Retrieves port filter objects associated with the input firewall rules.', [{ name: 'Protocol', type: 'string' }, { name: 'All', type: 'switch' }, { name: 'AssociatedNetFirewallRule', type: 'any' }], (c) => {
-  const piped = [...flatten(c.p.AssociatedNetFirewallRule ?? null), ...c.input].filter(isObj).map((o) => toStr(o.__rule ?? getProp(o, 'Name')));
-  const rules = c.ctx.host.win!.firewall.rules.filter((r) => !piped.length || piped.includes(r.name));
-  return rules.filter((r) => !c.has('Protocol') || r.protocol.toLowerCase() === c.str('Protocol')!.toLowerCase()).map(portFilterObj);
+/**
+ * Rules whose filters a Get-NetFirewall*Filter call returns: each piped rule
+ * looked up in the store it was read from (local or a GPO, told apart by
+ * PolicyStoreSource), or every rule in -PolicyStore (ActiveStore by default).
+ */
+function filterRules(c: Call): WinFwRule[] {
+  const piped = [...flatten(c.p.AssociatedNetFirewallRule ?? null), ...c.input].filter(isObj);
+  if (!piped.length) return storeRules(c, false)?.rules ?? [];
+  const out: WinFwRule[] = [];
+  for (const o of piped) {
+    const store = storeRules(c, false, toStr(o.__store ?? '') || c.str('PolicyStore') || undefined);
+    const name = toStr(o.__rule ?? getProp(o, 'Name'));
+    const source = toStr(getProp(o, 'PolicyStoreSource') ?? '');
+    const hit = store?.rules.find((r) => r.name === name && (!source || store.gpo || (r.gpo ?? 'PersistentStore') === source));
+    if (hit && !out.includes(hit)) out.push(hit);
+  }
+  return out;
+}
+
+const FILTER_PARAMS: ParamDef[] = [{ name: 'All', type: 'switch' }, { name: 'AssociatedNetFirewallRule', type: 'any' }, { name: 'PolicyStore', type: 'string' }];
+
+fwCmdlet('Get-NetFirewallPortFilter', 'Retrieves port filter objects associated with the input firewall rules.', [{ name: 'Protocol', type: 'string' }, ...FILTER_PARAMS], (c) => {
+  return filterRules(c).filter((r) => !c.has('Protocol') || r.protocol.toLowerCase() === c.str('Protocol')!.toLowerCase()).map(portFilterObj);
 });
 
-fwCmdlet('Get-NetFirewallAddressFilter', 'Retrieves address filter objects associated with the input firewall rules.', [{ name: 'All', type: 'switch' }, { name: 'AssociatedNetFirewallRule', type: 'any' }], (c) => {
-  const piped = [...flatten(c.p.AssociatedNetFirewallRule ?? null), ...c.input].filter(isObj).map((o) => toStr(o.__rule ?? getProp(o, 'Name')));
-  return c.ctx.host.win!.firewall.rules.filter((r) => !piped.length || piped.includes(r.name)).map(addressFilterObj);
+fwCmdlet('Get-NetFirewallAddressFilter', 'Retrieves address filter objects associated with the input firewall rules.', FILTER_PARAMS, (c) => filterRules(c).map(addressFilterObj));
+
+fwCmdlet('Get-NetFirewallApplicationFilter', 'Retrieves application filter objects associated with the input firewall rules.', [{ name: 'Program', type: 'string' }, ...FILTER_PARAMS], (c) => {
+  const want = c.str('Program');
+  return filterRules(c).filter((r) => !want || wildcard(want).test(r.program ?? 'Any')).map(appFilterObj);
 });
 
 // ---------------------------------------------------------------------------
 // Profiles
 // ---------------------------------------------------------------------------
 
-function profileObj(host: Host, name: FwProfile): PSObject {
-  const p = host.win!.firewall.profiles[name];
+type ProfileView = Partial<FwProfileSettings>;
+
+const gpoBool = (v: boolean | undefined) => (v === undefined ? 'NotConfigured' : v ? 'True' : 'False');
+
+function profileObj(name: FwProfile, p: ProfileView, gpoStore: boolean): PSObject {
   return obj('MSFT_NetFirewallProfile', {
-    Name: name, Enabled: p.enabled ? 'True' : 'False', DefaultInboundAction: p.defaultInbound, DefaultOutboundAction: p.defaultOutbound, AllowInboundRules: 'NotConfigured', AllowLocalFirewallRules: 'NotConfigured',
+    Name: name, Enabled: gpoBool(p.enabled), DefaultInboundAction: p.defaultInbound ?? 'NotConfigured', DefaultOutboundAction: p.defaultOutbound ?? 'NotConfigured', AllowInboundRules: 'NotConfigured',
+    // Local rule merging is a Group Policy setting: the local store always reports NotConfigured.
+    AllowLocalFirewallRules: gpoStore ? gpoBool(p.allowLocalRules) : 'NotConfigured',
     AllowLocalIPsecRules: 'NotConfigured', AllowUserApps: 'NotConfigured', AllowUserPorts: 'NotConfigured', AllowUnicastResponseToMulticast: 'NotConfigured', NotifyOnListen: 'False', EnableStealthModeForIPsec: 'NotConfigured',
-    LogFileName: '%systemroot%\\system32\\LogFiles\\Firewall\\pfirewall.log', LogMaxSizeKilobytes: 4096, LogAllowed: 'False', LogBlocked: p.logBlocked ? 'True' : 'False', LogIgnored: 'NotConfigured', DisabledInterfaceAliases: '{NotConfigured}', __str: name,
+    LogFileName: '%systemroot%\\system32\\LogFiles\\Firewall\\pfirewall.log', LogMaxSizeKilobytes: p.logMaxKb ?? (gpoStore ? 'NotConfigured' : 4096), LogAllowed: gpoBool(p.logAllowed ?? (gpoStore ? undefined : false)), LogBlocked: gpoBool(p.logBlocked), LogIgnored: 'NotConfigured', DisabledInterfaceAliases: '{NotConfigured}', __str: name,
   });
+}
+
+/**
+ * Profile settings in a -PolicyStore: PersistentStore (local, the default),
+ * ActiveStore (in force: local overridden by Group Policy), RSOP (what policy
+ * set, read-only) or "DOMAIN\\GPO name".
+ */
+function profileStore(c: Call): { view: (p: FwProfile) => ProfileView; gpo?: Gpo; gpoStore: boolean; readOnly?: boolean; local?: boolean } | null {
+  const host = c.ctx.host;
+  const name = c.str('PolicyStore');
+  if (name && name.includes('\\')) {
+    const r = gpoForStore(c, name);
+    if (!r) return null;
+    return { view: (p) => r.gpo.firewallProfiles?.[p] ?? {}, gpo: r.gpo, gpoStore: true };
+  }
+  const s = (name ?? 'PersistentStore').toLowerCase();
+  if (s === 'rsop') return { view: (p) => host.win!.gp?.profiles?.[p] ?? {}, gpoStore: true, readOnly: true };
+  if (s === 'activestore') return { view: (p) => { const e = effectiveProfile(host, p); return { ...e, logAllowed: e.logAllowed ?? false, logMaxKb: e.logMaxKb ?? 4096 }; }, gpoStore: true, local: true };
+  return { view: (p) => host.win!.firewall.profiles[p], gpoStore: false, local: true };
 }
 
 function pickProfiles(c: Call): FwProfile[] | null {
@@ -360,28 +427,70 @@ function pickProfiles(c: Call): FwProfile[] | null {
 }
 
 fwCmdlet('Get-NetFirewallProfile', 'Displays settings that apply to the per-profile configurations of the Windows Firewall with Advanced Security.', [{ name: 'Name', aliases: ['Profile'], type: 'strings', position: 0 }, { name: 'All', type: 'switch' }, { name: 'PolicyStore', type: 'string' }], (c) => {
-  return (pickProfiles(c) ?? []).map((p) => profileObj(c.ctx.host, p));
+  const store = profileStore(c);
+  if (!store) return;
+  return (pickProfiles(c) ?? []).map((p) => profileObj(p, store.view(p), store.gpoStore));
 });
 
 fwCmdlet('Set-NetFirewallProfile', 'Configures settings that apply to the per-profile configurations of the Windows Firewall with Advanced Security.', [
-  { name: 'Name', aliases: ['Profile'], type: 'strings', position: 0 }, { name: 'All', type: 'switch' }, { name: 'Enabled', type: 'string' }, { name: 'DefaultInboundAction', type: 'string' }, { name: 'DefaultOutboundAction', type: 'string' }, { name: 'LogBlocked', type: 'string' }, { name: 'PolicyStore', type: 'string' },
+  { name: 'Name', aliases: ['Profile'], type: 'strings', position: 0 }, { name: 'All', type: 'switch' }, { name: 'Enabled', type: 'string' }, { name: 'DefaultInboundAction', type: 'string' }, { name: 'DefaultOutboundAction', type: 'string' },
+  { name: 'LogBlocked', type: 'string' }, { name: 'LogAllowed', type: 'string' }, { name: 'LogMaxSizeKilobytes', type: 'int' }, { name: 'AllowLocalFirewallRules', type: 'string' }, { name: 'PolicyStore', type: 'string' }, { name: 'PassThru', type: 'switch' },
 ], (c) => {
   const list = pickProfiles(c);
   if (!list || denied(c, 'MSFT_NetFirewallProfile')) return;
-  const en = enumValue(c, 'Enabled', ['True', 'False', 'NotConfigured'], 'GpoBoolean');
+  const store = profileStore(c);
+  if (!store) return;
+  if (store.readOnly) {
+    c.error('The request is not supported.', { category: 'NotImplemented', target: 'MSFT_NetFirewallProfile:root/standardcimv2/MSFT_NetFirewallProfile', exception: 'CimException', id: `Windows System Error 50,${c.name}` });
+    return;
+  }
+  const bool = ['True', 'False', 'NotConfigured'];
+  const en = enumValue(c, 'Enabled', bool, 'GpoBoolean');
   const inA = enumValue(c, 'DefaultInboundAction', ['NotConfigured', 'Allow', 'Block'], 'Action');
   const outA = enumValue(c, 'DefaultOutboundAction', ['NotConfigured', 'Allow', 'Block'], 'Action');
-  const log = enumValue(c, 'LogBlocked', ['True', 'False', 'NotConfigured'], 'GpoBoolean');
-  if (en === null || inA === null || outA === null || log === null) return;
+  const log = enumValue(c, 'LogBlocked', bool, 'GpoBoolean');
+  const logA = enumValue(c, 'LogAllowed', bool, 'GpoBoolean');
+  const merge = enumValue(c, 'AllowLocalFirewallRules', bool, 'GpoBoolean');
+  if (en === null || inA === null || outA === null || log === null || logA === null || merge === null) return;
+  const maxKb = c.has('LogMaxSizeKilobytes') ? Number(c.p.LogMaxSizeKilobytes) : undefined;
+  if (maxKb !== undefined && !(Number.isInteger(maxKb) && maxKb >= 1 && maxKb <= 32767)) {
+    const why = maxKb > 32767 ? 'is greater than the maximum allowed range of 32767. Supply an argument that is less than or equal to 32767' : 'is less than the minimum allowed range of 1. Supply an argument that is greater than or equal to 1';
+    c.error(`Cannot validate argument on parameter 'LogMaxSizeKilobytes'. The ${maxKb} argument ${why} and then try the command again.`, { category: 'InvalidData', target: '', exception: 'ParameterBindingValidationException', id: `ParameterArgumentValidationError,${c.name}` });
+    return;
+  }
   const host = c.ctx.host;
+  const out: PSValue[] = [];
   for (const name of list) {
     if (c.whatIf('Set', name)) continue;
-    const p = host.win!.firewall.profiles[name];
-    if (en) p.enabled = en !== 'False';
-    if (inA) p.defaultInbound = inA === 'Allow' ? 'Allow' : 'Block';
-    if (outA) p.defaultOutbound = outA === 'Block' ? 'Block' : 'Allow';
-    if (log) p.logBlocked = log === 'True';
-    winEvent(c.ctx.world, host, FW_LOG, 2003, FW_PROVIDER, `A Windows Defender Firewall setting in the ${name} profile has changed.\n\nNew Setting:\n\tType:\t${en ? 'Enable Windows Defender Firewall' : 'Default action'}\n\tValue:\t${en ? (p.enabled ? 'Yes' : 'No') : inA ?? outA ?? log}`);
+    if (store.gpo) {
+      // In a GPO, NotConfigured removes the setting: the member keeps its own value.
+      const g = ((store.gpo.firewallProfiles ??= {})[name] ??= {});
+      const set = <K extends keyof FwProfileSettings>(k: K, v: string | undefined, conv: (x: string) => FwProfileSettings[K]) => {
+        if (v === undefined) return;
+        if (v === 'NotConfigured') delete g[k];
+        else g[k] = conv(v);
+      };
+      set('enabled', en, (x) => x === 'True');
+      set('defaultInbound', inA, (x) => (x === 'Allow' ? 'Allow' : 'Block'));
+      set('defaultOutbound', outA, (x) => (x === 'Block' ? 'Block' : 'Allow'));
+      set('logBlocked', log, (x) => x === 'True');
+      set('logAllowed', logA, (x) => x === 'True');
+      set('allowLocalRules', merge, (x) => x === 'True');
+      if (maxKb !== undefined) g.logMaxKb = maxKb;
+      touchGpo(c, store.gpo);
+    } else {
+      const p = host.win!.firewall.profiles[name];
+      if (en) p.enabled = en !== 'False';
+      if (inA) p.defaultInbound = inA === 'Allow' ? 'Allow' : 'Block';
+      if (outA) p.defaultOutbound = outA === 'Block' ? 'Block' : 'Allow';
+      if (log) p.logBlocked = log === 'True';
+      if (logA) p.logAllowed = logA === 'True';
+      if (maxKb !== undefined) p.logMaxKb = maxKb;
+      // AllowLocalFirewallRules is only read from Group Policy; the local store accepts it and ignores it.
+      winEvent(c.ctx.world, host, FW_LOG, 2003, FW_PROVIDER, `A Windows Defender Firewall setting in the ${name} profile has changed.\n\nNew Setting:\n\tType:\t${en ? 'Enable Windows Defender Firewall' : inA || outA ? 'Default action' : 'Logging'}\n\tValue:\t${en ? (p.enabled ? 'Yes' : 'No') : inA ?? outA ?? log ?? logA ?? ''}`);
+    }
+    if (c.has('PassThru')) out.push(profileObj(name, store.view(name), store.gpoStore));
   }
   applyFirewall(host);
+  return out;
 });

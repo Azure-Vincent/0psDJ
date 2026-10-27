@@ -617,6 +617,31 @@ export const CAUSES: Record<string, Cause> = Object.fromEntries(
       check: 'gpupdate /force and Get-WinEvent -LogName System on the member; Test-NetConnection DC -Port 445; Get-NetFirewallRule -Name FPS-SMB-In-TCP on the DC.',
     },
     {
+      id: 'wfw-program-mismatch', title: 'The allow rule names a program that does not own the listening socket', category: 'Firewall', concept: 'win.firewall',
+      signature: 'Connections time out although an enabled Allow rule covers the port and address. Get-NetFirewallApplicationFilter on the rule shows a Program (for example w3wp.exe), while Get-NetTCPConnection -State Listen shows the port owned by another process: for IIS and WinRM that is System (PID 4, http.sys). With LogBlocked on, pfirewall.log has DROP lines for the port.',
+      check: 'Get-NetFirewallRule ... | Get-NetFirewallApplicationFilter; Get-NetTCPConnection -LocalPort <port> -State Listen (OwningProcess); pfirewall.log.',
+    },
+    {
+      id: 'wfw-block-precedence', title: 'A Block rule matches the traffic, and Block wins over every Allow rule', category: 'Firewall', concept: 'win.firewall',
+      signature: 'An enabled Allow rule matches the packets, yet they are dropped: an enabled Block rule matches them too (often added "after" the allow, expecting rule order to count). Windows Defender Firewall has no rule order: Block beats Allow.',
+      check: 'Get-NetFirewallRule -Action Block -Enabled True with its port and address filters; pfirewall.log DROP lines for the port.',
+    },
+    {
+      id: 'wfw-remote-scope', title: 'The allow rule\'s RemoteAddress does not include the real sender', category: 'Firewall', concept: 'win.firewall',
+      signature: 'Only one client (or one network) is dropped; others get through the same rule. Get-NetFirewallAddressFilter on the rule shows a RemoteAddress that does not contain the sender\'s address, which pfirewall.log DROP lines show as src-ip.',
+      check: 'pfirewall.log (src-ip of the DROP lines); Get-NetFirewallRule ... | Get-NetFirewallAddressFilter.',
+    },
+    {
+      id: 'wfw-outbound-default', title: 'Default outbound action Block, with no outbound rule for the connection the server makes', category: 'Firewall', concept: 'win.firewall',
+      signature: 'Connections that the server itself starts fail (Test-NetConnection, net use, updates), while every inbound service works and other machines reach the same destination. Get-NetFirewallProfile shows DefaultOutboundAction Block; pfirewall.log has DROP lines with path SEND.',
+      check: 'Get-NetFirewallProfile | Format-Table Name, DefaultOutboundAction; Get-NetFirewallRule -Direction Outbound -Enabled True | Get-NetFirewallPortFilter; Test-NetConnection <dest> -Port <port>.',
+    },
+    {
+      id: 'wfw-local-rules-ignored', title: 'Group Policy sets AllowLocalFirewallRules False: local rules do not count', category: 'Firewall', concept: 'win.firewall',
+      signature: 'A local rule is enabled and correct but has no effect; rules delivered by Group Policy work. Get-NetFirewallProfile -PolicyStore ActiveStore shows AllowLocalFirewallRules False (the default local view says NotConfigured), and Get-NetFirewallRule -PolicyStore RSOP has no rule for the port.',
+      check: 'gpresult /r; Get-NetFirewallProfile -PolicyStore ActiveStore; Get-NetFirewallRule -PolicyStore RSOP; on the DC, the GPO\'s firewall rules and profile settings.',
+    },
+    {
       id: 'gpo-link-disabled', title: 'The GPO link is disabled', category: 'Configuration', concept: 'ad.gpo',
       signature: 'The GPO is linked to the right OU but Get-GPInheritance / Get-GPO shows the link with Enabled: False; gpresult does not list the GPO at all.',
       check: 'Get-GPInheritance -Target "OU=..."; Set-GPLink -LinkEnabled Yes.',

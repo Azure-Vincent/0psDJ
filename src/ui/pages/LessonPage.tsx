@@ -351,6 +351,14 @@ function widgetsFor(id: string): LessonWidgets {
       ],
     };
   }
+  if (id === 'windows-firewall') {
+    return {
+      sandbox: [
+        { hostId: 'win01', user: 'Administrator', label: 'win01 console (PowerShell)', banner: 'Windows PowerShell\nCopyright (C) Microsoft Corporation. All rights reserved.\n\nSandbox: console on win01 (10.0.20.30), signed in as Administrator. Try: Get-NetConnectionProfile, Get-NetFirewallProfile -PolicyStore ActiveStore, Get-NetFirewallRule -Enabled True -Direction Inbound, Get-NetFirewallRule -Name IIS-WebServerRole-HTTP-In-TCP | Get-NetFirewallApplicationFilter, Set-NetFirewallProfile -All -LogBlocked True, Get-Content C:\\Windows\\System32\\LogFiles\\Firewall\\pfirewall.log -Tail 10.' },
+        { hostId: 'ws01', user: 'alice', label: 'ws01 (alice)', banner: 'Sandbox: ws01 (10.0.10.25), Debian 12. Try: curl -I http://win01.corp.lab/, nc -zv -w 3 win01 8080 (dropped: no rule), ping -c 1 win01 (dropped until an echo rule allows it).' },
+      ],
+    };
+  }
   if (id === 'windows-rdp') {
     return {
       sandbox: [
