@@ -1,24 +1,27 @@
 import { useMemo, useState } from 'react';
-import type { Assessment as AssessmentT, Question } from '../../content/types';
+import type { Assessment as AssessmentT, LearnRoute, Question } from '../../content/types';
 import { gradeQuestion, stableShuffle, type GradeResult } from '../../learning/grading';
 import { recordConcepts } from '../../learning/progress';
 import { useProgress } from '../state';
 import { getLesson } from '../../content/lessons';
+import { SECTIONS } from '../sections';
 import { Markdown } from './Markdown';
 
-const SECTION_LABEL: Record<string, string> = {
-  what: 'Overview', internals: 'How it works', visualize: 'Visualize', deploy: 'Deploy',
-  config: 'Configuration', operate: 'Operate & recover', troubleshoot: 'Troubleshooting',
-};
+/**
+ * Unsubmitted answers by question id. "Where this is taught" sends the learner to another tab,
+ * which unmounts the questions; this keeps their work for when they come back (until the app reloads).
+ */
+const drafts = new Map<string, unknown>();
 
 /** "Where this is taught": links to the lesson sections that explain how to work out the answer. */
-function LearnLinks({ routes, lessonId }: { routes: string[]; lessonId?: string }) {
+function LearnLinks({ routes, lessonId }: { routes: LearnRoute[]; lessonId?: string }) {
   return (
     <div className="small muted" style={{ margin: '4px 0 6px' }}>
       Where this is taught:{' '}
       {routes.map((r, i) => {
         const [, id, sec] = r.split('/');
-        const label = SECTION_LABEL[sec] ?? sec;
+        const s = SECTIONS.find((x) => x.id === sec);
+        const label = s?.short ?? s?.title ?? sec;
         const title = id === lessonId ? label : `${getLesson(id)?.title ?? id} › ${label}`;
         return <span key={r}>{i > 0 && ' · '}<a href={`#/${r}`}>{title}</a></span>;
       })}
@@ -35,7 +38,8 @@ function QuestionView({ q, index, lessonId }: { q: Question; index: number; less
     if (q.kind === 'single') return -1;
     return '';
   }, [q]);
-  const [answer, setAnswer] = useState<unknown>(initial);
+  const [answer, setAnswerState] = useState<unknown>(() => (drafts.has(q.id) ? drafts.get(q.id) : initial));
+  const setAnswer = (a: unknown) => { drafts.set(q.id, a); setAnswerState(a); };
   const [result, setResult] = useState<GradeResult | null>(null);
   const prior = progress.questions[q.id];
 

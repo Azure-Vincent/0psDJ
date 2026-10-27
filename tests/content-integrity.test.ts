@@ -167,7 +167,8 @@ describe('assessment questions', () => {
     for (const A of Object.values(ASSESSMENTS)) for (const q of A.questions) {
       expect(q.learn?.length ?? 0, `${q.id} has no learn links`).toBeGreaterThan(0);
       for (const r of q.learn ?? []) {
-        expect(r, q.id).toMatch(/^lesson\/[a-z0-9-]+\/(what|internals|visualize|deploy|config|operate|troubleshoot)$/);
+        const [head, , sec] = r.split('/');
+        expect(head === 'lesson' && SECTIONS.has(sec) && sec !== 'assess', `${q.id} → ${r}`).toBe(true);
         expect(routeOk(r), `${q.id} → ${r}`).toBeNull();
       }
     }

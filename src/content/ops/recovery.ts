@@ -244,7 +244,7 @@ The habits listed in the overview fit together in a fixed order. Example: changi
 7. **Test with a new connection** from a client, keeping your current session open. Your open session proves nothing: it was set up under the old rules.
 8. **Cancel the rollback** (\`systemctl stop run-r….timer\`) and **document** the change. Cancel only now: cancelling earlier removes your safety net, and forgetting to cancel undoes your good change.
 
-The same eight steps apply to a firewall (\`nft list ruleset\`, \`nft -c -f\`, \`systemctl reload nftables\`), a web server (\`nginx -T\`, \`nginx -t\`) or a network change (\`netplan try\` does steps 5 to 8 for you).
+The same eight steps apply to a firewall (\`nft list ruleset\`, \`nft -c -f\`, \`systemctl reload nftables\`), a web server (\`nginx -T\`, \`nginx -t\`) or a network change, where \`netplan try\` combines steps 5 and 6: it applies the change and reverts it automatically unless you confirm in time. Testing from a new connection before you confirm, and documenting the change, are still up to you.
 
 ### Runtime state versus persistent state
 Every system has two copies of its configuration: the **files on disk** and the **state loaded in memory**. They agree only when someone has loaded the files and nobody has changed the running state since.
