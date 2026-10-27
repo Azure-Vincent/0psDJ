@@ -162,6 +162,33 @@ describe('curriculum', () => {
   });
 });
 
+describe('practice blocks', () => {
+  // Reference lists rather than concepts: no practice needed.
+  const NO_PRACTICE = new Set(['ad-kerberos: Services involved, by machine']);
+  const sections = (text: string) => text.split(/^(?=### )/m).filter((x) => x.startsWith('### '));
+  it('every concept section in "How it works" ends with a practice block', () => {
+    for (const L of LESSONS) for (const sec of sections(L.internals)) {
+      const title = sec.split('\n')[0].slice(4);
+      if (NO_PRACTICE.has(`${L.id}: ${title}`)) continue;
+      expect(sec.includes(':::practice'), `${L.id}: ${title}`).toBe(true);
+    }
+  });
+  it('every practice question has an answer and differs from the graded questions', () => {
+    const prompts = new Set(Object.values(ASSESSMENTS).flatMap((A) => A.questions.map((q) => q.prompt.trim())));
+    for (const L of LESSONS) for (const text of [L.what, L.internals]) {
+      for (const m of text.matchAll(/^:::practice\n([\s\S]*?)^:::$/gm)) {
+        const lines = m[1].trim().split('\n');
+        const qs = lines.filter((l) => l.startsWith('Q: '));
+        const as = lines.filter((l) => l.startsWith('A: '));
+        expect(qs.length, `${L.id}: empty practice block`).toBeGreaterThan(0);
+        expect(as.length, `${L.id}: ${qs[0]}`).toBe(qs.length);
+        lines.forEach((l, i) => { if (l.startsWith('Q: ')) expect(lines[i + 1]?.startsWith('A: '), `${L.id}: ${l}`).toBe(true); });
+        for (const q of qs) expect(prompts.has(q.slice(3).trim()), `${L.id}: copies a graded question: ${q}`).toBe(false);
+      }
+    }
+  });
+});
+
 describe('assessment questions', () => {
   it('every question links to the lesson sections that teach it', () => {
     for (const A of Object.values(ASSESSMENTS)) for (const q of A.questions) {

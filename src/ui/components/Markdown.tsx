@@ -46,6 +46,33 @@ export function Markdown({ text }: { text: string }) {
       blocks.push(<pre key={k++}>{body.join('\n')}</pre>);
       continue;
     }
+    if (line.trim() === ':::practice') {
+      // Practice block: "Q:" and "A:" lines (a line without a prefix continues the one above), closed by ":::".
+      const pairs: { q: string; a: string }[] = [];
+      let cur: 'q' | 'a' = 'q';
+      i++;
+      while (i < lines.length && lines[i].trim() !== ':::') {
+        const l = lines[i++].trim();
+        if (l.startsWith('Q: ')) { pairs.push({ q: l.slice(3), a: '' }); cur = 'q'; }
+        else if (l.startsWith('A: ') && pairs.length) { pairs[pairs.length - 1].a = l.slice(3); cur = 'a'; }
+        else if (l && pairs.length) pairs[pairs.length - 1][cur] += ' ' + l;
+      }
+      i++;
+      blocks.push(
+        <div className="practice" key={k++}>
+          <div className="practice-head">Practice</div>
+          <ol>
+            {pairs.map((pq, j) => (
+              <li key={j}>
+                {inline(pq.q, `pq${k}${j}`)}
+                <details><summary>Show answer</summary><div>{inline(pq.a, `pa${k}${j}`)}</div></details>
+              </li>
+            ))}
+          </ol>
+        </div>,
+      );
+      continue;
+    }
     if (line.startsWith('### ')) { blocks.push(<h3 key={k++}>{inline(line.slice(4), `h${k}`)}</h3>); i++; continue; }
     if (line.startsWith('> ')) {
       const body: string[] = [];
@@ -96,7 +123,7 @@ export function Markdown({ text }: { text: string }) {
       continue;
     }
     const para: string[] = [];
-    while (i < lines.length && lines[i].trim() !== '' && !/^(- |\d+\. |### |> |```|\|)/.test(lines[i])) para.push(lines[i++]);
+    while (i < lines.length && lines[i].trim() !== '' && !/^(- |\d+\. |### |> |```|\||:::)/.test(lines[i])) para.push(lines[i++]);
     blocks.push(<p key={k++}>{inline(para.join(' '), `p${k}`)}</p>);
   }
   return <div className="md">{blocks.map((b, j) => <Fragment key={j}>{b}</Fragment>)}</div>;

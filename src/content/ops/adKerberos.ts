@@ -229,6 +229,13 @@ The full list is in \`%SystemRoot%\\System32\\config\\netlogon.dns\` on each DC.
 
 On the DCs themselves: preferred DNS = **another DC**, alternate = its own IP, \`127.0.0.1\` last. A DC that points only to itself may wait at boot for its own DNS, which waits for AD (DNS Server event 4013).
 
+:::practice
+Q: Which SRV record would a client in the site "Branch1" query first to find a domain controller of corp.lab?
+A: \`_ldap._tcp.Branch1._sites.dc._msdcs.corp.lab\`, the site-specific record; then the generic \`_ldap._tcp.dc._msdcs.corp.lab\`.
+Q: A new DC was installed. What should its own DNS client settings be?
+A: Preferred DNS = **another DC**, alternate = its own IP, 127.0.0.1 last. Pointing only at itself can make it wait at boot for its own DNS (event 4013).
+:::
+
 ### 2. Kerberos
 Kerberos (RFC 4120) authenticates with **tickets** instead of sending passwords to every server. The Kerberos **realm** of an AD domain is its DNS name in **upper case**: the domain corp.lab is the realm \`CORP.LAB\`. Realm names are case-sensitive, so on a Linux member \`kinit dana@CORP.LAB\` works while \`kinit dana@corp.lab\` asks for a realm that does not exist. Depending on the client's krb5.conf, that fails with "Cannot find KDC for realm" (the lower-case realm is not configured and KDCs are not looked up in DNS) or with "KDC reply did not match expectations" (a DC was found through DNS, which ignores case, and answered for CORP.LAB).
 1. **AS exchange** (Authentication Service). At logon the client sends an **AS-REQ** for \`krbtgt/CORP.LAB\`. The first attempt is rejected with \`KDC_ERR_PREAUTH_REQUIRED\` (normal); the client resends it with a timestamp encrypted with the user's password-derived key. The KDC decrypts it: wrong key → bad password (Security 4771, code 0x18); timestamp more than **5 minutes** off → \`KRB_AP_ERR_SKEW\` (0x25). Success → **AS-REP** with a **TGT** (Ticket-Granting Ticket), valid 10 hours, renewable for 7 days. DC logs Security **4768**.
@@ -241,6 +248,13 @@ The ticket contains the **PAC** (Privilege Attribute Certificate): the user's SI
 
 **NTLM fallback**: when Kerberos cannot be used (access by IP address, unknown SPN, no KDC reachable), Windows uses NTLM challenge/response, which the server validates through its Netlogon secure channel to a DC (DC logs **4776**). It works, but it is weaker and is increasingly blocked by policy, so "it only works by IP" or "it only works with NTLM" is a symptom of a Kerberos problem, not a solution.
 
+:::practice
+Q: A user was added to the group "Finance-Share" five minutes ago and still gets "Access denied" on the finance share. Why, and what makes it work?
+A: Group membership travels in the **PAC** of the user's tickets, which were issued before the change. The user needs a **new TGT** (log off and on), after which new service tickets carry the group.
+Q: A web application runs as \`CORP\svc-intranet\` and users reach it as \`https://portal.corp.lab\`. Which SPN must exist, and on which account?
+A: \`HTTP/portal.corp.lab\`, on the **svc-intranet** account (the account the service runs as), and on no other account.
+:::
+
 ### 3. Time
 Kerberos timestamps make **time a hard dependency**. The default "Maximum tolerance for computer clock synchronization" is **5 minutes**. The hierarchy:
 - Members (\`Type = NT5DS\`) sync from a DC in their domain.
@@ -248,8 +262,22 @@ Kerberos timestamps make **time a hard dependency**. The default "Maximum tolera
 - The PDC emulator of the forest root syncs from a **reliable external source** (\`Type = NTP\`, \`w32tm /config /manualpeerlist:... /syncfromflags:manual /reliable:yes /update\`).
 If the PDC emulator free-runs, the whole domain drifts together (logons still work, but Linux hosts, appliances and other forests using real NTP drift away). If a single client drifts (a VM restored from snapshot), only that client fails. On that client, \`w32tm /query /source\` shows \`Local CMOS Clock\` (or \`Free-running System Clock\`) instead of a DC: it has left the domain hierarchy. Put it back with \`w32tm /config /syncfromflags:domhier /update\` followed by \`w32tm /resync\`, and check that the hypervisor's own time synchronisation is not fighting W32Time. On the DC, its failed logons show as Security event 4771 with failure code **0x25** (clock skew).
 
+:::practice
+Q: In a single-domain forest, which DC should sync from external NTP servers, and how do all the others get their time?
+A: The DC holding the **PDC emulator** role. Other DCs sync from it (or from a DC higher up), and members sync from a DC in their domain (NT5DS).
+Q: Every machine in the domain is 4 minutes behind the real time, but logons work. Why do they work, and what still breaks?
+A: Everyone drifts **together**, so Kerberos sees no skew between clients and DCs. Systems that use real NTP (Linux hosts, appliances, other forests) can drift away and fail, and logs no longer match real time. Configure the PDC emulator with an external source.
+:::
+
 ### 4. Secure channel and machine accounts
 Joining a computer creates a computer object (\`WS07$\`) with a **machine password** known to both the computer (stored as an LSA secret) and AD. Netlogon uses it to build a **secure channel** to a DC at boot, and the computer changes it automatically every 30 days. If the two copies diverge (snapshot restore, object reset, duplicate name), the computer can no longer authenticate: "The trust relationship between this workstation and the primary domain failed." The repair resets the password on both sides: \`Test-ComputerSecureChannel -Repair\` or \`Reset-ComputerMachinePassword\`.
+
+:::practice
+Q: A VM was rolled back to a snapshot from two months ago. After it starts, domain logons fail with "The trust relationship ... failed". Why?
+A: The computer changed its machine password since the snapshot, so its restored copy no longer matches the one in AD. The secure channel cannot be built.
+Q: What repairs it without leaving and re-joining the domain?
+A: \`Test-ComputerSecureChannel -Repair -Credential DOMAIN\admin\` (or \`Reset-ComputerMachinePassword\`), run with a local administrator logon.
+:::
 
 ### 5. Replication
 Replication partners find each other through DNS too, using the \`<DSA-GUID>._msdcs.corp.lab\` CNAME of each DC. Error **8524** ("The DSA operation is unable to proceed because of a DNS lookup failure") in \`repadmin /replsummary\` means that lookup failed: check the DNS client settings of the DC that reports it, and whether its partner registered its records.
@@ -258,8 +286,22 @@ Every DC has a writable copy. Each change increments the DC's **USN**; partners 
 
 SYSVOL is replicated separately by **DFSR**. AD replication healthy + DFSR broken = GPO version in AD (\`gPCVersion\`) does not match the files on that DC, and clients see inconsistent policy.
 
+:::practice
+Q: A password change made on dc01 is not accepted by dc02 an hour later. \`repadmin /replsummary\` shows failures with error 8524 on dc02. Where do you look?
+A: At **DNS**: dc02 cannot resolve dc01's \`<DSA-GUID>._msdcs\` CNAME. Check dc02's DNS client settings and whether dc01 registered its records.
+Q: AD replication is healthy but clients get different policy settings depending on which DC they use. What else replicates and may be broken?
+A: **SYSVOL**, which is replicated separately by DFSR. A DC with stale SYSVOL serves old GPO files.
+:::
+
 ### 6. Group Policy
 The Group Policy Client service (**gpsvc**) applies **computer** policy at boot and **user** policy at logon, then refreshes in the background every 90 minutes ± up to 30 (DCs every 5 minutes). It asks LDAP which GPOs are linked to the site, domain and OUs of the computer/user (and filtered by security groups and WMI filters), then reads each GPO's files from **SYSVOL** over SMB using Kerberos. Failures: LDAP/Kerberos to the DC (System event **1030**), reading \`gpt.ini\` from SYSVOL (**1058**), or a client-side extension failing (Operational log **7016**).
+
+:::practice
+Q: \`gpupdate\` reports event 1030. Which step failed: reading the GPO list or reading the files?
+A: Reading the **GPO list**: 1030 means the LDAP/Kerberos query to the DC failed. (1058 would mean reading gpt.ini from SYSVOL failed.)
+Q: How often is computer policy refreshed in the background on a member, and on a DC?
+A: Every **90 minutes ± up to 30** on members, every **5 minutes** on DCs, plus at boot (computer) and logon (user).
+:::
 
 ### Services involved, by machine
 - **DC**: NTDS, DNS, Kdc, Netlogon, W32Time, DFSR, IsmServ, LanmanServer (shares SYSVOL/NETLOGON), RpcSs.

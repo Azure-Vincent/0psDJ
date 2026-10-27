@@ -199,8 +199,22 @@ A **unit** is anything systemd manages, described by a small INI-style file. The
 - \`.mount\`: a mounted filesystem, usually generated from \`/etc/fstab\`.
 - \`.path\`: starts a service when a file or directory changes.
 
+:::practice
+Q: Which unit type would you use to run a cleanup script every night at 02:00?
+A: A **.timer** unit that starts a .service unit containing the script.
+Q: On Ubuntu 24.04, \`ss -tlnp\` shows port 22 owned by systemd, and sshd is not running. Is SSH broken?
+A: No. **ssh.socket** holds the port (socket activation) and starts sshd when the first connection arrives.
+:::
+
 ### Processes vs units, and cgroups
 A unit is a *definition*; when it runs it has one or more *processes*. systemd puts all processes of a service in one **control group** (e.g. \`/system.slice/ssh.service\`, shown on the \`CGroup:\` line of \`systemctl status\`). That is how systemd can stop a service completely even if it forked many children, and why \`KillMode=process\` on ssh.service matters: it tells systemd to kill only the listener, so your existing SSH sessions survive a restart.
+
+:::practice
+Q: Why can systemd stop a service completely even if it forked many child processes?
+A: All of the service's processes live in **one control group**, and systemd stops the whole group.
+Q: Why do your open SSH sessions survive \`systemctl restart ssh\`?
+A: ssh.service has \`KillMode=process\`: systemd kills only the listener process, not the per-connection children in the same cgroup.
+:::
 
 ### Targets and the boot sequence
 At boot systemd activates \`default.target\`, a symlink to \`multi-user.target\` on servers (\`graphical.target\` on desktops). That target *wants* everything enabled for it, which in turn needs:
@@ -209,11 +223,25 @@ At boot systemd activates \`default.target\`, a symlink to \`multi-user.target\`
 - \`network.target\`: the network management service has been **started**. It says nothing about addresses being configured. Services that only need to bind to 0.0.0.0 use \`After=network.target\` (sshd does).
 - \`network-online.target\`: a *wait-online* service has confirmed that the network is **configured** (an address and route exist). Only units that must reach another host at start (NFS mounts, a DHCP server that must bind to a configured address, a service connecting to a remote database) should use \`Wants=\` + \`After=network-online.target\`, because it can delay the boot.
 
+:::practice
+Q: A web server only needs to bind to 0.0.0.0:80 at start. Should its unit use network.target or network-online.target?
+A: \`After=network.target\` is enough: binding to 0.0.0.0 does not need a configured address. network-online.target would only delay the boot.
+Q: A service connects to a remote database the moment it starts and fails at boot, but starts fine by hand later. Which target is it missing?
+A: \`network-online.target\`, with both \`Wants=\` and \`After=\`: it needs the network to be configured before it starts.
+:::
+
 ### Dependencies: requirement and ordering are different
 - **Requirement** says *what else must be started*: \`Wants=\` (start it too, but continue if it fails), \`Requires=\` (start it too, and fail/stop if it fails), \`BindsTo=\` (like Requires, and also stop when the other unit stops, e.g. a device disappears).
 - **Ordering** says *in which order*: \`After=\` and \`Before=\`. They do not start anything.
 - You almost always need both: \`Wants=network-online.target\` *and* \`After=network-online.target\`. With only \`After=\`, the target might not be part of the boot at all; with only \`Wants=\`, both start in parallel.
 - \`[Install] WantedBy=multi-user.target\` is not a dependency at runtime: it tells \`systemctl enable\` where to create the symlink.
+
+:::practice
+Q: A unit says \`Requires=postgresql.service\` but no After=. postgresql takes 10 seconds to start. What can go wrong?
+A: Both start **in parallel**: Requires= pulls postgresql in but does not order them, so the service may try to connect before the database is ready. Add \`After=postgresql.service\`.
+Q: What is the difference between \`Wants=\` and \`Requires=\` when the other unit fails to start?
+A: With Wants=, this unit **continues**; with Requires=, it fails (and stops if the other stops).
+:::
 
 ### enable vs start, and masks
 - \`start\` / \`stop\`: affects **now**.
@@ -221,10 +249,24 @@ At boot systemd activates \`default.target\`, a symlink to \`multi-user.target\`
 - A service can be running but disabled (it will not come back after a reboot: the ssh-monday-reboot ticket) or enabled but failed.
 - \`mask\` makes a unit impossible to start (symlink to \`/dev/null\`); \`unmask\` removes that.
 
+:::practice
+Q: You must stop a service now and make sure nobody, not even another unit, can start it again. Which commands?
+A: \`systemctl stop X\` and \`systemctl mask X\` (mask links it to /dev/null; \`disable\` alone would still let another unit or an admin start it).
+Q: A unit shows \`enabled\` and \`failed\`. What will happen at the next reboot?
+A: systemd will **try to start it** (it is enabled), and it will probably fail again unless the cause is fixed.
+:::
+
 ### The journal
 \`systemd-journald\` collects kernel messages, the stdout/stderr of every service, and anything sent to syslog. Each entry carries the unit, PID, priority (0 emerg … 3 err … 4 warning … 6 info … 7 debug, the syslog severities) and boot ID, which is what makes \`journalctl -u ssh -b -p err\` possible. **rsyslog**, when installed, copies messages into the classic text files in \`/var/log\`.
 
 > The lab hosts are Debian 12 (systemd 252). The simulator models \`systemctl\` (status, start, stop, restart, reload, enable, disable, is-active, is-enabled, is-failed, list-units, --failed, cat, list-dependencies, show, daemon-reload, mask, unmask) and \`journalctl\` for the lab's services. \`systemctl edit\` and \`get-default\` are explained here but not simulated.
+
+:::practice
+Q: Which priority numbers does \`journalctl -p warning\` show?
+A: 0 to 4: emerg, alert, crit, err and **warning**.
+Q: Where does the output a service prints on stdout end up?
+A: In the **journal** (journald collects every service's stdout/stderr), readable with \`journalctl -u UNIT\`.
+:::
 
 `,
 
@@ -238,6 +280,13 @@ systemd looks for a unit in several directories; **the first one found wins**, a
 
 \`systemctl cat <unit>\` prints the winning file with its path as a comment, and \`systemd-delta\` lists every overridden, extended and masked unit on the system.
 
+:::practice
+Q: A package update changed /lib/systemd/system/nginx.service, but nginx keeps its old behaviour. You find a full copy in /etc/systemd/system/nginx.service. Why?
+A: The copy in **/etc/systemd/system** wins over the vendor file, so the package's change is ignored. Prefer drop-ins over full copies.
+Q: Which command shows the file systemd actually uses for a unit, with its path?
+A: \`systemctl cat UNIT\` (and \`systemd-delta\` lists all overridden units).
+:::
+
 ### Drop-ins
 To change a few settings of a vendor unit without copying it, create a **drop-in**:
 \`\`\`
@@ -248,6 +297,13 @@ Restart=on-failure
 RestartSec=5s
 \`\`\`
 \`systemctl edit\` runs \`daemon-reload\` for you when you save; if you write \`/etc/systemd/system/<unit>.d/*.conf\` by hand you must run \`sudo systemctl daemon-reload\` yourself, then restart the service. Settings that can appear several times (\`ExecStart=\`, \`ExecStartPre=\`, \`After=\`) **accumulate**; to replace \`ExecStart\`, first clear it with an empty \`ExecStart=\` line.
+
+:::practice
+Q: A hand-written drop-in sets \`ExecStart=/usr/local/bin/app --new\` and the service now fails with "more than one ExecStart= setting". Why, and how do you fix it?
+A: ExecStart= **accumulates**, so the unit now has two. Add an empty \`ExecStart=\` line first to clear the vendor value, then your new one.
+Q: You created /etc/systemd/system/app.service.d/limits.conf by hand. What two commands make it take effect?
+A: \`systemctl daemon-reload\`, then \`systemctl restart app\`.
+:::
 
 ### Generators
 Generators are small programs systemd runs at boot and at every \`daemon-reload\` to translate other configuration into units:
@@ -278,6 +334,13 @@ ExecStart=/etc/init.d/isc-dhcp-server start
 ExecStop=/etc/init.d/isc-dhcp-server stop
 \`\`\`
 Note \`Restart=no\`: if dhcpd dies, nothing restarts it. \`systemctl status\` shows \`Loaded: loaded (/etc/init.d/isc-dhcp-server; generated)\`.
+
+:::practice
+Q: You add a line to /etc/fstab. Which component turns it into a unit, and when?
+A: **systemd-fstab-generator** turns each fstab line into a .mount unit, at boot and at every \`daemon-reload\`.
+Q: Why is editing a file in /run/systemd/generator.late pointless?
+A: It is **regenerated** at every boot and daemon-reload. Change the source (the init script or fstab), or write a real unit or drop-in in /etc/systemd/system.
+:::
 
 ### Reading real units from the lab
 **ssh.service** (srv01, \`systemctl cat ssh\`):
@@ -312,6 +375,13 @@ Alias=sshd.service
 
 **nftables.service** (\`systemctl cat nftables\`): \`Type=oneshot\` + \`RemainAfterExit=yes\` (runs \`nft -f /etc/nftables.conf\` once, then shows \`active (exited)\`), \`DefaultDependencies=no\`, \`Before=network-pre.target\`, \`WantedBy=sysinit.target\`, \`ExecReload=/usr/sbin/nft -f /etc/nftables.conf\` and \`ExecStop=/usr/sbin/nft flush ruleset\`. So \`systemctl stop nftables\` **removes the whole firewall**.
 
+:::practice
+Q: ssh.service has \`Restart=on-failure\` and \`RestartPreventExitStatus=255\`. sshd exits with 255 because of a configuration error. Does systemd restart it?
+A: **No.** Exit status 255 is excluded, because restarting with the same broken configuration cannot help.
+Q: What does the \`-\` in \`EnvironmentFile=-/etc/default/ssh\` mean?
+A: Ignore the file if it is **missing**, instead of failing the start.
+:::
+
 ### Type=: when is a service "started"?
 | Type | systemd considers it started when ... | Lab / typical example |
 |---|---|---|
@@ -321,8 +391,22 @@ Alias=sshd.service
 | \`notify\` | the service sends READY=1 via sd_notify | sshd on Debian 12, systemd-networkd |
 | \`oneshot\` | the command has **finished**; with \`RemainAfterExit=yes\` the unit then stays "active (exited)" | nftables, networking |
 
+:::practice
+Q: A custom service with Type=simple has a wrong path in ExecStart. Does \`systemctl start\` report the error?
+A: Not reliably: with simple, systemd considers the service started as soon as it forks. With **Type=exec** the start itself fails with 203/EXEC, which is easier to notice.
+Q: Which Type makes systemd wait until the service reports that it is ready?
+A: **notify** (the service sends READY=1 through sd_notify).
+:::
+
 ### Restart policy and start limits
 \`Restart=\` (no, on-success, on-failure, on-abnormal, on-abort, always) decides whether systemd restarts a service after its main process ends; \`RestartSec=\` waits in between (default 100 ms). To stop endless loops, \`StartLimitIntervalSec=10s\` and \`StartLimitBurst=5\` (defaults) make systemd give up: "Start request repeated too quickly", unit \`failed\`, until \`systemctl reset-failed\`.
+
+:::practice
+Q: A service with Restart=always crashes 6 times in 10 seconds. What does systemd do, and how do you let it try again after fixing the cause?
+A: It hits the start limit (default 5 starts in 10 s), stops retrying and marks the unit **failed** ("Start request repeated too quickly"). After the fix: \`systemctl reset-failed UNIT\`, then start it.
+Q: Why can an automatic restart policy hide a real problem?
+A: Users only see short gaps while systemd restarts the crashing service. Unless someone reads the journal, nobody looks for the cause until the start limit is hit.
+:::
 
 ### Exit codes you will see in systemctl status
 - \`status=0/SUCCESS\`; \`status=1/FAILURE\` and \`status=255/EXCEPTION\`: the program itself exited with that code (read its message).
@@ -330,14 +414,36 @@ Alias=sshd.service
 - \`status=217/USER\`: \`User=\` does not exist. \`status=200/CHDIR\`: \`WorkingDirectory=\` is missing.
 - \`code=killed, signal=KILL\` / \`signal=SEGV\`: killed (OOM killer, timeout) or crashed.
 
+:::practice
+Q: \`systemctl status\` shows \`status=200/CHDIR\`. What do you check?
+A: The \`WorkingDirectory=\` setting: the directory does not exist.
+Q: \`code=killed, signal=SEGV\`: did the program exit with an error code?
+A: No. It **crashed** (segmentation fault) and was killed by the kernel; look at the journal and core dumps rather than its configuration.
+:::
+
 ### journald: where logs live and how to query them
 - **Volatile** journal: \`/run/log/journal\` (tmpfs, lost at reboot). **Persistent**: \`/var/log/journal\`. With the default \`Storage=auto\`, journald uses /var/log/journal **only if that directory exists**. Debian 11+ and Ubuntu create it (persistent by default; Debian 12 therefore no longer installs rsyslog). On RHEL check \`ls /var/log/journal\` and \`journalctl --list-boots\`; RHEL also keeps text logs through rsyslog.
 - Priorities are syslog severities: 0 emerg, 1 alert, 2 crit, 3 err, 4 warning, 5 notice, 6 info, 7 debug. \`-p err\` shows 0–3.
 - Useful options: \`-u UNIT\`, \`-b\` (this boot; \`-b -1\` previous), \`-p err\`, \`-f\` (follow), \`-x\` (add explanations), \`-e\` (jump to end), \`-n 50\`, \`--since "2026-10-19 07:00"\` / \`"10 min ago"\`, \`-k\` (kernel only), \`-t sshd\` (by syslog identifier), \`-g PATTERN\`, \`-o json-pretty\` (all fields).
 - **rsyslog** reads from the journal (imjournal on RHEL, \`/dev/log\` forwarding on Debian) and writes \`/var/log/syslog\` + \`/var/log/auth.log\` (Debian/Ubuntu) or \`/var/log/messages\` + \`/var/log/secure\` (RHEL). Use it for text files and remote syslog forwarding.
 
+:::practice
+Q: After a reboot, \`journalctl -b -1\` says there is no previous boot. Why, on a server where /var/log/journal does not exist?
+A: With \`Storage=auto\` the journal is **volatile** (/run/log/journal) when /var/log/journal does not exist, so earlier boots are lost. Create the directory to make it persistent.
+Q: Which command shows only kernel messages from the current boot?
+A: \`journalctl -k\` (it implies the current boot; add \`-b -1\` for the previous one).
+:::
+
 ### What \`systemctl restart\` actually does (failure path)
 Use the sequence diagram below: systemctl asks PID 1 over D-Bus; PID 1 stops the main process, runs ExecStartPre, records the exit code, logs "Failed with result 'exit-code'", and tells systemctl "Job for ssh.service failed". The program's own error message goes to the **journal**, never to your terminal. That is why the first reflex after any failed systemctl command is \`systemctl status\` and \`journalctl -xeu <unit>\`.
+
+:::practice
+Q: \`systemctl restart app\` prints "Job for app.service failed". Where is the program's actual error message?
+A: In the **journal**, never on your terminal: \`systemctl status app\` and \`journalctl -xeu app\`.
+Q: Through which channel does systemctl ask PID 1 to restart a unit?
+A: **D-Bus**. PID 1 does the work and reports the job result back.
+:::
+
 `,
 
   deployment: [

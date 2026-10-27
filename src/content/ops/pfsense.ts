@@ -206,13 +206,34 @@ pfSense separates the **physical** interface (driver name + unit: \`vtnet0\` on 
 - Address them with **option 2 "Set interface(s) IP address"** (also offers to enable DHCP on LAN and to revert the GUI to HTTP) or at Interfaces > (name).
 - A **VLAN** is created at Interfaces > Assignments > VLANs (parent \`vtnet1\`, tag 30), which creates \`vtnet1.30\`; it must then be **assigned** (becomes OPTx), **enabled**, and given an address. The parent carries untagged LAN traffic and the tagged VLANs on the same wire, so the switch port must be a trunk.
 
+:::practice
+Q: You create VLAN 40 on parent vtnet1. Name the steps before hosts in VLAN 40 can use pfSense as their gateway.
+A: The VLAN creates \`vtnet1.40\`. Then **assign** it (it becomes an OPTx interface), **enable** it, give it an **address** (for example 10.0.40.1/24), and add **pass rules** on its tab. The switch port to vtnet1 must be a trunk carrying VLAN 40.
+Q: Rules on the OPT2 tab refer to "OPT2", not to \`vtnet1.40\`. What happens to those rules if OPT2 is later reassigned to another NIC?
+A: They **follow the logical name** and now apply to the new NIC.
+:::
+
 ### WAN and LAN
 - WAN is usually DHCP (from an ISP or upstream router) or static with an explicit **gateway** (System > Routing > Gateways). An interface with a gateway set is treated as a WAN-type interface: automatic outbound NAT translates traffic leaving it, and it gets no automatic "allow" rules.
 - On WAN the wizard ticks **Block private networks and loopback addresses** and **Block bogon networks**. These automatic rules drop inbound packets from RFC1918 (10/8, 172.16/12, 192.168/16) and unassigned address space. In a lab where the WAN itself is 192.168.1.0/24, every connection *initiated* from the upstream network (port forwards, GUI on WAN, VPN from the upstream LAN) is dropped before your WAN rules are evaluated. Untick it only when the WAN really is a private network.
 - LAN gets two default rules: **Default allow LAN to any rule** (IPv4 and IPv6) and the **anti-lockout rule**, an automatic rule that always passes the webGUI and SSH ports to the LAN address (System > Advanced > Admin Access to disable it).
 
+:::practice
+Q: Your lab pfSense has WAN 192.168.1.50 on a home network. A port forward works from the Internet but not from your laptop at 192.168.1.20. Which WAN setting is the likely cause?
+A: **Block private networks and loopback addresses**: it drops inbound traffic from RFC1918 sources such as 192.168.1.20 before your rules are evaluated.
+Q: Which two rules does LAN get by default?
+A: **Default allow LAN to any** (IPv4 and IPv6) and the **anti-lockout rule** for the webGUI and SSH.
+:::
+
 ### Routing
 Diagnostics > Routes (or \`netstat -rn -f inet\` in the shell) shows the FreeBSD routing table: connected networks, the default route via the default gateway, and static routes from System > Routing > Static Routes. **dpinger** pings each gateway's monitor IP; a gateway marked down can be removed from the routing table or fail over in a gateway group. A firewall rule may set a **gateway** (policy routing), which overrides the routing table for traffic matching that rule; note that this also sends traffic for local networks out of that gateway unless a rule above it passes local traffic without a gateway.
+
+:::practice
+Q: A LAN rule sends all traffic out of gateway WAN2 (policy routing). Now LAN clients cannot reach a server on the DMZ interface. Why, and what is the fix?
+A: The rule's gateway overrides the routing table, so DMZ traffic is also sent to WAN2. Add a rule **above it** that passes traffic to local networks **without** a gateway set.
+Q: Which pfSense process decides whether a gateway is up?
+A: **dpinger**, which pings each gateway's monitor IP.
+:::
 
 ### Firewall rules: where and in which order
 - Rules are configured **per interface** and evaluated on the interface where the traffic **enters** pfSense. To control what VLAN 30 can reach, edit the **OPT1** tab, not WAN. Outbound traffic is passed automatically.
@@ -223,19 +244,47 @@ Diagnostics > Routes (or \`netstat -rn -f inet\` in the shell) shows the FreeBSD
 - **Aliases** (Firewall > Aliases) name hosts, networks, ports or URL tables; they become pf tables and keep rules readable.
 - Changes take effect on **Apply Changes**: the whole ruleset is regenerated and reloaded atomically. **Existing states keep flowing** until they expire or are killed: a new block rule does not cut a connection that is already established.
 
+:::practice
+Q: To stop the guest VLAN (OPT3) from reaching LAN, but let it reach the Internet, which tab and order do you use?
+A: The **OPT3** tab (where guest traffic enters): first a **block** rule to the LAN net, then a **pass** rule to any. First match wins, so the block must be above the pass.
+Q: A new OPT interface is enabled and has an address and a DHCP server. Clients get leases but cannot ping the gateway. Why?
+A: A new OPT interface has **no pass rules**, so everything entering it hits the default deny; DHCP works only because the DHCP server adds its own automatic rules.
+:::
+
 ### NAT
 - **Outbound NAT** (Firewall > NAT > Outbound) rewrites the source of traffic leaving a WAN-type interface. Modes: **Automatic** (generated mappings for every internal subnet), **Hybrid** (your manual mappings first, then automatic ones), **Manual** (only your mappings; when you switch to Manual the current automatic ones are copied, but **subnets added later are not**), **Disabled**.
 - **Port Forward** (destination NAT, \`rdr\`) translates inbound WAN traffic to an internal host. The rdr happens before filtering, so the filter rule must match the **internal** address and port: use "Add associated filter rule". With Filter rule association "None", no pass rule exists and the forwarded traffic hits the default deny. Two more things must be true: the WAN rule **Block private networks** drops sources from 10.x, 172.16–31.x and 192.168.x before any of your rules, so a test from a private upstream network fails while the Internet works; and the internal server must send its **replies back through pfSense** (its default gateway must be pfSense), otherwise they never pass the state that would translate them back.
 - **NAT reflection** lets internal clients use the public address of a port forward (System > Advanced > Firewall & NAT, disabled by default). Split DNS (a DNS Resolver host override pointing to the internal address) is usually cleaner.
 - **1:1 NAT** maps a whole external address to one internal address in both directions.
 
+:::practice
+Q: Outbound NAT is in Hybrid mode with one manual mapping. You add a new internal subnet. Is it NATed?
+A: **Yes.** Hybrid applies your manual mappings first and then the automatic ones, which include every internal subnet. Only Manual mode would leave it untranslated.
+Q: Why is split DNS often preferred to NAT reflection for internal clients?
+A: Internal clients get the server's **internal** address from a DNS Resolver host override and reach it directly, without hairpinning through the WAN address and NAT.
+:::
+
 ### States
 Every passed connection creates a **state** (Diagnostics > States; \`pfctl -ss\`). Replies match the state, not the rules, which is why you never write rules for return traffic. \`pfctl -si\` shows the table size and counters; the limit is Firewall Maximum States (System > Advanced > Firewall & NAT). **Reset States** flushes the whole table and drops every connection; killing the states of one host (\`pfctl -k 10.0.30.25\`) is the targeted alternative.
+
+:::practice
+Q: You block a host that already has an open RDP session through pfSense. Its session keeps working. What is the targeted way to cut it?
+A: Kill that host's states: Diagnostics > States (filter by address, X), or \`pfctl -k ADDRESS\`. Its next packet is then evaluated against the rules.
+Q: Why should you avoid "Reset States" for this?
+A: It flushes the **whole** state table and drops every connection through the firewall, not only the one you are interested in.
+:::
 
 ### Services on the firewall
 - **DHCP** (Services > DHCP Server, one tab per static interface). pfSense 2.7.x has two back-ends: **ISC DHCP** (default in 2.7.2, deprecated upstream) and **Kea** (System > Advanced > Networking > Server Backend). Leases: Status > DHCP Leases.
 - **DNS Resolver** (unbound, Services > DNS Resolver): resolves recursively by default (or forwards to System > General DNS servers in forwarding mode), registers DHCP leases if asked, supports **host overrides**. It answers subnets of local interfaces automatically; other subnets (behind static routes, VPN) need an **access list** entry or get REFUSED. Its config is generated as \`/var/unbound/unbound.conf\`. The **DNS Forwarder** (dnsmasq) is the alternative; only one can use port 53.
 - **VPN**: OpenVPN (VPN > OpenVPN), IPsec (VPN > IPsec), WireGuard (package). Each VPN gets its own **rules tab** (OpenVPN, IPsec, WireGuard); traffic arriving through the tunnel is filtered there, so a working tunnel with an empty tab passes nothing. Check: Status > Services, Status > OpenVPN / IPsec / WireGuard, the VPN log tab, and the WAN rule allowing the VPN port.
+
+:::practice
+Q: Clients on a VPN subnet get REFUSED from pfSense's DNS Resolver, while LAN clients resolve fine. What is missing?
+A: An **access list** entry for the VPN subnet (Services > DNS Resolver > Access Lists). unbound only allows subnets of local interfaces automatically.
+Q: An OpenVPN tunnel is up, but nothing passes through it. Which rules tab do you check?
+A: The **OpenVPN** tab: traffic arriving through the tunnel is filtered there, and an empty tab passes nothing.
+:::
 
 ### Logs and captures
 - **Status > System Logs > Firewall** shows logged packets (default block rules log; pass rules only if "Log" is ticked on the rule). Each entry's icon names the matching rule; the **Easy Rule** icons add a pass or block rule for that source in one click.
@@ -247,8 +296,22 @@ Oct 21 09:14:02 pfSense filterlog[40312]: 5,,,1000000103,vtnet1.30,match,block,i
 - **Diagnostics > Packet Capture** runs tcpdump on an interface. From the shell: \`tcpdump -ni vtnet1.30 host 10.0.30.25\` (on the parent, \`tcpdump -ni vtnet1 vlan 30 and host 10.0.30.25\`, because frames there carry the tag).
 - **Diagnostics > Ping / Traceroute / Test Port** test from the firewall with a chosen source address; **Diagnostics > Command Prompt** runs shell commands from the GUI.
 
+:::practice
+Q: A filterlog line contains \`...,1000000103,vtnet0,match,block,in,4,...\`. What does it tell you?
+A: An inbound IPv4 packet on **vtnet0** was **blocked** by the rule with tracker **1000000103**, the default deny rule.
+Q: Why does \`tcpdump -ni vtnet1 host 10.0.40.9\` show nothing for a host on VLAN 40, while \`tcpdump -ni vtnet1.40 host 10.0.40.9\` works?
+A: On the parent vtnet1 the frames carry a VLAN tag, so the filter must say \`vlan 40 and host 10.0.40.9\`. On vtnet1.40 the tag is already removed.
+:::
+
 ### config.xml: the single source of truth
 Everything above is stored in \`/cf/conf/config.xml\`. The GUI validates input, writes the file, keeps the previous version in \`/cf/conf/backup/\` (Diagnostics > Backup & Restore > Config History), and then reloads the affected subsystem, which **regenerates** the real configuration (\`/tmp/rules.debug\`, \`/var/unbound/unbound.conf\`, \`/var/dhcpd/etc/dhcpd.conf\`…). Editing those generated files is pointless (they are overwritten); editing config.xml by hand skips validation and history, is not applied until the subsystem reloads, is shadowed by \`/tmp/config.cache\`, and an XML error can stop the next boot. If a hand edit is truly unavoidable: back up the file, edit, \`rm /tmp/config.cache\`, then reload the subsystem or reboot.
+
+:::practice
+Q: You edited /var/unbound/unbound.conf directly on pfSense. Why is your change gone after the next DNS Resolver save?
+A: unbound.conf is **generated** from config.xml every time the service is configured. Make the change in the GUI (or its custom options) so it is stored in config.xml.
+Q: Where do you find a previous version of the configuration after a bad change?
+A: In **/cf/conf/backup/** (Diagnostics > Backup & Restore > Config History), or from the console with option 15.
+:::
 
 ### Which action applies which change
 Each part of pfSense is applied by its own action, so choose the smallest one that covers your change:
@@ -260,6 +323,14 @@ Each part of pfSense is applied by its own action, so choose the smallest one th
 | Nothing is wrong with the config, but one host keeps an old connection | **Kill that host's states** (\`pfctl -k ADDRESS\`) |
 | Hardware, a kernel tunable, or something the GUI says needs it | **Reboot**, in a maintenance window |
 Restarting a service also clears its runtime data: restarting unbound empties its DNS cache, restarting a VPN server disconnects its clients. Clients may still cache an old DNS answer until its TTL expires.
+
+:::practice
+Q: You edited a firewall alias. What is the smallest action that applies it?
+A: **Apply Changes** (a filter reload). No service restart or reboot is needed, and existing states are kept.
+Q: You changed the DHCP server's DNS option for a LAN. What applies it, and when do clients see the new value?
+A: **Restart the DHCP service** (saving does this). Clients get the new option when they **renew** their lease.
+:::
+
 `,
 
   deployment: [

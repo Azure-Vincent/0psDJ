@@ -211,6 +211,13 @@ Key SCM events in the System log:
 | 7009 | A timeout was reached (30000 milliseconds) while waiting for the *X* service to connect |
 | 7040 | The start type of the *X* service was changed from ... to ... |
 
+:::practice
+Q: A service has startup type Manual and status Stopped after a reboot. Is that a fault?
+A: Not necessarily. **Manual** services start only on demand (by another service, a trigger or an admin). It is a fault only if something needs it running and nothing starts it; then the right fix may be Automatic.
+Q: The System log shows event **7034** for a service. What happened, and what is the difference from 7031?
+A: The service **terminated unexpectedly**. 7031 says the same but adds that a recovery action (such as a restart) will be taken; 7034 means no recovery action is configured.
+:::
+
 ### Event Viewer
 Logs are files in \`%SystemRoot%\\System32\\winevt\\Logs\\*.evtx\`. **Windows Logs** (Application, Security, System) plus **Applications and Services Logs** per component (for RDP: \`Microsoft-Windows-TerminalServices-LocalSessionManager/Operational\`, \`...-RemoteConnectionManager/Operational\`, \`Microsoft-Windows-RemoteDesktopServices-RdpCoreTS/Operational\`). Query them efficiently with a filter hashtable, which is evaluated by the event log service rather than in PowerShell:
 \`\`\`
@@ -227,8 +234,22 @@ RDP-related IDs:
 | RdpCoreTS | 131 | The server accepted a new TCP connection from client *ip:port* |
 | RdpCoreTS | 140 | Connection from *ip* failed because the user name or password is not correct |
 
+:::practice
+Q: Security event 4624 shows Logon Type 3 just before a Logon Type 10 for the same user. What do the two mean for an RDP logon with NLA?
+A: Type **3** is the network logon used for the **NLA pre-authentication**; type **10** is the actual RemoteInteractive (RDP) session logon.
+Q: RemoteConnectionManager event 1149 shows the user authenticated, but they never got a desktop. Does 1149 prove the logon succeeded?
+A: **No.** 1149 only means authentication succeeded at the network level. Look at Security 4625 (with its Status) and the LocalSessionManager events (21/22) for the session logon itself.
+:::
+
 ### Windows Defender Firewall
 Stateful, per-**profile**: *Domain* (the adapter can reach a DC of the joined domain), *Private*, *Public* (the default for unknown networks). Each rule applies to one or more profiles. The built-in group **"Remote Desktop"** contains "Remote Desktop - User Mode (TCP-In)", "Remote Desktop - User Mode (UDP-In)" and "Remote Desktop - Shadow (TCP-In)"; enabling RDP in the GUI enables them. They allow **port 3389** only. Rules can also come from Group Policy, and a block rule wins over an allow rule.
+
+:::practice
+Q: The built-in Remote Desktop rules are enabled for the Domain profile only. A server shows its profile as Public. Can clients connect on 3389?
+A: **No.** The rules do not apply in the Public profile. Find out why the server does not detect the domain network (usually DNS cannot reach a DC) rather than enabling RDP for Public.
+Q: A local allow rule and a Group Policy block rule both match port 3389. Which wins?
+A: The **block** rule. In Windows Defender Firewall a block rule wins over an allow rule.
+:::
 
 ### Registry settings that control RDP
 - \`HKLM\\SYSTEM\\CurrentControlSet\\Control\\Terminal Server\\fDenyTSConnections\`: 0 = allow, 1 = deny (the default after installing Windows Server).
@@ -237,6 +258,13 @@ Stateful, per-**profile**: *Domain* (the adapter can reach a DC of the joined do
 - \`...\\RDP-Tcp\\SecurityLayer\`: 0 = legacy RDP security, 1 = negotiate, 2 = TLS.
 - \`HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Terminal Services\`: the same settings from **Group Policy**, which override the values above.
 
+:::practice
+Q: \`fDenyTSConnections\` is 0 in \`HKLM\SYSTEM\...\Terminal Server\`, but RDP is still refused as "disabled". Where else do you look?
+A: In the **policy** key \`HKLM\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services\`: a Group Policy setting there overrides the local value.
+Q: Which value tells you whether the server requires NLA?
+A: \`UserAuthentication\` under the RDP-Tcp key: 1 means NLA is required.
+:::
+
 ### Remote Desktop Services
 - **TermService** ("Remote Desktop Services") owns the listener and the protocol. **UmRdpService** ("Remote Desktop Services UserMode Port Redirector") depends on it; **SessionEnv** ("Remote Desktop Configuration") supports it.
 - The **listener** RDP-Tcp is visible with \`qwinsta\` (\`query session\`) as \`rdp-tcp ... 65536 Listen\`. No such line, no RDP.
@@ -244,11 +272,32 @@ Stateful, per-**profile**: *Domain* (the adapter can reach a DC of the joined do
 - **Certificates**: RDS generates a self-signed certificate (store \`Cert:\\LocalMachine\\Remote Desktop\`); in a domain you can deploy CA-issued certificates by Group Policy so clients stop warning.
 - **Restarting TermService disconnects every RDP session, including your own.** Restart it from the console, the hypervisor, iLO/iDRAC, or remotely with \`Invoke-Command -ComputerName app01 { Restart-Service TermService -Force }\` over WinRM.
 
+:::practice
+Q: \`qwinsta\` lists \`rdp-tcp ... 65536 Listen\`. What does that line prove?
+A: The RDP **listener exists and is listening**: TermService is running and RDP is enabled. If clients still cannot connect, look at the firewall, the port and the network.
+Q: Why can a domain user fail NLA on a server whose clock is 10 minutes off, while the local Administrator still logs on?
+A: NLA authenticates domain accounts with **Kerberos**, which rejects clocks more than 5 minutes apart. Local accounts are checked against the local SAM and need no DC or Kerberos.
+:::
+
 ### WinRM
 The **WinRM** service ("Windows Remote Management (WS-Management)") listens on TCP **5985** (HTTP, messages still encrypted with Kerberos/NTLM) and **5986** (HTTPS). It is enabled by default on Windows Server 2012 and later; \`Enable-PSRemoting -Force\` enables it elsewhere (and creates firewall rules). \`Test-WSMan app01\` checks it. In a domain, Kerberos authenticates both sides; by IP or in a workgroup you must add the target to \`WSMan:\\localhost\\Client\\TrustedHosts\` (or use HTTPS).
 
+:::practice
+Q: You want to run commands on app01 by IP address from a workgroup laptop. Why does \`Enter-PSSession 10.0.20.21\` fail where \`Enter-PSSession app01.corp.lab\` from a domain machine works?
+A: By IP address (or from a workgroup) Kerberos cannot be used. The laptop must list the target in \`WSMan:\localhost\Client\TrustedHosts\` (or use HTTPS on 5986).
+Q: Which command tests whether WinRM answers on a remote server?
+A: \`Test-WSMan SERVER\`.
+:::
+
 ### Active Directory dependencies
 A domain RDP logon needs: DNS that resolves the server and the DC SRV records (\`_ldap._tcp.dc._msdcs.corp.lab\`), a reachable DC (Kerberos 88, LDAP 389), a valid **secure channel** between app01 and the domain (\`nltest /sc_query:corp.lab\`), and **time** within 5 minutes (Kerberos). Any one failing breaks NLA for domain accounts while local accounts still work, a useful diagnostic contrast.
+
+:::practice
+Q: Name the four things a server needs so that domain accounts can pass NLA.
+A: DNS that resolves the DC records, a **reachable DC** (Kerberos 88, LDAP 389), a valid **secure channel** with the domain, and **time** within 5 minutes.
+Q: Which command checks the server's secure channel with the domain?
+A: \`nltest /sc_query:corp.lab\` (or \`Test-ComputerSecureChannel\` in PowerShell).
+:::
 
 ### Group Policy
 Computer settings apply at boot and every 90 minutes (with a random offset of up to 30); \`gpupdate /force\` applies now; \`gpresult /r /scope computer\` lists applied GPOs; \`gpresult /h report.html\` shows the **winning GPO per setting**. RDP-related settings:
@@ -257,8 +306,23 @@ Computer settings apply at boot and every 90 minutes (with a random offset of up
 - Computer Configuration > Windows Settings > Security Settings > Local Policies > **User Rights Assignment** > "Allow log on through Remote Desktop Services" and "Deny log on through Remote Desktop Services". A GPO that defines a user right **replaces** the local list, so a baseline that lists only Administrators removes Remote Desktop Users (case study F).
 - Computer Configuration > Administrative Templates > System > Credentials Delegation > "Encryption Oracle Remediation" (CredSSP).
 
+:::practice
+Q: A GPO defines "Allow log on through Remote Desktop Services" with only the group Helpdesk-RDP. Can members of the local Remote Desktop Users group still log on through RDP?
+A: **No** (unless they are also in Helpdesk-RDP). A GPO that defines a user right **replaces** the local list.
+Q: Which command shows which GPO won for each setting on a computer?
+A: \`gpresult /h report.html\` (the HTML report lists the winning GPO per setting).
+:::
+
 ### Windows networking basics for RDP
 \`Get-NetIPConfiguration\` (address, gateway, DNS servers per adapter), \`Resolve-DnsName\` (DNS only, unlike ping which also uses hosts and LLMNR), \`Test-NetConnection host -Port 3389\` (TCP test), \`Get-NetTCPConnection -State Listen\` (the \`ss -tlnp\` of Windows), \`Get-NetConnectionProfile\` (which firewall profile is active). A server whose DNS points at a public resolver cannot find its DC and may fall back to the Public profile: two failures from one setting.
+
+:::practice
+Q: \`ping app01\` works but \`Resolve-DnsName app01.corp.lab\` fails. How can that be?
+A: ping also uses the **hosts file and LLMNR**; Resolve-DnsName asks only DNS. The name is found locally but DNS does not have it (or the client uses the wrong DNS server).
+Q: Which cmdlet is the Windows equivalent of \`ss -tlnp\`?
+A: \`Get-NetTCPConnection -State Listen\`.
+:::
+
 `,
 
   deployment: [

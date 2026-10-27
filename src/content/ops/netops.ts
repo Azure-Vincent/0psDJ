@@ -229,6 +229,15 @@ export const NETOPS_LESSON: Lesson = {
 
 Most "mysterious" network faults are a mismatch between 1 and 2: a runtime change that was never saved (lost at reboot), or a saved change that was never applied (works only after the next reboot). \`ip link set eth0 down\` followed by \`up\` shows this nicely in the lab: the kernel deletes the default route when the link goes down, and bringing the link up does not restore it; only \`systemctl restart networking\` (re-reading the file) does.
 
+:::practice
+Q: An admin added a static route with \`ip route add 10.0.50.0/24 via 10.0.10.1\` on Friday. On Monday after patching, the route is gone. Which kind of state did they change, and what should they have changed?
+A: Only the **live kernel state**. The reboot rebuilt it from the **configuration on disk**, which never had the route. Add it to the manager's configuration (for example a \`up ip route add …\` line or a \`routes:\` entry in netplan).
+Q: You fixed the gateway in /etc/network/interfaces, but \`ip route\` still shows the old one. Which kind of mismatch is this, and what applies the file?
+A: A saved change that was **never applied**. ifupdown reads the file only when told to: \`ifdown eth0 && ifup eth0\` or \`systemctl restart networking\` (from the console if you are connected over that interface).
+Q: Which command shows you the live default route, and which file holds the saved one on the Debian lab hosts?
+A: \`ip route\` shows the live state; **/etc/network/interfaces** (the \`gateway\` line) holds the saved configuration.
+:::
+
 `,
 
   deployment: [

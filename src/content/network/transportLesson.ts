@@ -53,18 +53,46 @@ Two things can go wrong here, and they look different:
 
 So "refused" means a computer answered and said no; "timed out" means nobody answered at all. That difference tells you where to look.
 
+:::practice
+Q: An admin lowered \`net.ipv4.tcp_syn_retries\` to 3 on a client. Roughly how long does an unanswered connect() now take to give up?
+A: The waits double from 1 second: 1 + 2 + 4 between the four SYNs, plus a final wait of 8 seconds for an answer to the last one: 1 + 2 + 4 + 8 = **15 seconds**.
+Q: \`nc -zv 10.0.20.40 5432\` prints "Connection refused" immediately. What does that prove about the network path to 10.0.20.40?
+A: The SYN **reached a live machine** and its kernel answered with RST: routing works and no silent firewall is in the way. Nothing listens on port 5432 (or a firewall rule rejects it with a TCP reset).
+:::
+
 ### Sequence numbers and acknowledgements
 TCP numbers every byte it sends. A segment that carries *n* bytes starting at sequence number *s* is confirmed by an acknowledgement *s + n*, which means "I have received everything before this byte". The SYN and FIN flags each count as one byte. If an acknowledgement does not arrive in time, the sender assumes the data was lost and sends it again. The receiver also advertises a **window**: how much unacknowledged data it is willing to accept at once. This is **flow control**, and it stops a fast sender from overwhelming a slow receiver.
 
 tcpdump and Wireshark normally show **relative** sequence numbers (counting from 0) because the real ones are large random numbers.
+
+:::practice
+Q: A server sends a segment with sequence number 5000 carrying 1460 bytes. Which acknowledgement number confirms it?
+A: 5000 + 1460 = **6460**: "I have everything before byte 6460".
+Q: A client's SYN has relative sequence number 0. Which acknowledgement number is in the server's SYN-ACK, and why is it not 0?
+A: **1**. The SYN flag counts as one byte, so the server acknowledges 0 + 1.
+:::
 
 ### How a TCP connection ends
 Each side closes its own direction by sending **FIN** ("finished"). The usual pattern is FIN, ACK (often combined with the other side's FIN), ACK. The side that closed first then waits in **TIME_WAIT** for twice the maximum segment lifetime (2 × MSL), so that late packets from the old connection cannot be confused with a new one using the same ports.
 
 **RST** (reset) ends a connection immediately, without the polite exchange. You see it when nothing listens, when a program crashes, or when a firewall rejects a connection "with tcp reset".
 
+:::practice
+Q: Which side of a connection ends up in TIME_WAIT, and why does the state exist?
+A: The side that **closed first** (sent the first FIN). It waits 2 × MSL so that late packets of the old connection cannot be mistaken for a new connection on the same ports.
+Q: A program crashes in the middle of a download. Which TCP flag does the client most likely see, FIN or RST?
+A: **RST**. A crash ends the connection abruptly; the polite FIN exchange only happens when a program closes the connection normally.
+:::
+
 ### UDP
 UDP simply sends a datagram and forgets about it. Its header is only 8 bytes (source port, destination port, length, checksum). There is no handshake and no resending. If reliability matters, the application handles it: a DNS resolver, for example, asks again after a timeout (set with \`options timeout:N attempts:N\` in resolv.conf). A datagram sent to a port where nothing listens normally triggers an **ICMP port unreachable** message, which lets the resolver move on to the next server straight away.
+
+:::practice
+Q: A UDP datagram is sent to a port where nothing listens. What normally comes back, and why is that useful for a DNS resolver?
+A: An **ICMP port unreachable** message. The resolver learns at once that this server is not answering DNS and can try the next nameserver instead of waiting for its timeout.
+Q: UDP has no resending. So how does a lost DNS query get answered?
+A: The **application** handles it: the resolver waits \`timeout\` seconds and asks again, up to \`attempts\` times, as set in resolv.conf.
+:::
 
 ### Name resolution step by step (glibc on Linux)
 1. **Where to look.** \`/etc/nsswitch.conf\` has a line \`hosts: files dns\`: check **/etc/hosts** first. If the name is found there, that answer wins and DNS is never asked.
@@ -78,6 +106,13 @@ What the resolver does with each answer:
 - **Timeouts, SERVFAIL or an unreachable server**: stop. The program gets EAI_AGAIN, shown as "Temporary failure in name resolution".
 - **Every candidate answered NXDOMAIN**: the program gets "Name or service not known".
 
+:::practice
+Q: resolv.conf contains \`search lab.local\` and the default ndots. A user runs \`ping web\`. Which names are tried, in which order (assume web is not in /etc/hosts)?
+A: First /etc/hosts. Then, because "web" has fewer dots than ndots (1), **web.lab.local.** is tried first, then **web.** on its own if the first answer is NXDOMAIN.
+Q: The only nameserver in resolv.conf times out. Does the resolver go on to try the next search domain? What does the program report?
+A: **No.** A timeout (like SERVFAIL) stops the search, because the resolver cannot tell whether the name exists. The program reports "Temporary failure in name resolution". Only NXDOMAIN moves on to the next candidate name.
+:::
+
 ### The DNS server side
 A DNS server is **authoritative** for the zones it holds: it is the official source for those names, and it marks its answers with the *aa* flag. In the lab, ns1 is authoritative for \`corp.lab\`, loaded from a zone file. A zone file contains an **SOA** record (the zone's serial number and timers), **NS** records (which servers serve the zone) and the actual data, such as **A** records (name to IPv4 address) and **CNAME** records (an alias for another name).
 
@@ -85,12 +120,27 @@ A DNS server is **authoritative** for the zones it holds: it is the official sou
 - A server that is not authoritative for the name and does not look it up elsewhere for you answers **REFUSED**.
 - A **CNAME** answer is followed to the final A record: \`www.corp.lab → srv01.corp.lab → 10.0.20.10\`.
 
+:::practice
+Q: A colleague added a record with a typo that makes the zone file invalid, then reloaded the server. What do clients now get for every name in that zone?
+A: **SERVFAIL**: the server is authoritative for the zone but could not load it, so it cannot answer anything in it.
+Q: \`dig shop.corp.lab\` returns a CNAME to www.corp.lab and then an A record. How many records did the resolver follow to get the address?
+A: Two: the **CNAME** (shop is an alias for www) and then the **A** record of www, which holds the address.
+:::
+
 ### Different tools look in different places
 - \`dig\` asks a DNS server directly. It ignores /etc/hosts and does not use the search list unless you add \`+search\`.
 - \`getent hosts\` uses exactly the same path as ssh, curl and ping (nsswitch, /etc/hosts, then DNS with the search list).
 - \`nslookup\` uses the search list but ignores /etc/hosts.
 
 When these tools disagree, the disagreement itself is the clue: for example, \`getent\` and \`dig\` giving different addresses points straight at /etc/hosts. The resolver tracer below runs the simulator's resolver step by step so you can watch this happen.
+
+:::practice
+Q: \`getent hosts files01\` fails, but \`dig files01.corp.lab\` returns an address. Which difference between the two tools is the most likely explanation?
+A: getent tries the search list: "files01" becomes files01.<search domain>. If the **search domain in resolv.conf is wrong or missing**, getent never asks for files01.corp.lab, while dig was given the full name. Compare with \`getent hosts files01.corp.lab\`.
+Q: Which tool should you use to see what an application such as ssh will actually get for a name, and why?
+A: \`getent hosts NAME\`: it uses the same path as applications (nsswitch, /etc/hosts, DNS with the search list). dig only shows what one DNS server says.
+:::
+
 `,
 
   deployment: [

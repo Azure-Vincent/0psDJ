@@ -61,6 +61,13 @@ From the outside, an interface problem looks like "the server is down". But the 
 
 So there are **three independent questions**: does the interface exist (name), is it **admin up**, does it have **carrier**? \`ip -br link\` answers all three in one line per interface.
 
+:::practice
+Q: \`ip link\` shows \`3: eth1: <BROADCAST,MULTICAST> mtu 1500 ... state DOWN\`. Is this a cable problem?
+A: Not necessarily. **UP is missing** from the flags, so the interface is **administratively down**: nobody brought it up (or someone ran \`ip link set eth1 down\`). Bring it up first; only then does carrier (LOWER_UP) tell you anything about the cable.
+Q: \`eth3.30\` shows \`state LOWERLAYERDOWN\`. Where do you look?
+A: At its **parent**, eth3: the VLAN interface is fine, but the interface below it has no link.
+:::
+
 ### /sys/class/net
 Every interface is a directory in sysfs. Scripts and monitoring read it directly:
 \`\`\`
@@ -72,6 +79,13 @@ Every interface is a directory in sysfs. Scripts and monitoring read it directly
 /sys/class/net/eth0/type        1 = Ethernet (ARPHRD_ETHER), 772 = loopback
 /sys/class/net/eth0/master      symlink to the bridge or bond the interface belongs to
 \`\`\`
+
+:::practice
+Q: A monitoring script reads \`/sys/class/net/eth0/carrier\` and gets "Invalid argument". What does that mean?
+A: The interface is **administratively down**; carrier is only reported for interfaces that are up.
+Q: How can you tell from sysfs which bridge an interface belongs to?
+A: \`/sys/class/net/IFACE/master\` is a symlink to the bridge (or bond) it is a member of. No symlink: it is not a member.
+:::
 
 ### Where names come from
 The kernel names NICs **eth0, eth1…** in the order drivers find them. That order is not guaranteed to be stable (two NICs, one driver loads faster: names swap), so **systemd-udevd renames** them at boot to **predictable names** derived from the hardware:
@@ -99,8 +113,22 @@ Ways to control names:
   Pick a name outside the kernel's ethN namespace (lan0, uplink0) so it cannot collide with a kernel-assigned name; run \`update-initramfs -u\` if the initramfs brings up the network.
 - Tools that match by MAC instead of by name: netplan \`match: macaddress:\` with \`set-name:\`, NetworkManager profiles bound to a MAC.
 
+:::practice
+Q: Decode these predictable names: \`eno1\`, \`ens192\`, \`enp3s0f1\`.
+A: **eno1**: Ethernet, onboard device 1 (from firmware). **ens192**: Ethernet in PCI Express hot-plug slot 192 (typical for VMware vmxnet3). **enp3s0f1**: Ethernet on PCI bus 3, slot 0, function 1.
+Q: You want a NIC to always be called \`uplink0\`, whatever the hardware layout. How?
+A: A systemd **.link** file in /etc/systemd/network/ that matches the NIC's **MAC address** and sets \`Name=uplink0\` (and update the initramfs if it brings up the network).
+:::
+
 ### ifupdown and missing interfaces
 At boot, \`networking.service\` runs \`ifup -a\` for every \`auto\` stanza (and \`allow-hotplug\` stanzas are brought up by udev when the device appears). If a stanza names a device that does not exist, ifup prints **Cannot find device "eth0"**, the unit ends **failed**, and the real NIC stays down: unconfigured, no address, no routes. From the network the host looks powered off.
+
+:::practice
+Q: After a VM was moved, \`journalctl -u networking -b\` shows \`Cannot find device "ens18"\`, and \`ip -br link\` lists \`lo\` and \`enp6s18\`. What is the state of the network, and what do you change?
+A: The real NIC (enp6s18) is **down with no address**, because the configuration names a device that no longer exists. Change ens18 to enp6s18 in /etc/network/interfaces (and anywhere else that names it), then restart networking from the console.
+Q: Which keyword in /etc/network/interfaces brings an interface up at boot, and which brings it up when the device appears?
+A: \`auto\` (brought up by \`ifup -a\` at boot) and \`allow-hotplug\` (brought up by udev when the device appears).
+:::
 
 ### Linux bridges: a switch in the kernel
 A bridge (\`ip link add br0 type bridge\`, or \`bridge-ports\` in /etc/network/interfaces) has **ports** (\`ip link set swp6 master br0\`). It behaves like a switch:
@@ -111,6 +139,13 @@ A bridge (\`ip link add br0 type bridge\`, or \`bridge-ports\` in /etc/network/i
 - The bridge device itself (br0) is the "switch's management interface": it can carry an IP address (that is how a KVM host keeps its own address once eth0 is a bridge port).
 
 A port that is **not a member** of the bridge (missing from \`bridge-ports\`, removed with \`ip link set swp6 nomaster\`) still has carrier, so the LED is green and the server sees LOWER_UP, but the bridge never forwards its frames. ARP fails in both directions. \`bridge link\` lists only members; \`ip -d link show swp6\` without \`master br0\` / \`bridge_slave\` gives it away.
+
+:::practice
+Q: A server's link LED is green and it shows LOWER_UP, but it cannot ARP its gateway. On the switch, \`bridge link\` does not list its port. What is wrong?
+A: The port has carrier but is **not a member of the bridge**, so the bridge never forwards its frames. Add it to \`bridge-ports\` (and run \`ifreload -a\`).
+Q: A KVM host turned eth0 into a bridge port of br0. Where must the host's own IP address now be configured?
+A: On **br0**, the bridge device. A bridge port carries no IP address itself.
+:::
 
 ### Hypervisor virtual switches
 | Platform | Switch | Attaching a VM | VLANs |
@@ -124,8 +159,23 @@ A port that is **not a member** of the bridge (missing from \`bridge-ports\`, re
 
 Security settings matter on virtual switches too: VMware's **Promiscuous mode**, **MAC address changes** and **Forged transmits** (all Reject by default on Distributed Switches) block nested virtualization, bridges inside VMs and some clustering software until they are allowed on that port group.
 
+:::practice
+Q: A Hyper-V VM must reach only other VMs, not even the host. Which virtual switch type do you use?
+A: **Private**. (Internal = VMs and host; External = VMs, host and the physical network.)
+Q: In VMware, a port group has VLAN ID 4095. What does the VM see?
+A: The **tagged frames** themselves: the port group passes VLAN tags through to the guest, which must handle them with its own sub-interfaces.
+:::
+
 ### Bonding (link aggregation)
 A **bond** combines NICs: \`mode active-backup\` (1) = one active, failover on carrier loss, needs nothing from the switch; \`mode 802.3ad\` (4) = **LACP**, both links active, the switch ports must be in a matching **port-channel / LAG**; balance-alb (6) and others exist for special cases. \`cat /proc/net/bonding/bond0\` shows the mode, the active slave and the MII status of each link. For 802.3ad it also shows the **partner**: the switch that answered LACP. \`Partner Mac Address: 00:00:00:00:00:00\` while the links are up means no switch is speaking LACP on those ports, so the bond does not aggregate: the switch ports need a matching LACP port-channel (or use active-backup). Hyper-V uses Switch Embedded Teaming (SET), VMware NIC teaming policies on the vSwitch.
+
+:::practice
+Q: Your switch does not support LACP, but you still want a server to survive the loss of one cable. Which bond mode?
+A: **active-backup** (mode 1): one link is active, the other takes over on carrier loss, and it needs nothing from the switch.
+Q: Where do you look to see which link of a bond is currently active?
+A: \`cat /proc/net/bonding/bond0\`: it shows the mode, the currently active slave and the MII status of each link.
+:::
+
 `,
 
   deployment: [

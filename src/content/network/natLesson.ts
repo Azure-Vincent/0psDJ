@@ -48,10 +48,24 @@ The order matters:
 - **SNAT and masquerade happen in postrouting, after the routing decision and after filtering.** By then the outgoing interface is known, so masquerade can use its address.
 - **The result:** the forward filter, which sits between the two, sees the **inside addresses**: the DNAT destination (10.0.20.10:80, not 203.0.113.2:80) and the original private source (10.0.10.25, not 203.0.113.2). Firewall rules in the forward chain must therefore be written for those addresses. This is one of the most common NAT mistakes.
 
+:::practice
+Q: A router forwards public TCP 2222 to an inside server with \`dnat to 10.0.20.30:22\`. The forward chain has policy drop. Which destination address and port must the forward rule match?
+A: The **translated** ones: \`ip daddr 10.0.20.30 tcp dport 22\`. DNAT already happened in prerouting, so the forward filter never sees port 2222.
+Q: Why can masquerade only run in postrouting and not in prerouting?
+A: Masquerade uses the address of the **outgoing** interface, and the outgoing interface is only known after the routing decision, which comes after prerouting.
+:::
+
 ### Only the first packet looks at the NAT rules
 The kernel tracks every connection in its **connection tracking table** (conntrack). NAT rules are only checked for the **first packet** of a connection (conntrack state NEW). The decision is saved with the connection, and every later packet of that flow, in both directions, is translated the same way without looking at the rules again.
 
 That is why changing a NAT rule does not affect connections that are already open. They keep their old translation until they end, or until you clear them with \`conntrack -F\`.
+
+:::practice
+Q: You fix a port forward rule, but a client that has an SSH session open through the old rule still reaches the old server. Is the fix broken?
+A: No. Its connection was translated when it started, and that decision is stored in conntrack. **New** connections use the fixed rule; the old one keeps its translation until it ends or its conntrack entry is cleared.
+Q: Why is \`conntrack -F\` risky on a busy production router?
+A: It clears **every** tracked connection, not just the one you are testing, which can break all translated connections passing through the router.
+:::
 
 ### Replies are translated back automatically
 Here is an outbound web request with masquerade, hop by hop:
@@ -64,11 +78,25 @@ rtr01 → ws01:   203.0.113.80:80   → 10.0.10.25:52088    (destination rewritt
 
 Inbound with DNAT, the mirror image happens: the destination is rewritten on the way in, and the **source of the reply** is rewritten back to the public address on the way out. This is essential, because a client only accepts a reply that comes from the address it contacted. If a reply arrived from 10.0.20.10 instead of 203.0.113.2, the client's TCP stack would ignore it.
 
+:::practice
+Q: An inside web server 10.0.20.10 is published as 203.0.113.2:80. Its reply leaves the router towards an Internet client. What is the reply's source address on the Internet side?
+A: **203.0.113.2**, port 80. The router rewrites the reply's source back to the public address, because the client only accepts replies from the address it contacted.
+Q: Why would a client ignore a reply that arrived with source 10.0.20.10 instead of 203.0.113.2?
+A: Its TCP connection is with 203.0.113.2. A packet from another address does not belong to any connection it knows, so its TCP stack discards it.
+:::
+
 ### conntrack shows both directions
 \`\`\`
 tcp 6 117 ESTABLISHED src=10.0.10.25 dst=203.0.113.80 sport=52088 dport=80 src=203.0.113.80 dst=203.0.113.2 sport=80 dport=52088 [ASSURED]
 \`\`\`
 Each entry has two sets of addresses and ports. The first is the packet as it arrived (the **original** direction). The second is the **reply** the router expects. If the second is simply the first with source and destination swapped, nothing was translated. Here it is not: the reply is expected at 203.0.113.2, so the source was masqueraded.
+
+:::practice
+Q: A conntrack entry reads \`src=10.0.30.7 dst=198.51.100.9 sport=40112 dport=443 src=198.51.100.9 dst=10.0.30.7 sport=443 dport=40112 [UNREPLIED]\`. Was the connection translated, and what does UNREPLIED suggest?
+A: Not translated: the reply part is the original with source and destination simply swapped, so the router expects replies at the **private** address. Combined with [UNREPLIED], this points to **missing masquerade**: the remote side cannot reply to 10.0.30.7.
+Q: For an inbound port forward, which half of the conntrack entry shows the inside server's address?
+A: The **reply** half: its source is the inside server (the DNAT target), while the original half still shows the public address the client connected to.
+:::
 
 `,
 
