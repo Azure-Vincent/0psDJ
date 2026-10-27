@@ -123,6 +123,18 @@ describe('restart policies, the daemon and the host firewall', () => {
     expect(l.run('dock01', 'alice', 'docker ps').code).toBe(0);
   });
 
+  it('the API socket is root:docker 0660 and its permissions decide who may use the CLI', () => {
+    const l = lab();
+    expect(l.run('dock01', 'alice', 'ls -l /var/run/docker.sock').output).toMatch(/^srw-rw---- 1 root +docker +0 .* \/var\/run\/docker\.sock$/);
+    expect(l.run('dock01', 'alice', 'stat /run/docker.sock').output).toContain('IO Block: 4096   socket');
+    root(l, 'usermod -aG docker alice');
+    expect(l.run('dock01', 'alice', 'docker ps').code).toBe(0);
+    root(l, 'chmod 600 /var/run/docker.sock');
+    expect(l.run('dock01', 'alice', 'docker ps').output).toMatch(/^permission denied while trying to connect/);
+    root(l, 'systemctl stop docker');
+    expect(root(l, 'ls /var/run/docker.sock').output).toBe('/var/run/docker.sock');
+  });
+
   it('docker exec runs only programs the image has', () => {
     const l = lab();
     root(l, 'docker run -d --name web nginx:1.25');

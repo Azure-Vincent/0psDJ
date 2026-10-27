@@ -73,7 +73,7 @@ export function listDir(host: Host, path: string): string[] {
 }
 
 export function modeString(node: FileNode): string {
-  const t = node.type === 'dir' ? 'd' : '-';
+  const t = node.type === 'dir' ? 'd' : node.socket ? 's' : '-';
   const bits = ['r', 'w', 'x'];
   let s = '';
   for (let i = 8; i >= 0; i--) s += node.mode & (1 << i) ? bits[(8 - i) % 3] : '-';

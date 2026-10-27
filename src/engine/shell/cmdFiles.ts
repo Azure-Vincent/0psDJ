@@ -468,7 +468,7 @@ const stat: CommandDef = {
       const uid = ctx.host.users[n.owner]?.uid ?? 0;
       out.push(
         `  File: ${a}`,
-        `  Size: ${n.type === 'dir' ? 4096 : n.size ?? n.content.length}\tBlocks: 8          IO Block: 4096   ${n.type === 'dir' ? 'directory' : 'regular file'}`,
+        `  Size: ${n.type === 'dir' ? 4096 : n.size ?? n.content.length}\tBlocks: ${n.socket ? 0 : 8}          IO Block: 4096   ${n.type === 'dir' ? 'directory' : n.socket ? 'socket' : 'regular file'}`,
         `Access: (${(n.mode & 0o7777).toString(8).padStart(4, '0')}/${modeString(n)})  Uid: (${String(uid).padStart(5)}/${n.owner.padStart(8)})   Gid: (${String(ctx.host.users[n.group]?.gid ?? 0).padStart(5)}/${n.group.padStart(8)})`,
         `Modify: ${new Date(Math.floor(n.mtime)).toISOString().replace('T', ' ').replace('Z', ' +0000')}`,
       );
