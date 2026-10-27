@@ -254,13 +254,13 @@ A: Every server in the group is currently marked as failed, so nginx answers **5
 :::
 
 ### 7. Who answered?
-A 404 or 500 through the proxy may come from nginx or from the application. nginx's own errors are small HTML pages (\`<center>nginx/1.22.1</center>\`) and usually have an error.log line; the application's have its own body (JSON here) and appear in the backend's log. A \`502\`/\`504\` is always the proxy speaking about the upstream.
+A 404 or 500 through the proxy may come from nginx or from the application. nginx's own errors are small HTML pages (\`<center>nginx/1.22.1</center>\`) and usually have an error.log line; the application's have its own body (JSON here) and appear in the backend's log. A \`502\`/\`504\` with nginx's page and an error.log line is the proxy speaking about the upstream. A backend that is itself a gateway (another proxy, an API gateway) can also return its own 502 or 504; nginx passes it through with that backend's body and logs nothing in error.log.
 
 :::practice
 Q: Through the proxy you get \`500 Internal Server Error\` with a JSON body \`{"error":"database unavailable"}\`. Who produced it, and where do you look next?
 A: The **backend application** (its own JSON body). Look at the application's log and its database connection, not at nginx.
-Q: Can a 504 Gateway Time-out ever come from the backend application?
-A: **No.** 502 and 504 are always the proxy reporting a problem reaching or hearing from the upstream.
+Q: You get a 504 Gateway Time-out through the proxy. How do you tell whether nginx produced it or the backend did?
+A: Read the **body** and nginx's error.log. nginx's own 504 is its small HTML page with an \"upstream timed out\" line in error.log. A backend that is itself a gateway (another proxy, an API gateway) can return its own 504, which nginx passes through unchanged with that backend's body and no such error.log line.
 :::
 
 `,

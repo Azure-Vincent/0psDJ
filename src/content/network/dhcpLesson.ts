@@ -87,14 +87,14 @@ A: **dhcrelay**, when a server reply arrives on an interface it does not listen 
 dhcpd tries these in order:
 1. A **host** declaration whose \`hardware ethernet\` matches the client's MAC and which has a \`fixed-address\`. This is a **reservation**.
 2. The address this MAC address had before, if it is still in the **lease file** (\`/var/lib/dhcp/dhcpd.leases\`). This is why clients tend to keep the same address.
-3. The first free address in the **range** of the subnet the request came from.
+3. A free address in the **range** of the subnet the request came from. (The simulator takes the lowest free one; real ISC dhcpd usually starts from the top of the range. Do not rely on the order: use a reservation when an address must not change.)
 4. If nothing is free, the server logs **"no free leases"** and does **not answer at all**.
 
 Which subnet a request "came from" is decided by the **interface it arrived on**, or by *giaddr* for relayed requests. That is why dhcpd refuses to start if no \`subnet\` declaration matches an interface it listens on, and why \`INTERFACESv4\` in \`/etc/default/isc-dhcp-server\` matters: if it names an interface that does not exist, dhcpd reports "Not configured to listen on any interfaces!".
 
 :::practice
-Q: A new laptop (no reservation, never seen before) sends a DISCOVER. The range is 10.0.10.100–150 and .100–.104 are leased. Which address does it most likely get?
-A: The first free address of the range: **10.0.10.105**.
+Q: A new laptop (no reservation, never seen before) sends a DISCOVER. The range is 10.0.10.100–150 and .100–.104 are leased. Which addresses can it get?
+A: Any **free** address of the range, so not .100–.104. Which one exactly depends on the server: the simulator hands out the lowest free one (.105), while real ISC dhcpd usually starts from the **top** of the range (.150). Never rely on the order; use a reservation when a device needs a fixed address.
 Q: All addresses in the range are leased. What does the client see, and where do you find the reason?
 A: The client sees **no answer at all** (repeated DISCOVERs). Only the server's log explains it: "no free leases".
 :::
