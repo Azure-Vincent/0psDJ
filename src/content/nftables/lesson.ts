@@ -23,12 +23,27 @@ It builds on what you learned about [addresses and routing](#/lesson/ipnet/what)
 - Underneath **firewalld** (RHEL, Fedora), **UFW** (Ubuntu, through iptables-nft), Docker and Kubernetes networking, and appliances such as OPNsense-like Linux firewalls.
 - Through \`iptables\` commands that are really **iptables-nft**: a compatibility front-end writing nftables rules.
 
+:::practice
+Q: On a Ubuntu server you run \`ufw allow 443\`. Which firewall actually filters the packets?
+A: **nftables** in the kernel: UFW writes its rules through iptables-nft, which creates nftables rules.
+Q: On RHEL, which tool normally manages the nftables ruleset for you?
+A: **firewalld**.
+:::
+
 ### What it is not
 - It does not make a closed service reachable: if nothing listens on a port, the kernel answers RST regardless of the firewall.
 - It only sees packets that reach the machine. Traffic blocked on a router never arrives, so the server's firewall counters stay at zero.
 - It is not the only filter on the path: the client's output chain, every router's forward chain and the server's input chain all have a say.
 
 > The lab uses nftables 1.0.6 on Debian 12. The simulator implements the tables/chains/rules model, the ip and inet families, conntrack states, counters, log, accept/drop/reject/jump/return verdicts and the text formats of \`nft list ruleset\` and \`/etc/nftables.conf\`.
+
+:::practice
+Q: A port is allowed in the input chain, but clients get "Connection refused". Can the firewall be the cause?
+A: Not if it has no reject rule for it: "refused" with an allowing rule means **nothing listens** on that port, and the kernel answers RST. Check \`ss -tlnp\`.
+Q: A server's input chain counters for port 443 stay at 0 while a client tests. What does that tell you?
+A: The packets never **reached** the server: a router's forward chain, the client's output chain or routing stopped them on the way.
+:::
+
 `,
 
   internals: `
@@ -258,6 +273,14 @@ A blocked connection is only useful information once you know **which** firewall
 3. **Find the rule.** Run \`nft -a list ruleset\`, repeat the test, and run it again: the rule whose counter went up is the one that acted. Remember the order of evaluation: rules are checked top to bottom and the first verdict wins; the "established,related" rule usually comes first; the chain's policy catches everything that matched nothing.
 4. **Fix the saved file**, check it with \`nft -c -f /etc/nftables.conf\`, and apply it with \`systemctl reload nftables\` (which swaps the whole ruleset in one step). Then verify both what must work **and** what must stay blocked.
 5. **Do not fix it by opening everything.** A policy of accept, a blanket accept rule, or a rule based on the source port "works", but it removes the protection the firewall was there for. Ticket checks will reject it.
+
+:::practice
+Q: A connection fails with "No route to host", but \`ip route get\` on the client shows a working route. Which kind of firewall rule should you look for?
+A: A **reject** rule that answers with ICMP unreachable or admin-prohibited (or an ARP failure on the last hop).
+Q: Why is a policy of accept a bad way to "fix" a blocked service?
+A: It removes the protection the firewall exists for: every port becomes reachable. Add the narrow rule for the service instead.
+:::
+
 `,
 
   errorMap: [

@@ -216,6 +216,13 @@ It does **not** fix anything in the **saved state**: a wrong setting in a config
 
 So before restarting, ask: "Do I know what is wrong, and does it live in memory or on disk?" If you do not know yet, look first (status, logs, the configuration checker), then restart only the one component that needs it.
 
+:::practice
+Q: A service fails to start because another program already uses its port. Will restarting the service help?
+A: **No.** The cause (the other program holding the port) lives outside the service's runtime state, so it fails again straight away. Find what holds the port with \`ss -tlnp\`.
+Q: An edited configuration file was saved yesterday but the service still behaves the old way. Can a reload or restart be the right fix here?
+A: **Yes**, this is a problem in runtime state: the saved change was never **loaded**. Validate the file first, then reload.
+:::
+
 ### The habits, in one list
 - **Back up** each file or setting before you change it, with a timestamp in the name or in version control.
 - **Record the original effective state** (\`sshd -T\`, \`nft list ruleset\`, \`ip -d addr\`, \`systemctl show\`, \`Get-NetIPConfiguration\`).
@@ -230,6 +237,14 @@ So before restarting, ask: "Do I know what is wrong, and does it live in memory 
 - **Document** the incident and its remediation.
 
 > The practice for this lesson happens in the existing tickets: \`ssh-monday-reboot\`, \`ssh-config-typo\`, \`ssh-port-moved\`, \`fw-no-established\`, \`case-no-internet\` and \`case-dns-outage\`. Each of them was caused by a change made without one of these habits. The simulator models Debian 12 hosts; Windows, pfSense and Docker steps are representative of the named real versions.
+
+:::practice
+Q: Which habit protects you if a firewall change cuts off your SSH session?
+A: **Keep alternative administrative access** (console, iLO, hypervisor) and roll back quickly, ideally automatically.
+Q: A change passed all tests today. Which habit catches the problem that only appears next week after patching?
+A: **Verify from the client's point of view after a reboot**: it proves the persistent configuration is correct, not just the runtime state.
+:::
+
 `,
 
   internals: `
@@ -480,6 +495,13 @@ The settings below are not one service's directives: they are the knobs that dec
 6. **Verify from the client, then after a reboot**, then cancel any pending rollback.
 7. **Document**: the incident record is how the next person avoids repeating it.
 
+:::practice
+Q: A web service broke 20 minutes ago. The change log shows a firewall change 25 minutes ago. Where do you look first, and why?
+A: At the **most recent change**, the firewall change: recent changes are the most likely cause, so check it before anything else.
+Q: After 30 minutes of trying to fix a failed upgrade forward, the cause is still unclear and users are waiting. What does the method say?
+A: **Roll back** to the backup (the agreed time box is over) and investigate the failed change offline.
+:::
+
 ### Incident record template
 - **Summary**: one sentence (what failed, for how long, for whom).
 - **Timeline** (with times): change made, first symptom, detection (monitoring or user?), each diagnostic step and change, workaround, recovery, permanent fix.
@@ -492,6 +514,14 @@ The settings below are not one service's directives: they are the knobs that dec
 - **Follow-ups**: actions with owners and dates (add monitoring, add reboot test to the change template, remove the workaround).
 
 Keep it blameless: the question is which safeguard was missing, not who typed the command.
+
+:::practice
+Q: Under which heading does "Monitoring did not alert; a user reported it after 40 minutes" belong?
+A: **Detection**: how we found out, and how we could have found out sooner.
+Q: "Add a reboot test to the change template, owner: Sam, due Friday." Which section is this?
+A: **Follow-ups**: actions with an owner and a date.
+:::
+
 `,
 
   errorMap: [

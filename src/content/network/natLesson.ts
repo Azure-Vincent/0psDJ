@@ -16,11 +16,25 @@ There are only about four billion IPv4 addresses, far too few for every device i
 
 This builds on the [IP networking lesson](#/lesson/ipnet/what) (routing, gateways) and on ports from [Transport and DNS](#/lesson/transport/what): NAT changes exactly those addresses and ports.
 
+:::practice
+Q: Which of these are RFC 1918 private addresses: 172.20.1.5, 172.32.1.5, 192.168.100.1, 100.64.0.1?
+A: **172.20.1.5** (inside 172.16.0.0/12, which runs to 172.31.255.255) and **192.168.100.1**. 172.32.1.5 is outside the /12, and 100.64.0.1 is not RFC 1918.
+Q: Why can't a server on the Internet reply directly to 10.0.10.25?
+A: Private addresses are **not routed** on the Internet: the reply would have nowhere to go. The router must replace 10.0.10.25 with a public address.
+:::
+
 ### Two directions
 - **Source NAT (SNAT), often as masquerade**: for connections that start **inside** and go out. They leave with the router's public address as the source, so the outside world only ever sees the router. *Masquerade* is SNAT that automatically uses whatever address the outgoing interface has, which is handy when that address comes from DHCP and may change. Choose between the two like this:
   - The uplink address is **dynamic** (DHCP, PPPoE): use \`masquerade\`. It looks up the interface address for every new connection, and it forgets its translations when the interface goes down, so a new address works straight away.
   - The uplink address is **fixed**: \`snat to 203.0.113.2\` does the same job with a fixed address and slightly less work per connection.
 - **Destination NAT (DNAT), also called port forwarding**: for connections that start **outside** and come in. A connection to the public address (on a given port) is redirected to a server inside. This is how a web server with a private address is **published** on the Internet.
+
+:::practice
+Q: Which kind of NAT do you need so that staff can browse the web, and which so that customers can reach the company's web server inside?
+A: Staff browsing: **source NAT / masquerade** (connections start inside). Published server: **destination NAT / port forwarding** (connections start outside).
+Q: A branch router gets its public address by PPPoE, and it changes every night. masquerade or snat to?
+A: **masquerade**: it uses the interface's current address for each new connection.
+:::
 
 ### In the lab
 rtr01 has a third interface, **eth2**, on the "Internet" network 203.0.113.0/24, with the address **203.0.113.2**. (203.0.113.0/24 is a range reserved for documentation, standing in here for real public addresses.) Its firewall ruleset contains a \`table ip nat\` with two rules:
@@ -172,12 +186,26 @@ NAT changes packets inside the router, so the most useful evidence is a comparis
 4. **What did conntrack record?** \`conntrack -L\` lists the connections. Compare the original and reply directions. A DNAT entry pointing at an unexpected address leads you straight to the faulty rule.
 5. **Old connections:** after changing NAT rules, existing connections keep their old translation. On a lab router, \`conntrack -F\` clears them. Be careful in production: it resets every tracked connection, not just the one you are testing.
 
+:::practice
+Q: tcpdump on the router's Internet side shows \`IP 10.0.30.7.51022 > 198.51.100.9.443: Flags [S]\`. What does the private source tell you?
+A: The packet left **untranslated**: masquerade is missing or does not match this traffic (check the postrouting rule's oifname).
+Q: An inbound port forward does not work. tcpdump on the inside server shows the SYN arriving, but no SYN-ACK. Where do you look?
+A: At the **server**: its own firewall or its route back (its default gateway must be the router, or replies never return through the NAT).
+:::
+
 ### Typical mistakes
 - **No masquerade:** packets leave with private source addresses. The remote side cannot send replies to 10.x addresses (on the real Internet, providers drop such packets), so outbound connections time out.
 - **Wrong DNAT target:** the router faithfully forwards to an address that does not exist (ARP fails, and the router sends ICMP host unreachable) or to the wrong port (a reset comes back: "Connection refused").
 - **Filtering on the public port:** a forward rule matching \`dport 8080\`, when 8080 is translated to port 80, never matches, because the filter sees port 80. Match the inside address and port instead (or, on a real system, \`ct status dnat\`).
 - **Hairpin NAT:** inside clients that use the **public** address of an inside server need an extra SNAT rule, so that replies return through the router (not modelled in the simulator).
 - **ip_forward=0:** if the router does not route, its NAT rules are never reached.
+
+:::practice
+Q: A forward rule allows \`tcp dport 2222\` for a port forward that translates 2222 to 22. Connections time out. Why?
+A: The forward filter sees the **translated** port 22, so a rule for 2222 never matches. Match the inside address and port 22.
+Q: A DNAT points to 10.0.20.99, which does not exist. What does an outside client most likely see?
+A: An error after a moment: the router cannot ARP 10.0.20.99 and answers with **ICMP host unreachable** ("No route to host").
+:::
 
 `,
 

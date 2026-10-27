@@ -136,6 +136,14 @@ A **Group Policy Object** (GPO) is a named set of settings. An **organizational 
 - **The client**: every member processes its policy at startup, every 90 minutes and on \`gpupdate\`; \`gpresult\` shows the result.
 
 > In the lab, **dc01** is the DC of ad.corp.lab and has the Group Policy Management tools (GroupPolicy module); **win01** becomes a member. The tickets add OU=Servers and GPOs such as "Server Baseline" (a firewall rule allowing monitoring pings). Simulated: OUs and Move-ADObject, Add-Computer -OUPath, GPOs with registry policies (Set-GPRegistryValue) and firewall rules (New-NetFirewallRule -PolicyStore), links (enabled, enforced, order), Block Inheritance, security filtering (Get-/Set-GPPermission) evaluated with the computer's groups from its last startup, processing at startup and on gpupdate (DC location, LDAP bind, SYSVOL over SMB 445, events 1500/1502/1058/1129/1055/1006), removal of settings when a GPO stops applying, gpresult /r, Get-NetFirewallRule -PolicyStore RSOP. Not simulated: User Configuration, WMI filters, sites, loopback processing, security templates, software installation, GPMC's GUI.
+
+:::practice
+Q: A new server joined without -OUPath gets no settings from the "Server Baseline" GPO linked to OU=Servers. Which piece explains it?
+A: **OUs and links**: it sits in CN=Computers, which is not an OU and only receives domain-linked GPOs.
+Q: When does a domain member process computer policy?
+A: At **startup**, every **90 minutes** (with a random offset) and when you run \`gpupdate\`.
+:::
+
 `,
 
   internals: `
@@ -277,6 +285,13 @@ Group Policy is configured on the DC (or any host with GPMC / the GroupPolicy mo
 - Test on one computer (\`gpupdate /force\`, \`gpresult /r\`) before linking to a wide OU.
 - Group membership changes for computers need a restart; plan it.
 
+:::practice
+Q: You plan to link a new GPO to OU=Workstations with 600 PCs. What do you do first?
+A: Check the **scope** (Get-GPInheritance, which computers are in the OU) and **test on one computer** (\`gpupdate /force\`, \`gpresult /r\`) before linking it widely.
+Q: A filtering group was changed for 30 servers. Why do you need to plan restarts?
+A: Computers take their group memberships from the Kerberos ticket obtained at **startup**; the change applies only after a restart (or a ticket purge).
+:::
+
 `,
   troubleshootingIntro: `
 ### Processing, scope, filtering, setting
@@ -286,6 +301,14 @@ A setting from a GPO reaches a computer only after four things succeed, in this 
 2. **Scope: is the GPO linked where this computer is?** \`gpresult /r\` shows the computer's place in the directory (its DN). \`Get-GPInheritance\` on its OU shows which GPOs are linked there, whether the OU blocks inheritance from above, and which links are enforced.
 3. **Filtering: is the computer allowed to apply it?** \`gpresult /r\` lists "The following GPOs were not applied because they were filtered out", with the reason. \`Get-GPPermission -All\` shows who may apply the GPO. The computer's groups are the ones it had at its last restart.
 4. **Setting: did the setting actually land?** \`Get-NetFirewallRule -PolicyStore RSOP\` shows firewall rules delivered by policy; the HKLM\\SOFTWARE\\Policies registry values show registry settings. If several GPOs set the same thing, precedence decides which one wins.
+
+:::practice
+Q: \`gpupdate /force\` logs event 1129. Which of the four steps failed, and what do you check?
+A: Step 1, **processing**: the computer found **no DC**. Check its DNS servers and the SRV records, and network access to the DC.
+Q: \`gpresult /r\` lists the GPO under "filtered out" with "Inaccessible". Which step, and what is the fix?
+A: Step 3, **filtering**: the computer cannot even **read** the GPO. Give Authenticated Users (or Domain Computers) at least GpoRead.
+:::
+
 `,
 
   errorMap: [

@@ -31,6 +31,13 @@ Each layer wraps the data from the layer above it, like putting a letter in an e
 
 This lesson is about layers 2 and 3. **Switches** only look at layer 2 (MAC addresses) and move frames within one local network. **Routers** look at layer 3 (IP addresses) and move packets between networks, building a new layer 2 frame for each hop.
 
+:::practice
+Q: A switch receives a frame. Which address does it look at to decide where to send it, and which layer is that?
+A: The **destination MAC address**, layer 2 (link). A switch does not look at IP addresses.
+Q: Put these from the innermost to the outermost: Ethernet frame, HTTP request, IP packet, TCP segment.
+A: HTTP request → TCP segment → IP packet → Ethernet frame. Each layer wraps the one above it.
+:::
+
 ### What you will be able to answer
 - Is this destination on my own network, or do I need a router? (the **prefix**, also called the subnet mask)
 - Which device is the next stop for my packet, and what is its hardware address? (**ARP**)
@@ -288,10 +295,24 @@ A packet's journey has several stages, and each depends on the one before it. Ch
 4. **Beyond the gateway**: \`ping\` and \`traceroute\` to the destination. Does any router answer with an ICMP error? The router that answers tells you how far the packet got.
 5. **The way back**: on the destination's console, run \`ip route get <client address>\`. Can it route its reply to you? If a timeout gives you no other clue, capture traffic with \`tcpdump\` on both ends to see where packets stop.
 
+:::practice
+Q: A user cannot reach a server on another network. \`ip -4 addr\` shows 169.254.33.7/16. Which step failed, and do you need to look further down the list?
+A: Step 1, the **address**: 169.254.x.x means DHCP got no answer. Fix that first (see the DHCP lesson); every later step depends on a real address.
+Q: \`ip route get 10.0.20.10\` prints \`10.0.20.10 dev eth0 src 10.0.10.25\`, with no "via". The client's own network is 10.0.10.0/24. What is wrong?
+A: The kernel thinks 10.0.20.10 is **on-link**, so it will ARP for it directly instead of using the gateway. The prefix is too short (for example /16 instead of /24).
+:::
+
 ### Read who sent the error
 \`ping\` prints where an error came from, and that tells you a lot:
 - "From 10.0.10.25 … Destination Host Unreachable" comes from **your own computer**: its ARP request for the next hop got no answer. Look at your gateway and prefix.
 - "From 10.0.10.1 … Destination Host Unreachable" comes from **the router**: your packet reached it, but the router could not deliver it further. Look at the router.
+
+:::practice
+Q: ws01 (10.0.10.25) pings 10.0.30.40 and gets "From 10.0.10.1 icmp_seq=1 Destination Host Unreachable". On which device do you continue?
+A: On the **router 10.0.10.1**: the packet reached it, and the router could not deliver it (forwarding off, or it cannot ARP 10.0.30.40 on its far side).
+Q: The same ping gives no output at all for each sequence number, only "100% packet loss" at the end. What does that silence suggest compared with an error message?
+A: Nobody sent an error: something **dropped** the packets (or the replies) without telling anyone, typically a firewall or a missing return route. Capture with tcpdump to see how far they get.
+:::
 
 `,
 

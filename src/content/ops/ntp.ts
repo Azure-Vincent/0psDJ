@@ -163,6 +163,14 @@ It may seem like a small thing, but many other services silently depend on corre
 - **The path**: UDP port 123 from client to server and back, through routers and firewalls.
 
 > In the lab: **ext01** (203.0.113.80) stands in for the provider's stratum-1 server, **rtr01** runs chrony 4.3 and serves the office, server and VLAN 30 networks, and every Debian machine runs systemd-timesyncd with \`NTP=rtr01.corp.lab\`. Simulated: real NTP request/reply datagrams through routing, firewalls and NAT; chrony.conf (\`server\`, \`allow\`/\`deny\`, \`local stratum\`, \`refclock\`, \`makestep\`); chronyd as client and server (selection, leap/stratum in replies, silent drops, "Can't synchronise"); timesyncd (servers in order, timeouts, rejecting unsynchronized servers); \`chronyc\` and \`timedatectl timesync-status\`; Kerberos depending on the result. Simplified: one sample per poll (no filtering, frequency estimation or falseticker detection), corrections are applied at once (except a large error without makestep), and daemons poll at start and "a few minutes later" (before a check and after reboots) rather than on a timer.
+
+:::practice
+Q: rtr01 follows ext01, which has a GPS clock. Which strata do ext01, rtr01 and the office clients have?
+A: ext01 is stratum **1**, rtr01 stratum **2**, the clients stratum **3**.
+Q: Which NTP program is the Debian and Ubuntu default client, and which program does RHEL use?
+A: **systemd-timesyncd** on Debian/Ubuntu; **chronyd** on RHEL (it can also serve time to others).
+:::
+
 `,
 
   internals: `
@@ -332,6 +340,13 @@ Plus the firewall on the server (UDP 123 in) and the path between them.
 - Never fix a skew error by setting the time by hand on the client or by raising Kerberos' clockskew: find out why NTP is not working.
 - Change the server carefully: every client follows it. After editing chrony.conf, restart chrony and check \`systemctl status chrony\` and \`chronyc tracking\` immediately.
 
+:::practice
+Q: A user's laptop fails Kerberos with "Clock skew too great". Why not just set its clock by hand?
+A: It hides the cause: the clock drifts away again because **NTP is not working** on that machine. Fix time synchronisation instead.
+Q: You edited chrony.conf on the office time server. What do you check immediately after restarting chrony?
+A: \`systemctl status chrony\` (did it start?) and \`chronyc tracking\` (is it synchronized?), because every client follows this server.
+:::
+
 `,
   troubleshootingIntro: `
 ### Follow the time chain
@@ -343,6 +358,14 @@ Time flows down a chain: the reference clock, the upstream server, your local ti
 4. **Upstream.** Can the server reach its own time sources? Look at the Reach column in \`chronyc sources\`, and for "Can't synchronise" in its log.
 
 How to read the result: a **timeout** (no answer at all) points to steps 2 and 3. **Replies that say "not synchronized"** mean the path works but the server has no good time to give, which points to step 4.
+
+:::practice
+Q: \`timedatectl timesync-status\` on a client shows replies from rtr01 with "Leap: not synchronized". Which link of the chain do you check?
+A: The **upstream** of rtr01 (step 4): the path to rtr01 works, but rtr01 has no good time itself. Check \`chronyc sources\` on rtr01.
+Q: A client gets no answer at all from its time server. tcpdump on the server shows the requests arriving. What are the two remaining candidates?
+A: The server's **firewall** dropping them before chronyd, or chronyd's **allow list** not covering the client (visible in \`chronyc clients\`).
+:::
+
 `,
 
   errorMap: [

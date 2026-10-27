@@ -20,6 +20,13 @@ A server program **listens** on a port: it asks the operating system to hand it 
 
 The client needs a port too, so the replies can find their way back to it. Its kernel picks a temporary one, called an **ephemeral port** (on Linux, a number between 32768 and 60999). One connection is then identified by five values, the **5-tuple**: protocol, source IP, source port, destination IP and destination port. Because each client uses a different source port, thousands of clients can talk to the same server port at the same time without mixing up their data.
 
+:::practice
+Q: \`ss -tln\` shows a line with \`0.0.0.0:443\`. What does it mean, and from where can clients reach it?
+A: A program **listens** on TCP port 443 on **every** address of the machine, so clients can reach it through any of its addresses (firewall permitting).
+Q: Two browsers on the same laptop connect to the same web server on port 443 at the same time. What keeps their data apart?
+A: Their **source ports**: each connection gets its own ephemeral port, so the 5-tuples (protocol, addresses and ports) differ.
+:::
+
 ### TCP and UDP
 The two transport protocols make very different promises:
 
@@ -33,10 +40,25 @@ The two transport protocols make very different promises:
 
 Think of TCP as a phone call: you dial, the other side picks up, you talk, and you notice when the line drops. UDP is more like a postcard: quick and cheap, but nobody tells you if it got lost.
 
+:::practice
+Q: Which transport protocol do NTP, DHCP and syslog over port 514 normally use, and what does the application have to do about lost packets?
+A: **UDP**. The application handles loss itself, for example by asking again after a timeout (or accepting that a log line may be lost).
+Q: A UDP service gets no answer from a server where nothing listens on the port, and no ICMP comes back either. What does the client see?
+A: Just a **timeout**: UDP has no RST. Without the ICMP port unreachable message, the client cannot tell a closed port from a dropped packet.
+:::
+
 ### DNS in a nutshell
 When a program needs an address for a name, it calls a standard library function, \`getaddrinfo()\`. That function, called the **stub resolver**, first checks the local file \`/etc/hosts\`. If the name is not there, it asks the DNS servers listed in \`/etc/resolv.conf\`, usually over UDP port 53 (TCP for large answers). For short names like "srv01" it also tries adding the **search domains** from that file, so "srv01" becomes "srv01.corp.lab".
 
 > What the simulator models: the TCP handshake, resets, SYN retransmission with growing waits, data segments with sequence and acknowledgement numbers, and the FIN close; UDP; ICMP port unreachable; and a glibc-style resolver talking to a BIND-style DNS server. It does not model TCP congestion control or window behaviour.
+
+:::practice
+Q: Which file does the stub resolver check before asking any DNS server?
+A: **/etc/hosts** (as set by the "hosts:" line in /etc/nsswitch.conf).
+Q: resolv.conf has \`search corp.lab\`. Which name is tried first when you type \`ping files01\`?
+A: **files01.corp.lab**, because the short name gets the search domain added.
+:::
+
 `,
 
   internals: `
@@ -220,6 +242,13 @@ When a program cannot connect to a server by name, three different things could 
 3. **Is the service listening where you think it is?** Run \`ss -tlnp\` on the server and check both the address and the port. A service listening on 127.0.0.1 can only be reached from the server itself.
 4. **What actually travels on the wire?** Run \`tcpdump -n port PORT\` on the client and on the server. Look for a SYN with no SYN-ACK (dropped), an RST (refused), or ICMP error messages.
 
+:::practice
+Q: \`getent hosts app01.corp.lab\` returns an address and \`nc -zv -w 5 app01.corp.lab 8443\` succeeds, but the application still reports "login failed". Which part do you investigate?
+A: The **application** itself: the name resolves and the TCP connection works, so the network and the listener are fine. Look at credentials, URLs and the application's logs.
+Q: \`nc -zv -w 5 10.0.20.50 5432\` times out. tcpdump on 10.0.20.50 shows nothing arriving. Where is the problem?
+A: On the **path** before the server: a firewall on a router (or the client's own output chain) drops the SYN, or the route is wrong. The server never saw the packet.
+:::
+
 ### Scoring engines: web and DNS checks
 In competitions such as CCDC, a **scoring engine** tests your services automatically, and many monitoring tools work the same way. Most are written in the Go language. Their **web check** makes **one GET request**, does not follow redirects, usually ignores certificate problems, then compares the status code and looks for a specific word on the page. Their **DNS check** sends **one UDP query** straight to your DNS server and compares the address in the answer.
 
@@ -238,6 +267,14 @@ The status wording varies between engines, but the **Error** line is Go's own er
 | DNS: \`read udp …->IP:53: read: connection refused\` | DNS server | ICMP port unreachable came back: nothing listens on UDP 53 there (named is stopped) | \`systemctl status named\`, \`ss -ulnp\` |
 
 A check that gets **200 with the wrong content** fails just as surely as one that times out. So test with the same request the engine makes (\`curl -sS -i URL\`, \`dig @SERVER NAME\`), not just "is the service running?". You can practise all of these in the **Scored services** tickets.
+
+:::practice
+Q: A scoring engine reports \`expected status code 200, got 403\` for your web check. Is nginx running? Where do you look first?
+A: nginx **is** running (it answered). 403 usually means file permissions: read nginx's error.log and check the path with \`namei -l FILE\` (the workers run as www-data).
+Q: The DNS check reports "check timed out", but \`dig @SERVER NAME\` from the server itself works. What do you check?
+A: The firewall on the DNS server for **UDP 53** from the engine's network (TCP alone is not enough), and the route back to the engine.
+:::
+
 `,
 
   errorMap: [

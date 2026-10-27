@@ -22,6 +22,13 @@ MTU problems have a signature that confuses people: **small things work, big thi
 1. **MTU mismatch on a link**: the two ends disagree (1500 vs 1492, 9000 vs 1500). Frames larger than the receiver's MTU are dropped **silently**: there is no ICMP for this.
 2. **PMTUD black hole**: a router with a smaller MTU sends "fragmentation needed", but a firewall somewhere drops ICMP, so the sender never learns and keeps retransmitting full-size packets.
 
+:::practice
+Q: After a VPN was introduced, users report that intranet pages load half and then stop, while logins work. Why is this an MTU symptom rather than a server problem?
+A: "**Small works, big hangs**" is the MTU signature: logins and small requests fit in small packets, while full pages need full-size packets that are too big for the tunnel and get lost.
+Q: Which of the two MTU causes can never produce an ICMP message, and why?
+A: An **MTU mismatch on one link**: the receiving interface drops the oversized frame itself, so no router is involved to report it.
+:::
+
 ### In the lab
 Every link uses MTU 1500 in the baseline. rtr01's **eth2** is the Internet uplink to ext01 (203.0.113.80), which offers a 4.5 MB download (\`http://203.0.113.80/downloads/tools-2.4.1.tar.gz\`) and an HTTPS site. Change MTUs with \`ip link set dev X mtu N\` (runtime) or \`mtu N\` in /etc/network/interfaces (persistent) and watch the effects.
 
@@ -181,6 +188,14 @@ The method is to prove that packet **size** is the problem, measure the largest 
 3. **Locate the link.** \`tracepath -n DST\` shows where the path MTU drops. Then compare \`ip link\` (the mtu value) on both ends of each suspicious link, including tunnel and PPPoE interfaces.
 4. **Check ICMP filtering** on every firewall along the path. Path MTU discovery depends on ICMP type 3 ("fragmentation needed") and, for IPv6, ICMPv6 type 2 ("packet too big") being allowed back, usually as "related" traffic.
 5. **Capture.** \`tcpdump -n -i IF tcp\` shows the MSS each side announces in its SYN, and the same full-size segment being retransmitted again and again when big packets are lost.
+
+:::practice
+Q: \`ping -M do -s 1472 DST\` gets "Frag needed and DF set (mtu = 1420)" from a router. Is path MTU discovery working, and what is the bottleneck?
+A: Yes, it is working: a router reported its next-hop MTU. The bottleneck link carries **1420**-byte packets.
+Q: Downloads from one site hang. \`tracepath\` shows pmtu 1500 all the way, but \`ping -M do -s 1472\` gets no answer while \`-s 1300\` does. What do you suspect?
+A: Big packets **vanish without an error**: an MTU mismatch on a link, or a firewall dropping the ICMP messages (a black hole). Compare the MTU on both ends of each link and check ICMP filtering.
+:::
+
 `,
 
 

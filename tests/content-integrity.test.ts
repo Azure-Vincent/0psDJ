@@ -164,13 +164,15 @@ describe('curriculum', () => {
 });
 
 describe('practice blocks', () => {
-  // Reference lists rather than concepts: no practice needed.
-  const NO_PRACTICE = new Set(['ad-kerberos: Services involved, by machine']);
+  // Orientation sections and reference lists teach no concept of their own, so they need no practice.
+  const ORIENTATION = new Set(['In the lab', 'In the simulator', 'The example network', 'Where you meet it', 'Problems it solves', 'The problems it solves', 'Why it matters', 'What you will be able to answer']);
+  const NO_PRACTICE = new Set(['ad-kerberos: Services involved, by machine', 'systemd: Unit file directives']);
+  const TABS = ['what', 'internals', 'configIntro', 'operateIntro', 'troubleshootingIntro'] as const;
   const sections = (text: string) => text.split(/^(?=### )/m).filter((x) => x.startsWith('### '));
-  it('every concept section in "How it works" ends with a practice block', () => {
-    for (const L of LESSONS) for (const sec of sections(L.internals)) {
+  it('every concept section of every tab ends with a practice block', () => {
+    for (const L of LESSONS) for (const tab of TABS) for (const sec of sections(L[tab] ?? '')) {
       const title = sec.split('\n')[0].slice(4);
-      if (NO_PRACTICE.has(`${L.id}: ${title}`)) continue;
+      if (ORIENTATION.has(title) || NO_PRACTICE.has(`${L.id}: ${title}`)) continue;
       const blocks = practiceBlocks(sec);
       expect(blocks.length, `${L.id}: ${title} has no practice block`).toBeGreaterThan(0);
       expect(blocks[blocks.length - 1].after.trim(), `${L.id}: ${title}: text after the practice block`).toBe('');
@@ -178,7 +180,7 @@ describe('practice blocks', () => {
   });
   it('every practice block is closed and every question has an answer that is not a graded question', () => {
     const prompts = new Set(Object.values(ASSESSMENTS).flatMap((A) => A.questions.map((q) => q.prompt.trim())));
-    for (const L of LESSONS) for (const text of [L.what, L.internals]) for (const b of practiceBlocks(text)) {
+    for (const L of LESSONS) for (const tab of TABS) for (const b of practiceBlocks(L[tab] ?? '')) {
       const where = `${L.id}: ${b.pairs[0]?.q ?? '(empty block)'}`;
       expect(b.closed, `${where}: missing ":::"`).toBe(true);
       expect(b.stray, `${where}: lines outside Q/A`).toEqual([]);

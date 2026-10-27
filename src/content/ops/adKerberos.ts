@@ -200,6 +200,13 @@ Active Directory is built on technologies from earlier lessons: [DNS](#/lesson/t
 - **Central authorisation.** Security groups end up in the user's access token and are checked by every server's ACLs and user rights.
 - **Central configuration.** Group Policy pushes security baselines, drive mappings, firewall rules and software settings to thousands of machines.
 
+:::practice
+Q: dana logs on to a PC in the morning and later opens a file share and an intranet site without typing her password again. Which mechanism makes that possible?
+A: **Single sign-on through Kerberos**: her TGT from the logon is used to get service tickets for each server.
+Q: A security baseline must reach 800 PCs. Which part of AD delivers it?
+A: **Group Policy**: GPOs linked to the domain or OUs push the settings to every computer in scope.
+:::
+
 ### The services on a domain controller
 - **AD DS** (service \`NTDS\`): the database \`ntds.dit\`, LDAP on 389/636, Global Catalog on 3268/3269, multi-master replication.
 - **DNS Server** (service \`DNS\`): usually installed on every DC, hosting **AD-integrated zones** (\`corp.lab\` and \`_msdcs.corp.lab\`) stored in the directory and replicated with it.
@@ -207,6 +214,13 @@ Active Directory is built on technologies from earlier lessons: [DNS](#/lesson/t
 - **Netlogon**: registers the DC's DNS records, answers DC-locator pings, maintains secure channels and handles NTLM pass-through.
 - **DFS Replication** (\`DFSR\`): replicates the **SYSVOL** folder that holds GPO files and logon scripts.
 - **Windows Time** (\`W32Time\`): the domain time hierarchy. The **PDC emulator** is the root and should be the only DC that syncs to an external NTP source.
+
+:::practice
+Q: Which DC service registers the SRV records that clients use to find domain controllers?
+A: **Netlogon**.
+Q: GPO files on one DC are older than on the others, while users and groups replicate fine. Which service is at fault?
+A: **DFS Replication (DFSR)**, which replicates SYSVOL separately from the AD database.
+:::
 
 ### Where you meet it
 Almost every organisation with Windows clients: logons, file servers, Exchange/SQL/IIS with integrated authentication, RDP to servers, VPN and Wi-Fi (RADIUS/NPS) authentication, and Linux servers joined with SSSD.
@@ -437,8 +451,22 @@ A domain logon depends on a chain of other services: DNS to find a DC, the netwo
 6. **Group Policy.** \`gpupdate /force\`, \`gpresult /r\` and the GroupPolicy Operational log show whether policy applies.
 7. **DC health.** \`dcdiag /q\`, \`repadmin /replsummary\` and the DFSR log, on **every** DC, show whether the DCs themselves are healthy and replicating.
 
+:::practice
+Q: \`Resolve-DnsName -Type SRV _ldap._tcp.dc._msdcs.corp.lab\` fails on a client, but its Internet browsing works. Which link is broken, and what do you check?
+A: The first one, **DNS**: the client probably uses a DNS server that is not an AD DNS server (a router or public resolver). Check \`Get-DnsClientServerAddress\`.
+Q: DNS and the DC locator work, \`Test-NetConnection dc01 -Port 88\` succeeds, but logons still fail with clock skew errors. Which link, and which command shows the client's time source?
+A: **Time**. \`w32tm /query /source\` (and compare the clock with the DC's).
+:::
+
 ### Workaround versus fix
 Some actions hide the symptom without fixing the cause: adding a hosts-file entry for the DC, raising the clock skew tolerance, accessing a share by IP address (which forces the weaker NTLM), removing and rejoining every broken PC to the domain, or restarting all DCs "to clear it". The real fix is the configuration that caused the problem: the DNS settings, the time source, the SPN on the right account, the snapshot practice, or the firewall rule.
+
+:::practice
+Q: A file share works by IP address (\`\\10.0.20.40\data\`) but not by name. Why is "use the IP address" a workaround, not a fix?
+A: Access by IP address cannot use Kerberos, so Windows falls back to the weaker **NTLM**. The real problem (DNS, the SPN, Kerberos) is still there.
+Q: Name the real fix for "logons fail on one VM after every snapshot restore" instead of rejoining it each time.
+A: Fix the **practice**: avoid restoring old snapshots of domain members (or repair the secure channel with Test-ComputerSecureChannel -Repair) and make sure time sync comes from the domain hierarchy.
+:::
 
 `,
 
