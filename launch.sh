@@ -19,7 +19,7 @@ die() { printf '\033[1;31mError:\033[0m %s\n' "$*" >&2; exit 1; }
 
 case "${1:-}" in
   --remove-from-menu)
-    rm -f "$DESKTOP_FILE"
+    rm -f "$DESKTOP_FILE" "$(dirname "$DESKTOP_FILE")/infrastructure-lab.desktop"
     say "Removed the menu entry ($DESKTOP_FILE)."
     exit 0
     ;;

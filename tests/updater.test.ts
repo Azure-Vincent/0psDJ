@@ -158,7 +158,7 @@ describe('updater: checking the latest release', () => {
     expect(U.installMode({ ...WIN, hasUninstaller: false })).toEqual({ mode: 'download', kind: 'zip' });
     expect(U.installMode({ platform: 'linux', arch: 'x64', appImage: '/home/a/Lab.AppImage', appDir: '/tmp/.mount_LabX1', execPath: '/tmp/.mount_LabX1/cyber-owl-lab' })).toEqual({ mode: 'appimage', kind: 'appimage' });
     // APPIMAGE inherited from another AppImage (a .deb install started from it): never replace that other file.
-    expect(U.installMode({ platform: 'linux', arch: 'x64', appImage: '/home/a/Editor.AppImage', appDir: '/tmp/.mount_Edit99', execPath: '/opt/Cyber Owl Lab/infrastructure-lab' })).toEqual({ mode: 'download', kind: 'deb' });
+    expect(U.installMode({ platform: 'linux', arch: 'x64', appImage: '/home/a/Editor.AppImage', appDir: '/tmp/.mount_Edit99', execPath: '/opt/Cyber Owl Lab/cyber-owl-lab' })).toEqual({ mode: 'download', kind: 'deb' });
     expect(U.installMode({ platform: 'linux', arch: 'x64', appImage: '/home/a/Editor.AppImage', execPath: '/home/a/lab/cyber-owl-lab' })).toEqual({ mode: 'download', kind: 'targz' });
     expect(U.installMode({ platform: 'linux', arch: 'x64', appImage: 'relative.AppImage', execPath: '/opt/Cyber Owl Lab/x' })).toEqual({ mode: 'download', kind: 'deb' });
     expect(U.installMode({ platform: 'darwin', arch: 'arm64', execPath: '/Applications/x' })).toEqual({ mode: 'download', kind: 'dmg' });

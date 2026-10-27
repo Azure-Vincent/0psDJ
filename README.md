@@ -7,7 +7,12 @@ services, Windows/RDP, Active Directory, Docker and pfSense.
 
 > Cyber Owl Lab was called **Infrastructure Lab** up to version 1.2.4. Installing
 > the new version keeps your progress (it is stored under the app's internal
-> name, `infrastructure-lab`, which has not changed).
+> name, `infrastructure-lab`, which has not changed). After upgrading:
+> - **Windows**: the installer replaces the app and its Start-menu and desktop
+>   shortcuts; re-pin it to the taskbar if you had pinned Infrastructure Lab.
+> - **Linux (.deb)**: the command is now `cyber-owl-lab`.
+> - **macOS**: drag Cyber Owl Lab to Applications, then delete the old
+>   Infrastructure Lab app (your progress is kept).
 
 ## Purpose
 
@@ -204,8 +209,9 @@ npm install && npm run dist:linux
 sudo apt install ./release/CyberOwlLab-*-linux-amd64.deb
 ```
 
-Start it from the menu or with `infrastructure-lab`; remove it with
-`sudo apt remove infrastructure-lab`. The same command also produces an
+Start it from the menu or with `cyber-owl-lab`; remove it with
+`sudo apt remove infrastructure-lab` (the package keeps the app's first name
+so that upgrades from Infrastructure Lab work). The same command also produces an
 AppImage and a `.tar.gz` in `release/` for other distributions.
 
 > **Ubuntu 23.10 and later:** these releases restrict the user namespaces that
