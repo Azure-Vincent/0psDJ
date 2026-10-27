@@ -6,7 +6,7 @@
 import { useEffect, useState } from 'react';
 
 export type UpdateState =
-  | 'idle' | 'unsupported' | 'not-configured' | 'checking' | 'current' | 'unsigned' | 'available'
+  | 'idle' | 'unsupported' | 'not-configured' | 'checking' | 'current' | 'unsigned' | 'no-build' | 'available'
   | 'downloading' | 'ready' | 'restarting' | 'downloaded' | 'error';
 
 export interface UpdateStatus {
@@ -25,6 +25,7 @@ export interface UpdateStatus {
   total?: number;
   file?: string;
   tag?: string;
+  platform?: string;
   error?: string;
 }
 

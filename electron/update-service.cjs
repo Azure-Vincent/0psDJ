@@ -22,6 +22,8 @@ const U = require('./updater.cjs');
 const PUBLIC_KEYS = require('./update-public-keys.cjs');
 
 const CHECK_INTERVAL = 6 * 60 * 60 * 1000;
+/** No response within this time, or no data for this long while reading: the request is aborted. */
+const STALL_TIMEOUT = 60 * 1000;
 
 let prefs = { autoCheck: true, autoInstall: true, lastCheck: 0 };
 let status = { state: 'idle' };
@@ -48,12 +50,18 @@ function savePrefs() {
   try { fs.writeFileSync(prefsFile(), JSON.stringify(prefs), { mode: 0o600 }); } catch { /* not fatal */ }
 }
 
+function canWriteDir(file) {
+  if (!file || !path.isAbsolute(file)) return false;
+  try { fs.accessSync(path.dirname(file), fs.constants.W_OK); return true; } catch { return false; }
+}
+
 function env() {
   return {
     platform: process.platform,
     arch: process.arch,
     appImage: process.env.APPIMAGE,
     appDir: process.env.APPDIR,
+    appImageWritable: canWriteDir(process.env.APPIMAGE),
     portableDir: process.env.PORTABLE_EXECUTABLE_DIR,
     execPath: process.execPath,
     hasUninstaller: process.platform === 'win32' && fs.existsSync(path.join(path.dirname(process.execPath), `Uninstall ${app.getName()}.exe`)),
@@ -88,21 +96,30 @@ function fetchFn(url, init) {
     const req = net.request({ url, method: 'GET', redirect: 'manual' });
     for (const [k, v] of Object.entries(init?.headers ?? {})) req.setHeader(k, v);
     let redirects = 0;
+    let timer = null;
+    const fail = (e) => { clearTimeout(timer); req.abort(); reject(e); };
+    // Abort a request that stalls (captive portal, dead connection) so the updater never stays busy.
+    const arm = (onStall) => { clearTimeout(timer); timer = setTimeout(onStall, STALL_TIMEOUT); };
+    arm(() => fail(new U.UpdateError('GitHub did not answer: try again later')));
     req.on('redirect', (_status, _method, target) => {
       try {
-        if (++redirects > U.MAX_REDIRECTS) throw new U.UpdateError('too many redirects');
-        U.safeUrl(target);
+        U.checkRedirect(++redirects, target);
+        arm(() => fail(new U.UpdateError('GitHub did not answer: try again later')));
         req.followRedirect();
       } catch (e) {
-        req.abort();
-        reject(e);
+        fail(e);
       }
     });
     req.on('response', (res) => {
+      const stall = () => { req.abort(); res.destroy(new U.UpdateError('the download stalled: try again later')); };
+      arm(stall);
+      res.on('data', () => arm(stall));
+      res.on('end', () => clearTimeout(timer));
+      res.on('error', () => clearTimeout(timer));
       const header = (h) => { const v = res.headers[h.toLowerCase()]; return Array.isArray(v) ? v[0] : v ?? null; };
       resolve({ status: res.statusCode, headers: { get: header }, body: Readable.toWeb(res) });
     });
-    req.on('error', reject);
+    req.on('error', (e) => { clearTimeout(timer); reject(e); });
     req.end();
   });
 }
@@ -122,7 +139,7 @@ async function check(auto = false) {
       verified = null;
       setStatus({ state: 'ready', latest: appliedVersion, mode: r.mode });
     } else if (r.state === 'available') setStatus({ state: 'available', latest: r.version, mode: r.mode, releaseUrl: r.releaseUrl, size: r.file.size });
-    else setStatus({ state: r.state, latest: r.latest, tag: r.tag });
+    else setStatus({ state: r.state, latest: r.latest, tag: r.tag, platform: r.platform });
   } catch (e) {
     verified = null;
     setStatus({ state: 'error', error: e instanceof U.UpdateError ? e.message : 'could not reach GitHub' });
@@ -155,12 +172,15 @@ async function install(now = true) {
       const dir = fs.mkdtempSync(path.join(updatesDir(), 'dl-'));
       const file = await download(path.join(dir, v.file.name));
       stagedInstaller = { file, sha256: v.file.sha256 };
-      appliedVersion = v.version;
       if (now) {
         await runInstaller(true);
+        appliedVersion = v.version;
         setStatus({ state: 'restarting', latest: v.version });
         setTimeout(() => app.quit(), 300);
-      } else setStatus({ state: 'ready', latest: v.version, mode: v.mode });
+      } else {
+        appliedVersion = v.version;
+        setStatus({ state: 'ready', latest: v.version, mode: v.mode });
+      }
     } else if (v.mode === 'appimage') {
       const target = process.env.APPIMAGE;
       if (!target || !path.isAbsolute(target) || !fs.statSync(target).isFile()) throw new U.UpdateError('cannot locate the running AppImage');
@@ -193,11 +213,11 @@ async function install(now = true) {
  * afterwards), after hashing it once more. Resolves when the process started;
  * rejects (and keeps the app running) if it could not be started.
  */
-function runInstaller(relaunch) {
+async function runInstaller(relaunch) {
   const s = stagedInstaller;
   stagedInstaller = null;
-  return new Promise((resolve, reject) => {
-    if (!s || !fs.existsSync(s.file) || U.fileSha256(s.file) !== s.sha256) return reject(new U.UpdateError('the staged installer changed after verification: discarded'));
+  if (!s || !fs.existsSync(s.file) || (await U.fileSha256(s.file)) !== s.sha256) throw new U.UpdateError('the staged installer changed after verification: discarded');
+  await new Promise((resolve, reject) => {
     const child = spawn(s.file, relaunch ? ['/S', '--force-run'] : ['/S'], { detached: true, stdio: 'ignore' });
     child.once('error', (e) => reject(new U.UpdateError(`could not start the installer (${e.code || e.message})`)));
     child.once('spawn', () => { child.unref(); resolve(); });
@@ -234,7 +254,12 @@ function init(distDir, devUrl) {
     return publicStatus();
   }));
 
-  app.on('before-quit', () => { if (stagedInstaller) runInstaller(false).catch(() => { /* the app is quitting: the update is retried next time */ }); });
+  // A staged installer runs as the app quits (after its hash is checked once more).
+  app.on('before-quit', (e) => {
+    if (!stagedInstaller) return;
+    e.preventDefault();
+    runInstaller(false).catch(() => { /* not installed: offered again at the next check */ }).finally(() => app.quit());
+  });
 
   if (!app.isPackaged) { status = { state: 'unsupported' }; return; }
   if (!PUBLIC_KEYS.length) { status = { state: 'not-configured' }; return; }

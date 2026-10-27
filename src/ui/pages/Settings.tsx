@@ -22,6 +22,7 @@ function describe(s: UpdateStatus): string {
     case 'checking': return 'Checking GitHub for a newer release…';
     case 'current': return `You have the latest version${s.latest ? ` (latest release: ${s.latest})` : ''}.`;
     case 'unsigned': return `The latest release${s.tag ? ` (${s.tag})` : ''} has no signed update manifest, so it is not offered here. You can still download it from the releases page.`;
+    case 'no-build': return `Version ${s.latest} has no build for this computer (${s.platform}) in the format you installed; check the releases page.`;
     case 'available': return `Version ${s.latest} is available${s.size ? ` (${mb(s.size)})` : ''}. Its release manifest is signed by the project; the download will be checked against it.`;
     case 'downloading': return `Downloading version ${s.latest}: ${mb(s.received ?? 0)} of ${mb(s.total ?? 0)}…`;
     case 'ready': return s.mode === 'nsis' ? `Version ${s.latest} is downloaded and verified; it installs when you quit the app.` : `Version ${s.latest} is installed; it starts the next time you open the app.`;

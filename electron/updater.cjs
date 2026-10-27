@@ -52,6 +52,23 @@ function compareVersions(a, b) {
   return 0;
 }
 
+/**
+ * Is `latest` (X.Y.Z) newer than the running version? The running version may
+ * be a prerelease build (1.3.0-rc.1): then 1.3.0 itself counts as newer.
+ */
+function isNewer(latest, running) {
+  const m = /^(\d+\.\d+\.\d+)(-[0-9A-Za-z.-]+)?$/.exec(String(running));
+  if (!m || !parseVersion(m[1])) throw new UpdateError(`invalid running version: ${running}`);
+  const c = compareVersions(latest, m[1]);
+  return c > 0 || (c === 0 && !!m[2]);
+}
+
+/** A redirect the downloader may follow (the `n`th of this request), or throws. */
+function checkRedirect(n, target) {
+  if (n > MAX_REDIRECTS) throw new UpdateError('too many redirects');
+  return safeUrl(target);
+}
+
 /** An https URL on an allowed GitHub host, with no credentials; otherwise throws. */
 function safeUrl(u) {
   let url;
@@ -105,17 +122,17 @@ function installMode(env) {
   if (env.platform === 'win32' && !env.portableDir && env.hasUninstaller) return { mode: 'nsis', kind: 'nsis' };
   // APPIMAGE is inherited by child processes: trust it only if this process runs from that AppImage's mount (APPDIR).
   const ownAppImage = env.appImage && path.isAbsolute(env.appImage) && env.appDir && path.isAbsolute(env.appDir) && env.execPath.startsWith(`${env.appDir.replace(/\/+$/, '')}/`);
-  if (env.platform === 'linux' && ownAppImage) return { mode: 'appimage', kind: 'appimage' };
+  // An AppImage in a folder the user cannot write (e.g. /opt) cannot be replaced: offer the download instead.
+  if (env.platform === 'linux' && ownAppImage && env.appImageWritable !== false) return { mode: 'appimage', kind: 'appimage' };
+  if (env.platform === 'linux' && ownAppImage) return { mode: 'download', kind: 'appimage' };
   if (env.platform === 'win32') return { mode: 'download', kind: env.portableDir ? 'portable' : 'zip' };
   if (env.platform === 'linux') return { mode: 'download', kind: env.execPath.startsWith('/opt/') ? 'deb' : 'targz' };
   return { mode: 'download', kind: 'dmg' };
 }
 
-/** The manifest entry for this platform, architecture and kind of install. */
+/** The manifest entry for this platform, architecture and kind of install (null: none). */
 function chooseFile(manifest, env, kind) {
-  const hit = manifest.files.find((f) => f.platform === env.platform && f.arch === env.arch && f.kind === kind);
-  if (!hit) throw new UpdateError(`the release has no ${kind} build for ${env.platform}-${env.arch}`);
-  return hit;
+  return manifest.files.find((f) => f.platform === env.platform && f.arch === env.arch && f.kind === kind) ?? null;
 }
 
 /** fetch with manual redirects, each target re-checked against the host allow-list. */
@@ -126,7 +143,7 @@ async function safeFetch(fetchFn, url, accept) {
     if ([301, 302, 303, 307, 308].includes(res.status)) {
       const loc = res.headers.get('location');
       if (!loc) throw new UpdateError('redirect without a location');
-      current = safeUrl(new URL(loc, current).href);
+      current = checkRedirect(i + 1, new URL(loc, current).href);
       continue;
     }
     if (res.status === 403 || res.status === 429) throw new UpdateError('GitHub refused the request (rate limit): try again later');
@@ -170,9 +187,10 @@ async function checkForUpdate({ fetchFn, currentVersion, publicKeys, env }) {
   const manifestBytes = await readLimited(await safeFetch(fetchFn, assets.get(MANIFEST).browser_download_url, 'application/octet-stream'), MAX_MANIFEST_BYTES);
   const sigText = (await readLimited(await safeFetch(fetchFn, assets.get(SIGNATURE).browser_download_url, 'application/octet-stream'), 1024)).toString('utf8');
   const manifest = verifyManifest(manifestBytes, sigText, publicKeys);
-  if (compareVersions(manifest.version, currentVersion) <= 0) return { state: 'current', latest: manifest.version };
+  if (!isNewer(manifest.version, currentVersion)) return { state: 'current', latest: manifest.version };
   const { mode, kind } = installMode(env);
   const file = chooseFile(manifest, env, kind);
+  if (!file) return { state: 'no-build', latest: manifest.version, platform: `${env.platform}-${env.arch}`, kind };
   const asset = assets.get(file.name);
   if (!asset || asset.size !== file.size) throw new UpdateError(`release asset ${file.name} is missing or differs from the signed manifest`);
   return {
@@ -197,7 +215,7 @@ async function downloadVerified({ fetchFn, url, dest, size, sha256, onProgress }
   const declared = Number(res.headers.get('content-length'));
   if (declared && declared !== size) throw new UpdateError('download size differs from the signed manifest');
   const part = `${dest}.part`;
-  const fd = fs.openSync(part, 'wx', 0o600);
+  const fh = await fs.promises.open(part, 'wx', 0o600);
   const hash = crypto.createHash('sha256');
   let received = 0;
   let ok = false;
@@ -209,32 +227,38 @@ async function downloadVerified({ fetchFn, url, dest, size, sha256, onProgress }
       received += value.length;
       if (received > size) { await reader.cancel(); throw new UpdateError('download is larger than the signed manifest says'); }
       hash.update(value);
-      fs.writeSync(fd, value);
+      await fh.write(value);
       if (onProgress) onProgress(received, size);
     }
     if (received !== size) throw new UpdateError('download is incomplete');
     if (hash.digest('hex') !== sha256) throw new UpdateError('download does not match the signed SHA-256: discarded');
-    fs.fsyncSync(fd);
+    await fh.sync();
     ok = true;
   } finally {
-    fs.closeSync(fd);
-    if (!ok) fs.rmSync(part, { force: true });
+    await fh.close();
+    if (!ok) await fs.promises.rm(part, { force: true });
   }
-  fs.renameSync(part, dest);
+  await placeNoClobber(part, dest);
   return dest;
 }
 
-/** SHA-256 of a file, read in chunks (no whole-file buffer). */
-function fileSha256(file) {
-  const fd = fs.openSync(file, 'r');
-  const hash = crypto.createHash('sha256');
-  const buf = Buffer.alloc(1024 * 1024);
+/** Move `from` to `to` without ever replacing an existing `to` (hard link, else exclusive copy). */
+async function placeNoClobber(from, to) {
   try {
-    for (let n; (n = fs.readSync(fd, buf, 0, buf.length, null)) > 0;) hash.update(buf.subarray(0, n));
-  } finally {
-    fs.closeSync(fd);
+    await fs.promises.link(from, to);
+  } catch (e) {
+    if (e.code === 'EEXIST') { await fs.promises.rm(from, { force: true }); throw new UpdateError('the destination file appeared during the download'); }
+    await fs.promises.copyFile(from, to, fs.constants.COPYFILE_EXCL);
   }
-  return hash.digest('hex');
+  await fs.promises.rm(from, { force: true });
+}
+
+/** SHA-256 of a file, streamed. */
+function fileSha256(file) {
+  return new Promise((resolve, reject) => {
+    const hash = crypto.createHash('sha256');
+    fs.createReadStream(file).on('data', (c) => hash.update(c)).on('error', reject).on('end', () => resolve(hash.digest('hex')));
+  });
 }
 
 /** A path in `dir` for `name` that does not exist yet ("name (1).ext" ...). */
@@ -250,5 +274,5 @@ function freePath(dir, name) {
 
 module.exports = {
   REPO, PRODUCT, MANIFEST, SIGNATURE, ALLOWED_HOSTS, NAME_RE, KINDS, UpdateError,
-  parseVersion, compareVersions, safeUrl, verifyManifest, installMode, chooseFile, safeFetch, readLimited, checkForUpdate, downloadVerified, fileSha256, freePath, MAX_REDIRECTS,
+  parseVersion, compareVersions, isNewer, checkRedirect, safeUrl, verifyManifest, installMode, chooseFile, safeFetch, readLimited, checkForUpdate, downloadVerified, fileSha256, freePath, MAX_REDIRECTS,
 };

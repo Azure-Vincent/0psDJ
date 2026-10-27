@@ -86,6 +86,13 @@ describe('updater: manifest verification', () => {
     expect(() => U.compareVersions('v1.2.4', '1.2.4')).toThrow();
     expect(U.parseVersion('01.2.3')).toBeNull();
   });
+
+  it('lets a prerelease build update to its stable release and later', () => {
+    expect(U.isNewer('1.3.0', '1.3.0-rc.1')).toBe(true);
+    expect(U.isNewer('1.3.0', '1.3.0')).toBe(false);
+    expect(U.isNewer('1.2.9', '1.3.0-rc.1')).toBe(false);
+    expect(() => U.isNewer('1.3.0', 'garbage')).toThrow(/invalid running version/);
+  });
 });
 
 describe('updater: where it may connect', () => {
@@ -94,6 +101,12 @@ describe('updater: where it may connect', () => {
     for (const u of ['http://github.com/x', 'https://evil.example/x', 'https://github.com.evil.example/x', 'https://user:pw@github.com/x', 'https://github.com:8443/x', 'file:///etc/passwd', 'javascript:alert(1)']) {
       expect(() => U.safeUrl(u), u).toThrow();
     }
+  });
+
+  it('checks each redirect the Electron adapter is about to follow, and their number', () => {
+    expect(U.checkRedirect(1, 'https://release-assets.githubusercontent.com/a')).toBe('https://release-assets.githubusercontent.com/a');
+    expect(() => U.checkRedirect(1, 'https://evil.example/a')).toThrow(/refusing/);
+    expect(() => U.checkRedirect(U.MAX_REDIRECTS + 1, 'https://github.com/a')).toThrow(/too many redirects/);
   });
 
   it('re-checks every redirect target', async () => {
@@ -134,6 +147,11 @@ describe('updater: checking the latest release', () => {
     await expect(U.checkForUpdate({ fetchFn: g.fetchFn, currentVersion: '1.2.4', publicKeys: [PUB], env: WIN })).rejects.toThrow(/differs from the signed manifest/);
   });
 
+  it('reports a release without a build for this computer as such, not as an error', async () => {
+    const r = await U.checkForUpdate({ fetchFn: github(files).fetchFn, currentVersion: '1.2.4', publicKeys: [PUB], env: { platform: 'darwin', arch: 'x64', execPath: '/Applications/x' } });
+    expect(r).toEqual({ state: 'no-build', latest: '1.3.0', platform: 'darwin-x64', kind: 'dmg' });
+  });
+
   it('picks the install mode from how the app was installed', () => {
     expect(U.installMode(WIN)).toEqual({ mode: 'nsis', kind: 'nsis' });
     expect(U.installMode({ ...WIN, portableDir: 'D:\\apps' })).toEqual({ mode: 'download', kind: 'portable' });
@@ -144,6 +162,8 @@ describe('updater: checking the latest release', () => {
     expect(U.installMode({ platform: 'linux', arch: 'x64', appImage: '/home/a/Editor.AppImage', execPath: '/home/a/lab/infrastructure-lab' })).toEqual({ mode: 'download', kind: 'targz' });
     expect(U.installMode({ platform: 'linux', arch: 'x64', appImage: 'relative.AppImage', execPath: '/opt/Infrastructure Lab/x' })).toEqual({ mode: 'download', kind: 'deb' });
     expect(U.installMode({ platform: 'darwin', arch: 'arm64', execPath: '/Applications/x' })).toEqual({ mode: 'download', kind: 'dmg' });
+    // An AppImage in a folder the user cannot write: the verified file is downloaded instead.
+    expect(U.installMode({ platform: 'linux', arch: 'x64', appImage: '/opt/Lab.AppImage', appDir: '/tmp/.mount_Lab1', execPath: '/tmp/.mount_Lab1/x', appImageWritable: false })).toEqual({ mode: 'download', kind: 'appimage' });
   });
 });
 
@@ -159,7 +179,7 @@ describe('updater: downloads', () => {
     expect(fs.readFileSync(dest).equals(ARTIFACT)).toBe(true);
     if (process.platform !== 'win32') expect(fs.statSync(dest).mode & 0o777).toBe(0o600);
     await expect(U.downloadVerified({ fetchFn: fetchOf(ARTIFACT), url, dest, size: ARTIFACT.length, sha256: SHA })).rejects.toThrow(/already exists/);
-    expect(U.fileSha256(dest)).toBe(SHA);
+    expect(await U.fileSha256(dest)).toBe(SHA);
     expect(fs.readdirSync(d)).toEqual([SETUP]);
   });
 
@@ -169,6 +189,22 @@ describe('updater: downloads', () => {
     await expect(U.downloadVerified({ fetchFn: fetchOf(evil), url, dest: path.join(d, 'a'), size: ARTIFACT.length, sha256: SHA })).rejects.toThrow(/does not match the signed SHA-256/);
     await expect(U.downloadVerified({ fetchFn: fetchOf(Buffer.concat([ARTIFACT, Buffer.from('x')])), url, dest: path.join(d, 'b'), size: ARTIFACT.length, sha256: SHA })).rejects.toThrow(/size differs/);
     expect(fs.readdirSync(d)).toEqual([]);
+  });
+
+  it('never replaces a file that appears at the destination during the download', async () => {
+    const d = dir();
+    const dest = path.join(d, SETUP);
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    // The body arrives only after someone else has created dest.
+    const fetchFn = async () => ({ status: 200, headers: { get: () => String(ARTIFACT.length) }, body: new ReadableStream({ async start(c) { await gate; c.enqueue(new Uint8Array(ARTIFACT)); c.close(); } }) });
+    const p = U.downloadVerified({ fetchFn, url, dest, size: ARTIFACT.length, sha256: SHA });
+    await new Promise((r) => setTimeout(r, 20));
+    fs.writeFileSync(dest, 'the user\'s own file');
+    release();
+    await expect(p).rejects.toThrow(/appeared during the download/);
+    expect(fs.readFileSync(dest, 'utf8')).toBe('the user\'s own file');
+    expect(fs.readdirSync(d)).toEqual([SETUP]);
   });
 
   it('never overwrites a file in the download folder', () => {
