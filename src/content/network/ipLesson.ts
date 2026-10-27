@@ -57,6 +57,13 @@ A few rules of thumb:
 - A host treats every address inside its own prefix as **on-link**: it believes it can reach that address directly, without a router.
 - That is why a wrong prefix is a routing problem, not a cosmetic one. Too short (for example /16 instead of /24) and the host tries to reach remote computers directly and nothing answers. Too long and it sends local traffic to the router unnecessarily, or cannot reach some neighbours at all.
 
+:::practice
+Q: A printer is configured as 192.168.7.40/24. Which part of the address is the network, and which addresses can its neighbours on the same network have?
+A: The first three octets name the network: **192.168.7.0/24**. Neighbours can use 192.168.7.1 to 192.168.7.254; .0 is the network address and .255 the broadcast address.
+Q: A laptop with 10.1.1.20 is accidentally set to /8 instead of /24. Which destinations does it now wrongly treat as on-link?
+A: Every address from 10.0.0.0 to 10.255.255.255. For all of them it sends ARP requests itself instead of using the gateway, so anything outside the real 10.1.1.0/24 network becomes unreachable.
+:::
+
 ### Working out any network by hand
 For a /24 the answer is easy to see, because the network ends at a dot. For other prefixes, use this method. It works for every IPv4 prefix. Example: **192.168.4.77/28**.
 1. **Count the host bits:** 32 − prefix length. For /28: 32 − 28 = **4** host bits.
@@ -71,6 +78,13 @@ The formula for step 5 is worth remembering: **usable hosts = 2^(32 − prefix) 
 
 To check your answer, \`ipcalc 192.168.4.77/28\` prints the network, broadcast and host range, and the [nftables lesson](#/lesson/nftables/internals) has a prefix calculator.
 
+:::practice
+Q: Work out the network address, broadcast address and usable host range of **10.20.30.200/29**.
+A: Host bits 32 − 29 = 3, block size 2³ = 8. Multiples of 8 near 200: 192, 200, 208. 200 is itself a multiple, so the network is **10.20.30.200/29**, the next one starts at 208, the broadcast is **10.20.30.207**, and the usable hosts are **.201 to .206** (8 − 2 = 6).
+Q: How many usable host addresses does a /22 have, and what are the first and last addresses of the /22 that contains **10.5.70.1**?
+A: 2^(32 − 22) − 2 = 1024 − 2 = **1022** usable hosts. The block is 2^(24 − 22) = 4 in the third number; the multiples near 70 are 68 and 72, so the network is **10.5.68.0/22** and its last address is **10.5.71.255**.
+:::
+
 ### How a host decides where to send a packet
 Every computer, not just routers, has a **routing table**: a list of networks it knows about and how to reach each one. On Linux you can see it with \`ip route\`. For every packet it sends, the kernel (the core of the operating system) looks for the entry that matches the destination most precisely. This is called **longest prefix match**: if two routes both match, the one with the longer prefix (the smaller, more specific network) wins.
 
@@ -83,6 +97,13 @@ A typical workstation has just two routes:
 
 The result of the lookup is three things: the outgoing interface, the **next hop** (the gateway, or the destination itself if it is on-link) and the source address to use. You can ask the kernel to show you its decision for any address with \`ip route get ADDR\`. This is one of the most useful commands in network troubleshooting.
 
+:::practice
+Q: A host has \`default via 192.168.1.1\`, \`10.0.0.0/8 via 192.168.1.2\` and \`10.9.0.0/16 via 192.168.1.3\`. Which next hop does it use for 10.9.4.4, for 10.200.0.1 and for 8.8.8.8?
+A: Longest prefix match: 10.9.4.4 matches all three, and the /16 is the longest, so **192.168.1.3**. 10.200.0.1 matches the /8 and the default, so **192.168.1.2**. 8.8.8.8 matches only the default route, so **192.168.1.1**. The order in which routes are listed does not matter.
+Q: Which command shows you exactly which interface, next hop and source address the kernel would use for 172.16.40.9?
+A: \`ip route get 172.16.40.9\`. It performs the real lookup instead of making you read the table yourself.
+:::
+
 ### ARP: finding the next hop's hardware address
 On an Ethernet network (wired or Wi-Fi), data is actually delivered in **frames** addressed to a **MAC address**: a hardware address burned into each network card, such as 52:54:00:a1:00:01. IP addresses are for finding the way across networks; MAC addresses are for the last step, delivery on the local wire.
 
@@ -93,6 +114,13 @@ So before a host can send a packet to its next hop, it needs that next hop's MAC
 4. If nobody answers after about 3 seconds of retries, the entry is marked FAILED and the program that tried to send gets the error **EHOSTUNREACH: "No route to host"**. That message is confusing, because the route exists; what failed is ARP.
 
 Two things to remember. ARP only works within one local network; it never crosses a router. And for a destination on another network, the host ARPs for the **gateway's** MAC address, never for the final destination's.
+
+:::practice
+Q: ws01 (10.0.10.25/24, gateway 10.0.10.1) wants to reach a web server on 10.0.20.10. For which IP address does ws01 send an ARP request?
+A: For **10.0.10.1**, its gateway. The web server is on another network, so the frame goes to the gateway; ARP never crosses a router, so ws01 could not reach the server's MAC address anyway.
+Q: \`ip neigh\` shows \`10.0.10.1 dev eth0 FAILED\`. What did the host try, and what error will a program that tries to connect through that gateway see?
+A: It sent ARP requests for 10.0.10.1 and nobody answered. Programs get **EHOSTUNREACH "No route to host"**, even though the route exists: the failure is ARP, not routing.
+:::
 
 ### What a router does
 A router is a computer with network interfaces in more than one network and **forwarding** switched on (on Linux, \`net.ipv4.ip_forward=1\`). When a packet arrives that is not addressed to the router itself, it:
@@ -106,10 +134,24 @@ If forwarding is switched off, a Linux router behaves like an ordinary host and 
 - Hosts on the **same** network keep talking to each other, because their traffic never passes through the router.
 - Only traffic **between** networks stops. Setting it back with \`sysctl -w net.ipv4.ip_forward=1\` fixes it at once, but only until the next reboot: the permanent setting lives in a file under \`/etc/sysctl.d/\`.
 
+:::practice
+Q: A packet leaves a client with TTL 64 and crosses three routers before reaching the server. What TTL does the server see?
+A: **61**. Each router lowers the TTL by one before forwarding.
+Q: A packet goes from ws01 through rtr01 to srv01. Which of these change at rtr01: the source MAC, the destination MAC, the source IP, the destination IP?
+A: Only the **MAC addresses** change: rtr01 builds a new frame from its own outgoing interface to the next hop. The source and destination IP addresses stay the same end to end (unless NAT is involved, which you meet in the NAT lesson).
+:::
+
 ### Traffic must work in both directions
 Each router, and each end of the conversation, makes its own routing decision, independently, for every packet. A reply from a server is routed using the **server's** routing table, so the server needs a route back to the client's network (usually its own default gateway).
 
 A missing return route is a classic trap: the request arrives, the server tries to answer, and the answer never leaves. From the client it looks exactly like a firewall silently dropping traffic: a timeout.
+
+:::practice
+Q: A server's default gateway was deleted. Clients on the server's own network can still use it, but clients on other networks time out. Why do the local clients still work?
+A: Their addresses are on-link for the server, so the reply goes straight to them without needing a gateway. Replies to other networks need the default route, which is missing, so they never leave the server.
+Q: You see a ping request arrive on a server with tcpdump, but no reply leaves. Which command on the **server** tells you whether it has a route back to the client 10.0.30.25?
+A: \`ip route get 10.0.30.25\` on the server. If it fails or points somewhere unexpected, the problem is the return path, not the client.
+:::
 
 ### ICMP: how the network reports problems
 **ICMP** (Internet Control Message Protocol) carries status and error messages for IP. \`ping\` uses it, and routers use it to tell a sender why a packet could not be delivered. The message type tells you how far the packet got:
@@ -124,6 +166,13 @@ A missing return route is a classic trap: the request arrives, the server tries 
 
 Silence is information too. If you get no ICMP message at all, something dropped the packet without telling anyone, very often a firewall.
 
+:::practice
+Q: A client trying to reach 10.0.50.7 gets "Network is unreachable" back from its router. What does that tell you about the router?
+A: The router received the packet but has **no route** to the destination network (ICMP destination unreachable, net, 3/0). Look at the router's routing table.
+Q: A connection attempt gets no answer and no error message at all for two minutes. What is the most likely kind of cause?
+A: Something **dropped the packet silently**, most often a firewall rule with drop (or a missing return route). Errors such as "unreachable" are only produced when a device decides to tell the sender.
+:::
+
 ### Encapsulation on the wire
 Here is what one frame carrying a web request looks like, from the outside in:
 - **Ethernet header** (14 bytes): destination MAC, source MAC, and EtherType 0x0800 ("an IPv4 packet follows").
@@ -132,6 +181,14 @@ Here is what one frame carrying a web request looks like, from the outside in:
 - **HTTP payload**: the actual request.
 
 The explorer below colours each of these regions in a real frame produced by the simulator, so you can see where every field sits.
+
+:::practice
+Q: Put these in order from the outside of a frame to the inside: TCP header, Ethernet header, application data, IPv4 header.
+A: Ethernet header → IPv4 header → TCP header → application data.
+Q: In the IPv4 header, which field tells the receiving host that the payload is TCP, and which value means TCP?
+A: The **protocol** field; the value **6** means TCP (17 means UDP, 1 means ICMP).
+:::
+
 `,
 
   deployment: [

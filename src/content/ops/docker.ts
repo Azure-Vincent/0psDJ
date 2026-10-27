@@ -259,6 +259,13 @@ Internal web applications, CI runners, monitoring stacks (Prometheus/Grafana), r
 3. dockerd asks **containerd** to start it; containerd starts a **shim**, which runs **runc**: new namespaces, cgroup limits, pivot into the image's root filesystem, exec the **ENTRYPOINT/CMD** as PID 1. runc exits; the shim remains the parent (state \`running\`).
 4. For \`-p\`, dockerd installs NAT rules and starts \`docker-proxy\`.
 
+:::practice
+Q: \`docker run\` hangs at "Pulling fs layer" for a new image. Which component is doing the download, the CLI or dockerd?
+A: **dockerd**. The CLI only sends API calls over /var/run/docker.sock; the daemon resolves the registry, authenticates and downloads the layers.
+Q: After a container started, which process is the parent of the container's main process: runc, containerd or the shim?
+A: The **shim** (containerd-shim-runc-v2). runc creates the container and exits.
+:::
+
 ### 2. Lifecycle and exit codes
 **Restart versus recreate.** A container's environment variables, published ports, mounts, network and command are fixed **when the container is created**. \`docker restart web\` and \`docker compose restart web\` stop and start the **same** container, so they keep the old settings even if compose.yaml or .env changed. To apply new settings the container must be **recreated**: \`docker compose up -d\` compares the file with the running containers and recreates only the services whose configuration changed (named volumes, and so the data, are kept). With plain docker: \`docker rm -f web\` and \`docker run …\` again.
 
@@ -274,12 +281,26 @@ States: **created → running → (paused) → exited**, plus **restarting** (re
 
 **Restart policies**: \`no\` (default), \`on-failure[:N]\` (non-zero exit, at most N times), \`always\` (also after daemon restart), \`unless-stopped\` (like always, but not if you stopped it manually). Restarts use an increasing delay (doubling from 100 ms, capped at one minute), so a failing container shows \`Restarting (1) 14 seconds ago\`: a **restart loop**. The policy hides crashes; it does not fix them.
 
+:::practice
+Q: A container shows \`Exited (143)\`. What happened?
+A: 143 = 128 + 15 (**SIGTERM**): it was stopped with \`docker stop\` and the process ended on that signal. Normal, not a crash.
+Q: You changed the published port of \`api\` in compose.yaml from 8080 to 8081 and ran \`docker compose restart api\`. Which port is it published on now?
+A: Still **8080**. restart reuses the same container, whose ports were fixed at creation. Run \`docker compose up -d\` to recreate it with the new port.
+:::
+
 ### 3. Images, layers and storage
 An image is an ordered list of read-only layers (one per Dockerfile instruction that changes files). overlay2 mounts them as **lowerdirs** with the container's **upperdir** on top. Writing to a file copies it up into the writable layer, which is **deleted when the container is removed or recreated**. Anything that must survive goes into a **volume** or bind mount.
 - **Named volume** (\`dbdata:/var/lib/postgresql/data\`): stored in \`/var/lib/docker/volumes/<name>/_data\`; when empty, Docker copies the image's content and ownership into it at first use. Survives \`docker compose down\` (but not \`down -v\`).
 - **Bind mount** (\`/srv/inventory/uploads:/app/uploads\`): the host directory as is, with host ownership. The container process's UID (e.g. 999 for postgres, 1000 for many apps, 0 by default) must be allowed to write it: UIDs are **numbers**, shared between host and container unless user-namespace remapping or rootless mode is used.
 - **SELinux** (RHEL/Fedora, enforcing): container processes run as \`container_t\` and may only access files labelled \`container_file_t\`. Mount with \`:z\` (relabel, shareable) or \`:Z\` (relabel, private to this container); never on \`/home\`, \`/etc\` or \`/var\`.
 - **Read-only**: \`:ro\` on a mount, or \`--read-only\` for the whole root filesystem.
+
+:::practice
+Q: An app writes uploaded files to /app/uploads inside the container, with no volume. What happens to them after \`docker compose up -d\` recreates the container?
+A: They are **gone**: they lived in the container's writable layer, which is deleted when the container is removed or recreated. Use a volume or bind mount.
+Q: A bind mount \`/srv/data:/data\` gives "Permission denied" for a container process running as UID 1000. \`/srv/data\` is owned by root, mode 755. What is the fix?
+A: Give UID **1000** write access on the host (for example \`chown 1000 /srv/data\`). UIDs are numbers shared between host and container, so the host directory's ownership is what counts.
+:::
 
 ### 4. Networking
 - **Default bridge** (\`docker0\`, 172.17.0.0/16): what \`docker run\` uses without \`--network\`. Containers get an IP and outbound NAT, but **no name resolution between containers**; \`/etc/resolv.conf\` is a filtered copy of the host's.
@@ -288,6 +309,13 @@ An image is an ordered list of read-only layers (one per Dockerfile instruction 
 - Each container is attached by a **veth pair**: one end is \`eth0\` inside the container, the other (\`vethXXXX\`) is a port of the bridge on the host (\`ip -br link\`, \`bridge link\`).
 - Docker enables \`net.ipv4.ip_forward\` and sets the iptables FORWARD policy to **DROP**, which affects a host that also routes other traffic.
 - Address conflicts: if 172.17.0.0/16 or Docker's pools (172.17–172.31, 192.168.x) overlap a real corporate or VPN network, the host routes those destinations into a bridge. Set \`bip\` and \`default-address-pools\` in daemon.json.
+
+:::practice
+Q: Two containers started with plain \`docker run\` (no --network) cannot reach each other by name. Which network do you put them on instead?
+A: A **user-defined bridge** (\`docker network create appnet\`, then \`--network appnet\`). It has the embedded DNS at 127.0.0.11 that resolves container names.
+Q: After installing Docker, the host can no longer reach a corporate network 172.18.0.0/16. Why?
+A: Docker created a bridge in **172.18.0.0/16** for a network, so the host now routes that range into the bridge. Set \`default-address-pools\` (and \`bip\`) in daemon.json to ranges that do not overlap.
+:::
 
 ### 5. Port publishing and the firewall
 \`-p 8080:8000\` (\`ports: ["8080:8000"]\`, host:container) creates:
@@ -299,16 +327,44 @@ Because DNATed traffic is **forwarded**, not delivered to the host, it never pas
 
 The application must listen on **0.0.0.0 inside the container**. If it listens on 127.0.0.1, it works with \`docker exec ... curl localhost\` and its HEALTHCHECK passes, but published traffic arriving on the container's eth0 is refused.
 
+:::practice
+Q: A container is published with \`-p 5000:80\`. A ufw rule denies port 5000. Is the container reachable from the network?
+A: **Yes.** Published ports are DNATed and **forwarded**, so they never pass the INPUT chain that ufw filters. Restrict with DOCKER-USER rules or publish on a specific address.
+Q: How do you publish port 8080 so that only a reverse proxy on the same host can reach it?
+A: Bind it to loopback: \`-p 127.0.0.1:8080:8000\` (or \`"127.0.0.1:8080:8000"\` in compose).
+:::
+
 ### 6. DNS inside containers
 - Default bridge: Docker copies the host's \`/etc/resolv.conf\`, removing loopback nameservers (they are not reachable from the container's namespace). On Ubuntu with **systemd-resolved** (\`nameserver 127.0.0.53\`), Docker reads the real upstream servers from \`/run/systemd/resolve/resolv.conf\` instead. If no usable server remains, Docker falls back to **8.8.8.8 and 8.8.4.4**, which cannot resolve internal names such as \`registry.corp.lab\` and may be blocked by the corporate firewall.
 - User-defined networks: \`nameserver 127.0.0.11\`; the embedded server answers container names and forwards the rest to the upstream servers determined the same way.
 - Fix: \`"dns": ["10.0.10.53"]\` in daemon.json (restart docker, recreate containers) or \`dns:\` per service.
 
+:::practice
+Q: On an Ubuntu host using systemd-resolved, the host's resolv.conf says \`nameserver 127.0.0.53\`. Does Docker copy that into containers on the default bridge?
+A: **No.** 127.0.0.53 is unreachable from the container's namespace, so Docker reads the real upstream servers from \`/run/systemd/resolve/resolv.conf\` instead.
+Q: Which address appears as nameserver inside a container on a Compose project's network?
+A: \`127.0.0.11\`, Docker's embedded DNS server.
+:::
+
 ### 7. Resource limits
 \`--memory 512m\` / \`mem_limit\` sets the cgroup memory limit; exceeding it triggers the kernel OOM killer inside that cgroup: exit 137, \`OOMKilled: true\`, and a kernel log line (\`journalctl -k | grep -i oom\`). \`--cpus 1.5\` throttles CPU (slow, not killed). Without limits, one container can exhaust the whole host's memory and the host OOM killer picks a victim, possibly dockerd or a database.
 
+:::practice
+Q: A container limited with \`--cpus 0.5\` is slow under load. Will it be killed?
+A: **No.** A CPU limit only **throttles** the container. Only a memory limit leads to the OOM killer.
+Q: Why is running containers with no memory limit risky for the whole host?
+A: One container can use all the host's memory; the **host's** OOM killer then picks a victim, which may be dockerd or a database in another container.
+:::
+
 ### 8. Logs
 With the default **json-file** driver, stdout/stderr go to \`/var/lib/docker/containers/<id>/<id>-json.log\` and \`docker logs\` reads them back (\`--tail\`, \`--since\`, \`-f\`, \`-t\`). There is **no rotation by default**: set \`"log-opts": {"max-size": "10m", "max-file": "3"}\` in daemon.json (applies to new containers) or use the \`local\` driver. The logs are deleted with the container, so recreate destroys them. Applications that log to files inside the container instead of stdout are invisible to \`docker logs\`.
+
+:::practice
+Q: A container's log fills the disk. Where does the json-file driver store it, and how do you limit it?
+A: In \`/var/lib/docker/containers/<id>/<id>-json.log\`. Set \`"log-opts": {"max-size": "10m", "max-file": "3"}\` in daemon.json (for new containers) or use the \`local\` driver.
+Q: Before you recreate a broken container, why should you save \`docker logs\` first?
+A: The logs are **deleted with the container**; after recreating it, the evidence of why it failed is gone.
+:::
 
 `,
 

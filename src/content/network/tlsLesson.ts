@@ -50,6 +50,13 @@ After the TCP handshake:
 
 The client verifies the certificate between steps 3 and 5. If verification fails it sends an **alert** (unknown CA, certificate expired, bad certificate) and closes. Note what this means for troubleshooting: a TCP connection that opens and closes after ~3 packets of TLS is a certificate or protocol problem, never a firewall.
 
+:::practice
+Q: A capture shows the TCP handshake, a ClientHello, the server's reply, an alert from the client, then the connection closes. Is a firewall to blame?
+A: **No.** The TCP connection worked and TLS started; the client then rejected something (typically the certificate) and sent an alert. Look at the certificate and the client's error message.
+Q: Which handshake message proves the server owns the private key that belongs to its certificate?
+A: **CertificateVerify**: a signature over the handshake made with the server's private key.
+:::
+
 ### Anatomy of a certificate
 \`\`\`
 Subject: CN = www.corp.lab
@@ -64,6 +71,13 @@ Signature Algorithm: sha256WithRSAEncryption (made with the ISSUER's private key
 - **subjectAltName (SAN)** is what clients match against. The CN is ignored when a SAN is present (all modern clients). Wildcards match exactly one label: *.corp.lab matches www.corp.lab, not corp.lab or a.b.corp.lab. IP addresses must be listed as IP: entries.
 - **Basic Constraints CA:TRUE** marks a CA certificate. A leaf certificate cannot sign others (error 24 "invalid CA certificate").
 - Publicly trusted certificates are short-lived: since March 2026 at most 200 days, falling to 100 days in March 2027 and 47 days in March 2029 (CA/Browser Forum ballot SC-081). Renewal must be automated. Internal CAs set their own limits (the lab certificate is valid for 397 days).
+
+:::practice
+Q: A certificate has SAN \`DNS:*.shop.example\`. Which of these names does it cover: shop.example, www.shop.example, img.cdn.shop.example?
+A: Only **www.shop.example**. A wildcard matches exactly one label: not the bare shop.example, and not two labels (img.cdn).
+Q: Users connect to \`https://10.0.20.10/\`. The certificate lists only DNS names. Will the name check pass?
+A: **No.** IP addresses must be listed as **IP:** entries in the subjectAltName; a DNS entry does not match an address.
+:::
 
 ### Chains and trust stores
 \`\`\`
@@ -87,11 +101,25 @@ Telling the two apart needs one fact about your PKI: which CAs are roots. Your P
 
 Example: a server sends \`0 s:CN = shop.example\` / \`i:CN = Example Issuing CA\` and \`1 s:CN = Example Issuing CA\` / \`i:CN = Example Root\`, and the error is at depth=1: the server did its job; the client lacks Example Root.
 
+:::practice
+Q: \`s_client\` shows one certificate: \`0 s:CN = intranet.example\` / \`i:CN = Example Issuing CA 2\`, and error 20 at depth 0. Example Issuing CA 2 is an intermediate. Who must fix what?
+A: The **server** sent only its leaf and its issuer is an intermediate, so the intermediate is missing. Configure the server to send the full chain (leaf + Example Issuing CA 2).
+Q: You copy \`company-root.crt\` into /usr/local/share/ca-certificates/. Which command adds it to the Debian trust store, and which file is updated?
+A: \`update-ca-certificates\`; it regenerates **/etc/ssl/certs/ca-certificates.crt**.
+:::
+
 ### Keys, CSRs and issuance
 1. Generate a key pair on the server: the **private key never leaves it** (mode 0600/0640, /etc/ssl/private/).
 2. Create a **CSR** (certificate signing request): public key + requested subject and SANs, signed with the private key.
 3. The CA checks you control the names (ACME http-01/dns-01 for public CAs, a ticket for internal ones) and returns the certificate (+ chain).
 4. Install certificate **and** chain, and the matching key. The certificate's public key and the private key must belong together: compare moduli (\`openssl x509 -noout -modulus | openssl md5\` vs \`openssl rsa -noout -modulus | openssl md5\`).
+
+:::practice
+Q: Where is the private key created, and who else ever sees it during issuance?
+A: On the **server** itself, and **nobody** else sees it: the CSR contains only the public key and the requested names.
+Q: After a renewal, how do you prove that the new certificate and the key file belong together?
+A: Compare the moduli: \`openssl x509 -noout -modulus -in CERT | openssl md5\` and \`openssl rsa -noout -modulus -in KEY | openssl md5\` must print the same hash.
+:::
 
 ### What servers do with the files
 nginx reads ssl_certificate (leaf followed by intermediates) and ssl_certificate_key **at start and reload only** and keeps them in memory. Consequences:
@@ -99,8 +127,23 @@ nginx reads ssl_certificate (leaf followed by intermediates) and ssl_certificate
 - If the new files are broken (missing, key mismatch), \`nginx -t\` fails, the reload fails and **the old certificate keeps being served**; a restart or reboot would take the site down.
 - Always check what is actually served from outside: \`openssl s_client -connect host:443 -servername host </dev/null\`.
 
+:::practice
+Q: You replaced the certificate file an hour ago but clients still see the old certificate. You have not run anything else. Why?
+A: nginx reads certificates only at **start and reload**. Until \`nginx -t && systemctl reload nginx\`, it keeps serving the copy in memory.
+Q: Why is a reload safer than a restart after changing certificate files?
+A: If the new files are broken, the reload fails and the **old certificate keeps being served**. A restart with broken files would stop nginx and take the site down.
+:::
+
 ### Time
 Validity checks use the client's clock. A client whose clock is years off rejects every certificate (not yet valid / expired); NTP problems surface as TLS errors.
+
+:::practice
+Q: A freshly installed VM gets "certificate is not yet valid" for every HTTPS site. What do you check first?
+A: The **VM's clock** (\`timedatectl\`): it is probably set to a date before the certificates' Not Before. Fix time synchronisation (see the [NTP lesson](#/lesson/ntp/internals)).
+Q: Whose clock decides whether a certificate has expired: the server's or the client's?
+A: The **client's**: validity is checked by the client that verifies the certificate.
+:::
+
 `,
 
   deployment: [

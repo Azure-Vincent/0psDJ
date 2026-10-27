@@ -166,6 +166,13 @@ Each server already keeps its own logs (in the systemd journal and in files unde
 ### 1. Facility and priority
 Every message carries a **facility** (where it comes from) and a **priority** (how serious). Programs choose them: sshd logs to **auth** by default, sudo and PAM to **authpriv**, the kernel to **kern**, cron to **cron**, most daemons to **daemon**, \`logger\` to **user** unless told otherwise (\`-p authpriv.notice\`). On the wire they are combined into PRI = facility × 8 + severity: \`<38>\` is auth.info.
 
+:::practice
+Q: A message from facility daemon (3) with severity err (3) is sent over the network. Which PRI value is at its start?
+A: PRI = facility × 8 + severity = 3 × 8 + 3 = **27**, written \`<27>\`.
+Q: A script logs with \`logger "backup done"\` and nothing else. Which facility and priority does the message get?
+A: **user.notice** (logger's defaults). Use \`-p\` to choose another, for example \`-p local0.info\`.
+:::
+
 ### 2. Rules: selector → action
 \`/etc/rsyslog.conf\` (and files in /etc/rsyslog.d, included where \`$IncludeConfig\` appears) contains rules, applied **in order**; every matching rule acts.
 | Selector | Matches |
@@ -179,10 +186,24 @@ Every message carries a **facility** (where it comes from) and a **priority** (h
 
 Actions: a file (\`-/var/log/syslog\`, the dash means "do not sync after every line"), a template file (\`?RemoteLogs\`), forwarding (\`@host:514\` UDP, \`@@host:514\` TCP, or \`action(type="omfwd" ...)\`), or \`stop\` (end processing for this message). \`&\` adds another action to the previous rule.
 
+:::practice
+Q: Which messages does \`kern.err\` match: kern.warning, kern.crit, mail.err?
+A: Only **kern.crit**: the selector matches kern at err **or more severe**. warning is less severe, and mail is another facility.
+Q: A rule is \`*.*;mail.none -/var/log/syslog\`. Do mail messages reach /var/log/syslog?
+A: **No.** \`mail.none\` excludes the mail facility from that rule.
+:::
+
 ### 3. Forwarding: UDP or TCP, and what happens on failure
 - **UDP** (\`@\`): one datagram per message, no connection, no acknowledgement. If the server is down, blocked, or not listening on UDP, messages vanish and the sender never knows (the server may answer with ICMP port unreachable, which rsyslog ignores).
 - **TCP** (\`@@\`, \`protocol="tcp"\`): the sender knows when it cannot connect. rsyslog logs "cannot connect to log01.corp.lab:514: Connection timed out" (dropped by a firewall) or "Connection refused" (nothing listening) and **suspends** the action, retrying later ("resumed" when it works again).
 - **Queues**: by default an action has a "direct" queue: while it is suspended, messages for it are **discarded**. \`queue.type="LinkedList"\` (memory) or a disk-assisted queue (\`queue.filename=\`) keep them and deliver the backlog after the outage; \`action.resumeRetryCount="-1"\` retries forever.
+
+:::practice
+Q: A sender forwards with \`*.* @@log01:514\` (no queue settings). log01 is down for 10 minutes. What happens to the messages from those 10 minutes?
+A: They are **discarded**: the action is suspended, and the default direct queue throws away messages while it is suspended. Add a LinkedList or disk-assisted queue to keep them.
+Q: Which sender message tells you a firewall dropped the TCP connection to the log server, and which tells you nothing listens?
+A: "cannot connect … **Connection timed out**" (dropped); "**Connection refused**" (nothing listening on that port).
+:::
 
 ### 4. The receiver
 The log server needs a **module and an input**: \`module(load="imtcp")\` then \`input(type="imtcp" port="514")\` (imudp for UDP). An input without its module is a configuration error that rsyslog reports and **skips**: the daemon runs, logs locally, and listens on nothing. A template names the files:
@@ -193,11 +214,33 @@ template(name="RemoteLogs" type="string" string="/var/log/remote/%HOSTNAME%/%PRO
 \`\`\`
 Without \`& stop\`, remote messages continue to the default rules and also land in the server's own /var/log/syslog.
 
+:::practice
+Q: log01 receives remote messages correctly into /var/log/remote/HOST/, but they also appear in log01's own /var/log/syslog. What is missing?
+A: An \`& stop\` line after the template action, so remote messages stop there instead of continuing to the default rules.
+Q: Which two lines does a log server need to receive syslog over UDP 514?
+A: \`module(load="imudp")\` and \`input(type="imudp" port="514")\`.
+:::
+
 ### 5. rsyslog is forgiving, which hides mistakes
 A bad line does not stop rsyslog: it logs the error and runs without that part. A forwarding rule with a typo, an input without its module, a selector that excludes the facility you care about: all produce a running, "active" service that silently does less than intended. Always run \`rsyslogd -N1\` and test end to end with \`logger\`.
 
+:::practice
+Q: rsyslog is "active (running)" after you edited its configuration. Does that prove the new forwarding rule works?
+A: **No.** rsyslog skips bad parts and keeps running. Check with \`rsyslogd -N1\` and test end to end with \`logger\` and the receiver's files.
+Q: Which command checks the rsyslog configuration for errors without restarting it?
+A: \`rsyslogd -N1\`.
+:::
+
 ### 6. Security
 Plain syslog is unauthenticated: anyone who reaches port 514 can send messages claiming to be any host. Limit the receiver's firewall to the sender networks, prefer TCP (UDP sources are trivially spoofed), use TLS for untrusted paths, keep the log server's access separate from the servers it protects, and keep clocks synchronized.
+
+:::practice
+Q: Why can a log line on log01 that claims to come from srv01 not be fully trusted with plain UDP syslog?
+A: Syslog is **unauthenticated** and UDP sources are easy to spoof: anyone who can reach port 514 can send a message claiming to be srv01.
+Q: Name two ways to limit who can write to the central log server.
+A: Allow port 514 in the receiver's **firewall** only from the sender networks; use **TCP with TLS** (or at least TCP) instead of UDP.
+:::
+
 `,
 
   deployment: [

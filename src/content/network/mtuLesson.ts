@@ -39,8 +39,22 @@ Every link uses MTU 1500 in the baseline. rtr01's **eth2** is the Internet uplin
 - **MSS** (maximum segment size) counts TCP data only: MTU − 20 (IPv4) − 20 (TCP) = **1460**; IPv6: MTU − 40 − 20 = **1440**. Linux announces this in the SYN (option "mss 1460" in tcpdump). With timestamps each segment then carries 12 bytes of options, so full segments hold 1448 bytes of data.
 - **ping -s N** sets the ICMP data size: the packet is N + 8 (ICMP) + 20 (IP) bytes. So \`ping -M do -s 1472\` is exactly 1500 bytes: the largest that fits standard Ethernet.
 
+:::practice
+Q: A WireGuard tunnel has MTU 1420. Which \`ping -M do -s N\` size makes exactly a 1420-byte IPv4 packet?
+A: Subtract the ICMP header (8) and the IPv4 header (20): 1420 − 28 = **1392**.
+Q: Without options, how much TCP data fits in one IPv4 packet on a link with MTU 1400?
+A: 1400 − 20 (IPv4) − 20 (TCP) = **1360** bytes, which is the MSS such a host announces.
+:::
+
 ### TCP's protection: the MSS
 Each side announces the MSS derived from **its own** interface MTU, and each sender uses the smaller of the peer's MSS and its own path MTU. So a host on a 1492 link announces 1452 and the other side never sends more. That is why MTU problems appear only when the bottleneck is **between** the endpoints (a tunnel, PPPoE on a router) or when **one side of a link** disagrees with the other.
+
+:::practice
+Q: Two hosts both have MTU 1500, but a router between them sends traffic through a tunnel with MTU 1400. Does the MSS exchange protect this connection?
+A: **No.** Each host announces 1460 from its own 1500-byte MTU; neither knows about the 1400-byte tunnel in the middle. Only path MTU discovery (or MSS clamping on the router) can deal with it.
+Q: A host with MTU 1500 talks to a host on a PPPoE link with MTU 1492. Which MSS does each announce, and what size do they use?
+A: The first announces 1460, the second 1452. Each sender uses the smaller value, so segments carry at most **1452** bytes of data and fit the PPPoE link.
+:::
 
 ### Path MTU discovery step by step (RFC 1191, RFC 8201)
 1. The sender transmits a 1500-byte segment with DF set.
@@ -48,10 +62,24 @@ Each side announces the MSS derived from **its own** interface MTU, and each sen
 3. The sender's kernel stores **PMTU 1492** for that destination (\`ip route get DST\` shows \`mtu 1492\`, expiring after 10 minutes), and TCP retransmits the data in smaller segments.
 4. Applications notice nothing but a short delay. \`ping -M do\` shows the mechanism: the first attempt reports "Frag needed and DF set (mtu = 1492)" from the router, the next one fails locally with "message too long, mtu=1492".
 
+:::practice
+Q: After PMTUD has worked, which command shows the path MTU the kernel learned for 203.0.113.80, and how long is it kept?
+A: \`ip route get 203.0.113.80\` shows \`mtu N\`. Linux keeps it for **10 minutes**.
+Q: What information does the router's ICMP "fragmentation needed" message carry that makes PMTUD work?
+A: The **MTU of the next hop** (and the start of the dropped packet, so the sender knows which connection it belongs to).
+:::
+
 ### What breaks it
 - **ICMP filtered**: "block all ICMP" rules on firewalls or hosts drop the "fragmentation needed" messages. Stateful firewalls normally accept them as **related** to the connection (\`ct state established,related accept\`); rules placed before that, or stateless ACLs, break PMTUD. Result: a **black hole**.
 - **Mismatched MTU on one link**: if a host or router interface has a smaller MTU than the other end of the same link, frames from the other end are discarded on receipt. No router is involved, so no ICMP is generated at all. The same applies to **switches**: they work below IP and never send ICMP. If two servers use jumbo frames (MTU 9000) but a switch between them only handles 1500-byte frames, the switch silently drops every large frame. Small packets (SSH keystrokes) pass, large ones (a backup stream, \`ping -M do -s 8972\`) vanish without an error. Jumbo frames must be enabled on every device in the layer-2 path.
 - **Tunnels and overlays** (VPN, VXLAN, GRE, PPPoE) that reduce the MTU on a path whose endpoints do not know about it.
+
+:::practice
+Q: SSH sessions work, but \`scp\` of a large file stalls at 0 %. A firewall in the path has \`ip protocol icmp drop\` as its first rule. Explain the stall.
+A: The large packets are too big for a link in the path. The router's "fragmentation needed" messages are dropped by that rule, so the sender never learns to send smaller packets and keeps retransmitting full-size ones: a **PMTU black hole**. Small SSH packets fit, so they pass.
+Q: Why can a mismatched MTU between two ends of one link never be reported with ICMP?
+A: The oversized frame is discarded by the **receiving interface** itself. No router makes a forwarding decision, so nothing generates an ICMP message.
+:::
 
 ### The fixes, from best to worst
 1. **Correct MTUs**: both ends of each link equal; tunnel interfaces set to the real payload size.
@@ -59,11 +87,26 @@ Each side announces the MSS derived from **its own** interface MTU, and each sen
 3. **MSS clamping** on the router at the bottleneck: rewrite the MSS option in SYNs so endpoints never send packets that do not fit: \`tcp flags syn tcp option maxseg size set rt mtu\` (nftables) or \`ip tcp adjust-mss 1452\` (Cisco). Standard on PPPoE and VPN gateways. Only helps TCP.
 4. Lowering the MTU on clients: works for those clients only; a workaround, not a fix.
 
+:::practice
+Q: MSS clamping is configured on a PPPoE router. Which traffic does it **not** help?
+A: Anything that is not TCP, for example large **UDP** packets (DNS with large answers, some VPNs). MSS is a TCP option.
+Q: Why is lowering the MTU on every client the worst fix?
+A: It helps only the clients you changed, hides the real cause (the link or the filtered ICMP), and every new device needs the same workaround.
+:::
+
 ### Measuring
 - \`ping -M do -s 1472 DST\` (Linux) / \`ping -f -l 1472 DST\` (Windows): does a full-size packet pass? Then bisect the size down until it does: largest size + 28 = path MTU.
 - \`tracepath -n DST\`: discovers the path MTU hop by hop (\`pmtu 1492\` lines, "Resume: pmtu 1492").
 - \`ip link\` on both ends of every link; \`ip route get DST\` for the cached PMTU.
 - \`tcpdump\`: SYN MSS values, repeated retransmissions of the same full-size segment, and any ICMP "need to frag" messages.
+
+:::practice
+Q: \`ping -M do -s 1372 DST\` gets replies, but \`-s 1373\` gets no answer at all. What is the path MTU, and what does the silence suggest?
+A: Largest size + 28 = 1372 + 28 = **1400**. Silence (instead of "Frag needed") for bigger sizes suggests the ICMP message is filtered, or an MTU mismatch on a link: a black hole, not a working PMTUD.
+Q: Which tool finds the path MTU hop by hop?
+A: \`tracepath -n DST\`: it shows \`pmtu N\` for each hop and a "Resume: pmtu N" summary.
+:::
+
 `,
 
   deployment: [

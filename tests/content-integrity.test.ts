@@ -8,6 +8,7 @@ import { CERT_EXAMS } from '../src/content/certification';
 import { COMMAND_REFS } from '../src/content/commands';
 import { CURRICULUM } from '../src/content/curriculum';
 import { ASSESSMENTS, LESSONS, getLesson } from '../src/content/lessons';
+import { practiceBlocks } from '../src/content/practice';
 import { FILE_REFS, PROCEDURES, REF_ENTRIES, getRef } from '../src/content/reference';
 import { ALL_SCENARIOS } from '../src/engine/scenarios';
 import { GUIDED_LABS } from '../src/engine/labs';
@@ -159,6 +160,39 @@ describe('certification map', () => {
 describe('curriculum', () => {
   it('links resolve', () => {
     for (const m of CURRICULUM) for (const t of m.topics) if (t.link) expect(routeOk(t.link), `${m.id}: ${t.title}`).toBeNull();
+  });
+});
+
+describe('practice blocks', () => {
+  // Reference lists rather than concepts: no practice needed.
+  const NO_PRACTICE = new Set(['ad-kerberos: Services involved, by machine']);
+  const sections = (text: string) => text.split(/^(?=### )/m).filter((x) => x.startsWith('### '));
+  it('every concept section in "How it works" ends with a practice block', () => {
+    for (const L of LESSONS) for (const sec of sections(L.internals)) {
+      const title = sec.split('\n')[0].slice(4);
+      if (NO_PRACTICE.has(`${L.id}: ${title}`)) continue;
+      const blocks = practiceBlocks(sec);
+      expect(blocks.length, `${L.id}: ${title} has no practice block`).toBeGreaterThan(0);
+      expect(blocks[blocks.length - 1].after.trim(), `${L.id}: ${title}: text after the practice block`).toBe('');
+    }
+  });
+  it('every practice block is closed and every question has an answer that is not a graded question', () => {
+    const prompts = new Set(Object.values(ASSESSMENTS).flatMap((A) => A.questions.map((q) => q.prompt.trim())));
+    for (const L of LESSONS) for (const text of [L.what, L.internals]) for (const b of practiceBlocks(text)) {
+      const where = `${L.id}: ${b.pairs[0]?.q ?? '(empty block)'}`;
+      expect(b.closed, `${where}: missing ":::"`).toBe(true);
+      expect(b.stray, `${where}: lines outside Q/A`).toEqual([]);
+      expect(b.pairs.length, where).toBeGreaterThan(0);
+      for (const { q, a } of b.pairs) {
+        expect(a.trim(), `${L.id}: no answer for: ${q}`).not.toBe('');
+        expect(prompts.has(q.trim()), `${L.id}: copies a graded question: ${q}`).toBe(false);
+      }
+    }
+  });
+  it('the parser reports broken blocks', () => {
+    expect(practiceBlocks(':::practice\nQ: x\nA: y\n### Next')[0].closed).toBe(false);
+    expect(practiceBlocks(':::practice\nQ: x\nA: y\n:::\ntrailing')[0].after).toBe('trailing');
+    expect(practiceBlocks(':::practice\nA: orphan\n:::')[0].stray).toEqual(['A: orphan']);
   });
 });
 

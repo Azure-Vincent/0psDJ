@@ -43,6 +43,13 @@ SSH itself is built in three layers, each running inside the one before it:
 - **User authentication protocol (RFC 4252)**: runs *inside* the encrypted transport; the client proves who the user is (publickey, password, keyboard-interactive, GSSAPI/Kerberos, hostbased).
 - **Connection protocol (RFC 4254)**: multiplexes channels (session/shell, exec, subsystem sftp, direct-tcpip and forwarded-tcpip for port forwarding) over the single transport.
 
+:::practice
+Q: In which layer does the password or key check happen, and is it encrypted?
+A: In the **user authentication** layer, which runs **inside** the already encrypted transport.
+Q: \`scp\` and \`sftp\` transfers and \`ssh -L\` port forwards all travel over one SSH connection. Which layer makes that possible?
+A: The **connection protocol**: it multiplexes several channels (session, sftp subsystem, forwarded TCP) over the single transport.
+:::
+
 ### Everything that happens for \`ssh srv01.corp.lab\`
 Here is the whole journey of one connection, in order. Each step depends on the previous one, so when SSH fails, the error message tells you which step it reached.
 
@@ -59,6 +66,13 @@ Here is the whole journey of one connection, in order. Each step depends on the 
 11. **Authorization and account checks** on the server: account exists, not excluded by \`AllowUsers\`/\`DenyUsers\`/\`AllowGroups\`, valid shell, PAM account rules, \`PermitRootLogin\`.
 12. **Session.** sshd opens a PAM session (logind session, MOTD, environment), allocates a pseudo-terminal and starts the user's shell. Channels carry the terminal data.
 
+:::practice
+Q: \`ssh srv01\` fails with "Could not resolve hostname". Which steps were never reached?
+A: Everything from step 3 on: no route lookup, no TCP connection, no SSH. The failure is **name resolution**; check /etc/hosts, resolv.conf and DNS.
+Q: A connection fails with "no matching key exchange method found". At which step did it stop, and had any user credential been sent?
+A: At **KEXINIT** (step 6): the two sides share no key exchange algorithm. No credential was sent; user authentication (step 10) was never reached.
+:::
+
 ### What someone capturing the traffic can see
 Steps 1 to 8 happen **before** NEWKEYS, so they travel unencrypted. That is by design: the two sides cannot encrypt until they have agreed how. Someone with a packet capture of an SSH login, but without the session keys, can therefore read:
 - the IP addresses and ports of both ends (as for any TCP connection);
@@ -68,6 +82,13 @@ Steps 1 to 8 happen **before** NEWKEYS, so they travel unencrypted. That is by d
 
 Everything from NEWKEYS on is encrypted: the user name, the login method, the password or key signature, and every command and its output. The observer still sees the **size and timing** of the encrypted packets. To find out *who* logged in, you need the server's log (\`journalctl -u ssh\`), not the capture.
 
+:::practice
+Q: From a capture alone, can you tell which SSH software version the server runs?
+A: **Yes.** The identification string (for example \`SSH-2.0-OpenSSH_9.2p1 Debian-2\`) is sent in clear text before encryption starts.
+Q: Can a capture tell you whether a login used a password or a key, or which user logged in?
+A: **No.** User authentication happens after NEWKEYS, inside the encryption. For that you need the server's log.
+:::
+
 ### Operating-system components on the server
 sshd does not work alone. Several parts of the operating system take part in every login:
 - **systemd**, the Linux service manager that starts and supervises background programs, starts \`ssh.service\`, which on Debian first runs \`sshd -t\` (configuration test) and then \`sshd -D\`. A failed test means sshd does not start.
@@ -76,6 +97,13 @@ sshd does not work alone. Several parts of the operating system take part in eve
 - **The journal** receives sshd's messages (Debian 12 does not install rsyslog by default, so there is no \`/var/log/auth.log\`; use \`journalctl -u ssh\`).
 - **The host firewall** (nftables on Debian 12) filters packets before they reach any socket.
 
+:::practice
+Q: \`systemctl restart ssh\` fails and sshd is not running afterwards. Which built-in check most likely stopped it?
+A: On Debian the unit first runs **\`sshd -t\`** (ExecStartPre). A configuration error makes that test fail, and sshd is not started.
+Q: Which component checks a password against /etc/shadow when \`UsePAM yes\` is set?
+A: **PAM**, through the \`pam_unix\` module configured in /etc/pam.d/sshd.
+:::
+
 ### Keys: who proves what
 | Key | Lives | Proves | Checked against |
 |---|---|---|---|
@@ -83,8 +111,23 @@ sshd does not work alone. Several parts of the operating system take part in eve
 | User key (private) | client \`~/.ssh/id_*\` | "I am this user" | server \`~/.ssh/authorized_keys\` |
 | Session keys | memory only, per connection | confidentiality/integrity | derived from the key exchange |
 
+:::practice
+Q: Which file must contain the user's **public** key for a key-based login, and on which machine?
+A: \`~/.ssh/authorized_keys\` of the target account, on the **server**.
+Q: A server was reinstalled and got new host keys. Which file on the client produces the warning, and why does it matter which key was stored there?
+A: \`~/.ssh/known_hosts\`. It holds the host key the client trusted before; a different key could be a rebuild or an attacker, so the client refuses until you verify the new fingerprint.
+:::
+
 ### Dependencies
 SSH works only if *every* layer below it works: name resolution → client route → each router's forwarding and return path → firewalls → a listening sshd with a valid configuration → common algorithms → host-key trust → an existing, authorised account → a usable credential with safe file permissions → a valid shell. Each failure produces a **distinct** symptom, which is why reading the exact error message is the first troubleshooting step. Use the dependency map below to switch dependencies off, predict the result, and see what the simulator computes.
+
+:::practice
+Q: A colleague's key login worked yesterday and today gives "Permission denied (publickey)". The server is reachable and other users can log in. Which dependencies are still candidates?
+A: Those specific to this user: the key itself (or the client not offering it), \`authorized_keys\` content, **file permissions** of the home directory, ~/.ssh or authorized_keys (StrictModes), and whether the account is allowed (AllowUsers/AllowGroups, locked account). The network, sshd and host keys are fine, because others log in.
+Q: Why does reading the exact error message come first when SSH fails?
+A: Each failed dependency produces a **different** message (resolve, refused, timed out, host key, permission denied), so the message tells you which layer to investigate.
+:::
+
 `,
 
   deployment: [

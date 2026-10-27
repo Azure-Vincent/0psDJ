@@ -171,8 +171,22 @@ The client sends a request stamped with its transmit time **T1**. The server not
 - Round-trip **delay** = (T4 − T1) − (T3 − T2): the time on the network.
 - Clock **offset** = ((T2 − T1) + (T3 − T4)) / 2: how far the client is from the server, **assuming the path is symmetric**. An asymmetric path (a slow uplink, a queue in one direction) shows up as an offset error of up to half the asymmetry.
 
+:::practice
+Q: A client sends at T1 = 10.000 s (its clock). The server receives at T2 = 10.120 and answers at T3 = 10.121 (server clock). The reply arrives at T4 = 10.041 (client clock). Work out the delay and the offset.
+A: Delay = (T4 − T1) − (T3 − T2) = 0.041 − 0.001 = **0.040 s**. Offset = ((T2 − T1) + (T3 − T4)) / 2 = (0.120 + 0.080) / 2 = **+0.100 s**: the client is 100 ms behind the server.
+Q: Why can an asymmetric path (fast download, slow upload) make the calculated offset wrong?
+A: The formula assumes the request and the reply take the **same time**. If one direction is slower, the difference shows up as an offset error of up to half the asymmetry.
+:::
+
 ### 2. Strata and the reference chain
 Each reply carries the server's **stratum**, its **reference ID** (the IPv4 address of its own source, or a name like \`GPS\` / \`LOCL\`), root delay/dispersion (the accumulated uncertainty) and a **leap indicator**. Leap indicator 3 ("alarm") with stratum 16 means **"I am not synchronized, do not use my time"**: a well-behaved client ignores such a server. That is why a time server that lost its upstream breaks all its clients *without* any timeout: they get answers, just useless ones.
+
+:::practice
+Q: A server follows a stratum-2 server. Which stratum does it announce to its own clients?
+A: **Stratum 3**: one level further from the reference clock.
+Q: All clients of a time server get replies, yet none of them is synchronized and nothing times out. What do the replies probably say?
+A: Leap indicator 3 with **stratum 16**: "I am not synchronized". The server lost its own upstream, and clients correctly ignore its time.
+:::
 
 ### 3. Step or slew
 A client can correct its clock in two ways:
@@ -181,13 +195,34 @@ A client can correct its clock in two ways:
 
 chrony's \`makestep 1 3\` (Debian default) steps when the error is above 1 s, but only during the first 3 updates (normally at boot); later it only slews. systemd-timesyncd steps large errors and slews small ones.
 
+:::practice
+Q: A server running chronyd with \`makestep 1 3\` has been up for a week and is suddenly 30 seconds off. Will chronyd step the clock?
+A: **No.** makestep only allows steps during the first 3 updates (normally at boot). Now it slews at up to 83 ms per second, so about 6 minutes to fix 30 s.
+Q: Why might a database administrator prefer slewing over stepping?
+A: A step can make time go **backwards**, which can confuse transactions, logs and timers; slewing never jumps.
+:::
+
 ### 4. Who may get time: chrony's allow list
 chronyd serves **nobody** until a configuration line \`allow SUBNET\` (or \`allow all\`) exists; it then listens on UDP 123. Requests from addresses not covered are **dropped without a reply** (an error reply could be abused for reflection attacks). From the client this looks exactly like a firewall drop; on the server \`chronyc clients\` counts them in the Drop column, which is how you tell the two apart.
+
+:::practice
+Q: chrony.conf has \`allow 10.0.10.0/24\`. A client 10.0.20.15 asks for time. What does it get, and where can you see it?
+A: **Nothing**: chronyd drops the request silently. \`chronyc clients\` on the server shows the request counted in the **Drop** column.
+Q: From the client, how do a firewall drop and a chrony allow-list drop look different?
+A: They look **identical** (a timeout). Only the server can tell: requests that reach chronyd appear in \`chronyc clients\`; requests dropped by the firewall never do.
+:::
 
 ### 5. When the server has no good time
 - \`chronyc tracking\` → "Leap status : Not synchronised", Reference ID 00000000, and the journal says "Can't synchronise: no selectable sources".
 - Clients receive replies with leap 3 / stratum 16 and stay "System clock synchronized: no"; systemd-timesyncd logs this only at debug level.
 - **\`local stratum 10\`** makes chronyd serve its own clock when it has no source. That hides the alarm and lets every client follow a clock nobody corrects: use it only for isolated networks that are designed to have no external time.
+
+:::practice
+Q: \`chronyc tracking\` on the time server shows Reference ID 00000000 and "Not synchronised". Which command shows why its sources are not usable?
+A: \`chronyc sources\` (and the journal: "Can't synchronise: no selectable sources").
+Q: Why is \`local stratum 10\` dangerous on a normal office time server?
+A: When it loses its sources it serves its **own uncorrected clock** as if it were good, so every client follows a drifting clock without any alarm.
+:::
 
 ### 6. Failure signatures at a glance
 | What the client sees | Where to look |
@@ -197,8 +232,23 @@ chronyd serves **nobody** until a configuration line \`allow SUBNET\` (or \`allo
 | ICMP port unreachable, nothing logged | chronyd not running: systemctl status chrony |
 | "synchronized: no" with "NTP service: inactive" | NTP turned off on the client: timedatectl set-ntp true |
 
+:::practice
+Q: A client's NTP requests to a server get ICMP port unreachable. What do you check on the server?
+A: Whether **chronyd is running**: \`systemctl status chrony\`. Nothing listens on UDP 123.
+Q: \`timedatectl\` shows "System clock synchronized: no" and "NTP service: inactive". Fix?
+A: NTP is switched off on the client: \`timedatectl set-ntp true\`.
+:::
+
 ### 7. Windows and Active Directory
 Domain members synchronize from a domain controller (NT5DS hierarchy) and the **PDC emulator** follows external servers; Kerberos in AD has the same 5-minute tolerance. The commands are \`w32tm /query /status\`, \`/query /source\` and \`/resync\`. (W32Time is not simulated in the lab.)
+
+:::practice
+Q: Which Windows command shows where a machine currently gets its time from?
+A: \`w32tm /query /source\`.
+Q: In a domain, which time source should a normal member server use?
+A: A **domain controller** (the NT5DS domain hierarchy), never an Internet server of its own.
+:::
+
 `,
 
   deployment: [

@@ -294,6 +294,13 @@ textarea { width: 100%; font-family: var(--mono); font-size: 12.5px; }
 .callout.warn { border-color: var(--warn); background: var(--warn-soft); }
 .callout.ok { border-color: var(--ok); background: var(--ok-soft); }
 .callout.err { border-color: var(--err); background: var(--err-soft); }
+.practice { border: 1px dashed var(--accent); border-radius: 6px; padding: 8px 14px 4px; margin: 14px 0 20px; }
+.practice-head { font-weight: 600; color: var(--accent); font-size: 0.85em; text-transform: uppercase; letter-spacing: 0.04em; }
+.practice ol { margin: 6px 0; padding-left: 22px; }
+.practice li { margin: 6px 0 10px; }
+.practice details { margin-top: 4px; }
+.practice summary { cursor: pointer; color: var(--accent); font-size: 0.9em; }
+.practice details > div { margin-top: 4px; padding: 6px 10px; border-left: 3px solid var(--ok); background: var(--ok-soft); border-radius: 4px; }
 /* One row of tabs: scrolls sideways instead of wrapping; the edge that hides more tabs fades out. */
 .tabs { position: relative; display: flex; gap: 2px; border-bottom: 1px solid var(--border); margin: 12px 0 16px; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; overscroll-behavior-x: contain; }
 .tabs::-webkit-scrollbar { display: none; }

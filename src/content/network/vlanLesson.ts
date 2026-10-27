@@ -42,6 +42,13 @@ To mark which VLAN a frame belongs to, the switch inserts 4 extra bytes into the
 - **PCP**: priority for QoS (voice), **DEI**: drop eligibility.
 Because the tag adds 4 bytes, trunk ports must accept frames of up to 1522 bytes instead of the usual 1518.
 
+:::practice
+Q: A normal Ethernet frame can be up to 1518 bytes. How large can a tagged frame on a trunk be, and why?
+A: **1522 bytes**: the 802.1Q tag adds 4 bytes.
+Q: Which VLAN numbers can you use for real VLANs, and why not 4095?
+A: **1 to 4094**. The VLAN ID has 12 bits (0–4095), and 0 and 4095 are reserved.
+:::
+
 ### What the switch does with each frame (VLAN-aware Linux bridge)
 Follow a frame through the switch in three stages: when it arrives (ingress), when the switch decides where to send it (forwarding), and when it leaves (egress).
 **Ingress** (frame arrives on a port):
@@ -51,6 +58,13 @@ Follow a frame through the switch in three stages: when it arrives (ingress), wh
 **Forwarding**: the bridge looks up the destination MAC **in the forwarding database of that VLAN** (learned from source MACs, per VLAN). Unknown unicast, broadcast and multicast are **flooded to every port that is a member of the VLAN**, never to other VLANs.
 
 **Egress**: the frame leaves **untagged** on ports where the VLAN is marked *untagged* (access ports, the native VLAN of a trunk), **tagged** everywhere else.
+
+:::practice
+Q: An untagged frame arrives on a port with PVID 20. A tagged frame for VLAN 40 arrives on the same port, which is not a member of VLAN 40. What happens to each?
+A: The untagged frame is placed in **VLAN 20**. The tagged frame is **dropped** by ingress filtering, because the port is not a member of VLAN 40.
+Q: A PC in VLAN 10 sends a broadcast. Does a PC in VLAN 20 on the same switch receive it?
+A: **No.** Broadcasts are flooded only to ports that are members of VLAN 10. Reaching VLAN 20 always needs a router.
+:::
 
 ### Linux bridge vocabulary (ifupdown2)
 | Setting | Meaning |
@@ -62,11 +76,32 @@ Follow a frame through the switch in three stages: when it arrives (ingress), wh
 | \`bridge vlan show\` / \`bridge fdb show\` | runtime membership / learned MAC addresses per VLAN |
 On Cisco IOS the same ideas are \`switchport mode access\` + \`switchport access vlan 10\`, and \`switchport mode trunk\` + \`switchport trunk allowed vlan 30\` + \`switchport trunk native vlan 1\`.
 
+:::practice
+Q: A switch port is configured with \`bridge-vids 20 30\` and \`bridge-pvid 1\`. Describe what travels over it.
+A: It is a **trunk**: VLANs 20 and 30 travel **tagged**, and VLAN 1 travels untagged (the native VLAN).
+Q: Which command shows the VLANs that each switch port is a member of right now, and which shows the MAC addresses learned per VLAN?
+A: \`bridge vlan show\` for membership; \`bridge fdb show\` for the learned MAC addresses.
+:::
+
 ### Hosts on trunks: VLAN sub-interfaces
 A Linux host connected to a trunk (a router or a hypervisor) receives tagged frames on its physical network card, and hands each VLAN to its own virtual interface, a **sub-interface**. To the rest of the system, each sub-interface looks like a separate network card in that VLAN. For example, \`eth3.30\` = VLAN 30 on eth3 (\`ip link add link eth3 name eth3.30 type vlan id 30\`, or an \`iface eth3.30\` stanza; Debian derives the VLAN ID from the name). Untagged frames on the trunk go to eth3 itself.
 
+:::practice
+Q: A hypervisor has a trunk on eth1. What does an interface named \`eth1.50\` handle?
+A: Frames tagged with **VLAN 50** on eth1: the sub-interface removes the tag on the way in and adds it on the way out, so it behaves like a separate network card in VLAN 50.
+Q: Where do **untagged** frames that arrive on that trunk go?
+A: To **eth1** itself, not to any sub-interface.
+:::
+
 ### Router-on-a-stick
 rtr01 has one sub-interface per VLAN on the trunk, each with an address that serves as that VLAN's **default gateway** (10.0.30.1 on eth3.30). Here is the path of a packet from dev01 (VLAN 30) to srv01 (VLAN 20): dev01 → switch (untagged in, tagged 30 out on swp7) → rtr01 eth3.30 → routing decision, TTL−1, forward filter → eth1 (VLAN 20) → srv01. Between VLANs the rules of routing apply: different subnets, gateways, firewall.
+
+:::practice
+Q: A router has sub-interfaces eth3.10 (10.0.10.1/24) and eth3.20 (10.0.20.1/24) on one trunk. What default gateway should hosts in VLAN 20 use?
+A: **10.0.20.1**, the router's address on that VLAN's sub-interface.
+Q: A packet from VLAN 10 to VLAN 20 crosses the trunk twice. Why is it still routed, not just switched?
+A: The two VLANs are different subnets, so the host sends the packet to its gateway; the router lowers the TTL, applies its forward filter and sends it back out on the other sub-interface. The trunk is just the cable both VLANs share.
+:::
 
 `,
 

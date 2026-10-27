@@ -177,6 +177,13 @@ In front of almost every internal web application, container platform and API: n
 ### 1. Choosing the server block and the location
 nginx first picks a **server** block from the address and port the connection arrived on, then by the **Host** header (\`server_name\`); if no name matches, the \`default_server\` for that port (or the first block) answers. Inside it, it picks a **location** for the URI: an exact match (\`location = /health\`) wins, otherwise the **longest matching prefix** (\`location /inventory/\` beats \`location /\`). Regex locations (\`~\`) are checked after prefixes in real nginx.
 
+:::practice
+Q: A server block has \`location /\` and \`location /api/\`. Which handles \`/api/v2/users\`, and which handles \`/apiary\`?
+A: \`/api/v2/users\` → **location /api/** (the longest matching prefix). \`/apiary\` does not start with "/api/" (the slash matters), so → **location /**.
+Q: A request arrives with \`Host: unknown.corp.lab\` on port 80, and no server_name matches. Which server block answers?
+A: The **default_server** for port 80, or the first server block for that port if none is marked default.
+:::
+
 ### 2. proxy_pass and the URI rule
 \`proxy_pass\` turns the location into a proxy. What the backend receives depends on whether the URL has a **URI part**:
 
@@ -190,14 +197,35 @@ Anything after a \`?\` (the **query string**, such as \`?id=7&sort=name\`) is no
 
 A missing or extra slash is the most common cause of "everything is 404 behind the proxy".
 
+:::practice
+Q: \`location /reports/ { proxy_pass http://app01:9000; }\` (no URI part). Which path does the backend receive for \`/reports/2026/q3\`?
+A: **/reports/2026/q3**, unchanged: without a URI part, the original URI is passed as is.
+Q: \`location /shop/ { proxy_pass http://app02:8080/store/; }\`. Which path does the backend receive for \`/shop/cart?id=4\`?
+A: **/store/cart?id=4**: the matched prefix /shop/ is replaced by /store/, and the query string is kept.
+:::
+
 ### 3. Headers
 By default nginx sends \`Host: $proxy_host\` (the upstream's name and port, e.g. \`dock01.corp.lab:8000\`) and HTTP/1.0. Most applications want the name the client used: \`proxy_set_header Host $host;\`. The client's address is lost on the new connection, so the proxy adds \`X-Forwarded-For\` (and \`X-Forwarded-Proto\` for http/https); the backend must trust these headers **only from the proxy**.
+
+:::practice
+Q: An application behind nginx builds links to \`http://dock01.corp.lab:8000/...\`, which users cannot reach. Which directive fixes it?
+A: \`proxy_set_header Host $host;\`. By default nginx sends the upstream's name and port as Host, so the application thinks that is its public name.
+Q: Why must a backend trust X-Forwarded-For only when the request comes from the proxy?
+A: Anyone can send that header. A client connecting directly could claim any address and bypass address-based rules or poison logs.
+:::
 
 ### 4. Upstream names are resolved once
 When nginx starts or reloads, the master process resolves every host name in \`proxy_pass\` and \`upstream\` blocks with the system resolver and keeps the addresses. Consequences:
 - A name that does not resolve is fatal: \`[emerg] host not found in upstream "inventory-api.corp.lab:8000"\`. \`nginx -t\` fails, a **reload** fails (the old configuration keeps running), a **start** fails (nothing listens: every site on that server is down).
 - If the backend's address changes in DNS, nginx keeps the old address until the next reload.
 - (With \`resolver 10.0.10.53;\` and a variable in proxy_pass, nginx resolves at request time instead.)
+
+:::practice
+Q: A backend moved to a new IP address and its DNS record was updated an hour ago. Requests through nginx still go to the old address. Why, and what is the quickest fix?
+A: nginx resolved the name when it last **started or reloaded** and kept the address. \`nginx -t && systemctl reload nginx\` makes it resolve again.
+Q: Why can a typo in one upstream host name take down every site on a reverse proxy after a reboot?
+A: At start, a name that does not resolve is **fatal** ("host not found in upstream"), so nginx does not start at all and nothing listens for any site.
+:::
 
 ### 5. The proxy's own connection
 For each request nginx opens a **new TCP connection from the proxy host** to the upstream address. Everything you know about TCP applies to that hop, with the proxy as the client:
@@ -208,11 +236,33 @@ For each request nginx opens a **new TCP connection from the proxy host** to the
 
 The backend's firewall sees **srv01's address**, not the user's: a rule that allows the office network lets users test the backend directly while the proxy is blocked.
 
+:::practice
+Q: error.log shows \`connect() failed (113: No route to host) while connecting to upstream\`. Which status does the user get, and what do you check?
+A: **502**. Something returned ICMP unreachable for the proxy's connection: check the route from the proxy host to the backend and any firewall that **rejects** (rather than drops) it.
+Q: A backend answers in 2 seconds when tested from your desktop, but through the proxy users get 504 after a minute. Name the first thing to check.
+A: Whether the backend's **firewall allows the proxy host's address**. The proxy connects from its own address, not yours; dropped SYNs from it end in 504 after proxy_connect_timeout.
+:::
+
 ### 6. Upstream groups
 \`upstream inventory { server 10.0.20.40:8000; server 10.0.20.41:8000; }\` with \`proxy_pass http://inventory/;\` spreads requests (round robin by default) and moves to the next server when a connection fails (\`proxy_next_upstream\`). A server that fails \`max_fails\` times is skipped for \`fail_timeout\`; when all are down nginx logs \`no live upstreams\` and answers 502. In the simulator the servers are tried in order.
 
+:::practice
+Q: An upstream group has two servers and one is down. What do users see?
+A: Usually nothing: nginx moves the failed request to the other server (proxy_next_upstream) and skips the dead one for fail_timeout.
+Q: What does the error.log message \`no live upstreams\` mean?
+A: Every server in the group is currently marked as failed, so nginx answers **502** without trying.
+:::
+
 ### 7. Who answered?
-A 404 or 500 through the proxy may come from nginx or from the application. nginx's own errors are small HTML pages (\`<center>nginx/1.22.1</center>\`) and usually have an error.log line; the application's have its own body (JSON here) and appear in the backend's log. A \`502\`/\`504\` is always the proxy speaking about the upstream.
+A 404 or 500 through the proxy may come from nginx or from the application. nginx's own errors are small HTML pages (\`<center>nginx/1.22.1</center>\`) and usually have an error.log line; the application's have its own body (JSON here) and appear in the backend's log. A \`502\`/\`504\` with nginx's page and an error.log line is the proxy speaking about the upstream. A backend that is itself a gateway (another proxy, an API gateway) can also return its own 502 or 504; nginx passes it through with that backend's body and logs nothing in error.log.
+
+:::practice
+Q: Through the proxy you get \`500 Internal Server Error\` with a JSON body \`{"error":"database unavailable"}\`. Who produced it, and where do you look next?
+A: The **backend application** (its own JSON body). Look at the application's log and its database connection, not at nginx.
+Q: You get a 504 Gateway Time-out through the proxy. How do you tell whether nginx produced it or the backend did?
+A: Read the **body** and nginx's error.log. nginx's own 504 is its small HTML page with an \"upstream timed out\" line in error.log. A backend that is itself a gateway (another proxy, an API gateway) can return its own 504, which nginx passes through unchanged with that backend's body and no such error.log line.
+:::
+
 `,
 
   deployment: [

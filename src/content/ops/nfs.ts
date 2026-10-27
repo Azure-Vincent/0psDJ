@@ -165,6 +165,13 @@ A client is a network, an address, a host name (resolved by the server), a wildc
 
 The kernel does not read this file on its own. \`exportfs -ra\` (or starting/reloading nfs-server) loads it into the **export table**; \`exportfs -v\` shows that table. A client that is in the file but not in the table is refused: "access denied by server".
 
+:::practice
+Q: What is wrong with the line \`/srv/data 10.0.10.0/24 (rw)\`?
+A: The **space** before \`(rw)\`: it means "10.0.10.0/24 with default options (read-only), and **everyone else** read-write". Write \`10.0.10.0/24(rw)\`.
+Q: You edited /etc/exports and ran nothing else. Which command shows whether the change is active?
+A: \`exportfs -v\` shows the export table actually in use. It will not contain the change until \`exportfs -ra\`.
+:::
+
 ### 2. Mounting
 \`mount -t nfs4 fs01.corp.lab:/srv/projects /mnt/projects\` connects to TCP 2049, asks for the export, and attaches it on the directory. From then on the server's files appear there; what was in the directory before is hidden until \`umount\`. In /etc/fstab:
 \`\`\`
@@ -172,8 +179,22 @@ fs01.corp.lab:/srv/projects  /mnt/projects  nfs4  defaults,_netdev  0  0
 \`\`\`
 systemd turns the line into **mnt-projects.mount** at boot. If the mount fails, the directory stays empty and local: programs that write there fill the client's own disk.
 
+:::practice
+Q: An fstab NFS mount failed at boot, and a backup job wrote 20 GB into /mnt/backup anyway. Where did the data go?
+A: Onto the **client's own disk**: the mount was not there, so /mnt/backup was just an empty local directory.
+Q: What does the \`_netdev\` option in an NFS fstab line tell systemd?
+A: That the mount needs the **network**, so systemd orders it after the network is up.
+:::
+
 ### 3. Numbers, not names (sec=sys)
 The client sends the caller's **UID and GID** with each request; the server compares them with the file's owner and group numbers. Names are only for display: \`ls -l\` on each host translates numbers with its own /etc/passwd. If alice is 1000 on fs01 and 1001 on srv01, srv01's alice is a stranger on the share and sees alice's files as owned by "1000". Keep UIDs identical everywhere (central directory: LDAP/FreeIPA/AD with sssd), or use Kerberos (sec=krb5), which identifies users by principal.
+
+:::practice
+Q: On the NFS server, files belong to bob (UID 1002). On a client, \`ls -l\` shows them as owned by "carol". What is going on?
+A: On the client, **UID 1002 is carol**. The server only sees the number; each host translates numbers to names with its own /etc/passwd. Align UIDs across hosts.
+Q: Which two approaches keep NFS identities consistent across many hosts?
+A: A **central directory** (LDAP, FreeIPA or AD with sssd) so UIDs are the same everywhere, or **Kerberos** (sec=krb5), which identifies users by principal.
+:::
 
 ### 4. root_squash and friends
 The server cannot trust a client's root: anyone with root on a laptop could claim uid 0. **root_squash** (the default) maps uid 0 to **nobody** (65534). Root on a client can then only do what nobody may: on a root-owned directory with mode 755, nothing. Options:
@@ -183,6 +204,13 @@ The server cannot trust a client's root: anyone with root on a laptop could clai
 | \`no_root_squash\` | client root is root on the export: avoid, a compromised client owns the share |
 | \`all_squash\` + \`anonuid=N,anongid=N\` | every user becomes N: shared drop boxes, service accounts |
 | \`ro\` / \`rw\` | read-only (default) / read-write |
+
+:::practice
+Q: A drop box share must let every user write, and every file should end up owned by UID 5000. Which export options?
+A: \`rw,all_squash,anonuid=5000,anongid=5000\`.
+Q: Why is \`no_root_squash\` dangerous on a share mounted by laptops?
+A: Anyone with root on one of those laptops becomes **root on the share**, and can read or change every file there.
+:::
 
 ### 5. What failures look like
 | Symptom | Layer |
@@ -194,8 +222,23 @@ The server cannot trust a client's root: anyone with root on a laptop could clai
 | "Read-only file system" | ro export or ro mount |
 | "Stale file handle" | the server stopped exporting what the client still has mounted |
 
+:::practice
+Q: \`mount\` fails with "Connection refused". Which layer is it?
+A: The server answered but **nfsd is not running** (nothing listens on 2049).
+Q: A client suddenly gets "Stale file handle" in a directory that used to work. What changed?
+A: The server **stopped exporting** (or replaced) what the client still has mounted. Remount after checking the export.
+:::
+
 ### 6. Security
 sec=sys trusts the client completely about who the user is: anyone with root on a listed client can become any UID. The export's client list and the network (firewall) are therefore the real access control: export to specific networks, never to \`*\`, keep root squashed, firewall 2049/111 to the client networks, and use sec=krb5p where clients are not trusted.
+
+:::practice
+Q: With sec=sys, what really decides who may access an export?
+A: The export's **client list** and the **network/firewall**: the server believes whatever UID a listed client sends.
+Q: Which TCP ports should a firewall allow from client networks for NFSv4, and which extra one for NFSv3 tools such as showmount?
+A: **2049** for NFSv4; **111** (rpcbind), plus mountd, for NFSv3 and showmount.
+:::
+
 `,
 
   deployment: [

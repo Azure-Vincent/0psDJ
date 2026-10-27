@@ -2,6 +2,7 @@
 // Builds React elements directly; no HTML injection.
 
 import { Fragment, type ReactNode } from 'react';
+import { isPracticeStart, readPractice } from '../../content/practice';
 
 function inline(text: string, keyBase: string): ReactNode[] {
   const out: ReactNode[] = [];
@@ -44,6 +45,24 @@ export function Markdown({ text }: { text: string }) {
       while (i < lines.length && !lines[i].startsWith('```')) body.push(lines[i++]);
       i++;
       blocks.push(<pre key={k++}>{body.join('\n')}</pre>);
+      continue;
+    }
+    if (isPracticeStart(line)) {
+      const { pairs, next } = readPractice(lines, i);
+      i = next;
+      blocks.push(
+        <div className="practice" key={k++}>
+          <div className="practice-head">Practice</div>
+          <ol>
+            {pairs.map((pq, j) => (
+              <li key={j}>
+                {inline(pq.q, `pq${k}${j}`)}
+                <details><summary>Show answer</summary><div>{inline(pq.a, `pa${k}${j}`)}</div></details>
+              </li>
+            ))}
+          </ol>
+        </div>,
+      );
       continue;
     }
     if (line.startsWith('### ')) { blocks.push(<h3 key={k++}>{inline(line.slice(4), `h${k}`)}</h3>); i++; continue; }
@@ -96,7 +115,9 @@ export function Markdown({ text }: { text: string }) {
       continue;
     }
     const para: string[] = [];
-    while (i < lines.length && lines[i].trim() !== '' && !/^(- |\d+\. |### |> |```|\|)/.test(lines[i])) para.push(lines[i++]);
+    while (i < lines.length && lines[i].trim() !== '' && !/^(- |\d+\. |### |> |```|\|)/.test(lines[i]) && !isPracticeStart(lines[i])) para.push(lines[i++]);
+    // Every line above is handled by some block; never loop without consuming a line.
+    if (para.length === 0) para.push(lines[i++]);
     blocks.push(<p key={k++}>{inline(para.join(' '), `p${k}`)}</p>);
   }
   return <div className="md">{blocks.map((b, j) => <Fragment key={j}>{b}</Fragment>)}</div>;

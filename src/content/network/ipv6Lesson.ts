@@ -41,6 +41,13 @@ An IPv6 address is written as 8 groups of 4 hexadecimal digits (0–9 and a–f)
 2. replacing **one** run of zero groups with \`::\`: \`2001:db8:20::10\`. Only one \`::\` is allowed per address, otherwise it would be impossible to tell how many zeros each one stands for.
 RFC 5952 canonical form: lower case, the longest run compressed (leftmost if tied), never a single group. In URLs and with ports: \`http://[2001:db8:20::10]:80/\`.
 
+:::practice
+Q: Shorten \`2001:0db8:0000:0001:0000:0000:0000:00ab\` to its canonical form.
+A: Drop leading zeros: 2001:db8:0:1:0:0:0:ab. The longest run of zero groups is the three after "1", so: **2001:db8:0:1::ab**. (The single 0 group after db8 stays as "0": \`::\` replaces only one run.)
+Q: Why is \`2001:db8::1::2\` not a valid address?
+A: It has **two** \`::\`. Nobody could tell how many zero groups each one stands for, so only one is allowed.
+:::
+
 ### Address types
 | Prefix | Type | Example |
 |---|---|---|
@@ -51,6 +58,13 @@ RFC 5952 canonical form: lower case, the longest run compressed (leftmost if tie
 | ff00::/8 | multicast (ff02::1 all nodes, ff02::2 all routers) | ff02::1:ff00:10 |
 | 2001:db8::/32 | documentation (never routed) | 2001:db8:20::10 |
 
+:::practice
+Q: Classify these addresses: fe80::1, fd00:10::5, ff02::2, 2a01:4f8::1.
+A: fe80::1 is **link-local**; fd00:10::5 is **unique local** (private, fc00::/7); ff02::2 is **multicast** (all routers on the link); 2a01:4f8::1 is **global unicast**.
+Q: Why can't a router forward a packet whose source is a link-local address to another network?
+A: Link-local addresses are only valid on their own link; the same fe80:: address can exist on every network, so a reply could never find its way back.
+:::
+
 ### Interface identifier and SLAAC
 A /64 prefix leaves 64 bits to identify the host, called the **interface identifier**. With the **EUI-64** method, these bits are built from the network card's MAC address: 52:54:00:e7:00:1e → split in half, insert **ff:fe**, flip the "universal/local" bit (7th bit of the first byte): **5054:00ff:fee7:001e**. Hence dev01's link-local fe80::5054:ff:fee7:1e and its global 2001:db8:30::5054:ff:fee7:1e. (Desktops normally add random *privacy addresses* for outgoing connections; servers often use static addresses.)
 
@@ -60,6 +74,13 @@ A /64 prefix leaves 64 bits to identify the host, called the **interface identif
 3. Routers answer with a **Router Advertisement** (134) to ff02::1: prefix(es) with flags *on-link* and *autonomous*, the router lifetime, optional DNS servers (RDNSS), and the M/O flags pointing to DHCPv6.
 4. The host forms prefix + identifier for every autonomous /64 and installs **default via the router's link-local address**.
 Routers send RAs periodically too. A Linux host ignores RAs while it forwards IPv6 (it is a router itself).
+
+:::practice
+Q: A host with MAC 02:00:5e:10:00:07 receives the prefix 2001:db8:40::/64 in a router advertisement. Which EUI-64 address does it form?
+A: Insert ff:fe in the middle: 0200:5eff:fe10:0007. Flip the 7th bit of the first byte: 02 → 00, giving 0000:5eff:fe10:0007. Append to the prefix and shorten: **2001:db8:40::5eff:fe10:7**.
+Q: Which address does a SLAAC host install as its default gateway: the router's global address or its link-local address?
+A: The router's **link-local** address, taken from the source of the router advertisement.
+:::
 
 ### DHCPv6 (RFC 8415)
 SLAAC gives an address and a router, but no central record of who has which address and (without RDNSS) no DNS server. **DHCPv6** fills that gap. Two flags in the RA tell hosts what to use:
@@ -86,19 +107,48 @@ Stateless clients send one **Information-request** and get a Reply with options 
 - **resolv.conf**: Debian's dhclient-script replaces /etc/resolv.conf with the DHCPv6 DNS servers on every bind or renewal, and the IPv4 dhclient does the same with its own; on a dual-stack laptop the file alternates between them.
 - **Without a global address** a host still has its link-local address, and Linux uses it as the source for global destinations. Routers must not forward such packets; they answer ICMPv6 "beyond scope of source address", which applications report as "No route to host".
 
+:::practice
+Q: An RA has M=0 and O=0 and carries an RDNSS option. Will clients talk to a DHCPv6 server?
+A: **No.** They form their address with SLAAC and take the DNS server from RDNSS; no DHCPv6 is needed.
+Q: A client's input chain has \`policy drop\`, \`ct state established,related accept\` and nothing for UDP 546. Will it get a DHCPv6 address, and why?
+A: **No.** Its Solicit went to the multicast group ff02::1:2, and the Advertise comes back from the server's own address, so conntrack sees it as a **new** flow and the policy drops it. The client needs \`udp dport 546 accept\` (ideally from fe80::/10, source port 547).
+:::
+
 ### Neighbor Discovery replaces ARP (RFC 4861)
 To send to 2001:db8:20::10 on the link, a node sends a **Neighbor Solicitation** (135) to the **solicited-node multicast** group ff02::1:ff00:10 (last 24 bits of the target), Ethernet 33:33:ff:00:00:10, so only nodes with matching addresses are interrupted. The owner answers with a unicast **Neighbor Advertisement** (136) containing its MAC. \`ip -6 neigh\` shows the cache (REACHABLE, STALE, FAILED).
 
 **ND is ICMPv6, so it passes through the firewall.** ARP is invisible to nftables, ND is not: a host whose input chain drops ICMPv6 cannot be reached at all over IPv6, not even by ping. Conntrack does not track ND (it appears as "ct state untracked"), so "ct state established,related accept" does not help; you need an explicit rule such as \`meta l4proto ipv6-icmp accept\` or the RFC 4890 list of types.
 
+:::practice
+Q: A node wants the MAC address of 2001:db8:20::abcd:1234. To which multicast group does it send the Neighbor Solicitation?
+A: The solicited-node group built from the last 24 bits of the target: **ff02::1:ffcd:1234**.
+Q: A server's nftables input chain allows only \`ct state established,related\` and TCP 443. IPv4 HTTPS works, IPv6 HTTPS does not even connect. Why?
+A: Neighbor Discovery is ICMPv6 and shows as **ct state untracked**, so it is dropped. The router can never resolve the server's MAC over IPv6. Allow ICMPv6 (\`meta l4proto ipv6-icmp accept\` or the RFC 4890 types).
+:::
+
 ### Routing and forwarding
 Longest-prefix match exactly as in IPv4 (\`ip -6 route\`). A router must have **net.ipv6.conf.all.forwarding=1**; this switch is **independent** from net.ipv4.ip_forward. When forwarding is off, IPv6 packets not addressed to the router are discarded **silently** (IPv4 answers with host unreachable). Routers do not fragment and there is no header checksum.
+
+:::practice
+Q: A router forwards IPv4 fine. After a reboot, IPv6 clients behind it time out for everything beyond it. Which setting do you check first?
+A: \`net.ipv6.conf.all.forwarding\`. It is separate from net.ipv4.ip_forward, and when it is 0 IPv6 packets are discarded **silently**.
+Q: Why does a forwarding failure look different over IPv4 and IPv6 to the client?
+A: With IPv4 forwarding off, Linux answers ICMP host unreachable, so the client gets an error at once. With IPv6 forwarding off the packet is silently discarded, so the client times out.
+:::
 
 ### Dual stack: which family does a client use?
 getaddrinfo() asks for **A and AAAA**, but only for families the host can use (AI_ADDRCONFIG: AAAA only if the host has a global IPv6 address). The result is sorted by RFC 6724: IPv6 first when a suitable source address exists. Then:
 - **Browsers, curl**: *Happy Eyeballs* (RFC 8305): start IPv6, start IPv4 after ~200 ms if not connected, use whichever wins. Broken IPv6 is almost invisible.
 - **ssh, many scripts and libraries**: try addresses one after the other, each with the full connect timeout. Broken IPv6 means slow or failing logins.
 So "it works in the browser" proves little: test with \`curl -6\` / \`curl -4\`, \`ping -6\`, \`ssh -6\`.
+
+:::practice
+Q: A server has an AAAA record but its IPv6 firewall drops everything. Users say the website is fine. Is it?
+A: Not necessarily. Browsers use **Happy Eyeballs**: they quietly fall back to IPv4 after about 200 ms, which hides broken IPv6. Test with \`curl -6\`.
+Q: For the same server, why would \`ssh\` logins take minutes or fail?
+A: ssh tries the addresses one after the other with the full connect timeout each, IPv6 first. It waits for the IPv6 attempt to time out before trying IPv4.
+:::
+
 `,
 
   deployment: [

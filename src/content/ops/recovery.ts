@@ -246,6 +246,13 @@ The habits listed in the overview fit together in a fixed order. Example: changi
 
 The same eight steps apply to a firewall (\`nft list ruleset\`, \`nft -c -f\`, \`systemctl reload nftables\`), a web server (\`nginx -T\`, \`nginx -t\`) or a network change, where \`netplan try\` combines steps 5 and 6: it applies the change and reverts it automatically unless you confirm in time. Testing from a new connection before you confirm, and documenting the change, are still up to you.
 
+:::practice
+Q: You are about to change nginx's configuration on a remote web server. Which command validates the new file without applying it, and which applies it most gently?
+A: Validate with \`nginx -t\`; apply with \`systemctl reload nginx\` (not restart).
+Q: You armed a 5-minute rollback, applied the change and tested successfully from a new connection, then went for coffee without cancelling it. What happens?
+A: The rollback runs and **undoes your good change**. Cancel it as soon as the new connection works (\`systemctl list-timers\` shows pending ones).
+:::
+
 ### Runtime state versus persistent state
 Every system has two copies of its configuration: the **files on disk** and the **state loaded in memory**. They agree only when someone has loaded the files and nobody has changed the running state since.
 
@@ -263,6 +270,13 @@ Every system has two copies of its configuration: the **files on disk** and the 
 
 A reboot rebuilds everything from the files. That is why a runtime-only "fix" is a **workaround with a timer**, and why the only proof that a fix is permanent is a client-side test **after** a reboot.
 
+:::practice
+Q: Which of these survive a reboot: \`ip route add default via 10.0.10.1\`, an edit of /etc/sysctl.d/99-router.conf, \`systemctl enable nginx\`?
+A: The **sysctl.d file** and **systemctl enable**. The \`ip route add\` lives only in the kernel and is lost.
+Q: How do you prove that a fix is permanent?
+A: Reboot (in a maintenance window) and test **from a client** afterwards. Only a reboot rebuilds everything from the files.
+:::
+
 ### Workaround versus permanent fix
 - A **workaround** restores service without removing the cause: restarting a leaking daemon, deleting logs on a full disk, adding a rule by hand, pointing a client at another DNS server. Workarounds are legitimate (users need service *now*) but must be **recorded as workarounds**, with a follow-up for the real fix, and undone if they do not help.
 - A **permanent fix** removes the cause in the persistent configuration and is verified to survive a restart.
@@ -271,6 +285,13 @@ Lab examples:
 - **ssh-monday-reboot**: last Wednesday an admin re-allowed SSH with \`nft add rule\` after rewriting \`/etc/nftables.conf\` without the SSH rule. That was a workaround; it vanished at the weekend reboot, together with a unit someone had disabled. The fix: add the rule to the file, reload, \`systemctl enable --now ssh\`, reboot-test.
 - **case-no-internet**: while investigating, someone changed srv01's DNS to 8.8.8.8 "in case it was DNS". It did not help (the cause was NAT on rtr01), and it **added a second fault**: 8.8.8.8 does not know \`corp.lab\` and was unreachable for the same reason. The fix includes undoing the workaround.
 - **fw-no-established**: the tempting workaround \`udp sport 53 accept\` would make DNS work and open the server to any packet with source port 53. The fix is restoring \`ct state established,related accept\`.
+
+:::practice
+Q: A disk is full and an admin deleted old logs to get the service back. Workaround or fix? What else must happen?
+A: A **workaround**: the cause (logs growing without rotation, or a missing size limit) is still there. Record it as a workaround and follow up with the permanent fix.
+Q: During an incident someone set a temporary DNS server on a client "to try". The real cause turned out to be elsewhere. What happens to the temporary change?
+A: It must be **undone** (and both the change and its removal recorded). Experiments that did not help can add new faults.
+:::
 
 ### Why a restart can "fix" things without fixing them
 A restart resets **runtime state**. If the fault lives in runtime state, the symptom goes away, and comes back when the state builds up again:
@@ -283,14 +304,43 @@ A restart resets **runtime state**. If the fault lives in runtime state, the sym
 
 If a restart "fixes" something, ask *what state did the restart reset?* That state, and why it went bad, is the cause.
 
+:::practice
+Q: An application gets slow every 3 days and a restart makes it fast again. What kind of cause does that point to?
+A: Something in **runtime state** that builds up: typically a memory leak, a growing cache, or leaked connections. Measure memory over time to find it.
+Q: \`df\` says the disk is full but \`du\` cannot find the files. Which command finds space held by deleted but still open files?
+A: \`lsof +L1\`: it lists open files whose link count is 0 (deleted).
+:::
+
 ### Why reload is safer than restart
 On Debian, \`systemctl reload ssh\` runs \`sshd -t\` first and only then signals the daemon; if validation fails, systemd reports "Reload failed" and the **old daemon keeps running**. \`systemctl restart ssh\` stops the old daemon first, so an invalid configuration leaves nothing listening (the \`ssh-config-typo\` ticket). nftables reloads with \`nft -f\`, which applies the whole file in **one transaction**: a syntax error changes nothing.
+
+:::practice
+Q: You introduced a typo in sshd_config and ran \`systemctl reload ssh\`. Is SSH still available to new connections?
+A: **Yes.** The reload runs \`sshd -t\` first, fails, and the **old daemon keeps running** with the old configuration. (A restart would have left nothing listening.) Fix the file now, before the next restart or reboot.
+Q: Why can a syntax error in /etc/nftables.conf not leave a half-loaded firewall after \`systemctl reload nftables\`?
+A: \`nft -f\` applies the whole file in **one transaction**: either everything loads or nothing changes.
+:::
 
 ### Existing connections lie
 After a firewall change, your open SSH session still works because its packets match \`ct state established\`. That proves nothing about new connections. Always test with a **new** session from a client before closing the old one, and arm an automatic rollback in case the new session fails.
 
+:::practice
+Q: After adding a firewall rule over SSH, your session still works. Have you proved that new SSH connections are allowed?
+A: **No.** Your session matches \`ct state established\`. Only a **new** connection from a client tests the new rules.
+Q: What should be in place before you close your old session after such a change?
+A: A successful test with a new session, and an armed **automatic rollback** in case it had failed.
+:::
+
 ### Dependencies decide the blast radius
 Stopping or restarting a unit affects everything that depends on it. \`systemctl list-dependencies --reverse <unit>\` lists the units that would be affected; on Windows, \`Get-Service <name> -DependentServices\` (the registry value \`DependOnService\` of each dependent points back to it). Shared infrastructure (DNS, DHCP, authentication, the default gateway) is a dependency of almost everything, which is why one bad change on ns1 looked like "everything is broken" in \`case-dns-outage\`.
+
+:::practice
+Q: Before restarting the DNS server on ns1, how do you see which local units depend on named?
+A: \`systemctl list-dependencies --reverse named\` (on Windows: \`Get-Service NAME -DependentServices\`).
+Q: Why do changes to DNS, DHCP or the default gateway look like "everything is broken"?
+A: They are dependencies of almost every other service, so one fault there makes many unrelated services fail at once.
+:::
+
 `,
 
   deployment: [

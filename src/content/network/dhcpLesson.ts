@@ -43,6 +43,13 @@ A client without an address cannot send normal packets to a server it does not k
 3. **REQUEST** (client to everyone). "I'll take 10.0.10.100 from server 10.0.10.53." The client accepts **one** offer, naming the server (option 54, *server identifier*) and the address (option 50). It broadcasts this so that any other server that made an offer knows it was turned down.
 4. **ACK** (server to client). "Confirmed." The server records the lease. Only now does the client configure the address. If the server cannot give that address after all, it answers **NAK** ("no") instead, and the client starts again from DISCOVER.
 
+:::practice
+Q: Why does the client broadcast its REQUEST, even though it already knows which server made the offer?
+A: So that **every** server that made an offer hears which one was chosen; the others can then release the addresses they had set aside.
+Q: A client received an OFFER but never configures the address; the server logged DHCPNAK. At which step did it fail, and what does the client do next?
+A: At the last step: the server refused the REQUEST with **NAK** instead of ACK. The client never configured the address and starts again from **DISCOVER**.
+:::
+
 ### Broadcasts do not cross routers: DHCP relay agents
 Routers do not forward broadcasts to 255.255.255.255; otherwise a single broadcast would flood every network. So either the DHCP server needs an interface in every client network, or the router in each client network runs a **DHCP relay agent**. On Cisco this is \`ip helper-address\`; on Linux it is \`isc-dhcp-relay\` (the program dhcrelay); pfSense and Windows RRAS call it "DHCP Relay".
 
@@ -57,19 +64,40 @@ What this means when you troubleshoot:
 - The relay must point at the right server (\`SERVERS\` in /etc/default/isc-dhcp-relay) and must be able to receive the replies on the server side. ISC dhcrelay 4.4 takes \`-id\` for the **downstream** interfaces (towards the clients) and \`-iu\` for the **upstream** interface (towards the server). A plain list of interfaces makes it relay in both directions, including broadcasts from the server's own network. The upstream side matters for the **replies**: with \`-iu eth0\`, dhcrelay reads them on eth0 with a packet socket, before the host firewall. Without \`-iu\`, the replies only reach its fallback UDP socket on port 67, which the host firewall filters like any other port: if rtr01's input chain does not allow UDP 67, the OFFER arrives at the router and goes no further.
 - Once a client has an address, **renewals do not go through the relay**: the client sends them straight to the server (by unicast), routed like any other packet.
 
+:::practice
+Q: A relay on a router has the address 10.0.40.1 on the client network. Which value does it write into giaddr, and which subnet declaration does the server need?
+A: giaddr = **10.0.40.1**. The server needs a \`subnet\` declaration that **contains** that address (for example 10.0.40.0/24), otherwise it logs "unknown network segment" and stays silent.
+Q: A laptop on a relayed VLAN got its address fine yesterday, but today its renewal fails while new laptops still get addresses. Why can the renewal fail when DORA works?
+A: Renewals do not use the relay: the client sends them **by unicast straight to the server**, routed like normal traffic. A missing route or a firewall rule between the VLAN and the server breaks renewals while relayed DORA still works.
+:::
+
 ### DHCP software and host firewalls
 ISC dhcpd, dhclient and dhcrelay send and receive DHCP through **packet sockets** (called LPF, Linux Packet Filter). A packet socket gets its copy of each frame **before** the kernel's firewall (netfilter) sees it, so a host firewall with \`policy drop\` does not stop DHCP to these programs. This explains the common puzzle "the firewall blocks port 67, but DHCP still works".
 
 There is one exception that matters for relays: a reply that arrives on an interface dhcrelay is not listening on goes to its ordinary UDP socket instead, and there the firewall's input chain does apply.
 
+:::practice
+Q: A DHCP server's input chain has \`policy drop\` and no rule for UDP 67, yet ISC dhcpd hands out addresses. Why?
+A: ISC dhcpd reads DHCP with a **packet socket**, which gets each frame before netfilter sees it, so the input chain never filters it.
+Q: For which DHCP program in the lab does the input chain still matter, and when?
+A: **dhcrelay**, when a server reply arrives on an interface it does not listen on with a packet socket (no \`-iu\` for the upstream side). The reply then goes to its ordinary UDP socket, which the firewall filters.
+:::
+
 ### How the server chooses an address (ISC dhcpd)
 dhcpd tries these in order:
 1. A **host** declaration whose \`hardware ethernet\` matches the client's MAC and which has a \`fixed-address\`. This is a **reservation**.
 2. The address this MAC address had before, if it is still in the **lease file** (\`/var/lib/dhcp/dhcpd.leases\`). This is why clients tend to keep the same address.
-3. The first free address in the **range** of the subnet the request came from.
+3. A free address in the **range** of the subnet the request came from. (The simulator takes the lowest free one; real ISC dhcpd usually starts from the top of the range. Do not rely on the order: use a reservation when an address must not change.)
 4. If nothing is free, the server logs **"no free leases"** and does **not answer at all**.
 
 Which subnet a request "came from" is decided by the **interface it arrived on**, or by *giaddr* for relayed requests. That is why dhcpd refuses to start if no \`subnet\` declaration matches an interface it listens on, and why \`INTERFACESv4\` in \`/etc/default/isc-dhcp-server\` matters: if it names an interface that does not exist, dhcpd reports "Not configured to listen on any interfaces!".
+
+:::practice
+Q: A new laptop (no reservation, never seen before) sends a DISCOVER. The range is 10.0.10.100–150 and .100–.104 are leased. Which addresses can it get?
+A: Any **free** address of the range, so not .100–.104. Which one exactly depends on the server: the simulator hands out the lowest free one (.105), while real ISC dhcpd usually starts from the **top** of the range (.150). Never rely on the order; use a reservation when a device needs a fixed address.
+Q: All addresses in the range are leased. What does the client see, and where do you find the reason?
+A: The client sees **no answer at all** (repeated DISCOVERs). Only the server's log explains it: "no free leases".
+:::
 
 ### Leases and their timers (RFC 2131 §4.4.5)
 A lease is valid for the lease time (option 51). The server also sends two timers: **T1** (option 58) and **T2** (option 59). With the lab's 600-second leases:
@@ -83,10 +111,24 @@ A lease is valid for the lease time (option 51). The server also sends two timer
 
 So when a DHCP server dies, **nothing happens at first**. Clients keep working until their own lease runs out, then lose their addresses one by one, at different times. That delay can make the cause hard to spot. Long leases (8–24 hours in offices) ride out short outages; short leases (guest Wi-Fi) recycle addresses quickly. dhcpd adds every change to the end of its lease file; for each address, the last entry wins.
 
+:::practice
+Q: A network uses 3600-second leases. When does a client first try to renew, and when does it start broadcasting (rebinding)?
+A: T1 = 50 % = **1800 s**; T2 = 87.5 % = **3150 s**.
+Q: The DHCP server crashed 20 minutes ago and nobody has noticed. Leases are 8 hours. Why is everything still working, and when will clients start losing addresses?
+A: Clients keep their addresses until their own lease **expires**. Each lease ends at a different time, up to 8 hours after its last renewal, so failures appear gradually, one client at a time.
+:::
+
 ### INIT-REBOOT and NAK
 A client that remembers a lease (in \`/var/lib/dhcp/dhclient.eth0.leases\`) skips DISCOVER and broadcasts a REQUEST for **its old address** straight away. If that address belongs to the network the client is now on, the server ACKs it. That is why \`sudo dhclient -v eth0\` often shows only REQUEST and ACK.
 
 If the laptop has moved to another network, or the address now belongs to someone else, an **authoritative** server answers **DHCPNAK**. The client throws away the old lease and starts over with DISCOVER. A server that is not authoritative stays silent, and the client waits a while before falling back to DISCOVER.
+
+:::practice
+Q: A laptop that had 10.0.10.130 at the office is plugged into the lab network 10.0.30.0/24. What does it send first, and what does an authoritative server answer?
+A: It broadcasts a **REQUEST for 10.0.10.130** (INIT-REBOOT). That address does not belong to the lab network, so an authoritative server answers **NAK**, and the laptop starts again with DISCOVER.
+Q: \`dhclient -v eth0\` shows only DHCPREQUEST and DHCPACK, no DISCOVER or OFFER. Is something wrong?
+A: No. The client remembered its previous lease and asked for the same address straight away (INIT-REBOOT); the server agreed.
+:::
 
 ### What the client does with the answer (dhclient-script on Debian)
 When the ACK arrives, a script applies the settings:
@@ -97,10 +139,25 @@ When the ACK arrives, a script applies the settings:
 
 So a typo in \`option routers\` gives clients an address but no working gateway, and a wrong \`domain-name-servers\` breaks DNS, on **every** DHCP client at once.
 
+:::practice
+Q: After a change on the DHCP server, new clients can reach the Internet by IP address but no names resolve. Which option is most likely wrong?
+A: \`domain-name-servers\`: dhclient-script writes it into /etc/resolv.conf. Addresses and the gateway work, so \`option routers\` is fine.
+Q: Which file on a Debian DHCP client shows the lease it received, including the options?
+A: \`/var/lib/dhcp/dhclient.eth0.leases\` (one file per interface).
+:::
+
 ### Ports and security
 Servers and relays use UDP 67, clients UDP 68. Document these ports in your firewall policy, and open them for DHCP servers that use ordinary UDP sockets (such as Kea with \`"dhcp-socket-type": "udp"\`), but remember that ISC's programs bypass the input chain as described above.
 
 DHCP has **no authentication**: any device on the network can answer a DISCOVER. A **rogue DHCP server** (a home router plugged into the office network by mistake, or an attacker) can hand out its own gateway and DNS server and so redirect traffic. Managed switches protect against this with **DHCP snooping**: only trusted ports are allowed to send OFFER and ACK messages. In an Active Directory domain, Windows DHCP servers must also be **authorised** in AD, and an unauthorised Windows DHCP server refuses to hand out addresses. That only stops Windows servers: a home router or a Linux box does not check AD, so snooping is still needed.
+
+:::practice
+Q: Which UDP ports do a DHCP server and a DHCP client use?
+A: Server (and relay): **UDP 67**. Client: **UDP 68**.
+Q: A guest plugs in a travel router and some office PCs suddenly get a 192.168.8.x address and lose access to internal sites. What is going on, and which switch feature prevents it?
+A: The travel router is acting as a **rogue DHCP server**. **DHCP snooping** on the switches stops it: only trusted ports (towards the real server or relay) may send OFFER and ACK.
+:::
+
 `,
 
   deployment: [

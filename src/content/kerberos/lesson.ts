@@ -63,8 +63,22 @@ alice (ws01)                     KDC (ns1)                       srv01
 2. **TGS exchange** (Ticket-Granting Service, \`kvno\`, or automatically when you use a service): the client presents the TGT plus an **authenticator** (timestamp encrypted with the session key) and names the service. The KDC returns a **service ticket** encrypted with the **service's** long-term key, with the key version number (**kvno**).
 3. **AP exchange** (the application): the client hands the service ticket to the server. The server decrypts it **with the key in its keytab**: if the keytab lacks that kvno, it cannot. No KDC is involved in this step; servers never talk to the KDC to verify a user.
 
+:::practice
+Q: alice already has a TGT. She opens an NFS share with Kerberos for the first time. Which exchange happens with the KDC, and does she type her password again?
+A: A **TGS exchange**: the client presents its TGT and gets a service ticket for nfs/<server>. No password is needed; the TGT proves who she is.
+Q: During the AP exchange, does the file server contact the KDC to check alice's ticket?
+A: **No.** The server decrypts the ticket with the key in its own keytab. That is why a wrong keytab breaks logins even when the KDC is healthy.
+:::
+
 ### Why time matters
 Kerberos uses timestamps instead of challenges to stop replays: every authenticator carries the client's time, and KDCs and servers reject anything more than **clockskew** (300 s) away from their own clock, plus they remember recently seen authenticators. A client 6 minutes off can type the right password and still fail ("Clock skew too great").
+
+:::practice
+Q: A client is 4 minutes ahead of the KDC; another is 7 minutes behind. Which one fails with "Clock skew too great"?
+A: Only the one **7 minutes** behind: the limit is 300 seconds (5 minutes) in either direction.
+Q: Why does Kerberos depend on time at all, instead of using a challenge like many protocols?
+A: Authenticators carry a **timestamp** so that servers can reject replayed old messages without an extra round trip. That only works if clocks agree.
+:::
 
 ### How names become principals
 For \`ssh srv01.corp.lab\` the client needs a ticket for \`host/<name>@<REALM>\`:
@@ -72,8 +86,22 @@ For \`ssh srv01.corp.lab\` the client needs a ticket for \`host/<name>@<REALM>\`
 - **Realm**: from \`[domain_realm]\` (\`.corp.lab = CORP.LAB\`), else the default realm.
 - On the server, sshd maps the client principal to a local account: \`alice@CORP.LAB\` → \`alice\` in the default realm, or whatever \`~/.k5login\` lists.
 
+:::practice
+Q: \`ftp.corp.lab\` is a CNAME for \`files01.corp.lab\`. With rdns = false, which service principal does a Kerberos client request for \`ssh ftp.corp.lab\`?
+A: \`host/files01.corp.lab@CORP.LAB\`: the name is canonicalised through DNS by following the CNAME.
+Q: Why does \`ssh 10.0.20.10\` fall back to a password prompt while \`ssh srv01.corp.lab\` logs in with Kerberos (rdns = false)?
+A: The client asks for \`host/10.0.20.10\`, which does not exist, so Kerberos fails and another method is tried. Use the host name (or add rdns and correct PTR records).
+:::
+
 ### Keys and key version numbers
 Every principal has a key and a **kvno** that increases when the key changes (\`cpw\`, \`ktadd\`). The KDC always encrypts with the current key; the keytab must have that kvno. **ktadd** in kadmin randomises the key and writes it to the local keytab in one step: run it **on the server that uses the keytab**. Running ktadd elsewhere, or \`cpw -randkey\` on the KDC, silently breaks the server until its keytab is replaced. Clients may hold service tickets for the old kvno until they expire, which is why keeping old keytab entries for a while is common practice.
+
+:::practice
+Q: An admin ran \`ktadd host/web02.corp.lab\` on the KDC instead of on web02. What breaks, and why?
+A: Kerberos logins to **web02**: ktadd gave the principal a new key (higher kvno) and wrote it to the KDC's keytab, not web02's. The KDC now encrypts tickets with a key web02 does not have.
+Q: How do you compare the kvno the KDC uses with the one in a server's keytab?
+A: On a client: \`kvno host/SERVER\` (the KDC's current kvno). On the server: \`klist -k\` (the kvnos in the keytab). They must match.
+:::
 
 `,
 

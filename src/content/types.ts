@@ -5,7 +5,7 @@ import type { ConceptId } from '../engine/scenarios/types';
 
 export type Level = 'beginner' | 'intermediate' | 'advanced';
 
-/** Markdown-lite text: paragraphs, "- " lists, "### " headings, "> " callouts, ``` code, `inline`, **bold**, [links](#/lesson/id/section) to app pages. */
+/** Markdown-lite text: paragraphs, "- " lists, "### " headings, "> " callouts, ``` code, `inline`, **bold**, [links](#/lesson/id/section) to app pages, and ":::practice" blocks (see content/practice.ts). */
 export type RichText = string;
 
 export interface Reference {

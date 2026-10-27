@@ -168,12 +168,26 @@ Unlike [NFS](#/lesson/nfs/what), which trusts the user numbers a client sends, S
 
 \`smbclient -L server\` stops after session setup; \`smbclient //server/share -c ls\` adds the tree connect; a \`put\` tests writing. That is the whole troubleshooting method.
 
+:::practice
+Q: \`smbclient //fs01/accounts -U dana\` fails with NT_STATUS_BAD_NETWORK_NAME. Which step failed?
+A: The **tree connect**: the share name does not exist (or its path is missing).
+Q: \`smbclient -L fs01 -U dana\` lists shares fine, but writing a file fails. Which steps have you proved, and which is left?
+A: Connect and session setup (logon) work. What remains is the **file operation**: whether the share is writable and the Unix permissions allow dana.
+:::
+
 ### 2. Samba's own users
 A standalone Samba server cannot use /etc/shadow: SMB clients never send the password itself, only an NTLM response computed from its hash, so Samba stores NT hashes in **passdb.tdb**. \`smbpasswd -a carol\` adds carol (the Unix account must exist); \`pdbedit -L\` lists who can log on. A Unix user missing there gets exactly the same error as a wrong password: the server log tells them apart:
 \`\`\`
 Auth: [SMB2,(null)] user [WORKGROUP]\\[carol] ... status [NT_STATUS_NO_SUCH_USER] ...
 \`\`\`
 On an **AD member server** (security = ads, winbind), the domain controllers check passwords with Kerberos and no local Samba passwords are needed.
+
+:::practice
+Q: A new user frank was created with useradd and can log on over SSH, but SMB logons fail. Which command is missing?
+A: \`smbpasswd -a frank\`: Samba keeps its own password database and cannot use /etc/shadow.
+Q: Which command lists the users who can log on to a standalone Samba server?
+A: \`pdbedit -L\`.
+:::
 
 ### 3. Shares
 \`\`\`
@@ -192,8 +206,22 @@ On an **AD member server** (security = ads, winbind), the domain controllers che
 
 smbd reads smb.conf again for new connections, so share changes need no restart. \`testparm -s\` shows what Samba understood (and only non-default values: no "read only = No" means read-only).
 
+:::practice
+Q: A share has \`path = /srv/Scans\` but the directory is /srv/scans. What do clients see?
+A: **NT_STATUS_BAD_NETWORK_NAME**, as if the share did not exist: Linux paths are case-sensitive.
+Q: You add \`read only = no\` to a share. Do you need to restart smbd?
+A: **No.** smbd re-reads smb.conf for new connections. Check what Samba understood with \`testparm -s\`.
+:::
+
 ### 4. Two layers of authorisation
 After the share allows a write, smbd performs it **as the user's Unix account**: the directory must allow that user (owner, group, mode). The share can only restrict further, never grant what the file system refuses. This is the same idea as Windows share permissions plus NTFS permissions.
+
+:::practice
+Q: A share says \`read only = no\`, but the directory is owned by root with mode 755. Can user erin write?
+A: **No.** smbd writes as erin's Unix account, and the file system refuses. The share cannot grant what the file system denies.
+Q: Which Windows concept is this the same as?
+A: **Share permissions plus NTFS permissions**: both must allow the access.
+:::
 
 ### 5. SMB compared with NFS
 | | NFS (sec=sys) | SMB |
@@ -203,8 +231,23 @@ After the share allows a write, smbd performs it **as the user's Unix account**:
 | Typical clients | Linux/Unix servers | Windows, macOS, Linux desktops |
 | Port | 2049 | 445 |
 
+:::practice
+Q: Which protocol authenticates the user with a password or Kerberos by default, and which simply trusts a number sent by the client?
+A: **SMB** authenticates the user; **NFS with sec=sys** trusts the UID the client sends.
+Q: Which ports do the two protocols use?
+A: NFSv4: TCP **2049**; SMB2/3: TCP **445**.
+:::
+
 ### 6. Security
 Never expose 445 to the Internet; keep SMB1 disabled (server min protocol = SMB2_10 or higher); avoid guest access (\`map to guest = bad user\` silently turns unknown users into guests); require signing or encryption (\`server signing\`, \`smb encrypt\`) where the network is not trusted; limit shares to groups.
+
+:::practice
+Q: Why is \`map to guest = bad user\` risky?
+A: It silently turns logons with **unknown user names** into guest sessions, so mistyped or made-up users get guest access instead of an error.
+Q: Which setting keeps SMB1 off on a Samba server?
+A: \`server min protocol = SMB2_10\` (or higher).
+:::
+
 `,
 
   deployment: [

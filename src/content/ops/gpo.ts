@@ -142,6 +142,13 @@ A **Group Policy Object** (GPO) is a named set of settings. An **organizational 
 ### 1. Two halves of a GPO
 The **Group Policy container** is an AD object (CN={GUID},CN=Policies,CN=System,DC=ad,DC=corp,DC=lab) with the name, status, version and permissions. The **Group Policy template** is a folder in SYSVOL (\\\\ad.corp.lab\\SYSVOL\\ad.corp.lab\\Policies\\{GUID}) with gpt.ini and the settings files. Clients read the first over LDAP and the second over **SMB (445)**.
 
+:::practice
+Q: Clients can read the list of GPOs, but processing fails reading gpt.ini. Which half of the GPO could not be read, and over which protocol?
+A: The **Group Policy template** in SYSVOL, read over **SMB (445)**. The container half (read over LDAP) worked.
+Q: Where is a GPO's version number stored?
+A: In both halves: in the AD container object and in gpt.ini in SYSVOL. When they differ, SYSVOL replication is behind.
+:::
+
 ### 2. Scope: links and OUs
 A GPO does nothing until it is **linked** (gPLink) to a site, the domain or an OU. A computer gets the GPOs linked to the containers **above it**. Its location is its DN:
 \`\`\`
@@ -150,6 +157,13 @@ CN=WIN01,CN=Computers,DC=ad,DC=corp,DC=lab → domain links only (CN=Computers i
 \`\`\`
 Joining without \`-OUPath\` leaves computers in CN=Computers: \`Move-ADObject\` (or \`Add-Computer -OUPath\`) puts them where their policy is.
 
+:::practice
+Q: A computer's DN is \`CN=PC22,OU=Sales,OU=Staff,DC=ad,DC=corp,DC=lab\`. Links on which containers can apply to it?
+A: The domain, **OU=Staff** and **OU=Sales** (plus local policy and the site).
+Q: A new server was joined without -OUPath. Which GPOs can it receive?
+A: Only **domain-linked** ones: it sits in CN=Computers, which is not an OU and cannot have links.
+:::
+
 ### 3. Order and precedence: LSDOU
 Policy is applied **L**ocal, **S**ite, **D**omain, then each **O**U from the top down: later wins, so the closest OU has the last word. Within one container, link order 1 has the highest precedence. Two exceptions:
 - **Block Inheritance** on an OU drops the links of the containers above it...
@@ -157,10 +171,24 @@ Policy is applied **L**ocal, **S**ite, **D**omain, then each **O**U from the top
 
 \`Get-GPInheritance -Target OU\` shows the links that reach an OU, highest precedence first.
 
+:::practice
+Q: The domain GPO sets the screen lock to 10 minutes; a GPO on OU=Staff sets 5 minutes. A PC is in OU=Staff. Which value wins?
+A: **5 minutes**: the OU is applied after the domain, and later wins.
+Q: OU=Lab blocks inheritance. The domain has GPO A (normal link) and GPO B (enforced link). Which of them reach computers in OU=Lab?
+A: Only **GPO B**: Block Inheritance drops A, but enforced links pass it.
+:::
+
 ### 4. Security filtering and the computer's token
 A GPO applies to a computer only if the computer has **Read and Apply** (GpoApply) on it, through any of its groups. By default Authenticated Users has Apply. To target a group: give the group GpoApply and lower Authenticated Users to **GpoRead** (do not remove it: since MS16-072 computers must be able to read every GPO, or it becomes "Inaccessible").
 
 The computer's groups are taken from its **Kerberos ticket**, obtained when it starts. Adding a computer to a group takes effect at its **next restart** (or after purging its tickets: \`klist -li 0x3e7 purge\`): gpupdate alone keeps saying "Denied (Security)".
+
+:::practice
+Q: You removed Authenticated Users from a GPO's permissions entirely and gave Apply to one group. What happens on computers outside that group?
+A: They cannot **read** the GPO, so it shows as "Inaccessible" (since MS16-072 computers must be able to read every GPO). Give Authenticated Users **GpoRead** instead of removing it.
+Q: A computer was added to a filtering group. Without rebooting it, how can it get a ticket with the new group?
+A: Purge the computer's tickets: \`klist -li 0x3e7 purge\`, then \`gpupdate /force\`.
+:::
 
 ### 5. Processing and its failures
 At startup, every ~90 minutes and on \`gpupdate\`:
@@ -174,8 +202,23 @@ At startup, every ~90 minutes and on \`gpupdate\`:
 
 When processing fails, the settings of the last successful run stay in place. When a GPO **stops** applying (unlinked, filtered, moved out of scope), its registry policies and firewall rules are **removed** at the next processing.
 
+:::practice
+Q: A GPO that set a firewall rule was unlinked. What happens to the rule on the computers?
+A: It is **removed** at their next processing, because the GPO no longer applies.
+Q: Group Policy processing fails because the DC cannot be reached. Do the computers lose their policy settings?
+A: **No.** The settings from the last successful run stay in place until processing works again.
+:::
+
 ### 6. Reading gpresult
 \`gpresult /r /scope computer\` shows the computer's DN, the DC that delivered policy, the **applied** GPOs (highest precedence first), the GPOs **filtered out** with the reason, and the computer's security groups (as of its last startup). That is usually enough to place the fault in one of the rows above.
+
+:::practice
+Q: In \`gpresult /r /scope computer\`, a GPO is listed under "filtered out" with "Denied (Security)". What does it tell you?
+A: The GPO is in scope (linked above the computer), but **security filtering** excludes it: the computer's groups do not have Apply.
+Q: A GPO you expect does not appear in gpresult at all, neither applied nor filtered. Where do you look?
+A: At **scope**: the computer is in the wrong OU, the link is disabled, or Block Inheritance removes it.
+:::
+
 `,
 
   deployment: [
