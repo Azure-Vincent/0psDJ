@@ -249,8 +249,25 @@ unsigned, so open it the first time with **right-click → Open**.
 
 ### Updating
 
-On Windows, download and run the new installer (or portable `.exe`) from the
-latest release. From source, download the new source (or `git pull`) and start
+The desktop app can update itself: **Settings → Updates** shows the installed
+version, checks the latest GitHub release and installs it. By default it checks
+automatically every few hours and installs verified updates when you quit the
+app (never in the middle of a session); both can be switched off there.
+
+- **Windows installer** and **Linux AppImage**: updated in place.
+- **Portable `.exe`, `.zip`, `.deb`, `.tar.gz`, macOS**: these cannot replace
+  themselves, so the verified file is saved to your Downloads folder for you
+  to install.
+
+An update is installed only if the release's manifest is signed with the
+project's private key (Ed25519; the app contains the public key) and the
+downloaded file matches the size and SHA-256 in that signed manifest. A
+tampered or substituted file, a download from anywhere other than GitHub, or
+an older version is refused, and nothing is installed. The check sends GitHub
+nothing but an ordinary request for the latest release.
+
+Without the automatic updater, on Windows download and run the new installer
+(or portable `.exe`) from the latest release. From source, download the new source (or `git pull`) and start
 the app again with `./launch.sh` (Linux/macOS) or `launch.cmd --rebuild` (Windows). Your progress
 is stored separately and is kept; it can also be exported and imported under
 **Settings**.
@@ -290,6 +307,31 @@ npm run typecheck    # TypeScript checks
 | `electron/`, `build/`, `scripts/` | desktop shell, packaging configuration and Linux launch helpers |
 | `tests/` | tests, including a content-integrity suite that checks every cross-link |
 | `docs/ARCHITECTURE.md` | design documents and how to add a new service |
+
+### Release signing (maintainers)
+
+Installed apps accept an update only if its `update-manifest.json` is signed
+with the project key. Set this up once:
+
+1. `node scripts/update-keygen.cjs` creates `update-signing-key.pem` (git-ignored)
+   and adds the public key to `electron/update-public-keys.cjs`. Commit that file.
+2. In GitHub, create the environment **release** (Settings → Environments), add
+   **required reviewers**, and store the whole private key file there as the
+   secret **`UPDATE_SIGNING_KEY`**. Only the `release` job of
+   `.github/workflows/build.yml` can read it, and only after approval.
+3. Move the private key file offline (a password manager) and delete it from
+   the working copy.
+
+Each release (a pushed `v*` tag, or a manual run with a release tag) then gets
+`update-manifest.json` and `update-manifest.json.sig` next to the executables.
+Without the secret, a release is published without them and apps do not offer
+it. Builds made before step 1 contain no key and never self-update; users of
+those builds install the first signed version by hand once.
+To rotate the key, add the new public key to `update-public-keys.cjs`, release
+that version with the old key, then switch the secret to the new key and remove
+the old public key in a later release. If the private key leaks, remove its
+public key in a release signed with another key you trust, and revoke the
+secret.
 
 ## Accuracy
 

@@ -71,17 +71,40 @@ jobs:
   # A pushed version tag (or a release published on GitHub, which creates the tag)
   # gets the executables attached as release assets. A manual run with a
   # release tag creates the tag on the built commit and the release.
+  #
+  # The update signing key (secret UPDATE_SIGNING_KEY) is used only here, to
+  # sign update-manifest.json: the list of artifacts with their SHA-256 that
+  # the desktop app verifies before it installs an update. Store the secret in
+  # the "release" environment and give that environment required reviewers so
+  # that no one can run this job (and so use the key) without approval.
   release:
     needs: package
     if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.release_tag != '')
     runs-on: ubuntu-latest
+    environment: release
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
       - uses: actions/download-artifact@v4
         with:
           path: dist-artifacts
           merge-multiple: true
+      - name: Sign the update manifest
+        env:
+          UPDATE_SIGNING_KEY: ${{ secrets.UPDATE_SIGNING_KEY }}
+          TAG: ${{ inputs.release_tag || github.ref_name }}
+        run: |
+          if [ -z "$UPDATE_SIGNING_KEY" ]; then
+            echo "::warning::UPDATE_SIGNING_KEY is not set: this release gets no signed update manifest, so installed apps will not offer it as an update."
+            exit 0
+          fi
+          node scripts/sign-update-manifest.cjs dist-artifacts "$TAG"
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ inputs.release_tag || github.ref_name }}
