@@ -55,6 +55,10 @@ function canWriteDir(file) {
   try { fs.accessSync(path.dirname(file), fs.constants.W_OK); return true; } catch { return false; }
 }
 
+function hasNsisUninstaller(dir) {
+  try { return fs.readdirSync(dir).some((f) => /^Uninstall .+\.exe$/i.test(f)); } catch { return false; }
+}
+
 function env() {
   return {
     platform: process.platform,
@@ -64,7 +68,9 @@ function env() {
     appImageWritable: canWriteDir(process.env.APPIMAGE),
     portableDir: process.env.PORTABLE_EXECUTABLE_DIR,
     execPath: process.execPath,
-    hasUninstaller: process.platform === 'win32' && fs.existsSync(path.join(path.dirname(process.execPath), `Uninstall ${app.getName()}.exe`)),
+    // The NSIS installer puts "Uninstall <product name>.exe" next to the app. (app.getName() is the
+    // package name, not the product name, so look for the file itself.)
+    hasUninstaller: process.platform === 'win32' && hasNsisUninstaller(path.dirname(process.execPath)),
   };
 }
 
