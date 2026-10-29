@@ -9,6 +9,7 @@ import { LOGGING_PRIMER } from '../ops/logging';
 import { NFS_PRIMER } from '../ops/nfs';
 import { SMB_PRIMER } from '../ops/smb';
 import { EMAIL_PRIMER } from '../ops/email';
+import { DATABASE_PRIMER } from '../ops/database';
 import { GPO_PRIMER } from '../ops/gpo';
 import { WINDOWS_FIREWALL_PRIMER } from '../ops/windowsFirewall';
 import { NETOPS_PRIMER, NFTABLES_PRIMER, PFSENSE_PRIMER, RECOVERY_PRIMER, SSH_PRIMER, SYSTEMD_PRIMER } from './services';
@@ -39,6 +40,7 @@ export const PRIMERS: Record<string, Primer> = {
   nfs: NFS_PRIMER,
   smb: SMB_PRIMER,
   email: EMAIL_PRIMER,
+  database: DATABASE_PRIMER,
   gpo: GPO_PRIMER,
   'windows-firewall': WINDOWS_FIREWALL_PRIMER,
 };

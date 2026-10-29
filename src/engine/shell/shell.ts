@@ -7,7 +7,7 @@
 import { maintainLeases } from '../sim/dhcp';
 import { syslogFlush } from '../sim/syslog';
 import { nfsSync } from '../sim/nfs';
-import { normalizePath } from '../fs';
+import { canAccess, normalizePath } from '../fs';
 import { endSession } from '../sim/ssh';
 import type { World } from '../types';
 import { bootHost } from '../sim/services';
@@ -25,12 +25,13 @@ import { LOG_COMMANDS } from './cmdLog';
 import { NFS_COMMANDS } from './cmdNfs';
 import { SMB_COMMANDS } from './cmdSmb';
 import { MAIL_COMMANDS } from './cmdMail';
+import { PG_COMMANDS, psqlLine, psqlPrompt } from './cmdPg';
 import { LINUX_ONLY, PF_COMMANDS, PF_VERSION } from './cmdPf';
 import { expandParams, parseCommandLine, type Segment } from './tokenize';
 import { type CmdCtx, type CmdResult, type CommandDef, type EditorRequest, NeedInput, type SessionFrame } from './types';
 
 export const COMMANDS: Record<string, CommandDef> = Object.fromEntries(
-  [...FILE_COMMANDS, ...NET_COMMANDS, ...HTTP_COMMANDS, ...SYSTEM_COMMANDS, ...KRB_COMMANDS, ...RDP_COMMANDS, ...DOCKER_COMMANDS, ...NTP_COMMANDS, ...LOG_COMMANDS, ...NFS_COMMANDS, ...SMB_COMMANDS, ...MAIL_COMMANDS].map((c) => [c.name, c]),
+  [...FILE_COMMANDS, ...NET_COMMANDS, ...HTTP_COMMANDS, ...SYSTEM_COMMANDS, ...KRB_COMMANDS, ...RDP_COMMANDS, ...DOCKER_COMMANDS, ...NTP_COMMANDS, ...LOG_COMMANDS, ...NFS_COMMANDS, ...SMB_COMMANDS, ...MAIL_COMMANDS, ...PG_COMMANDS].map((c) => [c.name, c]),
 );
 
 export interface ExecResult {
@@ -78,6 +79,7 @@ export class Shell {
     const host = w.hosts[f.hostId];
     if (isWindows(host)) return `PS ${f.ps?.cwd ?? host.users[f.user]?.home ?? 'C:\\'}> `;
     if (host.kind === 'pfsense') return `[${PF_VERSION}][${f.user}@${host.hostname}.${host.domain}]${f.cwd}: `;
+    if (f.psql) return psqlPrompt(w, f.psql);
     const u = host.users[f.user];
     const cwd = u && (f.cwd === u.home || f.cwd.startsWith(u.home + '/')) ? '~' + f.cwd.slice(u.home.length) : f.cwd;
     return `${f.user}@${host.hostname}:${cwd}${f.user === 'root' ? '#' : '$'} `;
@@ -204,6 +206,42 @@ export class Shell {
       };
     };
 
+    let scriptDepth = 0;
+    /** Run a shell script line by line (set -e stops at the first failing line; exit N ends it). */
+    const runScriptFile = (frame: SessionFrame, path: string, stdin: string | undefined, needExec: boolean): CmdResult => {
+      const host = world.hosts[frame.hostId];
+      const p = normalizePath(path, frame.cwd, host.users[frame.user].home);
+      const node = host.fs[p];
+      const shown = path;
+      if (!node) return { out: `-bash: ${shown}: No such file or directory`, code: 127 };
+      if (node.type === 'dir') return { out: `-bash: ${shown}: Is a directory`, code: 126 };
+      const ctx = makeCtx(frame, undefined);
+      const f = getFile(ctx, p);
+      if (f.error) return { out: `-bash: ${shown}: ${f.error}`, code: 126 };
+      if (needExec && !canAccess(node, host.users[frame.user], 'x')) return { out: `-bash: ${shown}: Permission denied`, code: 126 };
+      if (scriptDepth > 8) return { out: `-bash: ${shown}: too many nested scripts`, code: 1 };
+      scriptDepth++;
+      const out: string[] = [];
+      let code = 0;
+      let errexit = false;
+      try {
+        for (const raw of f.content!.split('\n')) {
+          const line = raw.trim();
+          if (!line || line.startsWith('#')) continue;
+          if (/^set\s+-[a-z]*e/.test(line)) { errexit = true; continue; }
+          const ex = /^exit(?:\s+(\d+))?$/.exec(line);
+          if (ex) { code = Number(ex[1] ?? code); break; }
+          const r = runIn(frame, line, stdin);
+          if (r.out) out.push(r.out);
+          code = r.code;
+          if (errexit && code !== 0) break;
+        }
+      } finally {
+        scriptDepth--;
+      }
+      return { out: out.join('\n'), code };
+    };
+
     const runArgv = (frame: SessionFrame, argv: string[], stdin: string | undefined): CmdResult => {
       const [name, ...args] = argv;
       executed.push(argv.join(' '));
@@ -213,6 +251,10 @@ export class Shell {
         case 'exit':
         case 'logout': {
           const top = frames[frames.length - 1];
+          if (frame === top && top.su && frames.length > 1) {
+            frames.pop();
+            return { out: 'logout', code: Number(args[0] ?? 0) || 0 };
+          }
           if (frame !== top || !top.ssh) {
             return { out: `${name}: this is the ${host.hostname} ${frames.length === 1 ? 'console' : 'shell'}; close the terminal tab instead`, code: 1 };
           }
@@ -237,8 +279,25 @@ export class Shell {
         case 'sudo': {
           const user = host.users[frame.user];
           let rest = args;
-          while (rest[0]?.startsWith('-')) rest = rest.slice(1);
-          if (rest.length === 0) return { out: 'usage: sudo -h | -K | -k | -V\nusage: sudo [-u user] command', code: 1 };
+          let target = 'root';
+          let login = false;
+          while (rest[0]?.startsWith('-')) {
+            const f = rest[0];
+            rest = rest.slice(1);
+            if (f === '--') break;
+            if (f.startsWith('--')) {
+              const [name, val] = f.split(/=(.*)/s);
+              if (name === '--user') { target = val ?? rest[0] ?? ''; if (val === undefined) rest = rest.slice(1); }
+              else if (name === '--login') login = true;
+              continue;
+            }
+            for (let k = 1; k < f.length; k++) {
+              if (f[k] === 'u') { target = f.slice(k + 1) || rest[0] || ''; if (!f.slice(k + 1)) rest = rest.slice(1); break; }
+              if (f[k] === 'i') login = true;
+            }
+          }
+          if (!host.users[target]) return { out: `sudo: unknown user ${target}`, code: 1 };
+          if (rest.length === 0 && !login) return { out: 'usage: sudo -h | -K | -k | -V\nusage: sudo [-u user] command', code: 1 };
           if (user.uid !== 0) {
             if (!user.groups.includes('sudo')) return { out: `${user.name} is not in the sudoers file.`, code: 1 };
             if (!frame.sudoOk) {
@@ -252,26 +311,73 @@ export class Shell {
               frame.sudoOk = true;
             }
           }
-          const rootFrame: SessionFrame = { ...frame, user: 'root' };
+          const tu = host.users[target];
+          if (rest.length === 0) {
+            // sudo -i [-u USER]: a login shell as that user; exit returns here.
+            frames.push({ hostId: frame.hostId, user: target, cwd: host.fs[tu.home] ? tu.home : '/', su: true });
+            return { out: '', code: 0 };
+          }
+          const rootFrame: SessionFrame = { ...frame, user: target, cwd: login && host.fs[tu.home] ? tu.home : frame.cwd };
           const r = runArgv(rootFrame, rest, stdin);
-          frame.cwd = rootFrame.cwd;
+          if (target === 'root') frame.cwd = rootFrame.cwd;
           return r;
+        }
+        case 'su': {
+          // su [-] [USER] [-c COMMAND]
+          let rest = args;
+          let command: string | undefined;
+          let login = false;
+          const names: string[] = [];
+          for (let k = 0; k < rest.length; k++) {
+            const a = rest[k];
+            if (a === '-' || a === '-l' || a === '--login') login = true;
+            else if (a === '-c' || a === '--command') command = rest[++k];
+            else names.push(a);
+          }
+          rest = [];
+          const target = names[0] ?? 'root';
+          const tu = host.users[target];
+          if (!tu) return { out: `su: user ${target} does not exist or the user entry does not contain all the required fields`, code: 1 };
+          if (host.users[frame.user].uid !== 0) {
+            const pw = ask('Password: ', true);
+            if (!tu.password || pw !== tu.password) return { out: 'su: Authentication failure', code: 1 };
+          }
+          if (/nologin|false$/.test(tu.shell)) return { out: 'This account is currently not available.', code: 1 };
+          const cwd = login && host.fs[tu.home] ? tu.home : frame.cwd;
+          if (command !== undefined) return runIn({ hostId: frame.hostId, user: target, cwd }, command, stdin);
+          frames.push({ hostId: frame.hostId, user: target, cwd, su: true });
+          return { out: '', code: 0 };
+        }
+        case 'sh':
+        case 'bash': {
+          if (!args[0] || args[0] === '-c') return args[0] === '-c' ? runIn(frame, args[1] ?? '', stdin) : { out: '', code: 0 };
+          return runScriptFile(frame, args[0], stdin, false);
         }
         default: {
           // pfSense: FreeBSD tools and pfSense scripts first; Linux tools do not exist (tcsh wording).
           const pf = host.kind === 'pfsense';
           if (pf && (LINUX_ONLY.has(name) || (!PF_COMMANDS[name] && !COMMANDS[name]))) return { out: `${name}: Command not found.`, code: 1 };
           const def = (pf ? PF_COMMANDS[name] : undefined) ?? COMMANDS[name];
-          if (!def) return { out: `-bash: ${name}: command not found`, code: 127 };
+          if (!def) {
+            // A program given by path (./backup.sh), or a script installed in a PATH directory.
+            if (!pf && name.includes('/')) return runScriptFile(frame, name, stdin, true);
+            const u = host.users[frame.user];
+            const dirs = u?.uid === 0 ? ['/usr/local/sbin', '/usr/local/bin', '/usr/sbin', '/usr/bin'] : ['/usr/local/bin', '/usr/bin'];
+            const found = !pf && dirs.map((d) => `${d}/${name}`).find((p) => host.fs[p]?.type === 'file');
+            if (found) return runScriptFile(frame, found, stdin, true);
+            return { out: `-bash: ${name}: command not found`, code: 127 };
+          }
           const r = def.run(args, makeCtx(frame, stdin));
           if (r.enterSession) {
             frames.push(r.enterSession);
-            const s = r.enterSession.ssh!;
-            const server = world.hosts[s.hostId];
-            world.sessions = [...(world.sessions ?? []), {
-              clientHostId: s.clientHostId, serverHostId: s.hostId, clientIp: s.fromIp, clientPort: s.fromPort,
-              serverIp: server.ifaces.find((i) => i.address && i.name !== 'lo')?.address ?? '', serverPort: 22, user: s.user, pid: s.pid,
-            }];
+            const s = r.enterSession.ssh;
+            if (s) {
+              const server = world.hosts[s.hostId];
+              world.sessions = [...(world.sessions ?? []), {
+                clientHostId: s.clientHostId, serverHostId: s.hostId, clientIp: s.fromIp, clientPort: s.fromPort,
+                serverIp: server.ifaces.find((i) => i.address && i.name !== 'lo')?.address ?? '', serverPort: 22, user: s.user, pid: s.pid,
+              }];
+            }
           }
           if (name === 'reboot' || (name === 'systemctl' && args[0] === 'reboot')) {
             // Any ssh session into the rebooted host is torn down.
@@ -289,7 +395,14 @@ export class Shell {
 
     let result: CmdResult;
     try {
-      result = runIn(frames[frames.length - 1], line, undefined, this.status);
+      const top = frames[frames.length - 1];
+      if (top.psql) {
+        executed.push(line);
+        world.clock += 400;
+        const r = psqlLine(makeCtx(top, undefined), top.psql, line);
+        if (r.quit) frames.pop();
+        result = { out: r.out, code: r.code };
+      } else result = runIn(top, line, undefined, this.status);
     } catch (e) {
       if (e instanceof NeedInput) {
         return { output: '', code: -1, needInput: { text: e.text, secret: e.secret, partial: e.partial }, commands: executed };

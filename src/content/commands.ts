@@ -7,6 +7,7 @@ import { LINUX_COMMAND_REFS } from './reference/commandsLinux';
 import { KRB_COMMAND_REFS } from './reference/kerberosRefs';
 import { PLATFORM_COMMAND_REFS } from './reference/commandsPlatform';
 import { MAIL_COMMAND_REFS } from './reference/mailRefs';
+import { DB_COMMAND_REFS } from './reference/dbRefs';
 
 const CORE_COMMAND_REFS: CommandRef[] = [
   // ----------------------------------------------------------------- Windows
@@ -778,7 +779,7 @@ const CORE_COMMAND_REFS: CommandRef[] = [
 ];
 
 /** All command entries: the core set above plus the reference-library additions. */
-export const COMMAND_REFS: CommandRef[] = [...CORE_COMMAND_REFS, ...LINUX_COMMAND_REFS, ...KRB_COMMAND_REFS, ...PLATFORM_COMMAND_REFS, ...MAIL_COMMAND_REFS];
+export const COMMAND_REFS: CommandRef[] = [...CORE_COMMAND_REFS, ...LINUX_COMMAND_REFS, ...KRB_COMMAND_REFS, ...PLATFORM_COMMAND_REFS, ...MAIL_COMMAND_REFS, ...DB_COMMAND_REFS];
 
 export const COMMAND_EXERCISES: CommandExercise[] = [
   {

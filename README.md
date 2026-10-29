@@ -45,7 +45,7 @@ For every technology it answers the same questions:
   Windows, pfSense, Docker), configuration reference, an **Operate & recover**
   guide (files, logs, service management, diagnostic workflow, common
   failures) and a graded assessment.
-- **Six guided labs**: build a freshly installed Debian server into a
+- **Seven guided labs**: build a freshly installed Debian server into a
   hardened intranet web server (Lab 1), create an Active Directory domain and
   join a member server (Lab 2), turn a fresh pfSense into the perimeter
   firewall with a DMZ and a published web server (Lab 3), take over a
@@ -53,7 +53,9 @@ For every technology it answers the same questions:
   integrate a new server into every enterprise service (DNS, NTP, central
   logs, NFS and SMB storage, the reverse proxy, a firewall) (Lab 5), and
   recover the whole network after a power cut that exposed latent faults
-  (Lab 6). The simulator checks each step against the running machines, and
+  (Lab 6), and set up a freshly installed PostgreSQL server for a new
+  application: owner and application roles, least-privilege grants, network
+  access, pg_hba.conf, backups with a restore test (Lab 7). The simulator checks each step against the running machines, and
   the last step reboots everything.
 - **An Infrastructure Builder**: draw your own network (workstations, servers,
   routers, VLAN-aware switches), set addresses, gateways, VLANs, firewall
@@ -106,6 +108,12 @@ For every technology it answers the same questions:
   with the old key (no STARTTLS), and a relayhost that does not resolve, with
   the order waiting in the queue. Every fix must keep mail01 from becoming an
   open relay.
+  A **Databases** set breaks db01's PostgreSQL: a server that still listens
+  on localhost only, an office network missing from pg_hba.conf, a new table
+  the application was never granted, a password stored as MD5 on a
+  scram-sha-256 line, a backup role that cannot read a new table, a data
+  directory restored with the wrong owner, and deleted orders that must come
+  back from last night's dump without losing today's rows.
   A **Windows Defender Firewall** set breaks win01's host firewall one rule at
   a time: a web rule scoped to w3wp.exe while http.sys (System) owns port 80,
   a Block rule added "after" an allow rule (Block always wins), a monitoring
@@ -183,6 +191,13 @@ delivers into Maildirs or relays outside mail to the provider's relay on ext01,
 and logs every step to /var/log/mail.log. Dovecot serves the mailboxes over
 IMAP with TLS. `swaks` prints the SMTP dialogue, `curl imaps://` reads mail,
 and mailq, postconf, newaliases, doveconf and doveadm work on the server.
+PostgreSQL 15 runs on db01 as a Debian cluster (15/main): postgresql.conf with
+conf.d and ALTER SYSTEM, settings that need a restart or only a reload,
+pg_hba.conf matched top to bottom (peer, scram-sha-256, md5, trust, reject),
+roles, databases, tables, GRANT/REVOKE and default privileges, the log in
+Debian's format, and the data-directory checks at start. `psql` (interactive
+or scripted, with \l, \du, \dp …), pg_dump and pg_restore, pg_lsclusters,
+pg_ctlcluster and pg_isready work like the real tools.
 Group Policy runs on the domain: GPOs with registry and firewall settings,
 links to the domain and to OUs, Block Inheritance and Enforced, security
 filtering against the computer's token, SYSVOL read over SMB at startup and
