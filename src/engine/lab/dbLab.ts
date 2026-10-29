@@ -330,7 +330,7 @@ export function installDb01(world: World): Host {
   writeFile(h, '/usr/local/sbin/pg-backup', PG_BACKUP_SCRIPT, t, { mode: 0o755 });
   if (!h.fs['/etc/cron.d']) mkdir(h, '/etc/cron.d', t);
   writeFile(h, '/etc/cron.d/pg-backup', '# Nightly PostgreSQL backup (CHG-2502)\n15 2 * * * root /usr/local/sbin/pg-backup\n', t);
-  writeFile(h, '/root/.pgpass', `localhost:5432:inventory:backup:${DB_PASSWORDS.backup}\n`, t, { mode: 0o600 });
+  writeFile(h, '/root/.pgpass', `localhost:5432:*:backup:${DB_PASSWORDS.backup}\n`, t, { mode: 0o600 });
 
   // srv01: the application's credentials and its health check.
   const srv = world.hosts.srv01;

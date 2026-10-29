@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { DATABASE_LESSON } from '../src/content/ops/database';
 import { buildSshLab } from '../src/engine/lab/sshLab';
 import { findScenario } from '../src/engine/scenarios';
 import { verifyScenario } from '../src/engine/scenarios/engine';
@@ -72,6 +73,20 @@ describe('PostgreSQL tools', () => {
     expect(l.run('db01', 'root', 'sudo -u postgres psql -d scratch -A -t -c "SELECT name FROM suppliers WHERE id = 9"').output).toBe('C:\\new');
     l.run('db01', 'root', sql('ALTER DEFAULT PRIVILEGES FOR ROLE invowner GRANT SELECT ON TABLES TO backup'));
     expect(l.run('db01', 'root', sql('\\ddp')).output).toMatch(/invowner \|\s+\| table \| backup=r\/invowner/);
+  });
+});
+
+describe('Database lesson: Deploy steps marked simulated', () => {
+  it('run in order on db01 without errors', () => {
+    const l = lab();
+    for (const g of DATABASE_LESSON.deployment) for (const s of g.steps) {
+      if (!s.simulated || !s.command) continue;
+      for (const c of s.command.split('\n').filter((x) => !x.startsWith('#'))) {
+        const r = l.run('db01', 'root', c);
+        expect(r.code, `${s.title}: ${c}\n${r.output}`).toBe(0);
+      }
+    }
+    expect(l.run('db01', 'root', 'pg_restore -l /var/backups/postgresql/appdb.dump').output).toMatch(/dbname: appdb/);
   });
 });
 

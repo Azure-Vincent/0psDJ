@@ -757,6 +757,11 @@ export const CAUSES: Record<string, Cause> = Object.fromEntries(
       check: '\l in psql (Access privileges column); GRANT CONNECT ON DATABASE D TO ROLE.',
     },
     {
+      id: 'db-firewall', title: 'The database server\'s firewall drops PostgreSQL (TCP 5432)', category: 'Firewall', concept: 'fw.path',
+      signature: 'Clients hang and fail with "Connection timed out"; pg_isready reports "no response". On the server, PostgreSQL is online and listens on the network (pg_lsclusters, ss -tlnp), but the input chain has no accept rule for 5432 and tcpdump shows SYNs without replies. Nothing appears in the PostgreSQL log.',
+      check: 'pg_isready -h SERVER from the client; on the server pg_lsclusters, ss -tlnp | grep 5432, nft list ruleset and tcpdump -n port 5432.',
+    },
+    {
       id: 'db-service-down', title: 'PostgreSQL is not running', category: 'Service', concept: 'svc.systemd',
       signature: 'Every client is refused (TCP "Connection refused", or for local psql "No such file or directory" on the socket /var/run/postgresql/.s.PGSQL.5432); pg_lsclusters shows down; systemctl status shows failed or inactive, and the log names the reason.',
       check: 'pg_lsclusters; systemctl status postgresql@15-main; journalctl -u postgresql@15-main; tail the cluster log.',

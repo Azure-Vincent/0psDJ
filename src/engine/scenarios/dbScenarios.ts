@@ -26,7 +26,7 @@ const TERMINALS = [
 
 const CANDIDATES = [
   'db-listen-localhost', 'db-hba-no-entry', 'db-missing-grant', 'db-md5-secret', 'db-wrong-password', 'db-connect-privilege',
-  'db-service-down', 'db-datadir-perms', 'db-data-deleted', 'firewall-drop', 'dns-wrong-record',
+  'db-service-down', 'db-datadir-perms', 'db-data-deleted', 'db-firewall', 'dns-wrong-record',
 ];
 
 const appCheck: Goal = {
@@ -100,7 +100,7 @@ export const DB_SCENARIOS: Scenario[] = [
     candidates: CANDIDATES,
     feedback: {
       'db-service-down': 'The server runs: pg_lsclusters says online, and psql on db01 works.',
-      'firewall-drop': 'The connection is refused at once (RST), not timed out: db01 answers, but nothing listens on that address. The firewall still allows 5432.',
+      'db-firewall': 'The connection is refused at once (RST), not timed out: db01 answers, but nothing listens on that address. The firewall still allows 5432.',
       'db-hba-no-entry': 'The connection never reaches pg_hba.conf: a missing entry would give "FATAL: no pg_hba.conf entry", not "Connection refused".',
       'db-wrong-password': 'Authentication is never reached: TCP itself is refused.',
     },
@@ -150,7 +150,7 @@ export const DB_SCENARIOS: Scenario[] = [
       'db-listen-localhost': 'The connection reaches the server: the error comes from PostgreSQL itself (FATAL), so it listens on the network.',
       'db-wrong-password': 'No password was checked: the server refused the connection before authentication, because no pg_hba.conf line matches.',
       'db-connect-privilege': 'CONNECT is checked after pg_hba.conf and authentication; the message would be "permission denied for database".',
-      'firewall-drop': 'A firewall drop would time out; here the server answers with a FATAL message.',
+      'db-firewall': 'A firewall drop would time out; here the server answers with a FATAL message.',
     },
     hints: [
       'The message names host, user and database: PostgreSQL looked through pg_hba.conf from top to bottom and found no line for that combination.',
@@ -358,7 +358,7 @@ export const DB_SCENARIOS: Scenario[] = [
     candidates: CANDIDATES,
     feedback: {
       'db-listen-localhost': 'Nothing listens at all, not even on localhost: the server is not running (pg_lsclusters: down).',
-      'firewall-drop': 'The refusal is immediate, and pg_lsclusters on db01 says down.',
+      'db-firewall': 'The refusal is immediate, and pg_lsclusters on db01 says down.',
     },
     hints: [
       'On db01: pg_lsclusters and systemctl status postgresql. Then the reason: journalctl -u postgresql@15-main -n 20 or tail /var/log/postgresql/postgresql-15-main.log.',
