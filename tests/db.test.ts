@@ -76,8 +76,8 @@ describe('PostgreSQL tools', () => {
   });
 });
 
-describe('Database lesson: Deploy steps marked simulated', () => {
-  it('run in order on db01 without errors', () => {
+describe('Database lesson: commands marked as runnable in the sandbox', () => {
+  it('Deploy steps run in order in the db01 sandbox without errors', () => {
     const l = lab();
     for (const g of DATABASE_LESSON.deployment) for (const s of g.steps) {
       if (!s.simulated || !s.command) continue;
@@ -87,6 +87,24 @@ describe('Database lesson: Deploy steps marked simulated', () => {
       }
     }
     expect(l.run('db01', 'root', 'pg_restore -l /var/backups/postgresql/appdb.dump').output).toMatch(/dbname: appdb/);
+  });
+
+  it('Operate and workflow commands run without errors (each task on a fresh lab)', () => {
+    const g = DATABASE_LESSON.guide!;
+    const tasks = [
+      ...g.management.flatMap((m) => m.tasks.filter((t) => t.sim).map((t) => ({ name: t.task, host: /Client/.test(m.platform) ? 'srv01' : 'db01', command: t.command, diagnostic: false }))),
+      // Workflow commands are diagnostics: a FATAL or a refusal can be the answer they look for.
+      ...g.workflow.filter((w) => w.sim).map((w) => ({ name: w.question, host: '', command: w.command, diagnostic: true })),
+    ];
+    for (const t of tasks) {
+      const l = lab();
+      for (const c of t.command.split('\n').filter((x) => !x.startsWith('#'))) {
+        const host = t.host || (/^(psql|pg_isready) -h /.test(c) ? 'srv01' : 'db01');
+        const r = l.run(host, 'root', c, / -P /.test(c) ? ['Pw-test-26', 'Pw-test-26'] : []);
+        if (t.diagnostic) expect(r.output, `${t.name}: ${host}# ${c}`).not.toMatch(/command not found|invalid option|unrecognized option|invalid command|syntax error|Usage:/);
+        else expect(r.code, `${t.name}: ${host}# ${c}\n${r.output}`).toBe(0);
+      }
+    }
   });
 });
 
