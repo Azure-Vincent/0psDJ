@@ -38,7 +38,7 @@ const ss: CommandDef = {
       for (const l of allListeners(ctx.host)) {
         if ((l.proto === 'tcp' && !tcp) || (l.proto === 'udp' && !udp)) continue;
         const proc = withProc && ctx.user.uid === 0 ? `users:(("${l.process}",pid=${l.pid},fd=${l.port === 22 ? 3 : 6}))` : '';
-        rows.push([l.proto === 'udp' ? 'UNCONN' : 'LISTEN', '0', l.proto === 'udp' ? '0' : l.process === 'sshd' ? '128' : '511', addr(l.addr, l.port), l.addr === '::' ? '[::]:*' : '0.0.0.0:*', proc]);
+        rows.push([l.proto === 'udp' ? 'UNCONN' : 'LISTEN', '0', l.proto === 'udp' ? '0' : l.process === 'sshd' ? '128' : '511', addr(l.addr, l.port), l.addr.includes(':') ? '[::]:*' : '0.0.0.0:*', proc]);
       }
     }
     if (!listening && tcp) {

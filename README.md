@@ -98,6 +98,14 @@ For every technology it answers the same questions:
   and a user whose UID differs between hosts; over SMB, a new user without a
   Samba password, a group change that locks someone out of a share, a share
   path with the wrong case, and a scanner share that is read-only by default.
+  An **Email** set breaks mail01's Postfix and Dovecot one step at a time: a
+  shared address added to /etc/aliases without newaliases, a "hardening" that
+  leaves Postfix listening on loopback only (and a reload that does not undo
+  it), mail delivered to mbox while Dovecot reads Maildir, a package update
+  that drops Dovecot's auth socket for Postfix, a renewed certificate paired
+  with the old key (no STARTTLS), and a relayhost that does not resolve, with
+  the order waiting in the queue. Every fix must keep mail01 from becoming an
+  open relay.
   A **Windows Defender Firewall** set breaks win01's host firewall one rule at
   a time: a web rule scoped to w3wp.exe while http.sys (System) owns port 80,
   a Block rule added "after" an allow rule (Block always wins), a monitoring
@@ -168,6 +176,13 @@ software directories from /etc/exports, ws01 and srv01 mount them from
 squashing and read-only exports as on a real server. The same server runs
 Samba: shares in smb.conf, its own password database, `smbclient` on Linux and
 `net use` on Windows, with SMB's logon, share and file steps and their errors.
+Mail runs on mail01: the MX record of corp.lab points at it, Postfix reads
+main.cf and master.cf like the real one, speaks SMTP on 25 and 587 (STARTTLS,
+SMTP AUTH checked by Dovecot through its socket, relay rules), queues and
+delivers into Maildirs or relays outside mail to the provider's relay on ext01,
+and logs every step to /var/log/mail.log. Dovecot serves the mailboxes over
+IMAP with TLS. `swaks` prints the SMTP dialogue, `curl imaps://` reads mail,
+and mailq, postconf, newaliases, doveconf and doveadm work on the server.
 Group Policy runs on the domain: GPOs with registry and firewall settings,
 links to the domain and to OUs, Block Inheritance and Enforced, security
 filtering against the computer's token, SYSVOL read over SMB at startup and

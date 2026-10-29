@@ -13,6 +13,7 @@ import { ntpSettle } from '../sim/ntp';
 import { installNtp } from './ntpLab';
 import { installLog01, installRsyslog, LOG_SENDERS } from './logLab';
 import { installFs01 } from './nfsLab';
+import { installMail01, seedMail } from './mailLab';
 import { syslogFlush } from '../sim/syslog';
 import { endSession, runSsh } from '../sim/ssh';
 import { makeKeyPair, type KeyType } from '../sim/keys';
@@ -308,10 +309,15 @@ iface swp13
     alias fs01 (file server)
     bridge-access 20
 
+auto swp15
+iface swp15
+    alias mail01 (mail server)
+    bridge-access 20
+
 auto br0
 iface br0
     bridge-vlan-aware yes
-    bridge-ports swp1 swp2 swp3 swp4 swp5 swp6 swp7 swp8 swp9 swp11 swp12 swp13
+    bridge-ports swp1 swp2 swp3 swp4 swp5 swp6 swp7 swp8 swp9 swp11 swp12 swp13 swp15
     bridge-vids 10 20 30
     bridge-pvid 1
     bridge-stp yes
@@ -438,6 +444,9 @@ portal  IN A    172.16.50.10
 dock01  IN A    10.0.20.40
 log01   IN A    10.0.20.50
 fs01    IN A    10.0.20.60
+mail01  IN A    10.0.20.25
+; Mail for corp.lab goes to mail01 (CHG-2401)
+@       IN MX   10 mail01.corp.lab.
 inventory IN CNAME dock01
 apps    IN CNAME srv01
 www     IN CNAME srv01
@@ -490,7 +499,7 @@ export function buildSshLab(): World {
   world.links = [
     ['ws01', 'eth0', 'swp1'], ['ws02', 'eth0', 'swp2'], ['ns1', 'eth0', 'swp3'], ['rtr01', 'eth0', 'swp4'],
     ['rtr01', 'eth1', 'swp5'], ['srv01', 'eth0', 'swp6'], ['rtr01', 'eth3', 'swp7'], ['dev01', 'eth0', 'swp8'], ['dev02', 'eth0', 'swp9'],
-    ['dock01', 'eth0', 'swp11'], ['log01', 'eth0', 'swp12'], ['fs01', 'eth0', 'swp13'],
+    ['dock01', 'eth0', 'swp11'], ['log01', 'eth0', 'swp12'], ['fs01', 'eth0', 'swp13'], ['mail01', 'eth0', 'swp15'],
   ].map(([host, iface, port]) => ({ a: { host, iface }, b: { host: 'sw01', iface: port } }));
   const t = world.clock;
 
@@ -500,10 +509,11 @@ export function buildSshLab(): World {
     ifaces: Array.from({ length: 9 }, (_, k) => ({ name: `swp${k + 1}`, mac: `52:54:00:5e:00:${(k + 1).toString(16).padStart(2, '0')}`, segment: null })),
     services: [],
   });
-  // swp10 is left free (Lab 1 cables a new server to it); swp11 is dock01's port, swp12 log01's, swp13 fs01's.
+  // swp10 is left free (Lab 1 cables a new server to it); swp11 is dock01's port, swp12 log01's, swp13 fs01's, swp15 mail01's (Lab 5 cables app01 to swp14).
   sw.ifaces.push({ name: 'swp11', mac: '52:54:00:5e:00:0b', segment: null, address: null, prefix: null, up: false, staticSegment: null, addrs6: [] });
   sw.ifaces.push({ name: 'swp12', mac: '52:54:00:5e:00:0c', segment: null, address: null, prefix: null, up: false, staticSegment: null, addrs6: [] });
   sw.ifaces.push({ name: 'swp13', mac: '52:54:00:5e:00:0d', segment: null, address: null, prefix: null, up: false, staticSegment: null, addrs6: [] });
+  sw.ifaces.push({ name: 'swp15', mac: '52:54:00:5e:00:0f', segment: null, address: null, prefix: null, up: false, staticSegment: null, addrs6: [] });
   writeFile(sw, '/etc/network/interfaces', SW01_INTERFACES, t);
   writeFile(sw, '/etc/resolv.conf', '', t);
 
@@ -635,6 +645,7 @@ export function buildSshLab(): World {
   const dock = installDock01(world);
   const logsrv = installLog01(world);
   const files = installFs01(world);
+  const mail = installMail01(world);
   for (const id of LOG_SENDERS) installRsyslog(world.hosts[id], world.clock, true);
   // On the Internet the portal is reached through fw01's public address.
   writeFile(ext, '/etc/hosts', `${readFile(ext, '/etc/hosts') ?? ''}203.0.113.10\tportal.corp.lab\n`, world.clock);
@@ -643,9 +654,10 @@ export function buildSshLab(): World {
   // ns1 must serve DHCP before ws02 boots, rtr01 must advertise before dev01.
   installNtp(world);
   // fs01 before its NFS clients (srv01, ws01 mount its shares at boot).
-  for (const h of [sw, rtr, ns1, files, srv, ws, ws2, ext, dev, dev2, fw, dmz, dc, win, dock, logsrv]) bootHost(world, h);
+  for (const h of [sw, rtr, ns1, files, srv, ws, ws2, ext, dev, dev2, fw, dmz, dc, win, dock, logsrv, mail]) bootHost(world, h);
   // NTP converges in the minutes after boot (rtr01 needs ext01, the clients need rtr01).
   ntpSettle(world);
+  seedMail(world);
   syslogFlush(world);
 
   // History: alice connected yesterday-style earlier today, accepting the host key.

@@ -410,6 +410,15 @@ function widgetsFor(id: string): LessonWidgets {
       ],
     };
   }
+  if (id === 'email') {
+    return {
+      sandbox: [
+        { hostId: 'mail01', user: 'root', label: 'mail01 console (root)', banner: 'Sandbox: mail01, Postfix and Dovecot. Try: postconf -n, mailq, tail -n 20 /var/log/mail.log, doveconf -n, doveadm auth test dana, ss -tlnp.' },
+        { hostId: 'ws01', user: 'alice', label: 'ws01 (alice)', banner: 'Sandbox: ws01. Send: swaks --to dana@corp.lab --server mail01.corp.lab:587 --tls --auth-user alice --auth-password Mail-alice-26. Read as dana: curl -s \'imaps://mail01.corp.lab/INBOX?ALL\' -u dana:Mail-dana-26, then \'imaps://mail01.corp.lab/INBOX;UID=1\'.' },
+        { hostId: 'ext01', user: 'root', label: 'ext01 (provider relay)', banner: 'Sandbox: ext01, the provider\'s relay and the example.net mail server. Mail for partner@example.net lands in /var/mail/partner.' },
+      ],
+    };
+  }
   if (id === 'ntp') {
     return {
       sandbox: [

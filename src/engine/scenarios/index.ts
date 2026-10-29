@@ -24,6 +24,7 @@ import { SMB_SCENARIOS } from './smbScenarios';
 import { GPO_SCENARIOS } from './gpoScenarios';
 import { WIN_KRB_SCENARIOS } from './winKrbScenarios';
 import { WFW_SCENARIOS } from './wfwScenarios';
+import { MAIL_SCENARIOS } from './mailScenarios';
 import type { Scenario } from './types';
 
 /** Every troubleshooting scenario, grouped by the lesson that introduces it. */
@@ -49,6 +50,7 @@ export const SCENARIO_SETS: { id: string; title: string; scenarios: Scenario[] }
   { id: 'ntp', title: 'Time synchronisation (NTP)', scenarios: NTP_SCENARIOS },
   { id: 'logging', title: 'Central logging (rsyslog)', scenarios: LOG_SCENARIOS },
   { id: 'files', title: 'File sharing (NFS and SMB)', scenarios: [...NFS_SCENARIOS, ...SMB_SCENARIOS] },
+  { id: 'email', title: 'Email (Postfix and Dovecot)', scenarios: MAIL_SCENARIOS },
   { id: 'cases', title: 'End-to-end case studies', scenarios: CASE_SCENARIOS },
 ];
 
