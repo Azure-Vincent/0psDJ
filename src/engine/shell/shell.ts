@@ -285,6 +285,12 @@ export class Shell {
             const f = rest[0];
             rest = rest.slice(1);
             if (f === '--') break;
+            if (f.startsWith('--')) {
+              const [name, val] = f.split(/=(.*)/s);
+              if (name === '--user') { target = val ?? rest[0] ?? ''; if (val === undefined) rest = rest.slice(1); }
+              else if (name === '--login') login = true;
+              continue;
+            }
             for (let k = 1; k < f.length; k++) {
               if (f[k] === 'u') { target = f.slice(k + 1) || rest[0] || ''; if (!f.slice(k + 1)) rest = rest.slice(1); break; }
               if (f[k] === 'i') login = true;

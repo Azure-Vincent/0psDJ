@@ -54,6 +54,27 @@ describe('PostgreSQL server', () => {
   });
 });
 
+describe('PostgreSQL tools', () => {
+  it('createuser -d grants CREATEDB; sudo --user= and the socket error prefix', () => {
+    const l = lab();
+    expect(l.run('db01', 'root', 'sudo --user=postgres createuser -d builder').code).toBe(0);
+    expect(l.run('db01', 'root', 'sudo -u postgres psql -c "\\du builder"').output).toMatch(/builder\s+\| Create DB/);
+    expect(l.run('db01', 'root', 'psql -U postgres -c "SELECT 1"').output).toMatch(/^psql: error: connection to server on socket "\/var\/run\/postgresql\/\.s\.PGSQL\.5432" failed: FATAL: {2}Peer authentication failed for user "postgres"/);
+  });
+
+  it('a dump round trip keeps backslashes; \\ddp lists default privileges', () => {
+    const l = lab();
+    const sql = (q: string) => `sudo -u postgres psql -d inventory -c "${q}"`;
+    l.run('db01', 'root', sql("INSERT INTO suppliers VALUES (9, 'C:\\\\new')"));
+    l.run('db01', 'root', 'sudo -u postgres pg_dump -t suppliers -f /tmp/s.sql inventory');
+    l.run('db01', 'root', 'sudo -u postgres createdb scratch');
+    l.run('db01', 'root', 'sudo -u postgres psql -d scratch -f /tmp/s.sql');
+    expect(l.run('db01', 'root', 'sudo -u postgres psql -d scratch -A -t -c "SELECT name FROM suppliers WHERE id = 9"').output).toBe('C:\\new');
+    l.run('db01', 'root', sql('ALTER DEFAULT PRIVILEGES FOR ROLE invowner GRANT SELECT ON TABLES TO backup'));
+    expect(l.run('db01', 'root', sql('\\ddp')).output).toMatch(/invowner \|\s+\| table \| backup=r\/invowner/);
+  });
+});
+
 describe('Database tickets: wrong fixes are rejected', () => {
   const broken = (id: string) => {
     const s = findScenario(id)!;

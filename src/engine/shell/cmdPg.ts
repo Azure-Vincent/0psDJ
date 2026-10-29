@@ -9,7 +9,7 @@ import {
   ALL_TABLE_PRIVS, cluster, DATA_DIR, isSuper, PG_FULL, PG_LOG, pgAlive, pgConnect, type PgConnection, pgDisconnect, pgLoaded, type PgRole, SOCKET_DIR, storedHash,
 } from '../sim/postgres';
 import {
-  type Archive, archiveToc, archiveToCustom, archiveToSql, dumpDatabase, execStatement, formatError, formatRows, parseCustom, runScript, type SqlResult, type SqlSession,
+  type Archive, archiveToc, archiveToCustom, archiveToSql, dumpDatabase, execStatement, formatError, formatRows, lastStatementEnd, parseCustom, runScript, type SqlResult, type SqlSession,
 } from '../sim/pgsql';
 import { allListeners, restartService, serviceDef, startService, stopService, reloadService } from '../sim/services';
 import { tcpConnect } from '../sim/tcp';
@@ -36,12 +36,12 @@ export interface PsqlState {
 
 interface ConnOpts { host?: string; port: number; user?: string; db?: string; noPassword: boolean; forcePrompt: boolean }
 
-/** Parse libpq options; returns the remaining arguments. */
-function parseConn(args: string[], extraValue: string[] = []): { o: ConnOpts; flags: Map<string, string[]>; rest: string[]; bad?: string } {
+/** Parse libpq options; returns the remaining arguments. With dbOpt false, -d is a plain flag (createuser -d = --createdb). */
+function parseConn(args: string[], extraValue: string[] = [], dbOpt = true): { o: ConnOpts; flags: Map<string, string[]>; rest: string[]; bad?: string } {
   const o: ConnOpts = { port: 5432, noPassword: false, forcePrompt: false };
   const flags = new Map<string, string[]>();
   const rest: string[] = [];
-  const valueOpts = new Set(['-h', '--host', '-p', '--port', '-U', '--username', '-d', '--dbname', ...extraValue]);
+  const valueOpts = new Set(['-h', '--host', '-p', '--port', '-U', '--username', ...(dbOpt ? ['-d', '--dbname'] : []), ...extraValue]);
   for (let i = 0; i < args.length; i++) {
     let a = args[i];
     let v: string | undefined;
@@ -53,6 +53,7 @@ function parseConn(args: string[], extraValue: string[] = []): { o: ConnOpts; fl
       case '-p': case '--port': o.port = Number(take()); break;
       case '-U': case '--username': o.user = take(); break;
       case '-d': case '--dbname': {
+        if (!dbOpt) { flags.set(a, [...(flags.get(a) ?? []), '']); break; }
         const d = take();
         const uri = /^postgres(?:ql)?:\/\/(?:([^:@/]+)(?::([^@/]*))?@)?([^:/?]*)(?::(\d+))?(?:\/([^?]*))?/.exec(d);
         if (uri) { if (uri[1]) o.user = uri[1]; if (uri[3]) o.host = uri[3]; if (uri[4]) o.port = Number(uri[4]); if (uri[5]) o.db = uri[5]; } else o.db = d;
@@ -172,6 +173,7 @@ Informational
   \\d NAME                describe table
   \\dn                    list schemas
   \\dp  or  \\z            list table access privileges
+  \\ddp                   list default privileges
   \\echo [STRING]         write string to standard output`;
 
 /** Run a backslash command; returns output lines and whether psql should quit. */
@@ -220,6 +222,10 @@ function metaCommand(ctx: CmdCtx, st: PsqlState, line: string): { lines: string[
       const tables = Object.values(c.databases[st.conn.db].tables).filter((t) => !args[0] || t.name === args[0].replace(/^public\./, '')).sort((a, z) => a.name.localeCompare(z.name));
       return { lines: rows('Access privileges', ['Schema', 'Name', 'Type', 'Access privileges', 'Column privileges', 'Policies'], tables.map((t) => ['public', t.name, 'table', tableAcl(t.owner, t.acl), '', ''])) };
     }
+    case '\\ddp': {
+      const data = [...c.databases[st.conn.db].defaultAcl].sort((a, z) => a.owner.localeCompare(z.owner)).map((e) => [e.owner, '', 'table', `${e.grantee === 'PUBLIC' ? '' : e.grantee}=${e.privs}/${e.owner}`]);
+      return { lines: rows('Default access privileges', ['Owner', 'Schema', 'Type', 'Access privileges'], data) };
+    }
     case '\\d': {
       if (!args[0]) return metaCommand(ctx, st, '\\dt');
       const name = args[0].replace(/^public\./, '').replace(/"/g, '');
@@ -239,6 +245,7 @@ function metaCommand(ctx: CmdCtx, st: PsqlState, line: string): { lines: string[
       if (!r.ok) return { lines: [...r.warnings, r.message, 'Previous connection kept'], error: true };
       pgDisconnect(world, st.conn);
       st.conn = r.v.conn;
+      st.settings = {};
       st.password = r.v.password;
       return { lines: [...r.v.warnings, `${r.v.conn.ssl ? 'SSL connection (protocol: TLSv1.3, cipher: TLS_AES_256_GCM_SHA384, compression: off)\n' : ''}You are now connected to database "${db}" as user "${user}".`] };
     }
@@ -347,6 +354,7 @@ const psql: CommandDef = {
 export function psqlLine(ctx: CmdCtx, st: PsqlState, line: string): { out: string; quit: boolean; code: number } {
   const world = ctx.world;
   const lines: string[] = [];
+  if (!st.buffer && /^(\\q|exit|quit)$/.test(line.trim())) { pgDisconnect(world, st.conn); return { out: '', quit: true, code: 0 }; }
   // The backend may be gone (server restarted, session terminated): psql notices at the next command.
   if (!pgAlive(world, st.conn) && line.trim()) {
     lines.push('FATAL:  terminating connection due to administrator command', 'server closed the connection unexpectedly', '\tThis probably means the server terminated abnormally', '\tbefore or while processing the request.');
@@ -358,11 +366,11 @@ export function psqlLine(ctx: CmdCtx, st: PsqlState, line: string): { out: strin
       return { out: lines.join('\n'), quit: true, code: 2 };
     }
     st.conn = r.conn;
+    st.settings = {};
     lines.push('The connection to the server was lost. Attempting reset: Succeeded.');
     return { out: lines.join('\n'), quit: false, code: 0 };
   }
   const trimmed = line.trim();
-  if (!st.buffer && /^(\\q|exit|quit)$/.test(trimmed)) { pgDisconnect(world, st.conn); return { out: '', quit: true, code: 0 }; }
   if (!st.buffer && trimmed === 'help') return { out: 'You are using psql, the command-line interface to PostgreSQL.\nType:  \\copyright for distribution terms\n       \\h for help with SQL commands\n       \\? for help with psql commands\n       \\g or terminate with semicolon to execute query\n       \\q to quit', quit: false, code: 0 };
   if (!st.buffer && trimmed.startsWith('\\')) {
     const m = metaCommand(ctx, st, trimmed);
@@ -372,15 +380,7 @@ export function psqlLine(ctx: CmdCtx, st: PsqlState, line: string): { out: strin
   st.buffer += (st.buffer ? '\n' : '') + line;
   // Execute the complete statements typed so far; keep an unfinished one.
   const text = st.buffer;
-  let lastEnd = -1;
-  let q: string | null = null;
-  for (let i = 0; i < text.length; i++) {
-    const ch = text[i];
-    if (q) { if (ch === q) q = null; continue; }
-    if (ch === '-' && text[i + 1] === '-') { const nl = text.indexOf('\n', i); i = nl < 0 ? text.length : nl; continue; }
-    if (ch === "'" || ch === '"') q = ch;
-    else if (ch === ';') lastEnd = i;
-  }
+  const lastEnd = lastStatementEnd(text);
   if (lastEnd < 0) return { out: '', quit: false, code: 0 };
   const complete = text.slice(0, lastEnd + 1);
   st.buffer = text.slice(lastEnd + 1).trim();
@@ -619,12 +619,12 @@ const pgIsready: CommandDef = {
 };
 
 /** createuser / createdb / dropuser / dropdb: connect to the postgres database and run one statement. */
-function wrapper(name: string, summary: string, usage: string, build: (rest: string[], flags: Map<string, string[]>, ctx: CmdCtx) => { sql?: string; error?: string }, failVerb: (target: string) => string): CommandDef {
+function wrapper(name: string, summary: string, usage: string, build: (rest: string[], flags: Map<string, string[]>, ctx: CmdCtx) => { sql?: string; error?: string }, failVerb: (target: string) => string, dbOpt = true): CommandDef {
   return {
     name, summary, usage,
     run(args, ctx) {
       let parsed;
-      try { parsed = parseConn(args, ['-O', '--owner', '-c', '--connection-limit']); } catch (e) { return err(`${name}: error: ${(e as Error).message}`, 1); }
+      try { parsed = parseConn(args, ['-O', '--owner', '-c', '--connection-limit'], dbOpt); } catch (e) { return err(`${name}: error: ${(e as Error).message}`, 1); }
       const { o, flags, rest } = parsed;
       const b = build(rest, flags, ctx);
       if (b.error) return err(`${name}: error: ${b.error}`, 1);
@@ -650,7 +650,7 @@ const createuser = wrapper('createuser', 'create a PostgreSQL role (CREATE ROLE)
     opts.push(`PASSWORD '${a.replace(/'/g, "''")}'`);
   }
   return { sql: `CREATE ROLE ${q(n)} ${opts.join(' ')};` };
-}, () => 'creation of new role');
+}, () => 'creation of new role', false);
 const dropuser = wrapper('dropuser', 'remove a PostgreSQL role (DROP ROLE)', 'dropuser [-h HOST] [-U USER] ROLENAME', (rest) => (rest[0] ? { sql: `DROP ROLE ${q(rest[0])};` } : { error: 'missing required argument role name' }), (n) => `removal of role "${n}"`);
 const createdb = wrapper('createdb', 'create a PostgreSQL database (CREATE DATABASE)', 'createdb [-O OWNER] [-h HOST] [-U USER] DBNAME', (rest, flags) => {
   const n = rest[0];

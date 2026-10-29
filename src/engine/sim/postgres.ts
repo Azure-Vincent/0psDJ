@@ -455,6 +455,8 @@ export function pgStart(world: World, host: Host, rt: ServiceRuntime): PgLoaded 
   writeFile(host, `${DATA_DIR}/postmaster.pid`, `${pid}\n${DATA_DIR}\n${Math.floor(world.clock / 1000)}\n${port}\n${SOCKET_DIR}\n${addrs[0] ?? ''}\n`, world.clock, { mode: 0o600, owner: 'postgres', group: 'postgres' });
   pgLog(world, host, pid + 2, 'LOG', `database system was shut down at ${pgTime(world.clock - 60_000)}`);
   pgLog(world, host, pid, 'LOG', 'database system is ready to accept connections');
+  // The checkpointer, background writer, walwriter and autovacuum launcher take pid+1 … pid+4.
+  host.nextPid = Math.max(host.nextPid, pid + 4);
   return { pid, settings: st.values, pendingRestart: [], hba: hba.rules, listen: addrs, port, sessions: [], startedAt: world.clock };
 }
 
@@ -547,7 +549,7 @@ export function pgConnect(world: World, client: Host, o: PgConnectOptions): PgCo
     if (!node || !l || l.port !== o.port) return { ok: false, code: 2, message: `${where}No such file or directory\n\tIs the server running locally and accepting connections on that socket?` };
     ip = '';
     clientIp = '[local]';
-    label = '';
+    label = where;
   } else {
     const r = resolve(world, client, o.host, {});
     if (!r.ok) return { ok: false, code: 2, message: `could not translate host name "${o.host}" to address: ${r.message}` };
@@ -645,7 +647,7 @@ export function pgConnect(world: World, client: Host, o: PgConnectOptions): PgCo
   }
   const reserved = Number(loaded.settings.superuser_reserved_connections);
   if (loaded.sessions.length >= Number(loaded.settings.max_connections) - (role.superuser ? 0 : reserved)) {
-    return fatal(role.superuser ? 'sorry, too many clients already' : 'remaining connection slots are reserved for non-replication superuser connections', [], 2);
+    return fatal(loaded.sessions.length >= Number(loaded.settings.max_connections) ? 'sorry, too many clients already' : 'remaining connection slots are reserved for non-replication superuser connections', [], 2);
   }
   if (role.connLimit >= 0 && !role.superuser && loaded.sessions.filter((s) => s.user === o.user).length >= role.connLimit) return fatal(`too many connections for role "${o.user}"`);
   if (logConn) pgLog(world, server, pid, 'LOG', `connection authorized: user=${o.user} database=${o.db} application_name=${o.app}${usedSsl ? ' SSL enabled (protocol=TLSv1.3, cipher=TLS_AES_256_GCM_SHA384, bits=256)' : ''}`, who);

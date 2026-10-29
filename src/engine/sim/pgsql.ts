@@ -93,25 +93,18 @@ function tokenize(sql: string): Tok[] {
   return out;
 }
 
-/** Split a script into statements at semicolons outside quotes and comments (keeps each statement's text). */
-export function splitStatements(sql: string): string[] {
-  const out: string[] = [];
-  let cur = '';
+/** Index of the last semicolon outside quotes and -- comments (-1: no complete statement yet). */
+export function lastStatementEnd(sql: string): number {
+  let end = -1;
   let q: string | null = null;
   for (let i = 0; i < sql.length; i++) {
     const ch = sql[i];
-    if (q) {
-      cur += ch;
-      if (ch === q) q = null;
-      continue;
-    }
-    if (ch === '-' && sql[i + 1] === '-') { const nl = sql.indexOf('\n', i); const end = nl < 0 ? sql.length : nl; cur += sql.slice(i, end); i = end - 1; continue; }
-    if (ch === "'" || ch === '"') { q = ch; cur += ch; continue; }
-    if (ch === ';') { if (cur.trim()) out.push(cur.trim()); cur = ''; continue; }
-    cur += ch;
+    if (q) { if (ch === q) q = null; continue; }
+    if (ch === '-' && sql[i + 1] === '-') { const nl = sql.indexOf('\n', i); i = nl < 0 ? sql.length : nl; continue; }
+    if (ch === "'" || ch === '"') q = ch;
+    else if (ch === ';') end = i;
   }
-  if (cur.replace(/--[^\n]*/g, '').trim()) out.push(cur.trim());
-  return out.filter((s) => s.replace(/--[^\n]*/g, '').trim());
+  return end;
 }
 
 class Parser {
@@ -1279,7 +1272,7 @@ export function runScript(s: SqlSession, text: string, onResult: (r: SqlResult, 
             let err: SqlResult | null = null;
             for (i++; i < lines.length && lines[i] !== '\\.'; i++) {
               if (err) continue;
-              const vals = lines[i].split('\t').map((v) => (v === '\\N' ? null : v.replace(/\\t/g, '\t').replace(/\\n/g, '\n').replace(/\\\\/g, '\\')));
+              const vals = lines[i].split('\t').map((v) => (v === '\\N' ? null : v.replace(/\\([\\tn])/g, (_, c: string) => (c === 't' ? '\t' : c === 'n' ? '\n' : '\\'))));
               try { insertRow(s, t, r.columns.map((cn) => t.columns.find((x) => x.name === cn)!), vals); n++; } catch (e) {
                 if (!(e instanceof SqlError)) throw e;
                 err = { kind: 'error', message: e.message, detail: e.detail };
@@ -1388,7 +1381,4 @@ export function archiveToc(a: Archive): string {
 }
 
 /** Write a dump file as the OS user would (pg_dump -f). */
-export function saveDump(world: World, host: Host, path: string, content: string, owner: string, group: string): void {
-  writeFile(host, path, content, world.clock, { mode: 0o644, owner, group });
-}
 
