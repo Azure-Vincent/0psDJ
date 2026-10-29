@@ -726,5 +726,50 @@ export const CAUSES: Record<string, Cause> = Object.fromEntries(
       signature: 'Outside mail waits in the deferred queue with "connect to HOST[IP]:25: Connection timed out", "Connection refused" or "No route to host": the name resolves, but no SMTP session starts.',
       check: 'mailq; swaks --server RELAY --quit-after banner from the mail server; nc -vz RELAY 25.',
     },
+    {
+      id: 'db-listen-localhost', title: 'PostgreSQL listens on localhost only (listen_addresses)', category: 'Service', concept: 'db.access',
+      signature: 'Clients on other machines get "Connection refused" on port 5432 while psql on the server itself works. ss -tlnp shows postgres on 127.0.0.1:5432 and [::1]:5432 only; SHOW listen_addresses says localhost (the default). A reload does not change it: the log says the parameter cannot be changed without restarting the server.',
+      check: 'ss -tlnp | grep 5432 on the server; SHOW listen_addresses; grep listen_addresses /etc/postgresql/15/main/postgresql.conf conf.d/*.',
+    },
+    {
+      id: 'db-hba-no-entry', title: 'No pg_hba.conf line matches the client (host, user, database)', category: 'Authorization', concept: 'db.access',
+      signature: '"FATAL:  no pg_hba.conf entry for host \"IP\", user \"U\", database \"D\"" (twice with sslmode=prefer: SSL encryption, then no encryption). The server answers, but no line allows that combination; the password is never asked.',
+      check: 'Read pg_hba.conf top to bottom (or SELECT * FROM pg_hba_file_rules as superuser) for a line matching type, database, user and the client address.',
+    },
+    {
+      id: 'db-missing-grant', title: 'The role lacks a privilege on the table (GRANT missing)', category: 'Authorization', concept: 'db.admin',
+      signature: 'The login works and other tables work, but statements on one table fail with "ERROR:  permission denied for table T" (pg_dump: "query failed: ERROR: permission denied for table T" at LOCK TABLE). \dp shows no entry for the role on that table, typically a newly created one.',
+      check: '\dp TABLE in psql; compare with the tables that work; \ddp for default privileges.',
+    },
+    {
+      id: 'db-md5-secret', title: 'The role\'s password is stored as MD5, but pg_hba.conf requires scram-sha-256', category: 'Authentication', concept: 'db.access',
+      signature: '"password authentication failed" although the password is right. The server log DETAIL says "User \"U\" does not have a valid SCRAM secret."; pg_authid.rolpassword starts with md5. Typical after a migration from an older server.',
+      check: 'Server log DETAIL line; SELECT rolname, rolpassword FROM pg_authid WHERE rolname = \'U\'; (superuser).',
+    },
+    {
+      id: 'db-wrong-password', title: 'Wrong password (or an outdated ~/.pgpass entry)', category: 'Authentication', concept: 'db.access',
+      signature: '"FATAL:  password authentication failed for user \"U\"" and the server log DETAIL "Password does not match for user \"U\"." (or "Role \"U\" does not exist."). Other users connect fine.',
+      check: 'Server log DETAIL; the matching line in the client\'s ~/.pgpass (host:port:db:user:password, mode 0600).',
+    },
+    {
+      id: 'db-connect-privilege', title: 'The role may not connect to the database (CONNECT privilege)', category: 'Authorization', concept: 'db.admin',
+      signature: '"FATAL:  permission denied for database \"D\"" with "DETAIL:  User does not have CONNECT privilege." after successful authentication. \l shows the database\'s access privileges without the role (and without PUBLIC).',
+      check: '\l in psql (Access privileges column); GRANT CONNECT ON DATABASE D TO ROLE.',
+    },
+    {
+      id: 'db-service-down', title: 'PostgreSQL is not running', category: 'Service', concept: 'svc.systemd',
+      signature: 'Every client is refused (TCP "Connection refused", or for local psql "No such file or directory" on the socket /var/run/postgresql/.s.PGSQL.5432); pg_lsclusters shows down; systemctl status shows failed or inactive, and the log names the reason.',
+      check: 'pg_lsclusters; systemctl status postgresql@15-main; journalctl -u postgresql@15-main; tail the cluster log.',
+    },
+    {
+      id: 'db-datadir-perms', title: 'The data directory has the wrong owner or mode (the server refuses to start)', category: 'Permissions', concept: 'db.admin',
+      signature: 'The cluster does not start; the log says "FATAL:  data directory \"…\" has wrong ownership" (HINT: started by the user that owns the data directory) or "has invalid permissions" (DETAIL: should be u=rwx (0700) or u=rwx,g=rx (0750)). Typical after copying or restoring files as root.',
+      check: 'ls -ld /var/lib/postgresql/15/main and the files under it; the FATAL line in the log.',
+    },
+    {
+      id: 'db-data-deleted', title: 'Rows were deleted or changed by a statement (a data problem, not a service problem)', category: 'Configuration', concept: 'db.admin',
+      signature: 'Everything connects and runs, but rows are missing or wrong; queries return fewer rows than expected. The cause is a statement (DELETE/UPDATE without WHERE, a faulty job), not the server.',
+      check: 'Count the rows now; compare with the last backup (pg_restore -l, or restore into a scratch database); check log_statement output if enabled.',
+    },
   ] as Cause[]).map((c) => [c.id, c]),
 );

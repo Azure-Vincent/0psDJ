@@ -143,6 +143,13 @@ const SYMPTOM: Record<string, RegExp> = {
   'mail-sasl-socket': / ~> EHLO ws01\.corp\.lab\n\*\*\* Remote host closed connection unexpectedly\./,
   'mail-tls-keypair': /\*\*\* Host did not advertise STARTTLS/,
   'mail-relayhost': /cat: \/var\/mail\/partner: No such file or directory/,
+  'db-listen-default': /port 5432 failed: Connection refused\n\tIs the server running on that host and accepting TCP\/IP connections\?/,
+  'db-hba-office': /FATAL:  no pg_hba\.conf entry for host "10\.0\.10\.25", user "report", database "inventory", SSL encryption/,
+  'db-missing-grant': /ERROR:  permission denied for table invoices/,
+  'db-md5-scram': /FATAL:  password authentication failed for user "billing"/,
+  'db-backup-grant': /pg_dump: error: query failed: ERROR:  permission denied for table supplier_contracts/,
+  'db-datadir-owner': /port 5432 failed: Connection refused/,
+  'db-restore-orders': /WHERE id = 1004"\nroot@srv01# /,
   'mtu-uplink-mismatch': /curl: \(28\) Operation timed out after 30000 milliseconds with 0 out of 4718592 bytes received/,
 };
 

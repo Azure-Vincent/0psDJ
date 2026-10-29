@@ -48,7 +48,7 @@ function routeOk(link: string): string | null {
 function commandWords(cmd: string): string[] {
   // Quoted strings and brace blocks (PowerShell hashtables and script blocks) are arguments, not command separators.
   return cmd.split('\n').flatMap((line) => line.replace(/"[^"]*"|'[^']*'/g, 'Q').replace(/@?\{[^{}]*\}/g, 'Q').split(/\s*(?:&&|\|\||;|\|)\s*/)).map((part) => {
-    const words = part.trim().replace(/^sudo\s+(-\S+\s+)*/, '').split(/\s+/);
+    const words = part.trim().replace(/^sudo\s+(-[ug]\s+\S+\s+|-\S+\s+)*/, '').split(/\s+/);
     return words[0];
   }).filter((w) => w && !w.startsWith('#'));
 }

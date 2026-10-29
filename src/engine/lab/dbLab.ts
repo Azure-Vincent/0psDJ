@@ -326,7 +326,7 @@ export function installDb01(world: World): Host {
   h.pg = inventoryCluster();
 
   // Nightly backup: script, cron entry, credentials for the backup role.
-  mkdir(h, '/var/backups/postgresql', t, { mode: 0o750 });
+  mkdir(h, '/var/backups/postgresql', t, { mode: 0o750, group: 'postgres' });
   writeFile(h, '/usr/local/sbin/pg-backup', PG_BACKUP_SCRIPT, t, { mode: 0o755 });
   if (!h.fs['/etc/cron.d']) mkdir(h, '/etc/cron.d', t);
   writeFile(h, '/etc/cron.d/pg-backup', '# Nightly PostgreSQL backup (CHG-2502)\n15 2 * * * root /usr/local/sbin/pg-backup\n', t);

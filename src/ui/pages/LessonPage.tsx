@@ -410,6 +410,15 @@ function widgetsFor(id: string): LessonWidgets {
       ],
     };
   }
+  if (id === 'database') {
+    return {
+      sandbox: [
+        { hostId: 'db01', user: 'root', label: 'db01 console (root)', banner: 'Sandbox: db01, PostgreSQL 15. Try: pg_lsclusters, sudo -u postgres psql (then \\l, \\du, \\c inventory, \\dp, SELECT * FROM orders;), tail /var/log/postgresql/postgresql-15-main.log, ss -tlnp | grep 5432.' },
+        { hostId: 'srv01', user: 'root', label: 'srv01 (application server)', banner: 'Sandbox: srv01, the application server (webapp\'s password is in /root/.pgpass). Try: psql -h db01.corp.lab -U webapp -d inventory -c "SELECT count(*) FROM items", inventory-check, pg_isready -h db01.corp.lab.' },
+        { hostId: 'ws01', user: 'alice', label: 'ws01 (alice)', banner: 'Sandbox: ws01, which pg_hba.conf does not allow. Try: psql -h db01.corp.lab -U alice -d inventory, then read the reason in db01\'s log.' },
+      ],
+    };
+  }
   if (id === 'email') {
     return {
       sandbox: [

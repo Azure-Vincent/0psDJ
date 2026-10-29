@@ -3,6 +3,7 @@ import { getLesson } from '../src/content/lessons';
 import { getRef } from '../src/content/reference';
 import { applySolution, checkStep, printfTo } from '../src/engine/labs/engine';
 import { GUIDED_LABS } from '../src/engine/labs';
+import { LAB7 } from '../src/engine/labs/lab7';
 import { LAB1 } from '../src/engine/labs/lab1';
 import { LAB2 } from '../src/engine/labs/lab2';
 import { LAB3 } from '../src/engine/labs/lab3';
@@ -160,6 +161,19 @@ describe('guided labs', () => {
     expect(l.run('ws01', 'alice', 'curl -sS -m 5 http://inventory.corp.lab:8000/health').output).toMatch(/curl: \(28\)/);
     l.run('dock01', 'root', 'systemctl restart docker');
     expect(l.run('ws01', 'alice', 'curl -sS -m 5 http://inventory.corp.lab:8000/health').output).toBe('{"status":"ok","database":"ok"}');
+  });
+
+  it('Lab 7: each step fails before its solution and passes after it; the reboot test passes at the end', () => {
+    let world: World = LAB7.build();
+    for (const step of LAB7.steps.filter((s) => !s.afterReboot)) {
+      const before = checkStep(world, LAB7, step);
+      expect(before.passed, `${step.id} should not pass before its solution`).toBe(false);
+      world = applySolution(world, step);
+      const after = checkStep(world, LAB7, step);
+      expect(after.results.filter((r) => !r.ok).map((r) => `${r.id}: ${r.detail}`), step.id).toEqual([]);
+    }
+    const final = checkStep(world, LAB7, LAB7.steps.at(-1)!);
+    expect(final.results.filter((r) => !r.ok).map((r) => `${r.step} / ${r.id}: ${r.detail}`)).toEqual([]);
   });
 
   it.each(GUIDED_LABS.map((l) => l.id))('%s: links, terminals and solutions are well-formed', (id) => {
