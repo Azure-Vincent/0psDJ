@@ -114,7 +114,7 @@ export const CURRICULUM: CurriculumModule[] = [
       { title: 'SMB file server (simulated: Samba on fs01, smbclient and net use, 4 tickets)', level: 'intermediate', status: 'available', link: 'lesson/smb/what' },
       { title: 'Database servers', level: 'intermediate', status: 'planned' },
       { title: 'Reverse proxies and load balancers (simulated on srv01, 5 tickets)', level: 'intermediate', status: 'partial', link: 'lesson/webproxy/what', note: 'nginx proxy_pass, upstream groups, 502/504 and load-time resolution are simulated; health checks, HAProxy and cloud load balancers are described only.' },
-      { title: 'Email infrastructure', level: 'advanced', status: 'planned' },
+      { title: 'Email (simulated: Postfix and Dovecot on mail01, swaks and IMAP, 6 tickets)', level: 'advanced', status: 'available', link: 'lesson/email/what' },
       { title: 'NTP and time synchronisation (simulated: chrony on rtr01, timesyncd clients, 4 tickets)', level: 'intermediate', status: 'available', link: 'lesson/ntp/what' },
       { title: 'Backup services', level: 'intermediate', status: 'planned' },
       { title: 'Central logging (simulated: rsyslog senders and log01, 4 tickets)', level: 'intermediate', status: 'available', link: 'lesson/logging/what' },

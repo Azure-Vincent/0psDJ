@@ -137,6 +137,12 @@ const SYMPTOM: Record<string, RegExp> = {
   'wfw-remote-scope': /1 packets transmitted, 0 received, 100% packet loss/,
   'wfw-outbound-default': /System error 53 has occurred\.\n\nThe network path was not found\./,
   'wfw-local-rules-ignored': /curl: \(28\) Failed to connect to win01\.corp\.lab port 80 after 10000 ms/,
+  'mail-alias-newaliases': /<\*\* 550 5\.1\.1 <sales@corp\.lab>: Recipient address rejected: User unknown in local recipient table/,
+  'mail-loopback-only': /IO::Socket::INET6: connect: Connection refused/,
+  'mail-mbox-maildir': /^\* SEARCH$/m,
+  'mail-sasl-socket': / ~> EHLO ws01\.corp\.lab\n\*\*\* Remote host closed connection unexpectedly\./,
+  'mail-tls-keypair': /\*\*\* Host did not advertise STARTTLS/,
+  'mail-relayhost': /cat: \/var\/mail\/partner: No such file or directory/,
   'mtu-uplink-mismatch': /curl: \(28\) Operation timed out after 30000 milliseconds with 0 out of 4718592 bytes received/,
 };
 

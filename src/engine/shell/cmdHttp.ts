@@ -15,6 +15,7 @@ import { ERRNO_TEXT, type TcpConn, tcpConnect } from '../sim/tcp';
 import { activeRecorder } from '../sim/trace';
 import { sha256, utf8 } from '../util/sha256';
 import { getFile, resolvePath, writeChecked } from './cmdFiles';
+import { curlImap, mailTlsChain } from './cmdMail';
 import { type CmdCtx, type CommandDef, err, ok, parseFlags } from './types';
 
 const ERRNO_NUM: Record<string, number> = { ECONNREFUSED: 111, ETIMEDOUT: 110, EHOSTUNREACH: 113, ENETUNREACH: 101, EPERM: 1, EMSGSIZE: 90 };
@@ -88,6 +89,7 @@ const curl: CommandDef = {
   usage: 'curl [-4|-6] [-I|-i] [-v] [-s] [-k] [-L] [--cacert FILE] [--resolve HOST:PORT:ADDR] [-m SECONDS] [-o FILE|-O] [-w FORMAT] URL',
   run(args, ctx) {
     const { flags, rest } = parseFlags(args, ['-m', '--max-time', '--connect-timeout', '-o', '--output', '--cacert', '--resolve', '-w', '--write-out']);
+    if (rest.some((a) => /^imaps?:\/\//i.test(a))) return curlImap(args, ctx);
     const url = rest[0];
     const m = url ? /^(?:(https?):\/\/)?(\[[0-9a-fA-F:.]+\]|[^/:?#]+)(?::(\d+))?([^#]*)/.exec(url) : null;
     if (!m) return err('curl: no URL specified!\ncurl: try \'curl --help\' or \'curl --manual\' for more information', 2);
@@ -485,17 +487,24 @@ function sClient(args: string[], ctx: CmdCtx) {
   const loaded = conn.server.services.nginx?.state === 'active' ? (conn.server.services.nginx.loaded as NginxLoaded) : null;
   const sni = typeof opts.get('servername') === 'string' ? (opts.get('servername') as string) : /^[\d.]+$|:/.test(host) ? undefined : host;
   const srv = selectServer(loaded, conn.sv.local, conn.sv.localPort, sni);
-  if (!srv || !isTlsPort(srv, conn.sv.localPort)) {
+  // Postfix and Dovecot: TLS on connect (465, 993) or after STARTTLS (-starttls smtp|imap).
+  const starttls = opts.get('starttls');
+  const mail = mailTlsChain(ctx.world, conn, typeof starttls === 'string' ? starttls.toLowerCase() : undefined);
+  if (mail?.error === 'handshake') {
+    conn.close('server');
+    return err(`CONNECTED(00000003)\n${ERR_PREFIX}0A000126:SSL routines::unexpected eof while reading:../ssl/record/rec_layer_s3.c:308:\n---\nno peer certificate available\n---\nNo client certificate CA names sent\n---\nSSL handshake has read 0 bytes and written 299 bytes\nVerification: OK\n---\nNew, (NONE), Cipher is (NONE)\nSecure Renegotiation IS NOT supported\nCompression: NONE\nExpansion: NONE\nNo ALPN negotiated\nEarly data was not sent\nVerify return code: 0 (ok)\n---`, 1);
+  }
+  if (mail ? !!mail.error : !srv || !isTlsPort(srv, conn.sv.localPort)) {
     conn.send('c2s', 299, { protocol: 'TLS', info: 'Client Hello', fields: [] });
     conn.close('server');
-    return err(`CONNECTED(00000003)\n${ERR_PREFIX}0A00010B:SSL routines:ssl3_get_record:wrong version number:../ssl/record/ssl3_record.c:354:\n---\nno peer certificate available\n---\nNo client certificate CA names sent\n---\nSSL handshake has read 5 bytes and written 299 bytes\nVerification: OK\n---\nNew, (NONE), Cipher is (NONE)\nSecure Renegotiation IS NOT supported\nCompression: NONE\nExpansion: NONE\nNo ALPN negotiated\nEarly data was not sent\nVerify return code: 0 (ok)\n---`, 1);
+    return err(`CONNECTED(00000003)\n${mail?.error === 'no-starttls' ? "Didn't find STARTTLS in server response, trying anyway...\n" : ''}${ERR_PREFIX}0A00010B:SSL routines:ssl3_get_record:wrong version number:../ssl/record/ssl3_record.c:354:\n---\nno peer certificate available\n---\nNo client certificate CA names sent\n---\nSSL handshake has read 5 bytes and written 299 bytes\nVerification: OK\n---\nNew, (NONE), Cipher is (NONE)\nSecure Renegotiation IS NOT supported\nCompression: NONE\nExpansion: NONE\nNo ALPN negotiated\nEarly data was not sent\nVerify return code: 0 (ok)\n---`, 1);
   }
   let trusted = trustStore(ctx.host);
   if (typeof opts.get('CAfile') === 'string') {
     const f = load(ctx, opts.get('CAfile') as string);
     trusted = f.text ? parseCerts(f.text).filter((x): x is Cert => !!x) : [];
   }
-  const tls = tlsHandshake(conn, srv.tls!.chain, sni ?? '', trusted);
+  const tls = tlsHandshake(conn, mail?.chain ?? srv!.tls!.chain, sni ?? '', trusted);
   if (tls.stalled) return err(`CONNECTED(00000003)\n[Cyber Owl Lab: the server's certificate flight never arrived; s_client waited until you pressed Ctrl-C]\n^C`, 130);
   const chain = tls.chain;
   const v = verifyChain(chain[0], chain.slice(1), trusted, ctx.world.clock);

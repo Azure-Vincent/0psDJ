@@ -666,5 +666,65 @@ export const CAUSES: Record<string, Cause> = Object.fromEntries(
       signature: 'Same symptoms as a blocked port 88 (logons fall back to NTLM, Group Policy fails with 1055, klist get fails with 0xc000005e), but Test-NetConnection DC -Port 88 is refused at once rather than timing out, the firewall rules are enabled, and on the DC Get-Service Kdc shows Stopped (Disabled).',
       check: 'Get-Service Kdc on the DC (StartType too); Test-NetConnection dc01 -Port 88 on the member; netstat -ano on the DC (nothing on :88).',
     },
+    {
+      id: 'mail-aliases-not-rebuilt', title: '/etc/aliases was edited but newaliases was not run', category: 'Configuration', concept: 'mail.smtp',
+      signature: 'Mail to the new address is rejected at RCPT TO with "550 5.1.1 ... User unknown in local recipient table" although the alias is in /etc/aliases. Postfix reads the compiled /etc/aliases.db (hash:/etc/aliases), which is older than the text file: postfix check warns "database /etc/aliases.db is older than source file /etc/aliases".',
+      check: 'postfix check; ls -l --time-style=full-iso /etc/aliases /etc/aliases.db; postconf alias_maps.',
+    },
+    {
+      id: 'mail-unknown-recipient', title: 'The address does not exist (typing error, account never created)', category: 'Client', concept: 'mail.smtp',
+      signature: '550 5.1.1 User unknown in local recipient table for an address that is neither a Unix account nor in /etc/aliases at all; other addresses work.',
+      check: 'getent passwd NAME and grep NAME /etc/aliases on the mail server; the exact address in the rejection.',
+    },
+    {
+      id: 'mail-relay-denied', title: 'The client may not relay (not in mynetworks and not logged in)', category: 'Authorization', concept: 'mail.smtp',
+      signature: 'Mail for outside domains is refused at RCPT TO with "454 4.7.1 ... Relay access denied" (or 554 5.7.1); mail for the server\'s own domains is accepted. The client sent on port 25 without logging in, or from an address outside mynetworks.',
+      check: 'The rejection in mail.log (NOQUEUE: reject: RCPT ... Relay access denied); postconf mynetworks smtpd_relay_restrictions; send through 587 with a login.',
+    },
+    {
+      id: 'mail-inet-interfaces', title: 'Postfix listens on loopback only (inet_interfaces)', category: 'Service', concept: 'mail.smtp',
+      signature: 'Connections to ports 25 and 587 are refused immediately from other machines, while Postfix is active and works locally (swaks --server localhost). ss -tlnp shows 127.0.0.1:25 and ::1:25 owned by master. postfix reload does not change it: inet_interfaces only takes effect on stop/start.',
+      check: 'ss -tlnp | grep master; postconf inet_interfaces; swaks --server localhost on the server itself.',
+    },
+    {
+      id: 'mail-service-down', title: 'Postfix or Dovecot is not running', category: 'Service', concept: 'svc.systemd',
+      signature: 'Connections are refused on every port of that service (25/587 for Postfix, 143/993 for Dovecot); systemctl status shows inactive or failed, with the reason in journalctl -u.',
+      check: 'systemctl status postfix dovecot; ss -tlnp; journalctl -u postfix -u dovecot -n 20.',
+    },
+    {
+      id: 'mail-mailbox-location', title: 'Postfix delivers to a different mailbox than Dovecot reads', category: 'Configuration', concept: 'mail.imap',
+      signature: 'Senders see success and mail.log says status=sent, but the mail never appears over IMAP. The delivery line says "delivered to mailbox" (mbox in /var/mail) while Dovecot reads maildir:~/Maildir, or the other way round. Older mail is still visible.',
+      check: 'The local delivery line in mail.log; postconf home_mailbox mail_spool_directory; doveconf mail_location; ls -l /var/mail ~USER/Maildir/new.',
+    },
+    {
+      id: 'mail-maildir-permissions', title: 'Postfix cannot write into the user\'s Maildir (permissions)', category: 'Permissions', concept: 'linux.permissions',
+      signature: 'Mail is accepted but stays in the queue: mail.log says status=deferred (maildir delivery failed: create maildir file ...: Permission denied), and mailq shows the same reason. Local delivery runs as the recipient, who must be able to write ~/Maildir/tmp and new.',
+      check: 'mailq; the deferred reason in mail.log; ls -ld ~USER ~USER/Maildir ~USER/Maildir/*.',
+    },
+    {
+      id: 'mail-sasl-socket', title: 'Postfix cannot reach Dovecot\'s auth socket (SMTP AUTH broken)', category: 'Service', concept: 'mail.smtp',
+      signature: 'Port 587 accepts the connection and STARTTLS, then drops it; reading mail works. mail.log: "warning: SASL: Connect to private/auth failed: No such file or directory" (or Connection refused) followed by "fatal: no SASL authentication mechanisms". /var/spool/postfix/private/auth is missing, or Dovecot does not have the unix_listener for it under service auth.',
+      check: 'ls -l /var/spool/postfix/private/; doveconf -n | grep -A5 "service auth"; postconf smtpd_sasl_type smtpd_sasl_path; tail /var/log/mail.log.',
+    },
+    {
+      id: 'mail-wrong-password', title: 'The user\'s password is wrong', category: 'Authentication', concept: 'mail.imap',
+      signature: 'SMTP AUTH answers 535 5.7.8 authentication failed, or IMAP NO [AUTHENTICATIONFAILED]; doveadm auth test USER fails with the password the user typed and succeeds with the right one. The log has pam_unix authentication failure lines for that user.',
+      check: 'doveadm auth test USER; grep "auth failed\\|authentication failure" /var/log/mail.log /var/log/auth.log.',
+    },
+    {
+      id: 'mail-tls-keypair', title: 'The TLS certificate and key configured in Postfix do not match (STARTTLS disabled)', category: 'Cryptography', concept: 'tls.pki',
+      signature: 'The EHLO reply has no STARTTLS and port 587 cannot be used ("Host did not advertise STARTTLS", Outlook: the server does not support secure connections). Postfix keeps running: each smtpd logs "cannot get RSA private key from file ...: disabling TLS support" and "key values mismatch". The moduli of smtpd_tls_cert_file and smtpd_tls_key_file differ.',
+      check: 'postconf smtpd_tls_cert_file smtpd_tls_key_file; openssl x509 -noout -modulus / openssl rsa -noout -modulus (md5 of each); openssl s_client -starttls smtp -connect HOST:587.',
+    },
+    {
+      id: 'mail-relayhost-unresolvable', title: 'The next hop (relayhost) does not resolve', category: 'Name resolution', concept: 'mail.smtp',
+      signature: 'Outside mail is accepted and then waits in the deferred queue; nothing bounces for days. mailq and mail.log give the reason "Host or domain name not found. Name service error for name=... type=A". Internal mail is unaffected. Postfix\'s SMTP client asks DNS directly, so /etc/hosts does not help.',
+      check: 'mailq; postconf relayhost; dig NAME on the mail server.',
+    },
+    {
+      id: 'mail-relay-unreachable', title: 'The relay or the remote mail server cannot be reached (down, firewall, wrong port)', category: 'Network path', concept: 'mail.smtp',
+      signature: 'Outside mail waits in the deferred queue with "connect to HOST[IP]:25: Connection timed out", "Connection refused" or "No route to host": the name resolves, but no SMTP session starts.',
+      check: 'mailq; swaks --server RELAY --quit-after banner from the mail server; nc -vz RELAY 25.',
+    },
   ] as Cause[]).map((c) => [c.id, c]),
 );

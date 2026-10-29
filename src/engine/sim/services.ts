@@ -20,6 +20,8 @@ import { type ChronyLoaded, chronyLoad, type TimesyncLoaded, timesyncLoad } from
 import { rsyslogListeners, rsyslogStart } from './syslog';
 import { mountFstabNfs, nfsReset, nfsServerStart } from './nfs';
 import { parseSmbConf, SAMBA_VERSION, SMB_CONF } from './smb';
+import { MAIN_CF, MASTER_CF, postfixLoad, type PostfixLoaded } from './mail';
+import { DOVECOT_CONF, dovecotStart, removeSockets, type DovecotLoaded } from './dovecot';
 import { type Cert, parseCerts, parseKey } from './pki';
 import type { Host, ServiceRuntime, World } from '../types';
 import { log } from './journal';
@@ -1122,7 +1124,67 @@ const networking: ServiceDef = {
   listeners: () => [],
 };
 
-export const SERVICE_DEFS: ServiceDef[] = [networking, rsyslog, timesyncd, chrony, nftables, nfsServer, smbd, named, krb5kdc, kadmind, dhcpd, dhcrelay, radvd, sshd, nginx];
+// ---------------------------------------------------------------------------
+// Mail: Postfix (sim/mail.ts) and Dovecot (sim/dovecot.ts)
+// ---------------------------------------------------------------------------
+
+const postfix: ServiceDef = {
+  name: 'postfix',
+  unit: 'postfix@-.service',
+  aliases: ['postfix', 'postfix.service', 'postfix@-', 'postfix@-.service'],
+  description: 'Postfix Mail Transport Agent (instance -)',
+  configFiles: [MAIN_CF, MASTER_CF],
+  start(world, host, rt) {
+    rt.pid = allocPid(host);
+    rt.loaded = postfixLoad(world, host, rt, false);
+    return rt.loaded !== null;
+  },
+  reload(world, host, rt) {
+    const l = postfixLoad(world, host, rt, true);
+    if (!l) return false;
+    rt.loaded = l;
+    return true;
+  },
+  listeners(_host, rt) {
+    const l = rt.loaded as PostfixLoaded | null;
+    if (!l) return [];
+    return l.services.flatMap((s) => s.addrs.map((addr) => ({ proto: 'tcp' as const, addr, port: s.port, process: 'master', pid: l.masterPid, service: 'postfix' })));
+  },
+  statusLines(_host, rt) {
+    const l = rt.loaded as PostfixLoaded | null;
+    return l ? [`     CGroup: /system.slice/system-postfix.slice/postfix@-.service`, `             ├─${l.masterPid} /usr/lib/postfix/sbin/master -w`, `             ├─${l.masterPid + 3} pickup -l -t unix -u -c`, `             └─${l.qmgrPid} qmgr -l -t unix -u`] : [];
+  },
+};
+
+const dovecot: ServiceDef = {
+  name: 'dovecot',
+  unit: 'dovecot.service',
+  aliases: ['dovecot', 'dovecot.service'],
+  description: 'Dovecot IMAP/POP3 email server',
+  configFiles: [DOVECOT_CONF],
+  start(world, host, rt) {
+    rt.pid = allocPid(host);
+    const l = dovecotStart(world, host, rt, false);
+    rt.loaded = l;
+    return l !== null;
+  },
+  reload(world, host, rt) {
+    const l = dovecotStart(world, host, rt, true);
+    if (!l) return false;
+    rt.loaded = l;
+    return true;
+  },
+  stop(_world, host, rt) {
+    removeSockets(host, rt);
+  },
+  listeners(_host, rt) {
+    const l = rt.loaded as DovecotLoaded | null;
+    if (!l || !l.protocols.includes('imap')) return [];
+    return l.imap.flatMap((i) => l.listen.map((addr) => ({ proto: 'tcp' as const, addr, port: i.port, process: 'dovecot', pid: l.pid, service: 'dovecot' })));
+  },
+};
+
+export const SERVICE_DEFS: ServiceDef[] = [networking, rsyslog, timesyncd, chrony, nftables, nfsServer, smbd, dovecot, postfix, named, krb5kdc, kadmind, dhcpd, dhcrelay, radvd, sshd, nginx];
 
 export function findService(host: Host, name: string): ServiceDef | undefined {
   const n = name.replace(/\.service$/, '');

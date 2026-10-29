@@ -109,7 +109,7 @@ export function buildLab5World(): World {
   sw.ifaces.push({ name: 'swp14', mac: '52:54:00:5e:00:0e', segment: null, address: null, prefix: null, up: false, staticSegment: null, addrs6: [] });
   writeFile(sw, '/etc/network/interfaces', SW01_INTERFACES
     .replace('auto br0\n', 'auto swp14\niface swp14\n    alias app01 (finance reports)\n    bridge-access 20\n\nauto br0\n')
-    .replace('swp11 swp12 swp13\n', 'swp11 swp12 swp13 swp14\n'), t);
+    .replace('swp12 swp13 ', 'swp12 swp13 swp14 '), t);
   world.links = [...(world.links ?? []), { a: { host: 'app01', iface: 'eth0' }, b: { host: 'sw01', iface: 'swp14' } }];
 
   // app01 as the platform team delivered it: the standard template, not integrated yet.
