@@ -20,8 +20,8 @@ import { type ChronyLoaded, chronyLoad, type TimesyncLoaded, timesyncLoad } from
 import { rsyslogListeners, rsyslogStart } from './syslog';
 import { mountFstabNfs, nfsReset, nfsServerStart } from './nfs';
 import { parseSmbConf, SAMBA_VERSION, SMB_CONF } from './smb';
-import { MAIN_CF, MASTER_CF, postfixLoad, type PostfixLoaded } from './mail';
-import { DOVECOT_CONF, dovecotStart, removeSockets, type DovecotLoaded } from './dovecot';
+import { postfixLoad, type PostfixLoaded } from './mail';
+import { dovecotStart, removeSockets, type DovecotLoaded } from './dovecot';
 import { type Cert, parseCerts, parseKey } from './pki';
 import type { Host, ServiceRuntime, World } from '../types';
 import { log } from './journal';
@@ -1133,7 +1133,8 @@ const postfix: ServiceDef = {
   unit: 'postfix@-.service',
   aliases: ['postfix', 'postfix.service', 'postfix@-', 'postfix@-.service'],
   description: 'Postfix Mail Transport Agent (instance -)',
-  configFiles: [MAIN_CF, MASTER_CF],
+  // Literal paths: mail.ts imports this module, so its constants may not exist yet while this one loads.
+  configFiles: ['/etc/postfix/main.cf', '/etc/postfix/master.cf'],
   start(world, host, rt) {
     rt.pid = allocPid(host);
     rt.loaded = postfixLoad(world, host, rt, false);
@@ -1161,7 +1162,7 @@ const dovecot: ServiceDef = {
   unit: 'dovecot.service',
   aliases: ['dovecot', 'dovecot.service'],
   description: 'Dovecot IMAP/POP3 email server',
-  configFiles: [DOVECOT_CONF],
+  configFiles: ['/etc/dovecot/dovecot.conf'],
   start(world, host, rt) {
     rt.pid = allocPid(host);
     const l = dovecotStart(world, host, rt, false);

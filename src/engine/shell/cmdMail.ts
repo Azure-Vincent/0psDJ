@@ -9,7 +9,7 @@ import {
 } from '../sim/dovecot';
 import { resolve } from '../sim/dns';
 import {
-  bareAddr, domainOf, flushQueue, loadMainCf, MAIN_CF, mailListenerOwner, mailState, mainCfFatal, MASTER_CF, mxLookup, newaliases, param, parseMasterCf,
+  bareAddr, deliver, domainOf, flushQueue, loadMainCf, MAIN_CF, mailListenerOwner, mailState, mainCfFatal, MASTER_CF, mxLookup, newaliases, param, parseMasterCf,
   postfixDefaults, postfixLoaded, queueTime, rawParam, replyLines, rfcDate, Smtpd, smtpConversation, unusedParams, type ConvStep,
 } from '../sim/mail';
 import { type Cert, matchesHost, parseCerts, trustStore, VERIFY_TEXT, verifyChain } from '../sim/pki';
@@ -220,7 +220,8 @@ const postqueue: CommandDef = {
       const id = flags.get('-i') as string;
       const m = mailState(ctx.host).queue.find((x) => x.id === id);
       if (!m) return err(`postqueue: fatal: invalid queue ID: ${id}`, 69);
-      flushQueue(ctx.world, ctx.host);
+      m.deferred = false;
+      deliver(ctx.world, ctx.host, postfixLoaded(ctx.host)!, m);
       return ok('');
     }
     return err('postqueue: fatal: usage: postqueue -f | postqueue -i queueid | postqueue -j | postqueue -p | postqueue -s site', 64);
@@ -236,7 +237,7 @@ const postsuper: CommandDef = {
     if (ctx.user.uid !== 0) return err('postsuper: fatal: use of this command is reserved for the superuser', 1);
     const { flags, rest } = parseFlags(args, ['-d', '-r']);
     const st = mailState(ctx.host);
-    const pick = (id: string, queue?: string) => st.queue.filter((m) => (id === 'ALL' || m.id === id || (id === '-' && false)) && (!queue || (queue === 'deferred' ? m.deferred : !m.deferred)));
+    const pick = (id: string, queue?: string) => st.queue.filter((m) => (id === 'ALL' || m.id === id) && (!queue || (queue === 'deferred' ? m.deferred : !m.deferred)));
     if (flags.has('-d')) {
       const id = flags.get('-d') as string;
       const hit = pick(id, rest[0]);

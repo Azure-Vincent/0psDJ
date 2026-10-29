@@ -45,7 +45,8 @@ export const DOVECOT_DEFAULTS: Record<string, string> = {
   mail_plugins: '',
   mail_privileged_group: '',
   postmaster_address: 'postmaster@%{if;%d;ne;;%d;%{hostname}}',
-  protocols: 'imap pop3 lmtp',
+  // Debian's packages enable protocols through /usr/share/dovecot/protocols.d ("protocols = $protocols imap").
+  protocols: '',
   recipient_delimiter: '+',
   shutdown_clients: 'yes',
   ssl: 'yes',
@@ -105,7 +106,7 @@ export function loadDovecotConf(host: Host): DcConfig {
       let value = kv[2].trim().replace(/^"(.*)"$/, '$1');
       if (cur === root && !(kv[1] in DOVECOT_DEFAULTS)) { errors.push(`doveconf: Fatal: ${at}: Unknown setting: ${kv[1]}`); continue; }
       // "$name" refers to the earlier value of a setting (protocols = $protocols imap).
-      value = value.replace(/\$(\w+)/g, (_m, n) => cur.settings[n] ?? (cur === root ? '' : ''));
+      value = value.replace(/\$(\w+)/g, (_m, n) => cur.settings[n] ?? (cur === root ? DOVECOT_DEFAULTS[n] ?? '' : ''));
       if (value.startsWith('<')) {
         const path = value.slice(1).trim();
         if (readFile(host, path) === undefined) { errors.push(`doveconf: Fatal: ${at}: ${kv[1]}: Can't open file ${path}: No such file or directory`); continue; }

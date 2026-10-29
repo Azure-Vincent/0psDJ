@@ -239,7 +239,14 @@ export function parseMasterCf(text: string): { services: MasterService[]; errors
 // ---------------------------------------------------------------------------
 
 export interface SmtpdService { name: string; port: number; addrs: string[]; overrides: Record<string, string>; syslogName: string }
-export interface PostfixLoaded { cf: MainCf; services: SmtpdService[]; masterPid: number; qmgrPid: number }
+export interface PostfixLoaded {
+  cf: MainCf;
+  services: SmtpdService[];
+  /** The addresses inet_interfaces gave at start (kept by reloads). */
+  inetAddrs: string[];
+  masterPid: number;
+  qmgrPid: number;
+}
 
 function interfaceAddrs(host: Host, cf: MainCf): string[] {
   const ii = param(host, cf, 'inet_interfaces').toLowerCase().trim();
@@ -264,8 +271,8 @@ export function postfixLoad(world: World, host: Host, rt: ServiceRuntime, reload
     return null;
   }
   const prev = reload ? (rt.loaded as PostfixLoaded | null) : null;
-  // inet_interfaces only changes on stop/start: a reload keeps the sockets master already has.
-  const addrs = prev?.services[0]?.addrs ?? interfaceAddrs(host, cf);
+  // inet_interfaces only changes on stop/start: a reload keeps the addresses master already bound.
+  const addrs = prev?.inetAddrs ?? interfaceAddrs(host, cf);
   if (prev && interfaceAddrs(host, cf).join() !== addrs.join()) pf(world, host, 'postfix/master', 'warning: inet_interfaces: changes require "postfix stop" and "postfix start"', pid, 'warning');
   const services = parseMasterCf(readFile(host, MASTER_CF)!).services
     .filter((s) => s.type === 'inet' && s.command === 'smtpd' && servicePort(s.name) !== null)
@@ -277,7 +284,7 @@ export function postfixLoad(world: World, host: Host, rt: ServiceRuntime, reload
     pf(world, host, 'postfix/postfix-script', 'starting the Postfix mail system', pid + 1);
     pf(world, host, 'postfix/master', `daemon started -- version ${POSTFIX_VERSION}, configuration /etc/postfix`, pid);
   }
-  return { cf, services, masterPid: pid, qmgrPid: prev?.qmgrPid ?? pid + 4 };
+  return { cf, services, inetAddrs: addrs, masterPid: pid, qmgrPid: prev?.qmgrPid ?? pid + 4 };
 }
 
 export function postfixLoaded(host: Host): PostfixLoaded | null {
@@ -587,9 +594,12 @@ export class Smtpd {
       if (decision === 'defer') return reject(reply(454, `4.7.1 <${to}>: Relay access denied`));
       return reject(reply(554, `5.7.1 <${to}>: Relay access denied`));
     }
-    if (isLocalDomain(this.host, this.loaded.cf, domainOf(to)) && !localRecipientKnown(this.world, this.host, this.loaded.cf, to)) {
-      return reject(reply(550, `5.1.1 <${to}>: Recipient address rejected: User unknown in local recipient table`));
+    const known = isLocalDomain(this.host, this.loaded.cf, domainOf(to)) ? localRecipientKnown(this.world, this.host, this.loaded.cf, to) : 'yes';
+    if (known === 'temp') {
+      this.logp(`warning: hash:${ALIASES} is unavailable. open database ${ALIASES_DB}: No such file or directory`, 'warning');
+      return reject(reply(451, `4.3.0 <${to}>: Temporary lookup failure`));
     }
+    if (known === 'no') return reject(reply(550, `5.1.1 <${to}>: Recipient address rejected: User unknown in local recipient table`));
     this.rcpts.push(to);
     return reply(250, '2.1.5 Ok');
   }
@@ -636,29 +646,38 @@ export class Smtpd {
 }
 
 /** smtpd_relay_restrictions (with the service's -o overrides) for one recipient. */
+/**
+ * smtpd_relay_restrictions, then smtpd_recipient_restrictions (with the
+ * service's -o overrides) for one recipient. Each list is evaluated on its
+ * own (first match wins, no match = permit), and both must permit.
+ */
 export function relayDecision(host: Host, cf: MainCf, overrides: Record<string, string>, clientIp: string, authenticated: boolean, to: string): 'permit' | 'defer' | 'reject' {
-  const restrictions = list(param(host, cf, 'smtpd_relay_restrictions', overrides) + ' ' + param(host, cf, 'smtpd_recipient_restrictions', overrides));
   const local = isLocalDomain(host, cf, domainOf(to)) || list(param(host, cf, 'relay_domains', overrides)).some((d) => d.toLowerCase() === domainOf(to));
-  for (const r of restrictions.map((x) => x.toLowerCase())) {
-    if (r === 'permit') return 'permit';
-    if (r === 'reject') return 'reject';
-    if (r === 'permit_mynetworks' && inMynetworks(host, cf, clientIp, overrides)) return 'permit';
-    if (r === 'permit_sasl_authenticated' && authenticated) return 'permit';
-    if (r === 'reject_unauth_destination' && !local) return 'reject';
-    if (r === 'defer_unauth_destination' && !local) return 'defer';
-    if (r === 'permit_auth_destination' && local) return 'permit';
-  }
-  return 'permit';
+  const evaluate = (name: string): 'permit' | 'defer' | 'reject' => {
+    for (const r of list(param(host, cf, name, overrides)).map((x) => x.toLowerCase())) {
+      if (r === 'permit') return 'permit';
+      if (r === 'reject') return 'reject';
+      if (r === 'defer') return 'defer';
+      if (r === 'permit_mynetworks' && inMynetworks(host, cf, clientIp, overrides)) return 'permit';
+      if (r === 'permit_sasl_authenticated' && authenticated) return 'permit';
+      if (r === 'reject_unauth_destination' && !local) return 'reject';
+      if (r === 'defer_unauth_destination' && !local) return 'defer';
+      if (r === 'permit_auth_destination' && local) return 'permit';
+    }
+    return 'permit';
+  };
+  const relay = evaluate('smtpd_relay_restrictions');
+  return relay !== 'permit' ? relay : evaluate('smtpd_recipient_restrictions');
 }
 
-/** local_recipient_maps: the address is a Unix account or an alias in aliases.db. */
-export function localRecipientKnown(world: World, host: Host, cf: MainCf, to: string): boolean {
+/** local_recipient_maps: a Unix account or an alias in aliases.db; 'temp' when the alias database cannot be opened. */
+export function localRecipientKnown(world: World, host: Host, cf: MainCf, to: string): 'yes' | 'no' | 'temp' {
   const lrm = param(host, cf, 'local_recipient_maps');
-  if (!lrm.trim()) return true;
+  if (!lrm.trim()) return 'yes';
   const local = stripExtension(host, cf, localOf(to)).toLowerCase();
-  if (lrm.includes('passwd.byname') && Object.keys(host.users).some((u) => u.toLowerCase() === local)) return true;
+  if (lrm.includes('passwd.byname') && Object.keys(host.users).some((u) => u.toLowerCase() === local)) return 'yes';
   const db = aliasLookup(world, host, cf, local, false);
-  return db !== null && db !== 'unavailable';
+  return db === 'unavailable' ? 'temp' : db ? 'yes' : 'no';
 }
 
 function stripExtension(host: Host, cf: MainCf, local: string): string {
@@ -912,13 +931,20 @@ function deliverRemote(world: World, host: Host, cf: MainCf, msg: QueuedMessage,
       tls: param(host, cf, 'smtp_tls_security_level') === 'encrypt' ? 'required' : param(host, cf, 'smtp_tls_security_level') === 'may' ? 'opportunistic' : 'none',
     });
     c.conn.close('client');
-    const last = conv.steps[conv.steps.length - 1];
     const dot = conv.steps.find((s) => s.cmd === '.');
     if (conv.result === 'sent') return { status: 'sent', dsn: '2.0.0', text: dot?.reply ? replyLines(dot.reply).join(' ') : '250 2.0.0 Ok', relay: peer };
-    if (conv.result === 'closed' || !last?.reply) { lastText = `lost connection with ${hop.name}[${ip}] while receiving the initial server greeting`; continue; }
-    const code = last.reply.code;
-    const said = `host ${hop.name}[${ip}] said: ${replyLines(last.reply).join(' ')} (in reply to ${last.cmd.split(':')[0].replace(/^MAIL FROM$/, 'MAIL FROM').replace(/^RCPT TO$/, 'RCPT TO')} command)`;
-    const enh = /^(\d\.\d+\.\d+)/.exec(last.reply.text[0])?.[1] ?? (code >= 500 ? '5.0.0' : '4.0.0');
+    if (conv.result === 'closed') {
+      const during: Record<string, string> = { banner: 'receiving the initial server greeting', ehlo: 'performing the EHLO handshake', tls: 'sending STARTTLS', auth: 'performing SASL authentication', mail: 'sending MAIL FROM', rcpt: 'sending RCPT TO', data: 'sending message body' };
+      lastText = `lost connection with ${hop.name}[${ip}] while ${during[conv.failedAt ?? 'banner'] ?? during.banner}`;
+      continue;
+    }
+    // The reply that failed: the last one with an error code (QUIT follows it).
+    const failed = [...conv.steps].reverse().find((s) => s.reply && s.reply.code >= 400 && s.cmd !== 'QUIT');
+    if (!failed?.reply) { lastText = `TLS is required, but was not offered by host ${hop.name}[${ip}]`; continue; }
+    const code = failed.reply.code;
+    const verb = failed.cmd.split(':')[0];
+    const said = `host ${hop.name}[${ip}] said: ${replyLines(failed.reply).join(' ')} (in reply to ${failed.cmd === '.' ? 'end of DATA' : /^(MAIL FROM|RCPT TO)$/.test(verb) ? verb : verb.split(' ')[0]} command)`;
+    const enh = /^(\d\.\d+\.\d+)/.exec(failed.reply.text[0])?.[1] ?? (code >= 500 ? '5.0.0' : '4.0.0');
     return { status: code >= 500 ? 'bounced' : 'deferred', dsn: enh, text: said, relay: peer };
   }
   return { status: 'deferred', dsn: lastText.startsWith('Host or domain') ? '4.4.3' : '4.4.1', text: lastText || 'delivery temporarily suspended', relay: 'none' };
@@ -1018,7 +1044,12 @@ export function smtpConversation(world: World, conn: TcpConn, o: ConvOptions): C
   }
   const banner = smtpd.connect();
   if (o.tls === 'wrapper') {
-    if (banner.closed || !smtpd.tls) { steps.push({ cmd: '', tls: false }); return { steps, result: 'tls-failed', failedAt: 'tls' }; }
+    // TLS from the first byte only works on a wrapper-mode port: elsewhere the client reads "220 ..." as a TLS record.
+    if (banner.closed || !smtpd.tls || !smtpd.wrapper) {
+      smtpd.disconnect('CONNECT');
+      steps.push({ cmd: '', tls: false });
+      return { steps, result: 'tls-failed', failedAt: 'tls' };
+    }
     startTls();
     const dead = smtpd.tlsStarted();
     if (dead) { steps.push({ cmd: '', tls: true }); return { steps, result: 'closed', failedAt: 'banner' }; }
@@ -1088,16 +1119,17 @@ export function smtpConversation(world: World, conn: TcpConn, o: ConvOptions): C
 /** For tests and goals: the content of every message delivered to a user's Maildir or mbox, oldest first. */
 export function mailboxMessages(host: Host, path: string, kind: 'maildir' | 'mbox'): { name: string; content: string; seen: boolean }[] {
   if (kind === 'maildir') {
-    const out: { name: string; content: string; seen: boolean }[] = [];
+    const out: { name: string; content: string; seen: boolean; mtime: number }[] = [];
     for (const sub of ['cur', 'new']) {
       const dir = `${path}/${sub}`;
       if (host.fs[dir]?.type !== 'dir') continue;
       for (const f of listDir(host, dir)) {
         const n = host.fs[`${dir}/${f}`];
-        if (n?.type === 'file') out.push({ name: `${sub}/${f}`, content: n.content, seen: sub === 'cur' && /:2,.*S/.test(f) });
+        if (n?.type === 'file') out.push({ name: `${sub}/${f}`, content: n.content, seen: sub === 'cur' && /:2,.*S/.test(f), mtime: n.mtime });
       }
     }
-    return out.sort((a, b) => a.name.split('/')[1].localeCompare(b.name.split('/')[1]));
+    // Delivery order (the file times), not the names: "P99" would sort after "P100".
+    return out.sort((a, b) => a.mtime - b.mtime || a.name.localeCompare(b.name)).map(({ mtime: _m, ...m }) => m);
   }
   const text = readFile(host, path);
   if (!text) return [];

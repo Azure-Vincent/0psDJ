@@ -3,7 +3,7 @@ import { MAIL_PASSWORDS } from '../src/engine/lab/mailLab';
 import { buildSshLab } from '../src/engine/lab/sshLab';
 import { findScenario } from '../src/engine/scenarios';
 import { rebootAll, verifyScenario } from '../src/engine/scenarios/engine';
-import { expandParam, parseAliases, parseMainCf, parseMasterCf, relayDecision } from '../src/engine/sim/mail';
+import { expandParam, mailboxMessages, parseAliases, parseMainCf, parseMasterCf, relayDecision } from '../src/engine/sim/mail';
 import { Lab } from './helpers';
 
 const lab = () => new Lab(buildSshLab());
@@ -162,6 +162,71 @@ describe('Dovecot and IMAP', () => {
     expect(l.run('ws01', 'alice', 'openssl s_client -connect mail01.corp.lab:25').output).toMatch(/wrong version number/);
     l.run('mail01', 'root', "postconf -e 'smtpd_tls_security_level ='; postfix reload");
     expect(l.run('ws01', 'alice', 'openssl s_client -connect mail01.corp.lab:25 -starttls smtp').output).toMatch(/^Didn't find STARTTLS in server response, trying anyway\.\.\.$/m);
+  });
+});
+
+describe('Review fixes', () => {
+  it('a remote 5xx bounces with the reply that failed, and the bounce reaches a local sender', () => {
+    const l = lab();
+    l.run('ws01', 'alice', submit('nobody@example.net', '--from alice@corp.lab'));
+    const log = l.run('mail01', 'root', 'cat /var/log/mail.log').output;
+    expect(log).toMatch(/to=<nobody@example\.net>, relay=203\.0\.113\.80\[203\.0\.113\.80\]:25, .*dsn=5\.1\.1, status=bounced \(host 203\.0\.113\.80\[203\.0\.113\.80\] said: 550 5\.1\.1 <nobody@example\.net>: Recipient address rejected: User unknown in local recipient table \(in reply to RCPT TO command\)\)/);
+    expect(log).toMatch(/sender non-delivery notification/);
+    expect(l.run('mail01', 'root', 'mailq').output).toBe('Mail queue is empty');
+    expect(l.run('ws01', 'alice', `curl -s imaps://mail01.corp.lab/INBOX -u alice:${A} -X 'SEARCH SUBJECT "Undelivered Mail"'`).output).toMatch(/^\* SEARCH \d/);
+  });
+
+  it('TLS on connect to a STARTTLS port fails like a real client', () => {
+    const l = lab();
+    const r = l.run('ws01', 'alice', `swaks --to dana@corp.lab --server mail01.corp.lab:587 --tls-on-connect --auth-user alice --auth-password ${A}`);
+    expect(r.code).toBe(29);
+    expect(r.output).toMatch(/wrong version number/);
+  });
+
+  it('a reload keeps each service on its own addresses', () => {
+    const l = lab();
+    l.run('mail01', 'root', "sed -i 's/^smtp      inet  n       -       y       -       -       smtpd$/127.0.0.1:2525 inet n - y - - smtpd\\n&/' /etc/postfix/master.cf; systemctl restart postfix; postfix reload");
+    const ss = l.run('mail01', 'root', 'ss -tln').output;
+    expect(ss).toMatch(/0\.0\.0\.0:25 /);
+    expect(ss).toMatch(/127\.0\.0\.1:2525 /);
+    expect(l.run('mail01', 'root', 'grep -c "changes require" /var/log/mail.log').output).toBe('0');
+  });
+
+  it('a missing aliases.db is a temporary failure (451), not "User unknown"', () => {
+    const l = lab();
+    l.run('mail01', 'root', 'rm /etc/aliases.db');
+    expect(l.run('ws01', 'alice', 'swaks --to helpdesk@corp.lab --server mail01.corp.lab').output).toMatch(/<\*\* 451 4\.3\.0 <helpdesk@corp\.lab>: Temporary lookup failure/);
+    expect(l.run('ws01', 'alice', 'swaks --to dana@corp.lab --server mail01.corp.lab').code).toBe(0);
+  });
+
+  it('relay and recipient restrictions are separate lists that must both permit', () => {
+    const h = buildSshLab().hosts.mail01;
+    const cf = parseMainCf('mydestination = corp.lab\nmynetworks = 10.0.10.0/24\nsmtpd_relay_restrictions = permit_mynetworks, reject_unauth_destination\nsmtpd_recipient_restrictions = reject_unauth_destination\n');
+    expect(relayDecision(h, cf, {}, '10.0.10.25', false, 'x@example.org')).toBe('reject');
+    expect(relayDecision(h, cf, {}, '10.0.10.25', false, 'x@corp.lab')).toBe('permit');
+  });
+
+  it('postqueue -i retries only that message', () => {
+    const l = lab();
+    l.run('ext01', 'root', 'systemctl stop postfix');
+    l.run('ws01', 'alice', submit('partner@example.net'));
+    l.run('ws01', 'alice', submit('partner@example.net'));
+    l.run('ext01', 'root', 'systemctl start postfix');
+    const ids = [...l.run('mail01', 'root', 'mailq').output.matchAll(/^([0-9A-F]{10}) /gm)].map((m) => m[1]);
+    expect(ids).toHaveLength(2);
+    l.run('mail01', 'root', `postqueue -i ${ids[0]}`);
+    const q = l.run('mail01', 'root', 'mailq').output;
+    expect(q).not.toContain(ids[0]);
+    expect(q).toContain(ids[1]);
+  });
+
+  it('Maildir messages are listed in delivery order', () => {
+    const h = buildSshLab().hosts.mail01;
+    const mk = (name: string, t: number) => { h.fs[`/home/dana/Maildir/new/${name}`] = { type: 'file', mode: 0o600, owner: 'dana', group: 'dana', content: name, mtime: t }; };
+    mk('1792396800.P99Q1.mail01', 1792396800_100);
+    mk('1792396800.P102Q2.mail01', 1792396800_200);
+    const names = mailboxMessages(h, '/home/dana/Maildir', 'maildir').map((m) => m.content);
+    expect(names.slice(-2)).toEqual(['1792396800.P99Q1.mail01', '1792396800.P102Q2.mail01']);
   });
 });
 
