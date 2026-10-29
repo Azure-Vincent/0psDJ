@@ -10,6 +10,7 @@ import type { Ruleset } from './config/nft';
 import type { PfRuntime } from './pf/model';
 import type { WinState } from './win/model';
 import type { MailState } from './sim/mail';
+import type { PgCluster } from './sim/postgres';
 
 export interface FileNode {
   type: 'file' | 'dir';
@@ -221,6 +222,8 @@ export interface Host {
   sambaPassdb?: Record<string, { name: string; password: string; disabled: boolean }>;
   /** Postfix's queue (/var/spool/postfix) and compiled alias database (/etc/aliases.db). */
   mail?: MailState;
+  /** PostgreSQL cluster contents (roles, databases, tables): the data directory. */
+  pg?: PgCluster;
   ifaces: Interface[];
   routes: Route[];
   neighbors: Neighbor[];
@@ -322,7 +325,7 @@ export interface IcmpHeader {
 }
 
 export interface AppLayer {
-  protocol: 'DNS' | 'SSH' | 'DATA' | 'DHCP' | 'DHCPv6' | 'TLS' | 'KRB5' | 'KADMIN' | 'RDP' | 'NTP' | 'SYSLOG' | 'SMB2' | 'SMTP' | 'IMAP';
+  protocol: 'DNS' | 'SSH' | 'DATA' | 'DHCP' | 'DHCPv6' | 'TLS' | 'KRB5' | 'KADMIN' | 'RDP' | 'NTP' | 'SYSLOG' | 'SMB2' | 'SMTP' | 'IMAP' | 'PGSQL';
   /** Short Wireshark-style "Info" text. */
   info: string;
   /** Decoded protocol fields visible to an observer. */

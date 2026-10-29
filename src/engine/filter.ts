@@ -15,7 +15,7 @@ type Node =
   | { t: 'proto'; name: string }
   | { t: 'cmp'; field: string; op: string; value: string };
 
-const PROTOS = ['eth', 'arp', 'ip', 'ipv6', 'icmp', 'icmpv6', 'tcp', 'udp', 'dns', 'ssh', 'dhcp', 'dhcpv6', 'tls', 'http', 'vlan', 'kerberos', 'ntp', 'syslog', 'smb2', 'smtp', 'imap'];
+const PROTOS = ['eth', 'arp', 'ip', 'ipv6', 'icmp', 'icmpv6', 'tcp', 'udp', 'dns', 'ssh', 'dhcp', 'dhcpv6', 'tls', 'http', 'vlan', 'kerberos', 'ntp', 'syslog', 'smb2', 'smtp', 'imap', 'pgsql'];
 const FIELDS = ['ip.addr', 'ip.src', 'ip.dst', 'ipv6.addr', 'ipv6.src', 'ipv6.dst', 'icmpv6.type', 'vlan.id', 'ipv6.hlim', 'tcp.port', 'tcp.srcport', 'tcp.dstport', 'udp.port', 'udp.srcport', 'udp.dstport', 'tcp.flags.syn', 'tcp.flags.ack', 'tcp.flags.reset', 'tcp.flags.fin', 'tcp.flags.push', 'icmp.type', 'icmp.code', 'tcp.len', 'frame.number', 'ip.ttl'];
 
 export class FilterError extends Error {}
@@ -166,6 +166,7 @@ export function matchFilter(node: Node | null, f: CapturedFrame, index: number):
         case 'smb2': return f.ip?.app?.protocol === 'SMB2';
         case 'smtp': return f.ip?.app?.protocol === 'SMTP';
         case 'imap': return f.ip?.app?.protocol === 'IMAP';
+        case 'pgsql': return f.ip?.app?.protocol === 'PGSQL';
         case 'http': return f.ip?.app?.protocol === 'DATA' && (f.ip.tcp?.sport === 80 || f.ip.tcp?.dport === 80);
       }
       return false;

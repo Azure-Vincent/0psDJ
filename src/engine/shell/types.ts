@@ -1,5 +1,6 @@
 import type { Host, UserAccount, World } from '../types';
 import type { PsSession } from '../win/ps/runtime';
+import type { PsqlState } from './cmdPg';
 
 export class NeedInput {
   /** `partial` is output produced before the question (shown above the prompt). */
@@ -15,6 +16,10 @@ export interface SessionFrame {
   sudoOk?: boolean;
   /** PowerShell session state (variables, location, history) on a Windows host. */
   ps?: PsSession;
+  /** An interactive psql session running in this terminal (its prompt replaces the shell's). */
+  psql?: PsqlState;
+  /** Entered with su / sudo -i: exit returns to the previous user. */
+  su?: boolean;
 }
 
 export interface EditorRequest {

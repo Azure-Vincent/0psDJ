@@ -22,6 +22,7 @@ import { mountFstabNfs, nfsReset, nfsServerStart } from './nfs';
 import { parseSmbConf, SAMBA_VERSION, SMB_CONF } from './smb';
 import { postfixLoad, type PostfixLoaded } from './mail';
 import { dovecotStart, removeSockets, type DovecotLoaded } from './dovecot';
+import { pgCleanup, pgReload, pgStart, pgStop, type PgLoaded } from './postgres';
 import { type Cert, parseCerts, parseKey } from './pki';
 import type { Host, ServiceRuntime, World } from '../types';
 import { log } from './journal';
@@ -1153,7 +1154,7 @@ const postfix: ServiceDef = {
   },
   statusLines(_host, rt) {
     const l = rt.loaded as PostfixLoaded | null;
-    return l ? [`     CGroup: /system.slice/system-postfix.slice/postfix@-.service`, `             ├─${l.masterPid} /usr/lib/postfix/sbin/master -w`, `             ├─${l.masterPid + 3} pickup -l -t unix -u -c`, `             └─${l.qmgrPid} qmgr -l -t unix -u`] : [];
+    return l ? [`             ├─${l.masterPid} /usr/lib/postfix/sbin/master -w`, `             ├─${l.masterPid + 3} pickup -l -t unix -u -c`, `             └─${l.qmgrPid} qmgr -l -t unix -u`] : [];
   },
 };
 
@@ -1185,7 +1186,48 @@ const dovecot: ServiceDef = {
   },
 };
 
-export const SERVICE_DEFS: ServiceDef[] = [networking, rsyslog, timesyncd, chrony, nftables, nfsServer, smbd, dovecot, postfix, named, krb5kdc, kadmind, dhcpd, dhcrelay, radvd, sshd, nginx];
+// ---------------------------------------------------------------------------
+// PostgreSQL (sim/postgres.ts): the cluster 15/main as Debian's postgresql@15-main unit.
+// ---------------------------------------------------------------------------
+
+const postgresql: ServiceDef = {
+  name: 'postgresql',
+  unit: 'postgresql@15-main.service',
+  aliases: ['postgresql', 'postgresql.service', 'postgresql@15-main', 'postgresql@15-main.service'],
+  description: 'PostgreSQL Cluster 15-main',
+  // Literal path: postgres.ts imports this module (see the mail services).
+  configFiles: ['/etc/postgresql/15/main/postgresql.conf'],
+  start(world, host, rt) {
+    rt.pid = allocPid(host);
+    rt.loaded = pgStart(world, host, rt);
+    return rt.loaded !== null;
+  },
+  reload(world, host, rt) {
+    return pgReload(world, host, rt);
+  },
+  stop(world, host, rt) {
+    pgStop(world, host, rt);
+  },
+  listeners(_host, rt) {
+    const l = rt.loaded as PgLoaded | null;
+    if (!l) return [];
+    return l.listen.map((addr) => ({ proto: 'tcp' as const, addr, port: l.port, process: 'postgres', pid: l.pid, service: 'postgresql' }));
+  },
+  statusLines(_host, rt) {
+    const l = rt.loaded as PgLoaded | null;
+    if (!l) return [];
+    return [
+      `             ├─${l.pid} /usr/lib/postgresql/15/bin/postgres -D /var/lib/postgresql/15/main -c config_file=/etc/postgresql/15/main/postgresql.conf`,
+      `             ├─${l.pid + 1} "postgres: 15/main: checkpointer "`,
+      `             ├─${l.pid + 2} "postgres: 15/main: background writer "`,
+      `             ├─${l.pid + 3} "postgres: 15/main: walwriter "`,
+      `             └─${l.pid + 4} "postgres: 15/main: autovacuum launcher "`,
+      ...l.sessions.map((s) => `             ├─${s.pid} "postgres: 15/main: ${s.user} ${s.db} ${s.client ?? '[local]'}${s.clientPort ? `(${s.clientPort})` : ''} ${s.state}"`),
+    ];
+  },
+};
+
+export const SERVICE_DEFS: ServiceDef[] = [networking, rsyslog, timesyncd, chrony, nftables, nfsServer, smbd, postgresql, dovecot, postfix, named, krb5kdc, kadmind, dhcpd, dhcrelay, radvd, sshd, nginx];
 
 export function findService(host: Host, name: string): ServiceDef | undefined {
   const n = name.replace(/\.service$/, '');
@@ -1307,6 +1349,7 @@ export function bootHost(world: World, host: Host): void {
     return;
   }
   nfsReset(host);
+  pgCleanup(host);
   host.conntrack = [];
   host.nat = [];
   host.neighbors = [];
