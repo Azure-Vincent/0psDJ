@@ -2,6 +2,7 @@
 // repair (now AND after a simulated reboot of every host), checking security
 // constraints, and grading the learner's diagnosis.
 
+import { mergeWorld } from '../fs';
 import { type SshdLoaded, bootHost } from '../sim/services';
 import { runSsh } from '../sim/ssh';
 import { Shell } from '../shell/shell';
@@ -28,7 +29,8 @@ export function script(world: World, hostId: string, lines: string[], gapMs = 45
     if (r.needInput) throw new Error(`setup command needs input: ${l}`);
     outputs.push(r.output);
   }
-  Object.assign(world, w);
+  // In place: callers keep references to the world's hosts.
+  mergeWorld(world, w);
   return outputs;
 }
 
