@@ -1,5 +1,7 @@
 // Service management, logs, firewall, SSH tooling and DNS server tooling.
 
+import { listTimers, systemdAnalyze, userUnitRows, userUnitVerb } from './cmdUnits';
+import { daemonReload, unitName } from '../sim/timers';
 import { activeRecorder } from '../sim/trace';
 import {
   emptyRuleset, findChain, NftError, parseRuleExpr, parseRulesetFile, renderChain, renderRuleset,
@@ -7,9 +9,9 @@ import {
 } from '../config/nft';
 import { effectiveConfig, renderSshdT } from '../config/sshdConfig';
 import { parseZone, ZoneError } from '../config/zone';
-import { readFile, writeFile } from '../fs';
+import { dirname, readFile, writeFile } from '../fs';
 import { formatEntry, isoTime } from '../sim/journal';
-import { fingerprintOfBlob, KEY_LABEL, parsePublicKey } from '../sim/keys';
+import { fingerprintOfBlob, KEY_LABEL, type KeyType, makeKeyPair, parsePublicKey } from '../sim/keys';
 import {
   bootHost, dhcpdTest, findService, loadNginxServers, parseNginxListens, reloadService, restartService, SERVICE_DEFS, sshdTest, startService, stopService, type SshdLoaded,
 } from '../sim/services';
@@ -20,7 +22,7 @@ import { dhcpAcquire, dhcpRelease } from '../sim/dhcp';
 import { dhcp6Acquire, dhcp6Release } from '../sim/dhcp6';
 import { tcpConnect, ERRNO_TEXT } from '../sim/tcp';
 import { base64Decode } from '../util/sha256';
-import { resolvePath } from './cmdFiles';
+import { resolvePath, writeChecked } from './cmdFiles';
 import { type CmdCtx, type CommandDef, err, ok, parseFlags } from './types';
 import type { Host, ServiceRuntime } from '../types';
 
@@ -124,6 +126,7 @@ const systemctl: CommandDef = {
         const sub = rt.state === 'active' ? (d.oneshot ? 'exited' : 'running') : rt.state === 'failed' ? 'failed' : 'dead';
         rows.push([rt.state === 'failed' ? '●' : ' ', d.unit, 'loaded', rt.state, sub, d.description]);
       }
+      rows.push(...userUnitRows(ctx, failedOnly, flags.has('--all') || flags.has('-a')));
       const w = Math.max(4, ...rows.map((r) => r[1].length));
       const lines = [`  ${'UNIT'.padEnd(w)} LOAD   ACTIVE   SUB     DESCRIPTION`];
       for (const r of rows) lines.push(`${r[0]} ${r[1].padEnd(w)} ${r[2]} ${r[3].padEnd(8)} ${r[4].padEnd(7)} ${r[5]}`);
@@ -133,13 +136,25 @@ const systemctl: CommandDef = {
       lines.push('(The simulator lists the lab\'s modelled services only, not every unit a real system has.)');
       return ok(lines.join('\n'));
     }
-    if (verb === 'daemon-reload') return PERM(ctx, 'Failed to reload daemon: Access denied') ?? ok('');
+    if (verb === 'daemon-reload') {
+      const denied = PERM(ctx, 'Failed to reload daemon: Access denied');
+      if (denied) return denied;
+      daemonReload(ctx.world, host);
+      return ok('');
+    }
+    if (verb === 'list-timers') return ok(listTimers(ctx, flags.has('--all') || flags.has('-a')));
     if (verb === 'reboot') return reboot.run([], ctx);
     if (units.length === 0) return err(`Too few arguments.`, 1);
     const out: string[] = [];
     let code = 0;
     for (const u of units) {
       const def = findService(host, u);
+      const own = !def ? unitName(host, u) : null;
+      if (own) {
+        const r = userUnitVerb(ctx, verb, own, flags.has('--now'));
+        if (r) { out.push(...r.lines); code = Math.max(code, r.code); continue; }
+        return err(`Unknown command verb ${verb}.`, 1);
+      }
       if (!def) {
         if (verb === 'status') { out.push(`Unit ${u.endsWith('.service') ? u : u + '.service'} could not be found.`); code = 4; continue; }
         if (verb === 'is-active') { out.push('inactive'); code = 3; continue; }
@@ -656,9 +671,54 @@ const sshKeygen: CommandDef = {
       if (!hits.length) return err('', 1);
       return ok(hits.map((h) => `# Host ${hostArg} found: line ${h.line} \n${h.patterns.join(',')} ${h.key.alg} ${h.key.blobB64}`).join('\n'));
     }
-    return err('ssh-keygen: key generation is not modelled; the lab already provides keys. Supported: -lf, -R, -F', 1);
+    return generateKey(ctx, flags);
   },
 };
+
+/** ssh-keygen [-t TYPE] [-f FILE] [-N PASSPHRASE] [-C COMMENT]: a new key pair (deterministic in the simulator). */
+function generateKey(ctx: Parameters<CommandDef['run']>[1], flags: Map<string, string | true>) {
+  const t = String(flags.get('-t') ?? 'ed25519').toLowerCase();
+  const type: KeyType | null = t === 'ed25519' ? 'ed25519' : t === 'rsa' ? 'rsa' : t === 'ecdsa' ? 'ecdsa' : null;
+  if (!type) return err(`unknown key type ${t}`, 1);
+  const out = [`Generating public/private ${t} key pair.`];
+  const def = `${ctx.user.home}/.ssh/id_${type}`;
+  let file = flags.get('-f') as string | undefined;
+  if (!file) file = ctx.ask(`Enter file in which to save the key (${def}): `, false, out.join('\n')) || def;
+  const path = resolvePath(ctx, file);
+  if (ctx.host.fs[path]) {
+    out.push(`${file} already exists.`);
+    const a = ctx.ask('Overwrite (y/n)? ', false, out.join('\n'));
+    if (!/^y/i.test(a)) return { out: out.join('\n'), code: 1 };
+  }
+  let pass = flags.get('-N') as string | undefined;
+  if (pass === undefined) {
+    pass = ctx.ask('Enter passphrase (empty for no passphrase): ', true, out.join('\n'));
+    const again = ctx.ask('Enter same passphrase again: ', true, out.join('\n'));
+    if (again !== pass) return err([...out, 'Passphrases do not match.  Try again.'].join('\n'), 1);
+  }
+  if (pass) return err([...out, 'Saving a key with a passphrase is not modelled in the simulator (unattended jobs such as backups need a key without one, or ssh-agent). Use -N ""'].join('\n'), 1);
+  const dir = dirname(path);
+  if (!ctx.host.fs[dir]) {
+    if (dir === `${ctx.user.home}/.ssh`) {
+      ctx.host.fs[dir] = { type: 'dir', mode: 0o700, owner: ctx.user.name, group: ctx.user.primaryGroup, content: '', mtime: ctx.world.clock };
+      out.push(`Created directory '${dir}'.`);
+    } else return err([...out, `Saving key "${file}" failed: No such file or directory`].join('\n'), 1);
+  }
+  const comment = (flags.get('-C') as string | undefined) ?? `${ctx.user.name}@${ctx.host.hostname}`;
+  const k = makeKeyPair(type, `${ctx.host.id}:${path}:${ctx.world.clock}`, comment);
+  const e1 = writeChecked(ctx, path, k.privateFile);
+  if (e1) return err([...out, `Saving key "${file}" failed: ${e1}`].join('\n'), 1);
+  ctx.host.fs[path].mode = 0o600;
+  writeChecked(ctx, `${path}.pub`, k.publicLine + '\n');
+  ctx.host.fs[`${path}.pub`].mode = 0o644;
+  const fp = k.fingerprint.replace(/^SHA256:/, '');
+  const art: string[] = [];
+  for (let r = 0; r < 9; r++) art.push('|' + Array.from({ length: 17 }, (_, c) => ' .o+=*BOX@%&#/^'[(fp.charCodeAt((r * 17 + c) % fp.length) * (r + 3) + c) % 15]).join('') + '|');
+  const label = `[${KEY_LABEL[type]} ${type === 'rsa' ? 3072 : 256}]`;
+  out.push(`Your identification has been saved in ${file}`, `Your public key has been saved in ${file}.pub`, 'The key fingerprint is:', `${k.fingerprint} ${comment}`, 'The key\'s randomart image is:',
+    `+${'-'.repeat(Math.floor((17 - label.length) / 2))}${label}${'-'.repeat(Math.ceil((17 - label.length) / 2))}+`, ...art, '+----[SHA256]-----+');
+  return ok(out.join('\n'));
+}
 
 const sshKeyscan: CommandDef = {
   name: 'ssh-keyscan',
@@ -875,5 +935,5 @@ const reboot: CommandDef = {
   },
 };
 
-export const SYSTEM_COMMANDS: CommandDef[] = [systemctl, journalctl, nft, iptables, ssh, sshKeygen, sshKeyscan, sshCopyId, sshd, rndc, namedCheckzone, nginxCmd, dhclient, dhcpdCmd, reboot];
+export const SYSTEM_COMMANDS: CommandDef[] = [systemctl, journalctl, nft, iptables, ssh, sshKeygen, sshKeyscan, sshCopyId, sshd, rndc, namedCheckzone, nginxCmd, dhclient, dhcpdCmd, reboot, systemdAnalyze];
 export { fingerprintOfBlob, base64Decode };

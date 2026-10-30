@@ -11,6 +11,7 @@ import type { PfRuntime } from './pf/model';
 import type { WinState } from './win/model';
 import type { MailState } from './sim/mail';
 import type { PgCluster } from './sim/postgres';
+import type { UnitRuntime } from './sim/timers';
 
 export interface FileNode {
   type: 'file' | 'dir';
@@ -224,6 +225,8 @@ export interface Host {
   mail?: MailState;
   /** PostgreSQL cluster contents (roles, databases, tables): the data directory. */
   pg?: PgCluster;
+  /** Administrator-written systemd units (/etc/systemd/system/*.service, *.timer): loaded text and run state. */
+  units?: Record<string, UnitRuntime>;
   ifaces: Interface[];
   routes: Route[];
   neighbors: Neighbor[];

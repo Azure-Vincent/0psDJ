@@ -20,6 +20,10 @@ export interface SessionFrame {
   psql?: PsqlState;
   /** Entered with su / sudo -i: exit returns to the previous user. */
   su?: boolean;
+  /** Shell variables (VAR=value); exported ones are also in env. */
+  vars?: Record<string, string>;
+  /** Exported variables: the environment of the commands this shell runs. */
+  env?: Record<string, string>;
 }
 
 export interface EditorRequest {
@@ -48,9 +52,11 @@ export interface CmdCtx {
   frame: SessionFrame;
   /** Ask the learner for input. Throws NeedInput when no answer is queued yet. */
   ask(text: string, secret: boolean, partial?: string): string;
-  /** Run a command line as `hostId:user` (used by ssh remote commands). */
-  run(line: string, asUser?: string, stdin?: string): CmdResult;
+  /** Run a command line as `hostId:user` (used by ssh remote commands and systemd units), optionally with an environment and working directory. */
+  run(line: string, asUser?: string, stdin?: string, opts?: { env?: Record<string, string>; cwd?: string }): CmdResult;
   stdin?: string;
+  /** Environment of the command (exported variables and VAR=value prefixes). */
+  env: Record<string, string>;
 }
 
 export interface CommandDef {

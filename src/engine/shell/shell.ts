@@ -4,6 +4,8 @@
 // collected answers. Because the engine is deterministic, the replay produces
 // exactly the same intermediate state.
 
+import { BACKUP_COMMANDS } from './cmdBackup';
+import { runDueTimers, setUnitRunner } from '../sim/timers';
 import { maintainLeases } from '../sim/dhcp';
 import { syslogFlush } from '../sim/syslog';
 import { nfsSync } from '../sim/nfs';
@@ -31,7 +33,7 @@ import { expandParams, parseCommandLine, type Segment } from './tokenize';
 import { type CmdCtx, type CmdResult, type CommandDef, type EditorRequest, NeedInput, type SessionFrame } from './types';
 
 export const COMMANDS: Record<string, CommandDef> = Object.fromEntries(
-  [...FILE_COMMANDS, ...NET_COMMANDS, ...HTTP_COMMANDS, ...SYSTEM_COMMANDS, ...KRB_COMMANDS, ...RDP_COMMANDS, ...DOCKER_COMMANDS, ...NTP_COMMANDS, ...LOG_COMMANDS, ...NFS_COMMANDS, ...SMB_COMMANDS, ...MAIL_COMMANDS, ...PG_COMMANDS].map((c) => [c.name, c]),
+  [...FILE_COMMANDS, ...NET_COMMANDS, ...HTTP_COMMANDS, ...SYSTEM_COMMANDS, ...KRB_COMMANDS, ...RDP_COMMANDS, ...DOCKER_COMMANDS, ...NTP_COMMANDS, ...LOG_COMMANDS, ...NFS_COMMANDS, ...SMB_COMMANDS, ...MAIL_COMMANDS, ...PG_COMMANDS, ...BACKUP_COMMANDS].map((c) => [c.name, c]),
 );
 
 export interface ExecResult {
@@ -94,6 +96,8 @@ export class Shell {
     // rsyslog forwards in the background: what earlier commands logged reaches the log server now.
     syslogFlush(world);
     nfsSync(world, 'before');
+    // systemd timers whose time has come start their services (backups at night, after a reboot …).
+    runDueTimers(world);
     const frames: SessionFrame[] = structuredClone(this.frames);
     const queue = [...answers];
     const executed: string[] = [];
@@ -173,7 +177,7 @@ export class Shell {
           case 'SHELL': return user?.shell ?? '/bin/bash';
           case 'UID': return String(user?.uid ?? 0);
           case 'PATH': return user?.uid === 0 ? '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin' : '/usr/local/bin:/usr/bin:/bin:/usr/local/games:/usr/games';
-          default: return '';
+          default: return frame.vars?.[n] ?? frame.env?.[n] ?? '';
         }
       };
       const argv = seg.argv.flatMap((a) => {
@@ -196,19 +200,27 @@ export class Shell {
         frame,
         stdin,
         ask,
-        run: (l, asUser, s) => {
+        env: { ...(frame.env ?? {}) },
+        run: (l, asUser, s, opts) => {
           if (!asUser) return runIn(frame, l, s);
           const [hostId, user] = asUser.split(':');
           const h = world.hosts[hostId];
           const home = h.users[user].home;
-          return runIn({ hostId, user, cwd: h.fs[home] ? home : '/' }, l, s);
+          const env = { ...(opts?.env ?? {}) };
+          return runIn({ hostId, user, cwd: opts?.cwd ?? (h.fs[home] ? home : '/'), env, vars: { ...env } }, l, s);
         },
       };
     };
 
+    /** A script or `bash -c` runs in a child shell: it inherits the exported variables, and its cd and assignments do not leak back. */
+    const childFrame = (frame: SessionFrame): SessionFrame => ({ hostId: frame.hostId, user: frame.user, cwd: frame.cwd, sudoOk: frame.sudoOk, env: { ...(frame.env ?? {}) }, vars: { ...(frame.env ?? {}) } });
+
+    /** KEY=VALUE lines of an environment file (systemd EnvironmentFile=, or a sourced file): "export " and quotes are accepted. */
+    const ASSIGN = /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/s;
+
     let scriptDepth = 0;
     /** Run a shell script line by line (set -e stops at the first failing line; exit N ends it). */
-    const runScriptFile = (frame: SessionFrame, path: string, stdin: string | undefined, needExec: boolean): CmdResult => {
+    const runScriptFile = (frame: SessionFrame, path: string, stdin: string | undefined, needExec: boolean, source = false): CmdResult => {
       const host = world.hosts[frame.hostId];
       const p = normalizePath(path, frame.cwd, host.users[frame.user].home);
       const node = host.fs[p];
@@ -224,6 +236,8 @@ export class Shell {
       const out: string[] = [];
       let code = 0;
       let errexit = false;
+      // `source FILE` runs in this shell; an executed script runs in a child shell.
+      const sub = source ? frame : childFrame(frame);
       try {
         for (const raw of f.content!.split('\n')) {
           const line = raw.trim();
@@ -231,7 +245,7 @@ export class Shell {
           if (/^set\s+-[a-z]*e/.test(line)) { errexit = true; continue; }
           const ex = /^exit(?:\s+(\d+))?$/.exec(line);
           if (ex) { code = Number(ex[1] ?? code); break; }
-          const r = runIn(frame, line, stdin);
+          const r = runIn(sub, line, stdin);
           if (r.out) out.push(r.out);
           code = r.code;
           if (errexit && code !== 0) break;
@@ -243,11 +257,67 @@ export class Shell {
     };
 
     const runArgv = (frame: SessionFrame, argv: string[], stdin: string | undefined): CmdResult => {
+      // VAR=value [VAR2=value] [command ...]: alone they set shell variables; before a command they are its environment only.
+      let nAssign = 0;
+      while (nAssign < argv.length && ASSIGN.test(argv[nAssign])) nAssign++;
+      if (nAssign > 0) {
+        const pairs = argv.slice(0, nAssign).map((a) => { const m = ASSIGN.exec(a)!; return [m[1], m[2]] as [string, string]; });
+        if (nAssign === argv.length) {
+          executed.push(argv.join(' '));
+          for (const [n, v] of pairs) {
+            (frame.vars ??= {})[n] = v;
+            if (frame.env && n in frame.env) frame.env[n] = v;
+          }
+          return { out: '', code: 0 };
+        }
+        const withEnv: SessionFrame = { ...frame, env: { ...(frame.env ?? {}), ...Object.fromEntries(pairs) } };
+        const r = runArgv(withEnv, argv.slice(nAssign), stdin);
+        frame.cwd = withEnv.cwd;
+        return r;
+      }
       const [name, ...args] = argv;
       executed.push(argv.join(' '));
       world.clock += 400; // typing/processing time between commands
       const host = world.hosts[frame.hostId];
+      const baseEnv = (): Record<string, string> => {
+        const u = host.users[frame.user];
+        return { HOME: u?.home ?? '/', LOGNAME: frame.user, USER: frame.user, SHELL: u?.shell ?? '/bin/bash', PWD: frame.cwd, LANG: 'C.UTF-8', PATH: u?.uid === 0 ? '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin' : '/usr/local/bin:/usr/bin:/bin:/usr/local/games:/usr/games' };
+      };
       switch (name) {
+        case 'export': {
+          if (args.length === 0 || args[0] === '-p') {
+            const env = frame.env ?? {};
+            return { out: Object.keys(env).sort().map((k) => `declare -x ${k}="${env[k].replace(/(["\\$`])/g, '\\$1')}"`).join('\n'), code: 0 };
+          }
+          const bad: string[] = [];
+          for (const a of args) {
+            const m = ASSIGN.exec(a);
+            if (m) { (frame.vars ??= {})[m[1]] = m[2]; (frame.env ??= {})[m[1]] = m[2]; }
+            else if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(a)) (frame.env ??= {})[a] = frame.vars?.[a] ?? '';
+            else bad.push(`-bash: export: \`${a}': not a valid identifier`);
+          }
+          return { out: bad.join('\n'), code: bad.length ? 1 : 0 };
+        }
+        case 'unset':
+          for (const a of args.filter((x) => !x.startsWith('-'))) { delete frame.vars?.[a]; delete frame.env?.[a]; }
+          return { out: '', code: 0 };
+        case 'env':
+        case 'printenv': {
+          if (name === 'env' && args.length) {
+            const k = args.findIndex((a) => !ASSIGN.test(a));
+            if (k >= 0) return runArgv({ ...frame, env: { ...(frame.env ?? {}), ...Object.fromEntries(args.slice(0, k).map((a) => { const m = ASSIGN.exec(a)!; return [m[1], m[2]]; })) } }, args.slice(k), stdin);
+          }
+          const env = { ...baseEnv(), ...(frame.env ?? {}) };
+          if (name === 'printenv' && args.length) {
+            const vals = args.filter((a) => a in env).map((a) => env[a]);
+            return { out: vals.join('\n'), code: vals.length === args.length ? 0 : 1 };
+          }
+          return { out: Object.entries(env).map(([k, v]) => `${k}=${v}`).join('\n'), code: 0 };
+        }
+        case 'source':
+        case '.':
+          if (!args[0]) return { out: `-bash: ${name}: filename argument required\n${name}: usage: ${name} filename [arguments]`, code: 2 };
+          return runScriptFile(frame, args[0], stdin, false, true);
         case 'exit':
         case 'logout': {
           const top = frames[frames.length - 1];
@@ -317,7 +387,8 @@ export class Shell {
             frames.push({ hostId: frame.hostId, user: target, cwd: host.fs[tu.home] ? tu.home : '/', su: true });
             return { out: '', code: 0 };
           }
-          const rootFrame: SessionFrame = { ...frame, user: target, cwd: login && host.fs[tu.home] ? tu.home : frame.cwd };
+          // Debian's sudoers has env_reset: the command does not see the caller's exported variables (sudo VAR=value cmd sets them).
+          const rootFrame: SessionFrame = { ...frame, user: target, cwd: login && host.fs[tu.home] ? tu.home : frame.cwd, env: {}, vars: {} };
           const r = runArgv(rootFrame, rest, stdin);
           if (target === 'root') frame.cwd = rootFrame.cwd;
           return r;
@@ -350,7 +421,7 @@ export class Shell {
         }
         case 'sh':
         case 'bash': {
-          if (!args[0] || args[0] === '-c') return args[0] === '-c' ? runIn(frame, args[1] ?? '', stdin) : { out: '', code: 0 };
+          if (!args[0] || args[0] === '-c') return args[0] === '-c' ? runIn(childFrame(frame), args[1] ?? '', stdin) : { out: '', code: 0 };
           return runScriptFile(frame, args[0], stdin, false);
         }
         default: {
@@ -474,6 +545,7 @@ export class Shell {
       world, host, user: host.users[req.user] ?? host.users[frame.user], frame,
       ask: () => '',
       run: () => ({ out: '', code: 0 }),
+      env: {},
     };
     const e = writeChecked(ctx, req.path, content);
     if (e) return e;
@@ -513,3 +585,32 @@ function helpText(): string {
 }
 
 export { resolvePath };
+
+// systemd units run their Exec lines through this shell, as User= in a fresh session with the unit's environment.
+const SYSTEM_PATH = ['/usr/local/sbin', '/usr/local/bin', '/usr/sbin', '/usr/bin', '/sbin', '/bin'];
+setUnitRunner({
+  run(world, hostId, user, line, env, cwd) {
+    let w = world;
+    const sh = new Shell(() => w, (n) => (w = n), { hostId, user, cwd, env: { ...env }, vars: { ...env } });
+    const r = sh.execute(line);
+    // Merge back in place: callers hold references to the World's host objects.
+    const { hosts, ...rest } = w;
+    Object.assign(world, rest);
+    for (const [id, h] of Object.entries(hosts)) { if (world.hosts[id]) Object.assign(world.hosts[id], h); else world.hosts[id] = h; }
+    for (const id of Object.keys(world.hosts)) if (!hosts[id]) delete world.hosts[id];
+    if (r.needInput) return { out: `${r.output ? r.output + '\n' : ''}${r.needInput.text.trim()} (no terminal: cannot read a password)`, code: 1 };
+    return { out: r.output, code: r.code };
+  },
+  resolve(host, program) {
+    if (program.includes('/')) {
+      const node = host.fs[program];
+      if (node?.type === 'file') return (node.mode & 0o111) ? { path: program } : { error: 'Permission denied' };
+      if (COMMANDS[program.split('/').pop()!] && SYSTEM_PATH.some((d) => program === `${d}/${program.split('/').pop()}`)) return { path: program };
+      return { error: 'No such file or directory' };
+    }
+    const found = SYSTEM_PATH.map((d) => `${d}/${program}`).find((p) => host.fs[p]?.type === 'file');
+    if (found) return { path: found };
+    if (COMMANDS[program]) return { path: `/usr/bin/${program}` };
+    return { error: 'No such file or directory' };
+  },
+});

@@ -5,7 +5,7 @@ import { basename, canAccess, canTraverse, dirname, listDir, mkdir, modeString, 
 import { FAILLOCK_DIR, faillockConf, faillockRecords, faillockReset } from '../sim/accounts';
 import { formatSyslogTime, isoTime, log } from '../sim/journal';
 import type { FileNode, Host, Interface } from '../types';
-import { type CmdCtx, type CommandDef, err, ok, parseFlags } from './types';
+import { type CmdCtx, type CmdResult, type CommandDef, err, ok, parseFlags } from './types';
 
 export function resolvePath(ctx: CmdCtx, p: string): string {
   return normalizePath(p, ctx.frame.cwd, ctx.user.home);
@@ -991,7 +991,7 @@ function copyOrMove(name: 'cp' | 'mv'): CommandDef {
   return {
     name,
     summary: name === 'cp' ? 'copy a file (-a/-p keep mode, owner and timestamps)' : 'move or rename a file',
-    usage: `${name}${name === 'cp' ? ' [-a|-p]' : ''} SOURCE DEST`,
+    usage: `${name}${name === 'cp' ? ' [-r|-a|-p]' : ''} SOURCE DEST`,
     run(args, ctx) {
       const { flags, rest } = parseFlags(args);
       if (rest.length < 2) return err(`${name}: missing destination file operand after '${rest[0] ?? ''}'\nTry '${name} --help' for more information.`);
@@ -999,7 +999,11 @@ function copyOrMove(name: 'cp' | 'mv'): CommandDef {
       const src = resolvePath(ctx, srcArg);
       const n = ctx.host.fs[src];
       if (!n) return err(`${name}: cannot stat '${srcArg}': No such file or directory`);
-      if (n.type === 'dir') return err(name === 'cp' ? `cp: -r not specified; omitting directory '${srcArg}'` : `mv: moving directories is not supported in the simulator`);
+      if (n.type === 'dir') {
+        const recursive = name === 'mv' || flags.has('-r') || flags.has('-R') || flags.has('-a') || flags.has('--recursive') || flags.has('--archive');
+        if (!recursive) return err(`cp: -r not specified; omitting directory '${srcArg}'`);
+        return copyTree(ctx, name, src, srcArg, dstArg, name === 'mv' || flags.has('-a') || flags.has('-p') || flags.has('--archive') || flags.has('--preserve'));
+      }
       if (!canTraverse(ctx.host, src, ctx.user) || !canAccess(n, ctx.user, 'r')) return err(`${name}: cannot open '${srcArg}' for reading: Permission denied`);
       let dst = resolvePath(ctx, dstArg);
       if (ctx.host.fs[dst]?.type === 'dir') dst = `${dst === '/' ? '' : dst}/${basename(src)}`;
@@ -1022,6 +1026,39 @@ function copyOrMove(name: 'cp' | 'mv'): CommandDef {
       return ok('');
     },
   };
+}
+
+/** cp -r / cp -a / mv of a directory: DEST/name when DEST is a directory, else DEST itself. */
+function copyTree(ctx: CmdCtx, name: 'cp' | 'mv', src: string, srcArg: string, dstArg: string, keep: boolean): CmdResult {
+  const host = ctx.host;
+  let dst = resolvePath(ctx, dstArg);
+  if (host.fs[dst]?.type === 'dir') dst = `${dst === '/' ? '' : dst}/${basename(src)}`;
+  else if (host.fs[dst]) return err(`${name}: cannot overwrite non-directory '${dstArg}' with directory '${srcArg}'`);
+  if (dst === src || dst.startsWith(src + '/')) return err(`${name}: cannot ${name === 'cp' ? 'copy' : 'move'} a directory, '${srcArg}', into itself, '${dstArg}'`);
+  const parent = host.fs[dirname(dst)];
+  if (!parent) return err(`${name}: cannot create directory '${dstArg}': No such file or directory`);
+  if (!canAccess(parent, ctx.user, 'w')) return err(`${name}: cannot create directory '${dstArg}': Permission denied`);
+  const pre = src + '/';
+  const paths = [src, ...Object.keys(host.fs).filter((p) => p.startsWith(pre)).sort()];
+  const errors: string[] = [];
+  for (const p of paths) {
+    const n = host.fs[p];
+    const target = dst + p.slice(src.length);
+    if (!canAccess(n, ctx.user, 'r')) { errors.push(`${name}: cannot ${n.type === 'dir' ? 'access' : 'open'} '${p}'${n.type === 'dir' ? '' : ' for reading'}: Permission denied`); continue; }
+    ctx.world.clock += 5;
+    host.fs[target] = {
+      ...n,
+      owner: keep && ctx.user.uid === 0 ? n.owner : ctx.user.name,
+      group: keep && ctx.user.uid === 0 ? n.group : ctx.user.primaryGroup,
+      mode: keep ? n.mode : n.mode & ~0o022,
+      mtime: keep ? n.mtime : ctx.world.clock,
+    };
+  }
+  if (name === 'mv') {
+    if (!canAccess(host.fs[dirname(src)], ctx.user, 'w')) return err(`mv: cannot remove '${srcArg}': Permission denied`);
+    for (const p of paths) delete host.fs[p];
+  }
+  return { out: errors.join('\n'), code: errors.length ? 1 : 0 };
 }
 
 /** Line diff (LCS) rendered like `diff -u` (3 lines of context) or classic `diff`. */
