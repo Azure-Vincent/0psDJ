@@ -15,7 +15,7 @@
 // commands the machines do not change, which lets one evaluation stand for the
 // many a real server would run during a long pause.
 
-import { mkdir, readFile } from '../fs';
+import { mkdir, readFile, writeFile } from '../fs';
 import type { Host, ServiceRuntime, World } from '../types';
 import { parseYaml, YamlError, type Yaml } from '../config/yaml';
 import { diskUsedKB } from './disk';
@@ -456,6 +456,8 @@ export interface TargetState {
 }
 export interface AlertState {
   rule: string; labels: Labels; annotations: Record<string, string>; state: 'pending' | 'firing'; activeAt: number; value: number; resolvedAt?: number; lastSentAt?: number;
+  /** When it started firing: activeAt + for (the machines did not change between evaluations). */
+  firedAt?: number;
 }
 export interface PromLoaded {
   pid: number; listen: { addr: string; port: number }; config: PromConfig; lifecycle: boolean;
@@ -689,11 +691,14 @@ function evaluateRules(l: PromLoaded, t: number): void {
       const annotations = Object.fromEntries(Object.entries(r.annotations).map(([k, tpl]) => [k, expandTemplate(tpl, dropName(s.labels), s.value)]));
       const prev = l.alerts[key];
       if (!prev || prev.resolvedAt !== undefined) {
-        l.alerts[key] = { rule: r.name, labels, annotations, state: r.forMs === 0 ? 'firing' : 'pending', activeAt: t, value: s.value };
+        l.alerts[key] = { rule: r.name, labels, annotations, state: r.forMs === 0 ? 'firing' : 'pending', activeAt: t, value: s.value, ...(r.forMs === 0 ? { firedAt: t } : {}) };
       } else {
         prev.value = s.value;
         prev.annotations = annotations;
-        if (prev.state === 'pending' && t - prev.activeAt >= r.forMs) prev.state = 'firing';
+        if (prev.state === 'pending' && t - prev.activeAt >= r.forMs) {
+          prev.state = 'firing';
+          prev.firedAt = Math.min(t, Math.ceil((prev.activeAt + r.forMs) / l.config.evalInterval) * l.config.evalInterval);
+        }
       }
     }
     for (const [key, a] of Object.entries(l.alerts)) {
@@ -815,7 +820,16 @@ function amStart(world: World, host: Host, rt: ServiceRuntime): AmLoaded | null 
   plog(world, host, 'prometheus-alertmanager', unit, pid, 'coordinator.go:126', 'info', 'Completed loading of configuration file', { component: 'configuration', file });
   const listen = listenAddr(p.flags.get('web.listen-address') ?? ':9093', 9093)!;
   plog(world, host, 'prometheus-alertmanager', unit, pid, 'tls_config.go:232', 'info', 'Listening on', { address: `[::]:${listen.port}` });
-  return { pid, listen, config: c.config, alerts: {}, groups: {}, silences: [], sent: 0, failed: 0, lastError: '' };
+  return { pid, listen, config: c.config, alerts: {}, groups: {}, silences: loadSilences(host), sent: 0, failed: 0, lastError: '' };
+}
+
+/** Silences survive restarts: Alertmanager keeps them in its data directory. */
+export const SILENCES_FILE = '/var/lib/prometheus/alertmanager/silences';
+function loadSilences(host: Host): AmSilence[] {
+  try { return JSON.parse(readFile(host, SILENCES_FILE) ?? '[]') as AmSilence[]; } catch { return []; }
+}
+export function saveSilences(host: Host, l: AmLoaded, t: number): void {
+  writeFile(host, SILENCES_FILE, JSON.stringify(l.silences), t, { mode: 0o644, owner: 'prometheus', group: 'prometheus' });
 }
 
 function amReload(world: World, host: Host, rt: ServiceRuntime): boolean {
@@ -1011,8 +1025,12 @@ function tick(world: World): void {
       scrapeAll(w, w.hosts[host.id], wl, t);
       if (evalTimes.includes(t)) {
         evaluateRules(wl, t);
-        const send = Object.values(wl.alerts).filter((a) => a.state === 'firing' && (a.resolvedAt === undefined || a.lastSentAt === undefined || a.lastSentAt < a.resolvedAt));
+        // Firing alerts are re-sent every minute (--rules.alert.resend-delay), resolved ones once more.
+        const send = Object.values(wl.alerts).filter((a) => a.state === 'firing' && (a.lastSentAt === undefined || (a.resolvedAt === undefined ? t - a.lastSentAt >= 60_000 : a.lastSentAt < a.resolvedAt)));
         if (send.length) {
+          // While the machines did not change, Prometheus re-sent every minute: date this delivery
+          // when the first of those re-sends happened, as Alertmanager would have received it.
+          const sentAt = Math.min(...send.map((a) => (a.resolvedAt !== undefined ? t : a.lastSentAt === undefined ? Math.min(t, a.firedAt ?? t) : Math.min(t, a.lastSentAt + 60_000))));
           for (const am of wl.config.alertmanagers) {
             const target = amTarget(w, w.hosts[host.id], am.address);
             if ('error' in target) {
@@ -1021,7 +1039,7 @@ function tick(world: World): void {
               continue;
             }
             deliveries.push({
-              amHost: target.host, at: t,
+              amHost: target.host, at: sentAt,
               alerts: send.map((a) => ({ labels: { ...a.labels, ...wl.config.external }, annotations: a.annotations, startsAt: a.activeAt, endsAt: a.resolvedAt ?? t + 4 * Math.max(ei, 60_000), generator: `http://${host.hostname}:${wl.listen.port}/graph?g0.expr=${encodeURIComponent(wl.config.rules.find((r) => r.name === a.rule)?.expr ?? '').replace(/%20/g, '+')}&g0.tab=1` })),
             });
           }

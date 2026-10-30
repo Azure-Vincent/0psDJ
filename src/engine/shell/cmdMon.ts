@@ -6,7 +6,7 @@ import { readFile } from '../fs';
 import { resolve } from '../sim/dns';
 import {
   ALERTMANAGER_VERSION, AM_CONFIG, amApiAlerts, type AmLoaded, globFiles, loadAmConfig, loadPromConfig, loadRuleFile, PROM_CONFIG, PROMETHEUS_VERSION, type PromLoaded,
-  promDataSource, routeAlert, silencedBy,
+  promDataSource, routeAlert, saveSilences, silencedBy,
 } from '../sim/monitor';
 import { evaluate, formatSeries, formatValue, parsePromQL, PromQLError, parseDuration } from '../sim/promql';
 import { allListeners } from '../sim/services';
@@ -251,7 +251,8 @@ const amtool: CommandDef = {
         if (d === null) return err(`amtool: error: time: invalid duration "${flags.get('duration')}"`, 1);
         const id = uuid(`${a.host.id}:${Math.floor(now)}:${l.silences.length}`);
         l.silences.push({ id, matchers: ms, startsAt: now, endsAt: now + d, createdBy: flags.get('author') ?? ctx.user.name, comment });
-        return ok(flags.has('quiet') ? id : id);
+        saveSilences(a.host, l, now);
+        return ok(id);
       }
       if (sub === 'expire') {
         const ids = rest;
@@ -261,6 +262,7 @@ const amtool: CommandDef = {
           if (!s) return err(`amtool: error: silence ${id} not found`, 1);
           s.endsAt = now;
         }
+        saveSilences(a.host, l, now);
         return ok('');
       }
       if (sub === undefined || sub === 'query') {

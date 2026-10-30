@@ -42,9 +42,9 @@ export const CAUSES: Record<string, Cause> = Object.fromEntries(
       check: 'ip route and ip route get <server-ip> on the client; ping the default gateway.',
     },
     {
-      id: 'firewall-drop', title: 'Host firewall silently drops SSH', category: 'Firewall', concept: 'fw.stateful',
-      signature: 'ssh hangs and ends with "Connection timed out" after retransmitting SYNs, while ping (ICMP) to the same IP works. nft counters on the dropping rule/policy increase. The sshd log shows nothing for the attempt.',
-      check: 'nc -zv -w 5 host 22; nft list ruleset on the server (check the input chain and its policy); tcpdump on the server.',
+      id: 'firewall-drop', title: 'A host firewall silently drops the connection', category: 'Firewall', concept: 'fw.stateful',
+      signature: 'The client hangs and ends with a timeout (ssh "Connection timed out", Prometheus "context deadline exceeded", snmpget "Timeout: No Response") after retransmitting, while ping (ICMP) to the same IP works. nft counters on the dropping rule or policy increase. The service\'s own log shows nothing for the attempt.',
+      check: 'nc -zv -w 5 host PORT; nft list ruleset on the server (check the input chain and its policy); tcpdump on the server.',
     },
     {
       id: 'firewall-reject', title: 'Firewall actively rejects SSH', category: 'Firewall', concept: 'net.icmp',
