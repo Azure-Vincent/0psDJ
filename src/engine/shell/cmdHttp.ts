@@ -87,7 +87,26 @@ const curl: CommandDef = {
   name: 'curl',
   summary: 'transfer a URL over HTTP or HTTPS',
   usage: 'curl [-4|-6] [-I|-i] [-v] [-s] [-k] [-L] [--cacert FILE] [--resolve HOST:PORT:ADDR] [-m SECONDS] [-o FILE|-O] [-w FORMAT] URL',
-  run(args, ctx) {
+  run(argv, ctx) {
+    if (argv.some((a) => /^imaps?:\/\//i.test(a))) return curlImap(argv, ctx);
+    // Request body / query options (repeatable): -d, --data-urlencode, -G, -X.
+    const data: string[] = [];
+    let getMode = false;
+    let methodOpt: string | undefined;
+    const args: string[] = [];
+    for (let i = 0; i < argv.length; i++) {
+      const a = argv[i];
+      const val = () => argv[++i] ?? '';
+      if (a === '-d' || a === '--data' || a === '--data-raw' || a === '--data-binary') data.push(val());
+      else if (a === '--data-urlencode') {
+        const v = val();
+        const eq = v.indexOf('=');
+        data.push(eq < 0 ? encodeURIComponent(v) : `${v.slice(0, eq)}=${encodeURIComponent(v.slice(eq + 1))}`);
+      } else if (a === '-G' || a === '--get') getMode = true;
+      else if (a === '-X' || a === '--request') methodOpt = val().toUpperCase();
+      else if (/^-X./.test(a)) methodOpt = a.slice(2).toUpperCase();
+      else args.push(a);
+    }
     const { flags, rest } = parseFlags(args, ['-m', '--max-time', '--connect-timeout', '-o', '--output', '--cacert', '--resolve', '-w', '--write-out']);
     if (rest.some((a) => /^imaps?:\/\//i.test(a))) return curlImap(args, ctx);
     const url = rest[0];
@@ -129,6 +148,10 @@ const curl: CommandDef = {
     let hostname = m[2];
     let portStr = m[3];
     let path = m[4] || '/';
+    if (getMode && data.length) path += (path.includes('?') ? '&' : '?') + data.join('&');
+    const method = methodOpt ?? (head ? 'HEAD' : data.length && !getMode ? 'POST' : 'GET');
+    // A form body (POST): the APIs read it like query parameters.
+    const appPath = (p: string) => (method === 'POST' && data.length && !getMode ? p + (p.includes('?') ? '&' : '?') + data.join('&') : p);
     let redirects = 0;
     let output = '';
     for (;;) {
@@ -178,7 +201,7 @@ const curl: CommandDef = {
       const app = listener ? httpHooks.apps[listener.process] : undefined;
       const loaded = server.services.nginx?.state === 'active' ? (server.services.nginx.loaded as NginxLoaded) : iisLoaded(server) ?? pfWebLoaded(server);
       const sockTls = !!loaded?.servers?.some((s) => isTlsPort(s, backend.port));
-      const reqInfo = `${head ? 'HEAD' : 'GET'} ${path} HTTP/1.1`;
+      const reqInfo = `${method} ${path} HTTP/1.1`;
 
       if (!app && listener?.process !== 'nginx' && listener?.service !== 'W3SVC') {
         conn.send('c2s', 78, { protocol: 'DATA', info: `${reqInfo} Host: ${hostname}`, fields: [] });
@@ -233,9 +256,9 @@ const curl: CommandDef = {
       const proto = scheme === 'https' ? 'TLS' : 'DATA';
       const recorder = activeRecorder();
       if (recorder) recorder.phase = 'HTTP';
-      vlog.push(`> ${head ? 'HEAD' : 'GET'} ${path} HTTP/1.1`, `> Host: ${hostHeader}`, '> User-Agent: curl/7.88.1', '> Accept: */*', '>');
+      vlog.push(`> ${method} ${path} HTTP/1.1`, `> Host: ${hostHeader}`, '> User-Agent: curl/7.88.1', '> Accept: */*', ...(method === 'POST' && data.length ? ['> Content-Type: application/x-www-form-urlencoded'] : []), '>');
       conn.send('c2s', 78 + path.length + hostHeader.length + (proto === 'TLS' ? 22 : 0), { protocol: proto, info: proto === 'TLS' ? 'Application Data' : `${reqInfo} Host: ${hostHeader}`, fields: [], encrypted: proto === 'TLS' });
-      const res: HttpResponse = app ? app(ctx.world, server, { method: head ? 'HEAD' : 'GET', path, hostHeader, plainOnTls: false, now: ctx.world.clock, client: { ip: backend.proxyFrom ?? conn.sv.peer, ua: 'curl/7.88.1' } }) : handleRequest(server, srv, { method: head ? 'HEAD' : 'GET', path, hostHeader, plainOnTls: scheme === 'http' && sockTls, now: ctx.world.clock, client: { ip: backend.proxyFrom ?? conn.sv.peer, ua: 'curl/7.88.1' } }, ctx.world);
+      const res: HttpResponse = app ? app(ctx.world, server, { method, path: appPath(path), hostHeader, plainOnTls: false, now: ctx.world.clock, client: { ip: backend.proxyFrom ?? conn.sv.peer, ua: 'curl/7.88.1' } }) : handleRequest(server, srv, { method, path, hostHeader, plainOnTls: scheme === 'http' && sockTls, now: ctx.world.clock, client: { ip: backend.proxyFrom ?? conn.sv.peer, ua: 'curl/7.88.1' } }, ctx.world);
       // A slow server (a reverse proxy waiting for its upstream): curl -m gives up first.
       if (max && ctx.world.clock - start > Number(max) * 1000) {
         conn.close('client');

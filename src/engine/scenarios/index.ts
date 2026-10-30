@@ -27,6 +27,7 @@ import { WFW_SCENARIOS } from './wfwScenarios';
 import { MAIL_SCENARIOS } from './mailScenarios';
 import { DB_SCENARIOS } from './dbScenarios';
 import { BACKUP_SCENARIOS } from './backupScenarios';
+import { MON_SCENARIOS } from './monScenarios';
 import type { Scenario } from './types';
 
 /** Every troubleshooting scenario, grouped by the lesson that introduces it. */
@@ -55,6 +56,7 @@ export const SCENARIO_SETS: { id: string; title: string; scenarios: Scenario[] }
   { id: 'email', title: 'Email (Postfix and Dovecot)', scenarios: MAIL_SCENARIOS },
   { id: 'database', title: 'Databases (PostgreSQL)', scenarios: DB_SCENARIOS },
   { id: 'backup', title: 'Backups (restic, systemd timers)', scenarios: BACKUP_SCENARIOS },
+  { id: 'monitoring', title: 'Monitoring (Prometheus, Alertmanager, SNMP)', scenarios: MON_SCENARIOS },
   { id: 'cases', title: 'End-to-end case studies', scenarios: CASE_SCENARIOS },
 ];
 

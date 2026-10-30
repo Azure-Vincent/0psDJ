@@ -118,7 +118,7 @@ export const CURRICULUM: CurriculumModule[] = [
       { title: 'NTP and time synchronisation (simulated: chrony on rtr01, timesyncd clients, 4 tickets)', level: 'intermediate', status: 'available', link: 'lesson/ntp/what' },
       { title: 'Backup services (simulated: restic on bak01 over SFTP, systemd timers, retention, restores, 7 tickets)', level: 'intermediate', status: 'available', link: 'lesson/backup/what' },
       { title: 'Central logging (simulated: rsyslog senders and log01, 4 tickets)', level: 'intermediate', status: 'available', link: 'lesson/logging/what' },
-      { title: 'Monitoring and alerting (metrics, SNMP, dashboards)', level: 'intermediate', status: 'planned' },
+      { title: 'Monitoring and alerting (simulated: Prometheus, Alertmanager and node_exporter on mon01, SNMP v2c/v3, 7 tickets)', level: 'intermediate', status: 'available', link: 'lesson/monitoring/what', note: 'Dashboards (Grafana), service discovery, long-term storage and SNMP traps are explained but not simulated.' },
     ],
   },
 ];
@@ -132,4 +132,5 @@ export const LABS = [
   { id: 'lab6', title: 'Lab 6: Infrastructure Recovery', status: 'available' as const, link: 'labs/lab6', note: 'Guided, 6 verified steps after a power cut: find the latent root causes (a hardening run, an untested zone edit, containers without restart policies) behind the cascade, recover in dependency order (routing, DNS, time, mounts, applications) without restoring a stale backup, and prove the next power cut is harmless.' },
   { id: 'lab7', title: 'Lab 7: Database Server', status: 'available' as const, link: 'labs/lab7', note: 'Guided, 7 verified steps on a freshly installed PostgreSQL 15 (db02): owner role and database, schema with the right ownership, a least-privilege application role with default privileges, listen_addresses and a firewall for the application server only, a narrow pg_hba.conf line and ~/.pgpass, a backup with a restore test, and a reboot test.' },
   { id: 'lab8', title: 'Lab 8: Backup Server', status: 'available' as const, link: 'labs/lab8', note: 'Guided, 8 verified steps: put a new server (wiki01) under backup to bak01: a dedicated SSH key restricted with from=, a verified host key, an encrypted restic repository over SFTP, the first snapshot, a systemd service and nightly timer with Persistent=true, a retention policy, a restore test and a reboot test.' },
+  { id: 'lab9', title: 'Lab 9: Monitoring a Server', status: 'available' as const, link: 'labs/lab9', note: 'Guided, 7 verified steps: bring a new web server (web02) under monitoring: node_exporter with the systemd collector, the scrape port open to mon01 only, a Prometheus target added with promtool check and reload, an alert rule for nginx tested end to end to the ops mailbox, SNMPv3-only snmpd, and a reboot test.' },
 ];

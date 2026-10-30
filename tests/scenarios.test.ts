@@ -157,6 +157,13 @@ const SYMPTOM: Record<string, RegExp> = {
   'bk-disk-full': /Job for restic-backup\.service failed because the control process exited with error code/,
   'bk-restore-file': /ls: cannot access '\/srv\/office\/budget-2025\.txt': No such file or directory/,
   'bk-db-exclude': /^\/var\/backups\/postgresql\/scratch$/m,
+  'mon-fs01-firewall': /up\{instance="fs01\.corp\.lab:9100", job="node", site="corp"\} => 0 @/,
+  'mon-prom-timeout': /^(failed|inactive)$/m,
+  'mon-am-submission': /grep: \/home\/ops\/Maildir\/new\/\*: No such file or directory|^$/m,
+  'mon-silence-log01': /=> 0 @/,
+  'mon-backup-alert': /Job for restic-backup\.service failed because the control process exited with error code/,
+  'snmp-dpkg-default': /Timeout: No Response from rtr01\.corp\.lab/,
+  'mon-exporter-flag': /up\{instance="db01\.corp\.lab:9100", job="node", site="corp"\} => 0 @/,
   'mtu-uplink-mismatch': /curl: \(28\) Operation timed out after 30000 milliseconds with 0 out of 4718592 bytes received/,
 };
 

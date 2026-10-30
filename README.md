@@ -45,7 +45,7 @@ For every technology it answers the same questions:
   Windows, pfSense, Docker), configuration reference, an **Operate & recover**
   guide (files, logs, service management, diagnostic workflow, common
   failures) and a graded assessment.
-- **Eight guided labs**: build a freshly installed Debian server into a
+- **Nine guided labs**: build a freshly installed Debian server into a
   hardened intranet web server (Lab 1), create an Active Directory domain and
   join a member server (Lab 2), turn a fresh pfSense into the perimeter
   firewall with a DMZ and a published web server (Lab 3), take over a
@@ -58,7 +58,9 @@ For every technology it answers the same questions:
   access, pg_hba.conf, backups with a restore test (Lab 7), and put a new
   server under backup: a restricted SSH key, a verified host key, an
   encrypted restic repository on bak01, a nightly systemd timer, a retention
-  policy and a restore test (Lab 8). The simulator checks each step against the running machines, and
+  policy and a restore test (Lab 8), and bring a new web server under
+  monitoring: exporter, firewall, Prometheus target, an alert rule tested
+  end to end, and SNMPv3 (Lab 9). The simulator checks each step against the running machines, and
   the last step reboots everything.
 - **An Infrastructure Builder**: draw your own network (workstations, servers,
   routers, VLAN-aware switches), set addresses, gateways, VLANs, firewall
@@ -66,7 +68,7 @@ For every technology it answers the same questions:
   machine configured from the files the design generates. You get terminals
   on each machine and a packet tracer that shows every hop and every firewall
   and NAT decision.
-- **139 troubleshooting tickets**, each injecting a realistic fault into the
+- **146 troubleshooting tickets**, each injecting a realistic fault into the
   lab. You investigate with real commands in terminals, record a diagnosis and
   repair the fault. The app then checks your fix immediately, again after
   rebooting every machine, and against security rules, so "just open the
@@ -124,6 +126,12 @@ For every technology it answers the same questions:
   image, a deleted file to restore without losing today's work, and an
   exclude pattern that silently drops the database dumps. Fixes must keep
   each repository's history and never switch host key checking off.
+  A **Monitoring** set breaks the monitoring of the lab: a hardened firewall
+  that hides a healthy fs01 from Prometheus, a scrape_timeout that stops
+  Prometheus after a restart, pages refused on the mail submission port, a
+  forgotten maintenance silence together with a disabled exporter, a
+  BackupTooOld alert that is right, an snmpd package update that restored
+  Debian's localhost-only configuration, and a misspelled exporter flag.
   A **Windows Defender Firewall** set breaks win01's host firewall one rule at
   a time: a web rule scoped to w3wp.exe while http.sys (System) owns port 80,
   a Block rule added "after" an allow rule (Block always wins), a monitoring
@@ -215,6 +223,12 @@ key that bak01 accepts only from each client's address. restic keeps
 encrypted, deduplicated snapshots (init, backup, snapshots, ls, restore,
 forget with retention policies, prune, check, unlock), the backup disk can
 fill up, and tar, rsync and sha256sum cover simpler copies.
+Monitoring runs on mon01: Prometheus scrapes node_exporter on the servers
+over the simulated network (firewalls, DNS and stopped exporters give
+Prometheus' real errors), evaluates alert rules written in PromQL, and
+Alertmanager routes, groups, silences and mails the alerts through mail01.
+promtool and amtool work like the real ones, and mon01 polls rtr01 by SNMP
+(v2c communities and v3 users) with snmpget and snmpwalk.
 Group Policy runs on the domain: GPOs with registry and firewall settings,
 links to the domain and to OUs, Block Inheritance and Enforced, security
 filtering against the computer's token, SYSVOL read over SMB at startup and

@@ -218,7 +218,7 @@ function headTail(which: 'head' | 'tail'): CommandDef {
 const grep: CommandDef = {
   name: 'grep',
   summary: 'print lines matching a pattern',
-  usage: 'grep [-i] [-v] [-n] [-E] [-c] PATTERN [FILE...]',
+  usage: 'grep [-i] [-v] [-n] [-E] [-c] [-l] [-h] [-q] PATTERN [FILE...]',
   run(args, ctx) {
     // Several -e PATTERN options are allowed; a line matches if any of them does.
     const patterns: string[] = [];
@@ -248,15 +248,21 @@ const grep: CommandDef = {
       sources.push({ name: f, text: r.content! });
     }
     const out: string[] = [];
+    const files: string[] = [];
     let count = 0;
     for (const s of sources) {
+      let hit = false;
       s.text.replace(/\n$/, '').split('\n').forEach((line, i) => {
         if (re.test(line) !== flags.has('-v')) {
           count++;
-          out.push(`${sources.length > 1 ? s.name + ':' : ''}${flags.has('-n') ? `${i + 1}:` : ''}${line}`);
+          hit = true;
+          out.push(`${sources.length > 1 && !flags.has('-h') ? s.name + ':' : ''}${flags.has('-n') ? `${i + 1}:` : ''}${line}`);
         }
       });
+      if (hit) files.push(s.name);
     }
+    if (flags.has('-q')) return { out: '', code: count ? 0 : 1 };
+    if (flags.has('-l')) return { out: files.join('\n'), code: count ? 0 : 1 };
     if (flags.has('-c')) return { out: String(count), code: count ? 0 : 1 };
     return { out: out.join('\n'), code: count ? 0 : 1 };
   },

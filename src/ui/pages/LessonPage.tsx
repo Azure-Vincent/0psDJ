@@ -429,6 +429,16 @@ function widgetsFor(id: string): LessonWidgets {
       ],
     };
   }
+  if (id === 'monitoring') {
+    return {
+      sandbox: [
+        { hostId: 'mon01', user: 'root', label: 'mon01 console (root)', banner: 'Sandbox: mon01, Prometheus (:9090) and Alertmanager (:9093). Try: promtool query instant http://localhost:9090 \'up\', curl -s http://localhost:9090/api/v1/targets, amtool alert, amtool silence query, cat /etc/prometheus/rules/corp.yml, snmpwalk -v2c -c corp-mon rtr01.corp.lab .1.3.6.1.2.1.2.2.1.2.' },
+        { hostId: 'srv01', user: 'root', label: 'srv01 console (root)', banner: 'Sandbox: srv01, a monitored server. Try: curl -s localhost:9100/metrics | grep node_load, cat /etc/default/prometheus-node-exporter, then systemctl stop prometheus-node-exporter and watch up on mon01 (sleep 180 passes time).' },
+        { hostId: 'rtr01', user: 'root', label: 'rtr01 console (root)', banner: 'Sandbox: rtr01, the SNMP agent. Try: cat /etc/snmp/snmpd.conf, ss -ulnp, snmpget -v2c -c corp-mon localhost .1.3.6.1.2.1.1.5.0.' },
+        { hostId: 'mail01', user: 'root', label: 'mail01 (ops mailbox)', banner: 'Sandbox: mail01, where pages for oncall@corp.lab arrive. Try: ls /home/ops/Maildir/new, tail -n 20 /var/log/mail.log.' },
+      ],
+    };
+  }
   if (id === 'email') {
     return {
       sandbox: [

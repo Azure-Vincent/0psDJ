@@ -38,7 +38,7 @@ const CANDIDATES = [
 const DAY = 24 * 3_600_000;
 
 /** Nights pass: the timers fire at their times on every host. */
-function nights(world: World, n: number, morning = '08:40'): void {
+export function nights(world: World, n: number, morning = '08:40'): void {
   const d = new Date(world.clock + n * DAY);
   const [h, m] = morning.split(':').map(Number);
   world.clock = Math.max(world.clock, Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), h, m));
