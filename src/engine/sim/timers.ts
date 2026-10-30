@@ -11,6 +11,7 @@
 // Persistent=true record their last trigger in /var/lib/systemd/timers/ and
 // catch up a run missed while the machine was off.
 
+import { sha256Hex } from '../util/sha256';
 import { basename, mkdir, readFile, writeFile } from '../fs';
 import type { Host, World } from '../types';
 import { log } from './journal';
@@ -405,7 +406,8 @@ export function startUserService(world: World, host: Host, name: string): { ok: 
     return { ok: false, message: `Job for ${name} failed because of unavailable resources or another system error.\nSee "systemctl status ${name}" and "journalctl -xeu ${name}" for details.` };
   }
   const u = host.users[user];
-  const env = { HOME: u.home, USER: user, LOGNAME: user, SHELL: u.shell, PATH: '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin', LANG: 'C.UTF-8', ...ue.env };
+  // INVOCATION_ID: systemd marks every service run; there is no terminal to prompt on.
+  const env = { HOME: u.home, USER: user, LOGNAME: user, SHELL: u.shell, PATH: '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin', LANG: 'C.UTF-8', INVOCATION_ID: sha256Hex(`${name}:${pid}:${start}`).slice(0, 32), ...ue.env };
   const cwd = one(l.unit, 'Service', 'WorkingDirectory') ?? '/';
   let lastExec = '';
   for (const { e } of execs) {

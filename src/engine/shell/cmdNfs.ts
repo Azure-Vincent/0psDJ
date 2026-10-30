@@ -1,6 +1,7 @@
 // NFS and mounts: mount, umount, df, exportfs, showmount (nfs-common and
 // nfs-kernel-server tools, util-linux mount), plus useradd.
 
+import { diskUsedKB } from '../sim/disk';
 import { readFile } from '../fs';
 import { mountFor, mountNfs, type NfsServerLoaded, parseExports, parseFstab, umountNfs, EXPORTS } from '../sim/nfs';
 import { reloadService, serviceDef } from '../sim/services';
@@ -76,6 +77,13 @@ const df: CommandDef = {
     const row = (fs: string, type: string, size: string, used: string, avail: string, pct: string, on: string) => `${fs.padEnd(t ? 30 : 31)}${t ? type.padEnd(5) + ' ' : ''}${size.padStart(h ? 5 : 9)} ${used.padStart(h ? 5 : 7)} ${avail.padStart(h ? 5 : 9)} ${pct.padStart(4)} ${on}`;
     const lines = [head, h ? row('/dev/vda1', 'ext4', '20G', '3.1G', '16G', '17%', '/') : row('/dev/vda1', 'ext4', '20466256', '3201564', '16200344', '17%', '/')];
     const errors: string[] = [];
+    for (const d of ctx.host.disks ?? []) {
+      const used = Math.min(d.sizeKB, diskUsedKB(ctx.host, d));
+      const avail = Math.max(0, Math.round(d.sizeKB * 0.95) - used);
+      const pct = `${Math.ceil((used / Math.max(1, used + avail)) * 100)}%`;
+      const hs = (kb: number) => (kb >= 1048576 ? `${(kb / 1048576).toFixed(kb >= 10 * 1048576 ? 0 : 1)}G` : kb >= 1024 ? `${Math.round(kb / 1024)}M` : `${kb}K`);
+      lines.push(h ? row(d.device, 'ext4', hs(d.sizeKB), hs(used), hs(avail), pct, d.mount) : row(d.device, 'ext4', String(d.sizeKB), String(used), String(avail), pct, d.mount));
+    }
     for (const m of ctx.host.mounts ?? []) {
       if (m.stale) { errors.push(`df: ${m.target}: Stale file handle`); continue; }
       lines.push(h ? row(m.source, 'nfs4', '98G', '12G', '81G', '13%', m.target) : row(m.source, 'nfs4', '102687672', '12582912', '84862212', '13%', m.target));

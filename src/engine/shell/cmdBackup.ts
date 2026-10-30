@@ -56,7 +56,8 @@ export interface Remote { hostId: string; user: string; lines: string[]; done():
 export function sshTransport(ctx: CmdCtx, target: string, user: string | undefined, opts: { identity?: string; batch?: boolean; port?: number } = {}): Remote | { error: CmdResult } {
   const answers: string[] = [];
   for (let guard = 0; guard < 8; guard++) {
-    const snapshot = structuredClone(ctx.world);
+    // A non-interactive connection never prompts, so it can run on the live world (no replay copy).
+    const snapshot = opts.batch ? ctx.world : structuredClone(ctx.world);
     const res = runSsh(snapshot, {
       clientHostId: ctx.host.id,
       localUser: ctx.user.name,
@@ -72,7 +73,7 @@ export function sshTransport(ctx: CmdCtx, target: string, user: string | undefin
       answers.push(ctx.ask(res.prompt!.text, res.prompt!.secret, res.lines.join('\n')));
       continue;
     }
-    Object.assign(ctx.world, snapshot);
+    if (snapshot !== ctx.world) Object.assign(ctx.world, snapshot);
     if (res.outcome !== 'session' || !res.session) return { error: { out: res.lines.join('\n'), code: res.exitCode || 255 } };
     const s = res.session;
     const world: World = ctx.world;

@@ -4,14 +4,15 @@
 // collected answers. Because the engine is deterministic, the replay produces
 // exactly the same intermediate state.
 
+import { RESTIC_COMMANDS } from './cmdRestic';
 import { BACKUP_COMMANDS } from './cmdBackup';
 import { runDueTimers, setUnitRunner } from '../sim/timers';
 import { maintainLeases } from '../sim/dhcp';
 import { syslogFlush } from '../sim/syslog';
 import { nfsSync } from '../sim/nfs';
-import { canAccess, normalizePath } from '../fs';
+import { canAccess, listDir, normalizePath } from '../fs';
 import { endSession } from '../sim/ssh';
-import type { World } from '../types';
+import type { Host, UserAccount, World } from '../types';
 import { bootHost } from '../sim/services';
 import { isWindows } from '../win/model';
 import { newSession, renderOutput, runLine, type PsCtx } from '../win/ps';
@@ -29,11 +30,11 @@ import { SMB_COMMANDS } from './cmdSmb';
 import { MAIL_COMMANDS } from './cmdMail';
 import { PG_COMMANDS, psqlLine, psqlPrompt } from './cmdPg';
 import { LINUX_ONLY, PF_COMMANDS, PF_VERSION } from './cmdPf';
-import { expandParams, parseCommandLine, type Segment } from './tokenize';
+import { expandParams, GLOB, parseCommandLine, type Segment } from './tokenize';
 import { type CmdCtx, type CmdResult, type CommandDef, type EditorRequest, NeedInput, type SessionFrame } from './types';
 
 export const COMMANDS: Record<string, CommandDef> = Object.fromEntries(
-  [...FILE_COMMANDS, ...NET_COMMANDS, ...HTTP_COMMANDS, ...SYSTEM_COMMANDS, ...KRB_COMMANDS, ...RDP_COMMANDS, ...DOCKER_COMMANDS, ...NTP_COMMANDS, ...LOG_COMMANDS, ...NFS_COMMANDS, ...SMB_COMMANDS, ...MAIL_COMMANDS, ...PG_COMMANDS, ...BACKUP_COMMANDS].map((c) => [c.name, c]),
+  [...FILE_COMMANDS, ...NET_COMMANDS, ...HTTP_COMMANDS, ...SYSTEM_COMMANDS, ...KRB_COMMANDS, ...RDP_COMMANDS, ...DOCKER_COMMANDS, ...NTP_COMMANDS, ...LOG_COMMANDS, ...NFS_COMMANDS, ...SMB_COMMANDS, ...MAIL_COMMANDS, ...PG_COMMANDS, ...BACKUP_COMMANDS, ...RESTIC_COMMANDS].map((c) => [c.name, c]),
 );
 
 export interface ExecResult {
@@ -182,12 +183,13 @@ export class Shell {
       };
       const argv = seg.argv.flatMap((a) => {
         const v = expandParams(a, lookup);
-        return v === '' && a !== '' && /^(\u0001[^\u0002]*\u0002)+$/.test(a) ? [] : [v];
+        if (v === '' && a !== '' && /^(\u0001[^\u0002]*\u0002)+$/.test(a)) return [];
+        return v.includes(GLOB) ? expandGlob(host, user, frame.cwd, v) : [v];
       });
       return {
         argv: argv.length ? argv : [''],
-        redirect: seg.redirect && { ...seg.redirect, file: expandParams(seg.redirect.file, lookup) },
-        stdinFile: seg.stdinFile && expandParams(seg.stdinFile, lookup),
+        redirect: seg.redirect && { ...seg.redirect, file: expandParams(seg.redirect.file, lookup).split(GLOB).join('') },
+        stdinFile: seg.stdinFile && expandParams(seg.stdinFile, lookup).split(GLOB).join(''),
       };
     };
 
@@ -266,7 +268,7 @@ export class Shell {
           executed.push(argv.join(' '));
           for (const [n, v] of pairs) {
             (frame.vars ??= {})[n] = v;
-            if (frame.env && n in frame.env) frame.env[n] = v;
+            if ((frame.env && n in frame.env) || frame.allexport) (frame.env ??= {})[n] = v;
           }
           return { out: '', code: 0 };
         }
@@ -297,6 +299,17 @@ export class Shell {
             else bad.push(`-bash: export: \`${a}': not a valid identifier`);
           }
           return { out: bad.join('\n'), code: bad.length ? 1 : 0 };
+        }
+        case 'set': {
+          if (!args.length) {
+            const vars = { ...baseEnv(), ...(frame.env ?? {}), ...(frame.vars ?? {}) };
+            return { out: Object.keys(vars).sort().map((k) => `${k}=${/^[\w./:@%+,=-]*$/.test(vars[k]) ? vars[k] : `'${vars[k]}'`}`).join('\n'), code: 0 };
+          }
+          for (const a of args) {
+            if (/^[-+][aeuxo]+$/.test(a) && a.includes('a')) frame.allexport = a.startsWith('-');
+            else if (!/^[-+][a-zA-Z]+$/.test(a) && a !== 'pipefail' && a !== '-o' && a !== '+o') return { out: `-bash: set: ${a}: invalid option\nset: usage: set [-abefhkmnptuvxBCEHPT] [-o option-name] [--] [-] [arg ...]`, code: 2 };
+          }
+          return { out: '', code: 0 };
         }
         case 'unset':
           for (const a of args.filter((x) => !x.startsWith('-'))) { delete frame.vars?.[a]; delete frame.env?.[a]; }
@@ -585,6 +598,42 @@ function helpText(): string {
 }
 
 export { resolvePath };
+
+/**
+ * Pathname expansion of one word (bash): unquoted * ? [...] match directory entries segment by
+ * segment; hidden names only when the pattern segment starts with "."; no match leaves the word as typed.
+ */
+function expandGlob(host: Host, user: UserAccount | undefined, cwd: string, word: string): string[] {
+  const literal = word.split(GLOB).join('');
+  if (!user) return [literal];
+  const abs = literal.startsWith('/');
+  const parts = word.split('/');
+  let results: string[] = [abs ? '' : '.'];
+  for (let i = abs ? 1 : 0; i < parts.length; i++) {
+    const seg = parts[i];
+    if (seg === '') continue;
+    const next: string[] = [];
+    for (const base of results) {
+      const dirPath = base === '.' ? cwd : base === '' ? '/' : normalizePath(base, cwd, user.home);
+      if (!seg.includes(GLOB)) { next.push(base === '.' ? seg : `${base}/${seg}`); continue; }
+      const dir = host.fs[dirPath];
+      if (!dir || dir.type !== 'dir' || !canAccess(dir, user, 'r')) continue;
+      const pat = seg.split(GLOB).join('');
+      let re: RegExp;
+      try {
+        re = new RegExp('^' + seg.replace(/[.+^${}()|\\]/g, '\\$&').replace(new RegExp(`${GLOB}\\*`, 'g'), '.*').replace(new RegExp(`${GLOB}\\?`, 'g'), '.').replace(new RegExp(`${GLOB}\\[!`, 'g'), '[^').replace(new RegExp(GLOB, 'g'), '') + '$');
+      } catch { return [literal]; }
+      for (const name of listDir(host, dirPath).map((p) => p.split('/').pop()!).sort()) {
+        if (name.startsWith('.') && !pat.startsWith('.')) continue;
+        if (re.test(name)) next.push(base === '.' ? name : `${base}/${name}`);
+      }
+    }
+    results = next;
+    if (!results.length) return [literal];
+  }
+  const out = results.filter((r) => host.fs[normalizePath(r, cwd, user.home)]);
+  return out.length ? out : [literal];
+}
 
 // systemd units run their Exec lines through this shell, as User= in a fresh session with the unit's environment.
 const SYSTEM_PATH = ['/usr/local/sbin', '/usr/local/bin', '/usr/sbin', '/usr/bin', '/sbin', '/bin'];

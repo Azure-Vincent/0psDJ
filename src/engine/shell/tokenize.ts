@@ -3,6 +3,8 @@
 /** Parameter expansions ($?, $HOME, ${USER}) are kept as placeholders and resolved when the command runs. */
 export const VAR_OPEN = '\u0001';
 export const VAR_CLOSE = '\u0002';
+/** Marks an unquoted * ? [ that pathname expansion may act on (quoted ones stay literal). */
+export const GLOB = '\u0003';
 
 /** Reads a parameter name after "$" at line[i]; returns the name and the index of its last character. */
 function paramAt(line: string, i: number): { name: string; end: number } | null {
@@ -24,7 +26,7 @@ export type Segment = { argv: string[]; redirect?: { file: string; append: boole
 export type Pipeline = Segment[];
 export type CommandList = { pipeline: Pipeline; op: ';' | '&&' | '||' | null }[];
 
-export function tokenizeLine(line: string): string[] {
+export function tokenizeLine(line: string, globs = false): string[] {
   const out: string[] = [];
   let cur = '';
   let has = false;
@@ -71,6 +73,7 @@ export function tokenizeLine(line: string): string[] {
       const p = paramAt(line, i);
       if (p) { cur += VAR_OPEN + p.name + VAR_CLOSE; i = p.end; has = true; continue; }
     }
+    if (globs && (c === '*' || c === '?' || c === '[')) cur += GLOB;
     cur += c;
     has = true;
   }
@@ -80,7 +83,7 @@ export function tokenizeLine(line: string): string[] {
 }
 
 export function parseCommandLine(line: string): CommandList {
-  const toks = tokenizeLine(line);
+  const toks = tokenizeLine(line, true);
   const list: CommandList = [];
   let pipeline: Pipeline = [];
   let seg: Segment = { argv: [] };

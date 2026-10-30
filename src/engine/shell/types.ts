@@ -24,6 +24,8 @@ export interface SessionFrame {
   vars?: Record<string, string>;
   /** Exported variables: the environment of the commands this shell runs. */
   env?: Record<string, string>;
+  /** set -a: every assignment is exported. */
+  allexport?: boolean;
 }
 
 export interface EditorRequest {
