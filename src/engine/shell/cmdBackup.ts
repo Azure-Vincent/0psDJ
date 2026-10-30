@@ -275,7 +275,12 @@ const tar: CommandDef = {
       const mode = preserve ? e.m : e.m & ~umask;
       if (e.t === 'd') {
         if (existing && existing.type !== 'dir') { errors.push(`tar: ${rel}: Cannot mkdir: File exists`); continue; }
-        if (!existing && !canAccess(ctx.host.fs[dirname(dest)], ctx.user, 'w')) { errors.push(`tar: ${rel}: Cannot mkdir: Permission denied`); continue; }
+        if (existing) {
+          // An existing directory keeps its owner; only its owner (or root) can change its mode and time.
+          if (ctx.user.uid === 0 || existing.owner === ctx.user.name) Object.assign(existing, { mode, mtime: e.mt }, ctx.user.uid === 0 ? { owner, group } : {});
+          continue;
+        }
+        if (!canAccess(ctx.host.fs[dirname(dest)], ctx.user, 'w')) { errors.push(`tar: ${rel}: Cannot mkdir: Permission denied`); continue; }
         ctx.host.fs[dest] = { type: 'dir', mode, owner, group, content: '', mtime: e.mt };
         continue;
       }
@@ -422,6 +427,8 @@ const rsync: CommandDef = {
         if (nd.type === 'file') total += fileSize(nd);
       }
     }
+    // Like rsync, a source that could not be read turns --delete off (what was not listed is not gone).
+    const senderErrors = errors.length;
     // Destination: a directory when copying a directory, several sources, or an existing directory.
     const destNode = dest.host.fs[dest.path];
     const singleFile = list.length === 1 && list[0].node.type === 'file' && list[0].rel === basename(list[0].abs) && srcSpecs.length === 1 && destNode?.type !== 'dir' && !destSpec.endsWith('/');
@@ -490,7 +497,8 @@ const rsync: CommandDef = {
     }
     // --delete: what is in the destination directory but not in the transfer (and not excluded).
     const deletions: string[] = [];
-    if (o.del && o.r && !singleFile) {
+    if (o.del && o.r && senderErrors) errors.push('IO error encountered -- skipping file deletion');
+    else if (o.del && o.r && !singleFile) {
       const keepRel = new Set(list.map((x) => x.rel));
       const roots = srcSpecs.map((s) => (s.endsWith('/') ? '' : basename(side(s).path)));
       for (const root of new Set(roots)) {

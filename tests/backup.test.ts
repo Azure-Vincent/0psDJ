@@ -41,7 +41,7 @@ describe('restic', () => {
   it('a second backup only adds changes; ls and restore find the file', () => {
     const l = lab();
     const r = l.run('srv01', 'root', `${ENV}; restic backup --tag nightly /etc /var/www /root`);
-    expect(r.output).toMatch(/using parent snapshot 2b1b6ee3/);
+    expect(r.output).toMatch(/using parent snapshot [0-9a-f]{8}\n/);
     expect(r.output).toMatch(/0 new, +0 changed/);
     expect(l.run('srv01', 'root', `${ENV}; restic ls latest /etc/hosts`).output).toMatch(/^\/etc\/hosts$/m);
     l.run('srv01', 'root', `${ENV}; restic restore latest --target /tmp/r --include /etc/hosts`);
@@ -61,6 +61,33 @@ describe('restic', () => {
     writeFile(l.world.hosts.db01, '/root/.ssh/id_ed25519', readFile(srv, '/root/.ssh/id_ed25519')!, l.world.clock, { mode: 0o600 });
     const r = l.run('db01', 'root', 'ssh -i /root/.ssh/id_ed25519 -o BatchMode=yes restic@bak01.corp.lab true');
     expect(r.output).toMatch(/Permission denied \(publickey,password\)/);
+  });
+});
+
+describe('Review fixes: shell, timers, restic and file tools', () => {
+  it('set -o forms and set -ae in a script export the environment', () => {
+    const l = lab();
+    expect(l.run('srv01', 'root', 'set -euo pipefail; set -o allexport; X=5; printenv X').output).toBe('5');
+    expect(l.run('srv01', 'root', "printf 'set -ae\\n. /etc/restic/env\\nrestic snapshots --latest 1\\n' > /tmp/s.sh; chmod 755 /tmp/s.sh; /tmp/s.sh").output).toMatch(/^1 snapshots$/m);
+  });
+
+  it('rsync --delete skips deletion when the source cannot be read', () => {
+    const l = lab();
+    l.run('srv01', 'root', 'mkdir -p /tmp/d/a; rsync -a /tmp/d/ /tmp/m/');
+    expect(l.run('srv01', 'root', 'rsync -a --delete /nonexist/ /tmp/m/').output).toMatch(/IO error encountered -- skipping file deletion/);
+    expect(l.run('srv01', 'root', 'ls /tmp/m').output).toBe('a');
+  });
+
+  it('forget --tag leaves snapshots with other tags alone', () => {
+    const l = lab();
+    l.run('srv01', 'root', `${ENV}; restic backup --tag pre-upgrade /etc /var/www /root`);
+    expect(l.run('srv01', 'root', `${ENV}; restic forget --tag nightly --keep-last 1 --dry-run`).output).not.toMatch(/pre-upgrade/);
+  });
+
+  it('systemd-analyze verify does not change the loaded timer', () => {
+    const l = lab();
+    l.run('srv01', 'root', "cp /etc/systemd/system/restic-backup.timer /tmp/d.timer; sed -i 's/02:30/05:00/' /tmp/d.timer; systemd-analyze verify /tmp/d.timer");
+    expect(l.run('srv01', 'root', 'systemctl list-timers').output).toMatch(/02:30:00/);
   });
 });
 

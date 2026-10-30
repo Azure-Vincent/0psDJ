@@ -709,7 +709,8 @@ function generateKey(ctx: Parameters<CommandDef['run']>[1], flags: Map<string, s
   const e1 = writeChecked(ctx, path, k.privateFile);
   if (e1) return err([...out, `Saving key "${file}" failed: ${e1}`].join('\n'), 1);
   ctx.host.fs[path].mode = 0o600;
-  writeChecked(ctx, `${path}.pub`, k.publicLine + '\n');
+  const e2 = writeChecked(ctx, `${path}.pub`, k.publicLine + '\n');
+  if (e2) return err([...out, `Saving key "${file}.pub" failed: ${e2}`].join('\n'), 1);
   ctx.host.fs[`${path}.pub`].mode = 0o644;
   const fp = k.fingerprint.replace(/^SHA256:/, '');
   const art: string[] = [];

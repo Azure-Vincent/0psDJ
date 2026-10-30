@@ -137,7 +137,14 @@ export function canTraverse(host: Host, path: string, user: UserAccount): boolea
  */
 export function mergeWorld(world: World, copy: World): void {
   const { hosts, ...rest } = copy;
+  // Keys deleted on the copy are deleted here too (Object.assign alone would keep them).
+  for (const k of Object.keys(world) as (keyof World)[]) if (k !== 'hosts' && !(k in rest)) delete world[k];
   Object.assign(world, rest);
-  for (const [id, h] of Object.entries(hosts)) { if (world.hosts[id]) Object.assign(world.hosts[id], h); else world.hosts[id] = h; }
+  for (const [id, h] of Object.entries(hosts)) {
+    const live = world.hosts[id];
+    if (!live) { world.hosts[id] = h; continue; }
+    for (const k of Object.keys(live) as (keyof typeof live)[]) if (!(k in h)) delete live[k];
+    Object.assign(live, h);
+  }
   for (const id of Object.keys(world.hosts)) if (!hosts[id]) delete world.hosts[id];
 }

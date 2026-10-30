@@ -244,7 +244,8 @@ export class Shell {
         for (const raw of f.content!.split('\n')) {
           const line = raw.trim();
           if (!line || line.startsWith('#')) continue;
-          if (/^set\s+-[a-z]*e/.test(line)) { errexit = true; continue; }
+          // errexit is the runner's job; the rest of the line (allexport …) goes to the set builtin.
+          if (/^set\s+(-[a-z]*e[a-z]*|-o\s+errexit)(\s|$)/.test(line)) errexit = true;
           const ex = /^exit(?:\s+(\d+))?$/.exec(line);
           if (ex) { code = Number(ex[1] ?? code); break; }
           const r = runIn(sub, line, stdin);
@@ -305,9 +306,23 @@ export class Shell {
             const vars = { ...baseEnv(), ...(frame.env ?? {}), ...(frame.vars ?? {}) };
             return { out: Object.keys(vars).sort().map((k) => `${k}=${/^[\w./:@%+,=-]*$/.test(vars[k]) ? vars[k] : `'${vars[k]}'`}`).join('\n'), code: 0 };
           }
-          for (const a of args) {
-            if (/^[-+][aeuxo]+$/.test(a) && a.includes('a')) frame.allexport = a.startsWith('-');
-            else if (!/^[-+][a-zA-Z]+$/.test(a) && a !== 'pipefail' && a !== '-o' && a !== '+o') return { out: `-bash: set: ${a}: invalid option\nset: usage: set [-abefhkmnptuvxBCEHPT] [-o option-name] [--] [-] [arg ...]`, code: 2 };
+          const OPTIONS = new Set(['allexport', 'errexit', 'nounset', 'pipefail', 'xtrace', 'noclobber', 'noglob', 'verbose', 'errtrace', 'functrace', 'noexec', 'posix']);
+          for (let i = 0; i < args.length; i++) {
+            const a = args[i];
+            if (a === '--' || a === '-') break;
+            if (a === '-o' || a === '+o') {
+              const opt = args[++i];
+              if (opt === undefined) return { out: '', code: 0 };
+              if (!OPTIONS.has(opt)) return { out: `-bash: set: ${opt}: invalid option name`, code: 1 };
+              if (opt === 'allexport') frame.allexport = a === '-o';
+            } else if (/^[-+][abefhkmnoptuvxBCEHPT]+$/.test(a)) {
+              if (a.includes('a')) frame.allexport = a.startsWith('-');
+              if (a.endsWith('o') && args[i + 1] !== undefined) {
+                const opt = args[++i];
+                if (!OPTIONS.has(opt)) return { out: `-bash: set: ${opt}: invalid option name`, code: 1 };
+                if (opt === 'allexport') frame.allexport = a.startsWith('-');
+              }
+            } else return { out: `-bash: set: ${a}: invalid option\nset: usage: set [-abefhkmnptuvxBCEHPT] [-o option-name] [--] [-] [arg ...]`, code: 2 };
           }
           return { out: '', code: 0 };
         }

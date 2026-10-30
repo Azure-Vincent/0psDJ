@@ -1040,6 +1040,12 @@ function copyTree(ctx: CmdCtx, name: 'cp' | 'mv', src: string, srcArg: string, d
   if (!canAccess(parent, ctx.user, 'w')) return err(`${name}: cannot create directory '${dstArg}': Permission denied`);
   const pre = src + '/';
   const paths = [src, ...Object.keys(host.fs).filter((p) => p.startsWith(pre)).sort()];
+  if (name === 'mv') {
+    // A rename on the same filesystem: only the two parent directories are checked, the tree moves as it is.
+    if (!canAccess(host.fs[dirname(src)], ctx.user, 'w')) return err(`mv: cannot move '${srcArg}' to '${dstArg}': Permission denied`);
+    for (const p of paths) { host.fs[dst + p.slice(src.length)] = host.fs[p]; delete host.fs[p]; }
+    return { out: '', code: 0 };
+  }
   const errors: string[] = [];
   for (const p of paths) {
     const n = host.fs[p];
@@ -1053,10 +1059,6 @@ function copyTree(ctx: CmdCtx, name: 'cp' | 'mv', src: string, srcArg: string, d
       mode: keep ? n.mode : n.mode & ~0o022,
       mtime: keep ? n.mtime : ctx.world.clock,
     };
-  }
-  if (name === 'mv') {
-    if (!canAccess(host.fs[dirname(src)], ctx.user, 'w')) return err(`mv: cannot remove '${srcArg}': Permission denied`);
-    for (const p of paths) delete host.fs[p];
   }
   return { out: errors.join('\n'), code: errors.length ? 1 : 0 };
 }

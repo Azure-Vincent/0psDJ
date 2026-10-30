@@ -678,6 +678,11 @@ function cmdForget(ctx: CmdCtx, o: Opts, out: string[]): number {
       let pool = snaps;
       const hostF = all(o, '--host', '-H');
       if (hostF.length) pool = pool.filter((s) => hostF.includes(s.hostname));
+      // --tag t1,t2 needs all of them; several --tag options are alternatives. --path must match every given path.
+      const tagF = all(o, '--tag').map((t) => t.split(',').filter(Boolean));
+      if (tagF.length) pool = pool.filter((s) => tagF.some((set) => set.every((t) => s.tags.includes(t))));
+      const pathF = all(o, '--path');
+      if (pathF.length) pool = pool.filter((s) => pathF.every((p) => s.paths.includes(p)));
       const groups = new Map<string, Snapshot[]>();
       for (const s of pool) {
         const k = `${s.hostname}\u0000${[...s.paths].sort().join(', ')}`;

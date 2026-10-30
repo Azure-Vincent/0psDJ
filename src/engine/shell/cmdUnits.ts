@@ -119,10 +119,12 @@ export function listTimers(ctx: CmdCtx, all: boolean): string {
   const host = ctx.host;
   const now = ctx.world.clock;
   const rows: string[][] = [];
+  const order: number[] = [];
   for (const name of userUnits(host).filter((u) => u.endsWith('.timer'))) {
     const rt = runtime(host, name);
     if (!loadedUnit(host, name) || (rt.state !== 'active' && !all)) continue;
     const next = timerNext(host, name);
+    order.push(next ?? Infinity);
     rows.push([
       next !== null ? dayTime(next) : 'n/a',
       next !== null ? `${span(next - now)} left` : 'n/a',
@@ -132,7 +134,8 @@ export function listTimers(ctx: CmdCtx, all: boolean): string {
       timerTarget(host, name),
     ]);
   }
-  rows.sort((a, b) => (a[0] === 'n/a' ? 1 : b[0] === 'n/a' ? -1 : a[0].localeCompare(b[0])));
+  const idx = rows.map((_, i) => i).sort((a, b) => order[a] - order[b]);
+  rows.splice(0, rows.length, ...idx.map((i) => rows[i]));
   const head = ['NEXT', 'LEFT', 'LAST', 'PASSED', 'UNIT', 'ACTIVATES'];
   const w = head.map((h, i) => Math.max(h.length, ...rows.map((r) => r[i].length)));
   const fmt = (r: string[]) => r.map((c, i) => (i === r.length - 1 ? c : c.padEnd(w[i]))).join(' ');
@@ -189,10 +192,12 @@ export const systemdAnalyze: CommandDef = {
         const text = ctx.host.fs[f]?.content;
         if (text === undefined) { out.push(`Failed to prepare filename ${f}: No such file or directory`); continue; }
         if (name.endsWith('.timer')) {
+          // Check the file without touching the loaded unit: work on a copy of the runtime state.
           const save = ctx.host.units?.[name];
+          const copy = save ? structuredClone(save) : undefined;
           runtime(ctx.host, name).loaded = text;
           out.push(...timerProblems(ctx.host, name));
-          if (save) ctx.host.units![name] = save; else delete ctx.host.units![name];
+          if (copy) ctx.host.units![name] = copy; else delete ctx.host.units![name];
         }
         if (name.endsWith('.service') && !/^ExecStart=/m.test(text)) out.push(`${name}: Service has no ExecStart=, ExecStop=, or SuccessAction=. Refusing.`);
       }
