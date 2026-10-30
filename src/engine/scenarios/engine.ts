@@ -2,6 +2,7 @@
 // repair (now AND after a simulated reboot of every host), checking security
 // constraints, and grading the learner's diagnosis.
 
+import { mergeWorld } from '../fs';
 import { type SshdLoaded, bootHost } from '../sim/services';
 import { runSsh } from '../sim/ssh';
 import { Shell } from '../shell/shell';
@@ -12,6 +13,7 @@ import { scoredDnsCheck, scoredSshCheck, scoredWebCheck } from './scoring';
 import { dockerTick } from '../sim/docker';
 import { clockSynchronized, ntpSettle } from '../sim/ntp';
 import { syslogFlush } from '../sim/syslog';
+import { runDueTimers } from '../sim/timers';
 import type { Constraint, ConstraintResult, Goal, Scenario } from './types';
 
 /** Run shell commands as root on a host, mutating `world` in place (used to inject faults). */
@@ -27,7 +29,8 @@ export function script(world: World, hostId: string, lines: string[], gapMs = 45
     if (r.needInput) throw new Error(`setup command needs input: ${l}`);
     outputs.push(r.output);
   }
-  Object.assign(world, w);
+  // In place: callers keep references to the world's hosts.
+  mergeWorld(world, w);
   return outputs;
 }
 
@@ -161,6 +164,9 @@ export function rebootAll(world: World): World {
   ntpSettle(w);
   syslogFlush(w);
   w.clock += 30_000;
+  // Timers with Persistent=true run what they missed while everything was off.
+  w.clock += 60_000;
+  runDueTimers(w);
   return w;
 }
 

@@ -419,6 +419,16 @@ function widgetsFor(id: string): LessonWidgets {
       ],
     };
   }
+  if (id === 'backup') {
+    return {
+      sandbox: [
+        { hostId: 'srv01', user: 'root', label: 'srv01 console (root)', banner: 'Sandbox: srv01, a backup client. Load restic\'s settings first: set -a; . /etc/restic/env; set +a. Try: systemctl list-timers, journalctl -u restic-backup.service -n 20, restic snapshots, restic ls latest /etc/nginx, restic restore latest --target /tmp/restore --include /etc/hosts.' },
+        { hostId: 'bak01', user: 'root', label: 'bak01 console (root)', banner: 'Sandbox: bak01, the backup server. Try: df -h /srv/backup, du -sh /srv/backup/restic/*, ls -l /srv/backup/restic/srv01, cat /home/restic/.ssh/authorized_keys, journalctl -u ssh -n 20.' },
+        { hostId: 'mail01', user: 'root', label: 'mail01 console (root)', banner: 'Sandbox: mail01, not backed up yet: follow the Deploy tab to make it a client of bak01 (the authorized_keys line goes in the bak01 console).' },
+        { hostId: 'fs01', user: 'root', label: 'fs01 console (root)', banner: 'Sandbox: fs01, the file server, backed up at 03:00. Try: cat /etc/restic/excludes, set -a; . /etc/restic/env; set +a; restic ls latest /srv/office.' },
+      ],
+    };
+  }
   if (id === 'email') {
     return {
       sandbox: [

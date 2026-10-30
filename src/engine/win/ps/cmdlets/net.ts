@@ -417,7 +417,7 @@ netCmdlet('Set-NetConnectionProfile', 'NetConnection', 'Changes the network cate
 // ---------------------------------------------------------------------------
 
 function curlCtx(ctx: PsCtx): CmdCtx {
-  return { world: ctx.world, host: ctx.host, user: ctx.user, frame: { hostId: ctx.host.id, user: ctx.user.name, cwd: ctx.session.cwd }, ask: ctx.ask, run: () => ({ out: '', code: 1 }) };
+  return { world: ctx.world, host: ctx.host, user: ctx.user, frame: { hostId: ctx.host.id, user: ctx.user.name, cwd: ctx.session.cwd }, ask: ctx.ask, run: () => ({ out: '', code: 1 }), env: {} };
 }
 
 const curl = HTTP_COMMANDS.find((x) => x.name === 'curl')!;

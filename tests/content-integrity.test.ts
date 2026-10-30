@@ -17,7 +17,7 @@ import { PF_COMMANDS } from '../src/engine/shell/cmdPf';
 import { COMMANDS } from '../src/engine/shell/shell';
 import { resolveCommand } from '../src/engine/win/ps/runtime';
 
-const SHELL_BUILTINS = new Set(['sudo', 'exit', 'logout', 'clear', 'true', 'false', 'help', 'which', 'type', 'for', 'echo']);
+const SHELL_BUILTINS = new Set(['sudo', 'exit', 'logout', 'clear', 'true', 'false', 'help', 'which', 'type', 'for', 'echo', 'set', '.']);
 const SECTIONS = new Set(['what', 'internals', 'visualize', 'deploy', 'config', 'operate', 'troubleshoot', 'assess']);
 const OBJECTIVES = new Set(CERT_EXAMS.flatMap((e) => e.domains.flatMap((d) => d.objectives.map((o) => o.id))));
 

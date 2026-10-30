@@ -45,7 +45,7 @@ For every technology it answers the same questions:
   Windows, pfSense, Docker), configuration reference, an **Operate & recover**
   guide (files, logs, service management, diagnostic workflow, common
   failures) and a graded assessment.
-- **Seven guided labs**: build a freshly installed Debian server into a
+- **Eight guided labs**: build a freshly installed Debian server into a
   hardened intranet web server (Lab 1), create an Active Directory domain and
   join a member server (Lab 2), turn a fresh pfSense into the perimeter
   firewall with a DMZ and a published web server (Lab 3), take over a
@@ -55,7 +55,10 @@ For every technology it answers the same questions:
   recover the whole network after a power cut that exposed latent faults
   (Lab 6), and set up a freshly installed PostgreSQL server for a new
   application: owner and application roles, least-privilege grants, network
-  access, pg_hba.conf, backups with a restore test (Lab 7). The simulator checks each step against the running machines, and
+  access, pg_hba.conf, backups with a restore test (Lab 7), and put a new
+  server under backup: a restricted SSH key, a verified host key, an
+  encrypted restic repository on bak01, a nightly systemd timer, a retention
+  policy and a restore test (Lab 8). The simulator checks each step against the running machines, and
   the last step reboots everything.
 - **An Infrastructure Builder**: draw your own network (workstations, servers,
   routers, VLAN-aware switches), set addresses, gateways, VLANs, firewall
@@ -63,7 +66,7 @@ For every technology it answers the same questions:
   machine configured from the files the design generates. You get terminals
   on each machine and a packet tracer that shows every hop and every firewall
   and NAT decision.
-- **132 troubleshooting tickets**, each injecting a realistic fault into the
+- **139 troubleshooting tickets**, each injecting a realistic fault into the
   lab. You investigate with real commands in terminals, record a diagnosis and
   repair the fault. The app then checks your fix immediately, again after
   rebooting every machine, and against security rules, so "just open the
@@ -114,6 +117,13 @@ For every technology it answers the same questions:
   scram-sha-256 line, a backup role that cannot read a new table, a data
   directory restored with the wrong owner, and deleted orders that must come
   back from last night's dump without losing today's rows.
+  A **Backups** set breaks the nightly restic jobs to bak01: a timer edit
+  that systemd rejects (so nothing runs and nothing fails), a reinstalled
+  backup server with new host keys, a stale repository lock after a power
+  cut, a renamed environment file, a backup disk filled by a forgotten disk
+  image, a deleted file to restore without losing today's work, and an
+  exclude pattern that silently drops the database dumps. Fixes must keep
+  each repository's history and never switch host key checking off.
   A **Windows Defender Firewall** set breaks win01's host firewall one rule at
   a time: a web rule scoped to w3wp.exe while http.sys (System) owns port 80,
   a Block rule added "after" an allow rule (Block always wins), a monitoring
@@ -198,6 +208,13 @@ roles, databases, tables, GRANT/REVOKE and default privileges, the log in
 Debian's format, and the data-directory checks at start. `psql` (interactive
 or scripted, with \l, \du, \dp …), pg_dump and pg_restore, pg_lsclusters,
 pg_ctlcluster and pg_isready work like the real tools.
+Backups go to bak01 every night: srv01, db01 and fs01 run restic from
+systemd timers written by the administrator (OnCalendar=, Persistent=,
+EnvironmentFile=, daemon-reload, list-timers, the journal), over SFTP with a
+key that bak01 accepts only from each client's address. restic keeps
+encrypted, deduplicated snapshots (init, backup, snapshots, ls, restore,
+forget with retention policies, prune, check, unlock), the backup disk can
+fill up, and tar, rsync and sha256sum cover simpler copies.
 Group Policy runs on the domain: GPOs with registry and firewall settings,
 links to the domain and to OUs, Block Inheritance and Enforced, security
 filtering against the computer's token, SYSVOL read over SMB at startup and

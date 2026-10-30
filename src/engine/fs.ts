@@ -2,7 +2,7 @@
 // explicit nodes so that ownership/mode checks (e.g. sshd StrictModes) work on
 // every path component.
 
-import type { FileNode, Host, UserAccount } from './types';
+import type { FileNode, Host, UserAccount, World } from './types';
 
 export function normalizePath(path: string, cwd = '/', home = '/root'): string {
   let p = path;
@@ -128,4 +128,23 @@ export function canTraverse(host: Host, path: string, user: UserAccount): boolea
     const n = host.fs[d];
     return !n || canAccess(n, user, 'x');
   });
+}
+
+/**
+ * Commit a modified copy of the world into WORLD in place: callers keep
+ * references to WORLD's host objects (ctx.host), so hosts are updated
+ * property by property instead of being replaced.
+ */
+export function mergeWorld(world: World, copy: World): void {
+  const { hosts, ...rest } = copy;
+  // Keys deleted on the copy are deleted here too (Object.assign alone would keep them).
+  for (const k of Object.keys(world) as (keyof World)[]) if (k !== 'hosts' && !(k in rest)) delete world[k];
+  Object.assign(world, rest);
+  for (const [id, h] of Object.entries(hosts)) {
+    const live = world.hosts[id];
+    if (!live) { world.hosts[id] = h; continue; }
+    for (const k of Object.keys(live) as (keyof typeof live)[]) if (!(k in h)) delete live[k];
+    Object.assign(live, h);
+  }
+  for (const id of Object.keys(world.hosts)) if (!hosts[id]) delete world.hosts[id];
 }

@@ -5,10 +5,11 @@ import { LAB4 } from './lab4';
 import { LAB5 } from './lab5';
 import { LAB6 } from './lab6';
 import { LAB7 } from './lab7';
+import { LAB8 } from './lab8';
 import type { GuidedLab } from './types';
 
 /** Guided multi-step labs (the "Progressive enterprise labs" of the curriculum that are simulated). */
-export const GUIDED_LABS: GuidedLab[] = [LAB1, LAB2, LAB3, LAB4, LAB5, LAB6, LAB7];
+export const GUIDED_LABS: GuidedLab[] = [LAB1, LAB2, LAB3, LAB4, LAB5, LAB6, LAB7, LAB8];
 
 export function findLab(id: string): GuidedLab | undefined {
   return GUIDED_LABS.find((l) => l.id === id);

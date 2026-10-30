@@ -6,7 +6,8 @@ export type ConceptId =
   | 'ssh.userauth' | 'ssh.authorized-keys' | 'linux.permissions' | 'ssh.config' | 'ssh.authz' | 'logs.journal'
   | 'net.cidr' | 'fw.path' | 'net.dhcp' | 'net.nat' | 'net.vlan' | 'net.ipv6' | 'net.ndp'
   | 'linux.fs' | 'net.ops' | 'ops.recovery' | 'win.services' | 'win.firewall' | 'win.rdp' | 'ad.dns' | 'ad.kerberos' | 'ad.gpo'
-  | 'docker.lifecycle' | 'docker.networking' | 'pfsense.rules' | 'pfsense.nat' | 'tls.pki' | 'net.mtu' | 'net.interfaces' | 'web.proxy' | 'ntp.sync' | 'logs.central' | 'files.nfs' | 'files.smb' | 'mail.smtp' | 'mail.imap' | 'db.access' | 'db.admin';
+  | 'docker.lifecycle' | 'docker.networking' | 'pfsense.rules' | 'pfsense.nat' | 'tls.pki' | 'net.mtu' | 'net.interfaces' | 'web.proxy' | 'ntp.sync' | 'logs.central' | 'files.nfs' | 'files.smb' | 'mail.smtp' | 'mail.imap' | 'db.access' | 'db.admin'
+  | 'bk.schedule' | 'bk.transport' | 'bk.operate' | 'bk.restore';
 
 export type CauseCategory = 'Name resolution' | 'Network path' | 'Firewall' | 'Service' | 'Configuration' | 'Authentication' | 'Authorization' | 'Permissions' | 'Client' | 'Cryptography' | 'Persistence';
 

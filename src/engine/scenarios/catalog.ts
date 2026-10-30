@@ -757,6 +757,56 @@ export const CAUSES: Record<string, Cause> = Object.fromEntries(
       check: '\l in psql (Access privileges column); GRANT CONNECT ON DATABASE D TO ROLE.',
     },
     {
+      id: 'bk-timer-invalid', title: 'The backup timer has no valid schedule (systemd refused its OnCalendar=)', category: 'Configuration', concept: 'bk.schedule',
+      signature: 'The job is missing from systemctl list-timers; systemctl status of the timer shows failed (Result: resources) and the journal "Failed to parse calendar specification, ignoring: …" plus "Timer unit lacks value setting. Refusing."',
+      check: 'systemctl list-timers; systemctl status NAME.timer; systemd-analyze calendar "SPEC" for each OnCalendar= line.',
+    },
+    {
+      id: 'bk-timer-disabled', title: 'The backup timer is disabled or stopped', category: 'Persistence', concept: 'bk.schedule',
+      signature: 'The timer is not in systemctl list-timers; systemctl is-enabled says disabled and is-active inactive; the unit files are fine.',
+      check: 'systemctl is-enabled NAME.timer; systemctl is-active NAME.timer; systemctl list-timers --all.',
+    },
+    {
+      id: 'bk-hostkey-changed', title: 'The backup server\'s SSH host key changed (known_hosts mismatch)', category: 'Cryptography', concept: 'bk.transport',
+      signature: 'The job fails before authentication: "WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!" and "Host key verification failed." from the ssh subprocess; every client of the server fails at once.',
+      check: 'journalctl -u the backup unit; ssh-keyscan the server and compare ssh-keygen -lf with the fingerprint published by its administrators.',
+    },
+    {
+      id: 'bk-key-rejected', title: 'The backup server rejects the client\'s SSH key', category: 'Authentication', concept: 'bk.transport',
+      signature: '"Permission denied (publickey)" from the ssh subprocess; the server logs a failed publickey login (or "not from a permitted host" for a from= restriction).',
+      check: 'The key the job uses (/root/.ssh), the repository user\'s authorized_keys on the server (with its options), and the server\'s sshd log.',
+    },
+    {
+      id: 'bk-stale-lock', title: 'A stale lock in the backup repository', category: 'Service', concept: 'bk.operate',
+      signature: '"unable to create lock in backend: repository is already locked … the `unlock` command can be used to remove stale locks" right after the repository is opened; the lock is old and no restic process is running.',
+      check: 'The lock\'s age, host and PID in the message; ps on that host; the repository\'s locks/ directory.',
+    },
+    {
+      id: 'bk-envfile-missing', title: 'The backup unit\'s EnvironmentFile= is missing', category: 'Configuration', concept: 'bk.schedule',
+      signature: 'The service fails instantly with Result=resources: "Failed to load environment files: No such file or directory", and the backup program never runs.',
+      check: 'systemctl cat the unit (EnvironmentFile=); ls the file; systemctl status for the result.',
+    },
+    {
+      id: 'bk-wrong-password', title: 'Wrong or unreadable repository password', category: 'Authentication', concept: 'bk.operate',
+      signature: '"Fatal: wrong password or no key found", or "Readfile: open …: permission denied" / "… does not exist" for the password file.',
+      check: 'RESTIC_PASSWORD_FILE in the environment file, the password file\'s owner and mode, and restic snapshots run by hand with the same settings.',
+    },
+    {
+      id: 'bk-disk-full', title: 'The backup storage is full', category: 'Service', concept: 'bk.operate',
+      signature: 'Writes fail on the server: "no space left on device" (local) or sftp "Failure" (SSH_FX_FAILURE) while saving; all clients of the server fail on the same night.',
+      check: 'df -h and du -sh on the backup server; restic stats for the repositories; the retention (forget --prune) of each job.',
+    },
+    {
+      id: 'bk-file-deleted', title: 'Data was deleted or changed by a user (restore needed)', category: 'Configuration', concept: 'bk.restore',
+      signature: 'Nothing fails: a file or directory is missing or wrong, and the backups still contain the earlier version.',
+      check: 'restic snapshots; restic ls SNAPSHOT PATH to find the version; restore to a separate target and compare.',
+    },
+    {
+      id: 'bk-exclude-too-broad', title: 'An exclude pattern drops data that must be backed up', category: 'Configuration', concept: 'bk.restore',
+      signature: 'Backups succeed but restic ls shows the directory without the file; the exclude file or --exclude has a pattern that matches it (a pattern without "/" matches names anywhere).',
+      check: 'restic ls latest PATH versus ls on the server; the excludes the job uses; a test restore.',
+    },
+    {
       id: 'db-firewall', title: 'The database server\'s firewall drops PostgreSQL (TCP 5432)', category: 'Firewall', concept: 'fw.path',
       signature: 'Clients hang and fail with "Connection timed out"; pg_isready reports "no response". On the server, PostgreSQL is online and listens on the network (pg_lsclusters, ss -tlnp), but the input chain has no accept rule for 5432 and tcpdump shows SYNs without replies. Nothing appears in the PostgreSQL log.',
       check: 'pg_isready -h SERVER from the client; on the server pg_lsclusters, ss -tlnp | grep 5432, nft list ruleset and tcpdump -n port 5432.',

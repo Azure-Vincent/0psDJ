@@ -8,6 +8,7 @@
 // StrictModes path checks, authorized_keys matching, PAM password checks and
 // the exact journal lines sshd writes at the configured LogLevel.
 
+import { inCidr, parseCidr } from '../net/ip';
 import { effectiveConfig, LOG_LEVELS, type SshdEffective } from '../config/sshdConfig';
 import { canAccess, dirname, mkdir, readFile, writeFile } from '../fs';
 import type { Host, World } from '../types';
@@ -190,7 +191,21 @@ function securePath(server: Host, file: string, user: string, home: string): str
 
 type KeyCheck = { ok: true; file: string; line: number } | { ok: false; logs: { level: string; msg: string; priority?: 'err' | 'info' }[] };
 
-function checkAuthorizedKey(server: Host, eff: SshdEffective, user: string, key: ParsedPublicKey): KeyCheck {
+/** authorized_keys from="pattern-list": hostname/IP wildcards, CIDR, !negation (sshd matches the client address; UseDNS is off). */
+function fromAllowed(list: string, ip: string): boolean {
+  let allowed = false;
+  for (const raw of list.split(',')) {
+    const neg = raw.startsWith('!');
+    const p = neg ? raw.slice(1) : raw;
+    const cidr = p.includes('/') ? parseCidr(p) : null;
+    const hit = cidr ? inCidr(ip, cidr) : patternMatches(p, ip);
+    if (hit && neg) return false;
+    if (hit) allowed = true;
+  }
+  return allowed;
+}
+
+function checkAuthorizedKey(server: Host, eff: SshdEffective, user: string, key: ParsedPublicKey, clientIp = ''): KeyCheck {
   const pw = server.users[user];
   const logs: { level: string; msg: string; priority?: 'err' | 'info' }[] = [];
   for (const rel of eff.authorizedKeysFiles) {
@@ -211,7 +226,13 @@ function checkAuthorizedKey(server: Host, eff: SshdEffective, user: string, key:
     const lines = node.content.split('\n');
     for (let i = 0; i < lines.length; i++) {
       const k = parsePublicKey(lines[i]);
-      if (k && k.blobB64 === key.blobB64) return { ok: true, file: path, line: i + 1 };
+      if (!k || k.blobB64 !== key.blobB64) continue;
+      const from = /(?:^|,)from="([^"]*)"/.exec(k.options);
+      if (from && !fromAllowed(from[1], clientIp)) {
+        logs.push({ level: 'INFO', msg: `Authentication tried for ${user} with correct key but not from a permitted host (host=${clientIp}, ip=${clientIp}).` });
+        continue;
+      }
+      return { ok: true, file: path, line: i + 1 };
     }
   }
   return { ok: false, logs };
@@ -713,7 +734,7 @@ function runSshInner(world: World, o: SshClientOptions, out: string[]): SshResul
       if (!tried.includes('publickey')) tried.push('publickey');
       enc('c2s', 120, `SSH_MSG_USERAUTH_REQUEST method="publickey" (query, no signature) ${pub.alg} ${pub.fingerprint}`, [], 'Public key query',
         `The client asks "would you accept this key?" (${pub.fingerprint}) without proving possession yet. This avoids an expensive signature (or a passphrase prompt) for keys the server would reject.`);
-      const check = valid ? checkAuthorizedKey(server, ctxEff, user, pub) : { ok: false as const, logs: [] };
+      const check = valid ? checkAuthorizedKey(server, ctxEff, user, pub, cip) : { ok: false as const, logs: [] };
       if (!check.ok) {
         for (const l of check.logs) slog(l.level, l.msg, l.priority);
         slog('VERBOSE', `Failed publickey for ${invalidTag}${user} from ${cip} port ${cport} ssh2: ${KEY_LABEL[pub.type]} ${pub.fingerprint}`);

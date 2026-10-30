@@ -2,6 +2,7 @@
 // troubleshooting: config validation at start, bind() results, reload semantics,
 // enablement at boot, and the sockets each service listens on.
 
+import { bootUserUnits } from './timers';
 import { faillockClearAll } from './accounts';
 import { effectiveConfig, formatErrors, parseSshdConfig, type SshdEffective } from '../config/sshdConfig';
 import { emptyRuleset, NftError, parseRulesetFile } from '../config/nft';
@@ -1381,4 +1382,6 @@ export function bootHost(world: World, host: Host): void {
   if (!host.services.networking) applyNetworkConfig(world, host);
   // remote-fs.target: NFS entries of /etc/fstab, once the network is up.
   mountFstabNfs(world, host);
+  // timers.target: the administrator's enabled timers (their services run when due, see runDueTimers).
+  bootUserUnits(world, host);
 }
