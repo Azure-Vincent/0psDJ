@@ -258,7 +258,7 @@ const curl: CommandDef = {
       if (recorder) recorder.phase = 'HTTP';
       vlog.push(`> ${method} ${path} HTTP/1.1`, `> Host: ${hostHeader}`, '> User-Agent: curl/7.88.1', '> Accept: */*', ...(method === 'POST' && data.length ? ['> Content-Type: application/x-www-form-urlencoded'] : []), '>');
       conn.send('c2s', 78 + path.length + hostHeader.length + (proto === 'TLS' ? 22 : 0), { protocol: proto, info: proto === 'TLS' ? 'Application Data' : `${reqInfo} Host: ${hostHeader}`, fields: [], encrypted: proto === 'TLS' });
-      const res: HttpResponse = app ? app(ctx.world, server, { method, path: appPath(path), hostHeader, plainOnTls: false, now: ctx.world.clock, client: { ip: backend.proxyFrom ?? conn.sv.peer, ua: 'curl/7.88.1' } }) : handleRequest(server, srv, { method: head ? 'HEAD' : 'GET', path, hostHeader, plainOnTls: scheme === 'http' && sockTls, now: ctx.world.clock, client: { ip: backend.proxyFrom ?? conn.sv.peer, ua: 'curl/7.88.1' } }, ctx.world);
+      const res: HttpResponse = app ? app(ctx.world, server, { method, path: appPath(path), hostHeader, plainOnTls: false, now: ctx.world.clock, client: { ip: backend.proxyFrom ?? conn.sv.peer, ua: 'curl/7.88.1' } }) : handleRequest(server, srv, { method, path, hostHeader, plainOnTls: scheme === 'http' && sockTls, now: ctx.world.clock, client: { ip: backend.proxyFrom ?? conn.sv.peer, ua: 'curl/7.88.1' } }, ctx.world);
       // A slow server (a reverse proxy waiting for its upstream): curl -m gives up first.
       if (max && ctx.world.clock - start > Number(max) * 1000) {
         conn.close('client');

@@ -88,6 +88,32 @@ describe('Monitoring stack in the lab', () => {
   });
 });
 
+describe('Review fixes', () => {
+  it('an invalid regex in a silence or route is refused, and commands keep working', () => {
+    const l = lab();
+    expect(l.run('mon01', 'root', `amtool silence add 'instance=~"srv(01"' --comment=x`).output).toMatch(/error parsing regexp/);
+    l.run('mon01', 'root', `sed -i 's/severity="ticket"/severity=~"tick(et"/' /etc/prometheus/alertmanager.yml`);
+    expect(l.run('mon01', 'root', 'amtool check-config /etc/prometheus/alertmanager.yml').output).toMatch(/FAILED: error parsing regexp/);
+    expect(l.run('mon01', 'root', 'echo still-fine').output).toBe('still-fine');
+  });
+
+  it('reloads read the --config.file the server started with; recording rules keep their samples', () => {
+    const l = lab();
+    l.run('mon01', 'root', 'cp /etc/prometheus/prometheus.yml /etc/prometheus/custom.yml');
+    l.run('mon01', 'root', `printf 'ARGS="--config.file=/etc/prometheus/custom.yml"\\n' > /etc/default/prometheus; systemctl restart prometheus`);
+    l.run('mon01', 'root', `printf '%s\\n' 'groups:' '  - name: rec' '    rules:' '      - record: job:up:sum' '        expr: sum by (job) (up)' > /etc/prometheus/rules/rec.yml`);
+    l.run('mon01', 'root', "sed -i 's/^  scrape_interval: 15s$/  scrape_interval: 15s/' /etc/prometheus/custom.yml; systemctl reload prometheus");
+    expect(l.run('mon01', 'root', 'journalctl -u prometheus -n 2').output).toMatch(/filename=\/etc\/prometheus\/custom\.yml/);
+    l.run('mon01', 'root', 'sleep 60');
+    expect(l.run('mon01', 'root', PQ('count_over_time(job:up:sum{job="node"}[5m]) > 1')).output).toMatch(/=> \d+ @/);
+  });
+
+  it('a POST to a static nginx page is 405 Not Allowed', () => {
+    const l = lab();
+    expect(l.run('ws01', 'alice', 'curl -s -o /dev/null -w "%{http_code}" -X POST http://srv01.corp.lab/').output).toBe('405');
+  });
+});
+
 describe('Monitoring lesson: commands marked as runnable in the sandbox', () => {
   it('Deploy steps run in order (srv01 for "On srv01" steps, mon01 otherwise)', () => {
     const l = lab();

@@ -25,7 +25,7 @@ import { httpHooks } from './httpHooks';
 import { log } from './journal';
 import { smtpConversation } from './mail';
 import { clockSynchronized, hostClock } from './ntp';
-import { evaluate, formatValue, type Labels, type Node, parseDuration, parsePromQL, PromQLError, type Series, type Value, dropName, formatDuration } from './promql';
+import { evaluate, formatValue, matchLabel, validLabelRegex, type Labels, type Node, parseDuration, parsePromQL, PromQLError, type Series, type Value, dropName, formatDuration } from './promql';
 import { allListeners, type Listener, serviceDef } from './services';
 import { tcpConnect } from './tcp';
 import { withRecorder } from './trace';
@@ -462,6 +462,8 @@ export interface AlertState {
 }
 export interface PromLoaded {
   pid: number; listen: { addr: string; port: number }; config: PromConfig; lifecycle: boolean;
+  /** --config.file the server was started with (reloads read it again). */
+  file: string;
   targets: TargetState[];
   /** Series by "target key" (job/instance, or rule:<name>): newest samples only. */
   store: Record<string, Record<string, Series>>;
@@ -493,7 +495,7 @@ function promStart(world: World, host: Host, rt: ServiceRuntime): PromLoaded | n
   plog(world, host, 'prometheus', unit, pid, 'main.go:1251', 'info', 'Completed loading of configuration file', { filename: file, totalDuration: '1.212ms' });
   plog(world, host, 'prometheus', unit, pid, 'main.go:993', 'info', 'Server is ready to receive web requests.');
   return {
-    pid, listen, config: c.config, lifecycle: p.flags.get('web.enable-lifecycle') === 'true',
+    pid, listen, file, config: c.config, lifecycle: p.flags.get('web.enable-lifecycle') === 'true',
     targets: targetsOf(c.config, []), store: {}, alerts: {}, lastScrapeAt: 0, lastEvalAt: 0, reloadOk: true, reloadAt: world.clock, ruleFailures: 0, sendErrors: 0,
   };
 }
@@ -514,7 +516,7 @@ function targetsOf(cfg: PromConfig, prev: TargetState[]): TargetState[] {
 export function promReload(world: World, host: Host, rt: ServiceRuntime): boolean {
   const l = rt.loaded as PromLoaded | null;
   if (!l) return false;
-  const file = PROM_CONFIG;
+  const file = l.file;
   plog(world, host, 'prometheus', 'prometheus.service', l.pid, 'main.go:1214', 'info', 'Loading configuration file', { filename: file });
   const c = loadPromConfig(host, file);
   l.reloadAt = world.clock;
@@ -605,6 +607,8 @@ function scrapeAll(w: World, prom: Host, l: PromLoaded, t: number): void {
   const saved = w.clock;
   for (const target of l.targets) {
     const sc = l.config.scrapes.find((s) => s.job === target.job)!;
+    // Scrapes run on the global interval's schedule; a job with a longer interval waits its turn.
+    if (target.lastScrape && t - target.lastScrape < sc.interval - 1) continue;
     w.clock = t;
     const r = scrapeOnce(w, prom, target, sc.timeout, sc.path, t);
     w.clock = saved;
@@ -680,8 +684,14 @@ function evaluateRules(l: PromLoaded, t: number): void {
     try { v = evaluate(ds, r.node, t); } catch { l.ruleFailures++; continue; }
     const samples = v.kind === 'vector' ? v.samples : v.kind === 'scalar' ? [{ labels: {}, value: v.value, t }] : [];
     if (r.kind === 'record') {
-      const group = (l.store[`rule:${r.name}`] = {} as Record<string, Series>);
-      for (const s of samples) pushSample(group, { ...dropName(s.labels), ...r.labels, __name__: r.name }, t, s.value);
+      const group = (l.store[`rule:${r.name}`] ??= {});
+      const seen = new Set<string>();
+      for (const s of samples) {
+        const labels = { ...dropName(s.labels), ...r.labels, __name__: r.name };
+        seen.add(keyOf(labels));
+        pushSample(group, labels, t, s.value);
+      }
+      for (const k of Object.keys(group)) if (!seen.has(k)) delete group[k];
       continue;
     }
     const active = new Set<string>();
@@ -726,6 +736,8 @@ export interface AmGroup { key: string; receiver: string; labels: Labels; create
 export interface AmSilence { id: string; matchers: { name: string; op: string; value: string }[]; startsAt: number; endsAt: number; createdBy: string; comment: string }
 export interface AmLoaded {
   pid: number; listen: { addr: string; port: number }; config: AmConfig;
+  /** --config.file the server was started with (reloads read it again). */
+  file: string;
   alerts: Record<string, AmAlert>; groups: Record<string, AmGroup>; silences: AmSilence[];
   sent: number; failed: number; lastError: string;
 }
@@ -737,10 +749,14 @@ function parseAmMatchers(list: Yaml, legacy: Yaml, legacyRe: Yaml): AmRoute['mat
   for (const m of Array.isArray(list) ? list : []) {
     const mm = /^\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*(=~|!~|!=|=)\s*"?([^"]*)"?\s*$/.exec(String(m));
     if (!mm) throw new ConfigError(`bad matcher format: ${String(m)}`);
+    if (mm[2].includes('~') && !validLabelRegex(mm[3])) throw new ConfigError(`error parsing regexp: invalid regular expression: \`${mm[3]}\``);
     out.push({ name: mm[1], op: mm[2], value: mm[3] });
   }
   for (const [k, v] of Object.entries((legacy ?? {}) as Record<string, Yaml>)) out.push({ name: k, op: '=', value: String(v) });
-  for (const [k, v] of Object.entries((legacyRe ?? {}) as Record<string, Yaml>)) out.push({ name: k, op: '=~', value: String(v) });
+  for (const [k, v] of Object.entries((legacyRe ?? {}) as Record<string, Yaml>)) {
+    if (!validLabelRegex(String(v))) throw new ConfigError(`error parsing regexp: invalid regular expression: \`${String(v)}\``);
+    out.push({ name: k, op: '=~', value: String(v) });
+  }
   return out;
 }
 
@@ -819,9 +835,13 @@ function amStart(world: World, host: Host, rt: ServiceRuntime): AmLoaded | null 
   }
   plog(world, host, 'prometheus-alertmanager', unit, pid, 'coordinator.go:113', 'info', 'Loading configuration file', { component: 'configuration', file });
   plog(world, host, 'prometheus-alertmanager', unit, pid, 'coordinator.go:126', 'info', 'Completed loading of configuration file', { component: 'configuration', file });
-  const listen = listenAddr(p.flags.get('web.listen-address') ?? ':9093', 9093)!;
+  const listen = listenAddr(p.flags.get('web.listen-address') ?? ':9093', 9093);
+  if (!listen) {
+    plog(world, host, 'prometheus-alertmanager', unit, pid, 'main.go:540', 'error', 'Listen error', { err: `listen tcp: address ${p.flags.get('web.listen-address')}: missing port in address` });
+    return null;
+  }
   plog(world, host, 'prometheus-alertmanager', unit, pid, 'tls_config.go:232', 'info', 'Listening on', { address: `[::]:${listen.port}` });
-  return { pid, listen, config: c.config, alerts: {}, groups: {}, silences: loadSilences(host), sent: 0, failed: 0, lastError: '' };
+  return { pid, listen, file, config: c.config, alerts: {}, groups: {}, silences: loadSilences(host), sent: 0, failed: 0, lastError: '' };
 }
 
 /** Silences survive restarts: Alertmanager keeps them in its data directory. */
@@ -836,24 +856,19 @@ export function saveSilences(host: Host, l: AmLoaded, t: number): void {
 function amReload(world: World, host: Host, rt: ServiceRuntime): boolean {
   const l = rt.loaded as AmLoaded | null;
   if (!l) return false;
-  const c = loadAmConfig(host);
+  const c = loadAmConfig(host, l.file);
   if (!c.config) {
-    plog(world, host, 'prometheus-alertmanager', 'prometheus-alertmanager.service', l.pid, 'coordinator.go:118', 'error', 'Loading configuration file failed', { component: 'configuration', file: AM_CONFIG, err: c.error ?? '' });
+    plog(world, host, 'prometheus-alertmanager', 'prometheus-alertmanager.service', l.pid, 'coordinator.go:118', 'error', 'Loading configuration file failed', { component: 'configuration', file: l.file, err: c.error ?? '' });
     return true;
   }
   l.config = c.config;
-  l.groups = {};
-  plog(world, host, 'prometheus-alertmanager', 'prometheus-alertmanager.service', l.pid, 'coordinator.go:126', 'info', 'Completed loading of configuration file', { component: 'configuration', file: AM_CONFIG });
+  // Groups keep their notification state; groups of receivers that no longer exist are dropped.
+  for (const [k, g] of Object.entries(l.groups)) if (!c.config.receivers.some((r) => r.name === g.receiver)) delete l.groups[k];
+  plog(world, host, 'prometheus-alertmanager', 'prometheus-alertmanager.service', l.pid, 'coordinator.go:126', 'info', 'Completed loading of configuration file', { component: 'configuration', file: l.file });
   return true;
 }
 
-const matchOne = (labels: Labels, m: { name: string; op: string; value: string }) => {
-  const v = labels[m.name] ?? '';
-  if (m.op === '=') return v === m.value;
-  if (m.op === '!=') return v !== m.value;
-  const ok = new RegExp(`^(?:${m.value})$`).test(v);
-  return m.op === '=~' ? ok : !ok;
-};
+const matchOne = matchLabel;
 
 /** The routes an alert takes (the deepest matching child, or the parent). */
 export function routeAlert(route: AmRoute, labels: Labels): AmRoute[] {

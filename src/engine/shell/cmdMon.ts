@@ -8,7 +8,7 @@ import {
   ALERTMANAGER_VERSION, AM_CONFIG, amApiAlerts, type AmLoaded, globFiles, loadAmConfig, loadPromConfig, loadRuleFile, PROM_CONFIG, PROMETHEUS_VERSION, type PromLoaded,
   promDataSource, routeAlert, saveSilences, silencedBy,
 } from '../sim/monitor';
-import { evaluate, formatSeries, formatValue, parsePromQL, PromQLError, parseDuration } from '../sim/promql';
+import { evaluate, formatSeries, formatValue, matchLabel, parsePromQL, PromQLError, parseDuration, validLabelRegex } from '../sim/promql';
 import { allListeners } from '../sim/services';
 import { formatVar, mibsLoaded, type Oid, oidName, resolveName, snmpExchange, timeoutHint, type VarBind } from '../sim/snmp';
 import { tcpConnect } from '../sim/tcp';
@@ -144,6 +144,7 @@ function parseMatchers(list: string[]): { name: string; op: string; value: strin
   for (const raw of list) {
     // amtool: a bare word is shorthand for alertname=word.
     const m = /^([a-zA-Z_][a-zA-Z0-9_]*)\s*(=~|!~|!=|=)\s*"?(.*?)"?$/.exec(raw);
+    if (m && m[2].includes('~') && !validLabelRegex(m[3])) return `error parsing regexp: invalid regular expression: \`${m[3]}\``;
     if (m) out.push({ name: m[1], op: m[2], value: m[3] });
     else if (/^[a-zA-Z_][\w]*$/.test(raw)) out.push({ name: 'alertname', op: '=', value: raw });
     else return `bad matcher format: ${raw}`;
@@ -151,13 +152,7 @@ function parseMatchers(list: string[]): { name: string; op: string; value: strin
   return out;
 }
 
-const matchesAll = (labels: Record<string, string>, ms: { name: string; op: string; value: string }[]) => ms.every((m) => {
-  const v = labels[m.name] ?? '';
-  if (m.op === '=') return v === m.value;
-  if (m.op === '!=') return v !== m.value;
-  const ok2 = new RegExp(`^(?:${m.value})$`).test(v);
-  return m.op === '=~' ? ok2 : !ok2;
-});
+const matchesAll = (labels: Record<string, string>, ms: { name: string; op: string; value: string }[]) => ms.every((m) => matchLabel(labels, m));
 
 const uuid = (seed: string) => {
   const a = sha256Hex(seed);

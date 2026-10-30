@@ -40,7 +40,7 @@ Commercial support is available at
 
 const WWW_DATA: UserAccount = { name: 'www-data', uid: 33, gid: 33, primaryGroup: 'www-data', groups: [], home: '/var/www', shell: '/usr/sbin/nologin', gecos: 'www-data', password: null };
 
-const REASON: Record<number, string> = { 200: 'OK', 301: 'Moved Permanently', 302: 'Found', 400: 'Bad Request', 403: 'Forbidden', 404: 'Not Found', 500: 'Internal Server Error', 502: 'Bad Gateway', 504: 'Gateway Time-out' };
+const REASON: Record<number, string> = { 405: 'Not Allowed', 200: 'OK', 301: 'Moved Permanently', 302: 'Found', 400: 'Bad Request', 403: 'Forbidden', 404: 'Not Found', 500: 'Internal Server Error', 502: 'Bad Gateway', 504: 'Gateway Time-out' };
 
 const MIME: Record<string, string> = {
   html: 'text/html', htm: 'text/html', txt: 'text/plain', css: 'text/css', js: 'application/javascript', json: 'application/json',
@@ -262,6 +262,8 @@ function nginxRequest(host: Host, s: NginxLoadedServer, req: HttpRequestInfo, wo
   const clean = decodeURIComponent(req.path.split('?')[0]).replace(/\/+/g, '/');
   const loc = matchLocation(s.locations, clean);
   if (loc?.proxy && world) return proxyRequest(world, host, loc, req, (st, body) => page(st, body), base);
+  // Static files answer GET and HEAD only.
+  if (req.method !== 'GET' && req.method !== 'HEAD') return { res: page(405, errorPage(405)) };
   let fsPath = (s.root === '/' ? '' : s.root) + clean;
   let node = host.fs[fsPath.replace(/\/$/, '') || '/'];
   if (node?.type === 'dir') {

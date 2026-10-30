@@ -297,15 +297,21 @@ export function parsePromQL(src: string): Node {
 // Evaluation
 // ---------------------------------------------------------------------------
 
-const matches = (labels: Labels, m: Matcher): boolean => {
+/** Is VALUE a valid (anchored) label regex? */
+export function validLabelRegex(value: string): boolean {
+  try { new RegExp(`^(?:${value})$`); return true; } catch { return false; }
+}
+
+/** Label matching (=, !=, =~, !~) as Prometheus and Alertmanager do it; an invalid regex matches nothing. */
+export function matchLabel(labels: Labels, m: { name: string; op: string; value: string }): boolean {
   const v = labels[m.name] ?? '';
-  switch (m.op) {
-    case '=': return v === m.value;
-    case '!=': return v !== m.value;
-    case '=~': return new RegExp(`^(?:${m.value})$`).test(v);
-    case '!~': return !new RegExp(`^(?:${m.value})$`).test(v);
-  }
-};
+  if (m.op === '=') return v === m.value;
+  if (m.op === '!=') return v !== m.value;
+  if (!validLabelRegex(m.value)) return false;
+  const ok = new RegExp(`^(?:${m.value})$`).test(v);
+  return m.op === '=~' ? ok : !ok;
+}
+const matches = matchLabel;
 
 export const dropName = (l: Labels): Labels => { const { __name__: _n, ...rest } = l; return rest; };
 const sigOf = (l: Labels, on?: string[], ignoring?: string[]): string => {
