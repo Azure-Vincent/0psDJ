@@ -6,5 +6,6 @@ import { PROCEDURES_PLATFORM } from './proceduresPlatform';
 import { KRB_PROCEDURES } from './kerberosRefs';
 import { MAIL_PROCEDURES } from './mailRefs';
 import { DB_PROCEDURES } from './dbRefs';
+import { BACKUP_PROCEDURES } from './backupRefs';
 
-export const PROCEDURES: Procedure[] = [...PROCEDURES_LINUX, ...KRB_PROCEDURES, ...PROCEDURES_PLATFORM, ...MAIL_PROCEDURES, ...DB_PROCEDURES];
+export const PROCEDURES: Procedure[] = [...PROCEDURES_LINUX, ...KRB_PROCEDURES, ...PROCEDURES_PLATFORM, ...MAIL_PROCEDURES, ...DB_PROCEDURES, ...BACKUP_PROCEDURES];

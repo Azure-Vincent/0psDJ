@@ -76,6 +76,29 @@ function historyKept(...clients: BackupClient[]): Constraint {
   };
 }
 
+/** The world after each client's job ran once more (constraints look at what the job does now, not at old snapshots). */
+function afterRun(world: World, clients: BackupClient[]): World {
+  const copy = structuredClone(world);
+  for (const c of clients) script(copy, c, ['systemctl start restic-backup.service']);
+  return copy;
+}
+/** The jobs still write to the clients' own repositories (no new repository started next to the old one). */
+function sameRepository(...clients: BackupClient[]): Constraint {
+  return {
+    id: 'bk-same-repo', required: true,
+    description: `The backup jobs of ${clients.join(', ')} still write to their existing repositories in ${REPO_ROOT}, so history and retention continue.`,
+    check(world) {
+      const after = afterRun(world, clients);
+      for (const c of clients) {
+        const pre = `${REPO_ROOT}/${c}/snapshots/`;
+        if (!Object.keys(after.hosts.bak01.fs).some((p) => p.startsWith(pre) && !world.hosts.bak01.fs[p])) {
+          return { id: this.id, ok: false, required: true, message: `${c}'s job no longer adds snapshots to ${REPO_ROOT}/${c}: keep the existing repository (and its password) instead of starting a new one.` };
+        }
+      }
+      return { id: this.id, ok: true, required: true, message: 'The jobs write to their existing repositories.' };
+    },
+  };
+}
 function passwordsProtected(...clients: BackupClient[]): Constraint {
   return {
     id: 'bk-password-protected', required: true,
@@ -133,7 +156,7 @@ export const BACKUP_SCENARIOS: Scenario[] = [
       prevention: 'Check calendar expressions with systemd-analyze calendar (and units with systemd-analyze verify) before reloading; after any change look at systemctl list-timers; monitor the age of the newest snapshot, not only failed jobs.',
     },
     solution: [{ host: 'srv01', commands: ["sed -i 's/^OnCalendar=.*/OnCalendar=*-*-* 02:30:00\\nOnCalendar=*-*-* 14:30:00/' /etc/systemd/system/restic-backup.timer", 'systemctl daemon-reload', 'systemctl restart restic-backup.timer'] }],
-    constraints: [historyKept('srv01'), {
+    constraints: [historyKept('srv01'), sameRepository('srv01'), {
       id: 'bk-twice-daily', required: true,
       description: 'srv01\'s timer fires at 02:30 and at 14:30 every day (CHG-2560) and keeps Persistent=true.',
       check(world) {
@@ -186,7 +209,7 @@ export const BACKUP_SCENARIOS: Scenario[] = [
       prevention: 'Back up /etc/ssh/ssh_host_* with the server (and restore them on reinstall), or publish the new fingerprints with the change and update known_hosts on the clients as part of it. Never disable StrictHostKeyChecking for backup jobs.',
     },
     solution: (['srv01', 'db01', 'fs01'] as BackupClient[]).map((host) => ({ host, commands: ['ssh-keygen -R bak01.corp.lab', 'ssh-keyscan -t ed25519 bak01.corp.lab > /tmp/bak01.key', 'ssh-keygen -lf /tmp/bak01.key', 'cat /tmp/bak01.key >> /root/.ssh/known_hosts'] })),
-    constraints: [historyKept('srv01', 'db01', 'fs01'), {
+    constraints: [historyKept('srv01', 'db01', 'fs01'), sameRepository('srv01', 'db01', 'fs01'), {
       id: 'bk-known-host', required: true,
       description: 'Each client\'s known_hosts trusts exactly bak01\'s new key (no old key left for bak01.corp.lab, no checking switched off).',
       check(world) {
@@ -240,7 +263,7 @@ export const BACKUP_SCENARIOS: Scenario[] = [
       prevention: 'After an outage, check every backup job the next day (systemctl --failed, list-timers, snapshot age). Keep prune on a separate, less frequent schedule; run restic check after crashes. A UPS with automatic shutdown protects the repositories.',
     },
     solution: [{ host: 'srv01', commands: [`${ENV}; restic unlock`] }],
-    constraints: [historyKept('srv01')],
+    constraints: [historyKept('srv01'), sameRepository('srv01')],
     concepts: ['bk.operate'],
   },
   // -------------------------------------------------------------------------
@@ -275,7 +298,7 @@ export const BACKUP_SCENARIOS: Scenario[] = [
       prevention: 'Search for references (grep -r /etc/restic/env /etc/systemd /usr/local/sbin) before renaming files, and run the job by hand (systemctl start) after any change to it.',
     },
     solution: [{ host: 'fs01', commands: ['mv /etc/restic/restic.env /etc/restic/env'] }],
-    constraints: [historyKept('fs01'), passwordsProtected('fs01')],
+    constraints: [historyKept('fs01'), sameRepository('fs01'), passwordsProtected('fs01')],
     concepts: ['bk.schedule', 'svc.systemd'],
   },
   // -------------------------------------------------------------------------
@@ -316,7 +339,7 @@ export const BACKUP_SCENARIOS: Scenario[] = [
       prevention: 'Monitor free space on backup storage with an alert well before 100%; keep the backup disk for repositories only; let prune enforce the retention policy so the repositories stay a predictable size.',
     },
     solution: [{ host: 'bak01', commands: ['rm /srv/backup/fs-old.img'] }],
-    constraints: [historyKept('srv01', 'db01', 'fs01')],
+    constraints: [historyKept('srv01', 'db01', 'fs01'), sameRepository('srv01', 'db01', 'fs01')],
     concepts: ['bk.operate'],
   },
   // -------------------------------------------------------------------------
@@ -412,7 +435,8 @@ export const BACKUP_SCENARIOS: Scenario[] = [
       id: 'bk-scratch-excluded', required: true,
       description: 'The developers\' scratch dumps stay out of the backups (the newest snapshot has nothing under /var/backups/postgresql/scratch/).',
       check(world) {
-        const s = repoSnapshots(world, 'db01').at(-1);
+        // What the job backs up now: run it once more on a copy and look at that snapshot.
+        const s = repoSnapshots(afterRun(world, ['db01']), 'db01').at(-1);
         const bad = s?.files.some((f) => f.p.startsWith('/var/backups/postgresql/scratch/'));
         return { id: this.id, ok: !bad, required: true, message: bad ? 'The newest snapshot contains the scratch dumps (32 GB): they would fill bak01. Exclude the scratch directory, not every .dump file.' : 'Scratch dumps are not backed up.' };
       },
