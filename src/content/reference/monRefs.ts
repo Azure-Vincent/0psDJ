@@ -1,0 +1,158 @@
+// Reference entries for monitoring: promtool, amtool and the net-snmp tools,
+// the Prometheus, rule, Alertmanager and snmpd configuration files, and the
+// procedures for monitoring a new server and finding a missing page.
+
+import type { CommandRef, FileRef, Procedure } from '../types';
+
+export const MON_COMMAND_REFS: CommandRef[] = [
+  {
+    id: 'promtool', name: 'promtool', platform: 'Linux', category: 'Monitoring', simulator: 'promtool',
+    purpose: 'Prometheus\' companion tool: validate prometheus.yml and rule files before a reload, and run PromQL queries against a server from the shell.',
+    syntax: 'promtool check config FILE… | promtool check rules FILE… | promtool query instant SERVER EXPR | promtool check metrics < exposition',
+    args: [
+      { arg: 'check config FILE', meaning: 'Parse prometheus.yml exactly as the server would, then check every rule file it references' },
+      { arg: 'check rules FILE', meaning: 'Parse a rule file: YAML, expressions, durations, field names' },
+      { arg: 'query instant SERVER EXPR', meaning: 'Evaluate EXPR now on SERVER (http://localhost:9090) and print series => value @[timestamp]' },
+      { arg: 'check metrics', meaning: 'Lint exposition text read from standard input (missing HELP, naming)' },
+    ],
+    example: { command: "promtool query instant http://localhost:9090 'up == 0'", output: 'up{instance="fs01.corp.lab:9100", job="node", site="corp"} => 0 @[1792399215.000]' },
+    interpretation: 'An empty answer means no series matched (for "up == 0": every target is up). "query error: bad_data: 1:6: parse error: …" points at the column of a PromQL mistake. For check: SUCCESS lines per file; FAILED with the file\'s error, exit status 1.',
+    limitations: 'Simulated: check config, check rules, query instant, check metrics. No query range/series/labels, test rules, tsdb commands.',
+    errors: [
+      { message: 'FAILED: parsing YAML file /etc/prometheus/prometheus.yml: yaml: unmarshal errors: line 4: field scrape_intervl not found in type config.GlobalConfig', meaning: 'A misspelled or misplaced key.' },
+      { message: 'FAILED: … could not parse expression: 1:11: parse error: unexpected end of input', meaning: 'A rule\'s expr is not valid PromQL.' },
+      { message: 'query error: Post "http://localhost:9090/api/v1/query": dial tcp [::1]:9090: connect: connection refused', meaning: 'Prometheus is not running (or listens elsewhere).' },
+    ],
+    permissions: 'Read access to the files; network access to the server for queries.',
+    compat: 'Ships with Prometheus (Debian package prometheus).',
+    services: ['Monitoring'], protocols: ['HTTP'], symptoms: ['Monitoring down', 'Alert not firing'],
+  },
+  {
+    id: 'amtool', name: 'amtool', platform: 'Linux', category: 'Monitoring', simulator: 'amtool',
+    purpose: 'Alertmanager\'s command-line client: list alerts, add and expire silences, validate alertmanager.yml and test which receiver labels are routed to.',
+    syntax: 'amtool [--alertmanager.url=URL] alert [query] [MATCHER…] [-s] | silence add MATCHER… --comment=TEXT [--duration=1h] | silence query [-q] | silence expire ID… | check-config FILE | config routes [test LABEL=VALUE…]',
+    args: [
+      { arg: '--alertmanager.url=URL', meaning: 'Which Alertmanager (or alertmanager.url in /etc/amtool/config.yml or ~/.config/amtool/config.yml)' },
+      { arg: 'alert [query] MATCHERS', meaning: 'Active alerts (-s: also silenced/suppressed ones)' },
+      { arg: 'silence add MATCHERS --comment --duration', meaning: 'Create a silence; prints its ID' },
+      { arg: 'silence query / expire ID', meaning: 'List active silences (-q: IDs only, --expired: past ones) / end a silence now' },
+      { arg: 'check-config FILE', meaning: 'Validate alertmanager.yml (routes, receivers, inhibit rules)' },
+      { arg: 'config routes test LABEL=VALUE…', meaning: 'Print the receiver an alert with these labels would reach' },
+    ],
+    example: { command: 'amtool alert', output: 'Alertname     Starts At                Summary                                 State\nInstanceDown  2026-10-19 08:36:15 UTC  db01.corp.lab:9100 of job node is down  active' },
+    interpretation: 'An alert firing in Prometheus but missing from "amtool alert" is either not received (Prometheus\' log: "Error sending alert") or suppressed (amtool alert -s shows it).',
+    limitations: 'Simulated: alert/alert query (-s, -o extended|json), silence add/query/expire, check-config, config routes [test]. No alert add, cluster commands or templates.',
+    errors: [
+      { message: 'amtool: error: required flag --alertmanager.url not provided', meaning: 'No URL on the command line or in amtool\'s config.yml.' },
+      { message: 'amtool: error: Get "http://localhost:9093/api/v2/alerts": dial tcp [::1]:9093: connect: connection refused', meaning: 'Alertmanager is not running.' },
+      { message: 'Checking \'…\'  FAILED: undefined receiver "pager" used in route', meaning: 'A route names a receiver that is not defined.' },
+    ],
+    permissions: 'Network access to Alertmanager. Anyone who can reach its API can create silences: restrict access.',
+    compat: 'Ships with Alertmanager (Debian package prometheus-alertmanager).',
+    services: ['Monitoring'], protocols: ['HTTP'], symptoms: ['Alert not received', 'No notification'],
+  },
+  {
+    id: 'snmpwalk', name: 'snmpget / snmpwalk / snmpbulkwalk', platform: 'Linux', category: 'Monitoring', simulator: 'snmpwalk',
+    purpose: 'net-snmp\'s manager tools: read one object (snmpget) or a whole subtree (snmpwalk, snmpbulkwalk) from an SNMP agent, with v1/v2c communities or SNMPv3 users.',
+    syntax: 'snmpget -v2c -c COMMUNITY AGENT OID… | snmpwalk -v2c -c COMMUNITY AGENT [OID] | snmpget -v3 -l authPriv -u USER -a SHA -A AUTHPASS -x AES -X PRIVPASS AGENT OID…  [-On] [-Oq] [-Ov] [-m ALL]',
+    args: [
+      { arg: '-v 1|2c|3', meaning: 'Protocol version (Debian\'s default is 3)' },
+      { arg: '-c COMMUNITY', meaning: 'v1/v2c community (clear text on the wire)' },
+      { arg: '-u USER -l LEVEL', meaning: 'v3 user and security level: noAuthNoPriv, authNoPriv, authPriv' },
+      { arg: '-a SHA -A PASS / -x AES -X PASS', meaning: 'v3 authentication / privacy protocol and passphrase' },
+      { arg: '-On / -Oq / -Ov', meaning: 'Numeric OIDs / quick output without type / value only' },
+      { arg: '-m ALL', meaning: 'Load all installed MIBs (Debian disables MIB loading in /etc/snmp/snmp.conf)' },
+    ],
+    example: { command: 'snmpwalk -v2c -c corp-mon rtr01.corp.lab .1.3.6.1.2.1.2.2.1.2', output: 'iso.3.6.1.2.1.2.2.1.2.1 = STRING: "lo"\niso.3.6.1.2.1.2.2.1.2.2 = STRING: "eth0"\niso.3.6.1.2.1.2.2.1.2.3 = STRING: "eth1"' },
+    interpretation: '"Timeout: No Response" covers every v2c refusal: agent not listening there, wrong community, source not allowed, firewall. "No Such Object" means the agent answered but the OID is outside its tree or view. v3 errors are explicit (unknown user, authentication failure, authorizationError).',
+    limitations: 'Simulated: get, walk and bulkwalk of the system, IF-MIB (ifTable, ifXTable), HOST-RESOURCES (hrSystem, hrStorage) trees, v1/v2c/v3, -O n/q/v, -m ALL. No set, traps, snmptranslate or snmptable.',
+    errors: [
+      { message: 'Timeout: No Response from rtr01.corp.lab', meaning: 'The agent did not answer (listen address, community/source, firewall, version).' },
+      { message: 'snmpget: Authentication failure (incorrect password, community or key)', meaning: 'Wrong v3 authentication passphrase or protocol.' },
+      { message: 'Error in packet / Reason: authorizationError (access denied to that object)', meaning: 'v3 user known, but the security level or view does not allow it.' },
+      { message: 'IF-MIB::ifDescr: Unknown Object Identifier (Sub-id not found: (top) -> ifDescr)', meaning: 'MIB names without MIBs loaded: use numeric OIDs or -m ALL.' },
+    ],
+    permissions: 'Any user; the agent decides what to answer.',
+    compat: 'Debian package snmp (snmp-mibs-downloader for the MIB files). Windows: SnmpUtil, PowerShell modules.',
+    services: ['Monitoring', 'SNMP'], protocols: ['SNMP', 'UDP'], symptoms: ['SNMP timeout'],
+  },
+];
+
+export const MON_FILE_REFS: FileRef[] = [
+  {
+    id: 'file:prometheus-yml', path: '/etc/prometheus/prometheus.yml', platform: 'Prometheus 2.x (Debian package)', kind: 'config',
+    services: ['Monitoring'],
+    purpose: 'What Prometheus scrapes and evaluates: global intervals and labels, the Alertmanagers to send alerts to, the rule files, and the scrape jobs with their targets.',
+    contents: 'global: scrape_interval, scrape_timeout (≤ interval), evaluation_interval, external_labels. alerting.alertmanagers[].static_configs[].targets. rule_files: globs relative to the file. scrape_configs[]: job_name (unique), static_configs[].targets ["host:port"], labels, metrics_path (/metrics), scheme, per-job intervals.',
+    accessed: 'At start (an error stops Prometheus) and on reload (SIGHUP, systemctl reload prometheus, POST /-/reload with --web.enable-lifecycle): an error is logged and the old configuration kept.',
+    permissions: 'root:root 644.',
+    problems: 'Tabs or wrong indentation (yaml errors), misspelled keys ("field … not found"), duplicate job names, scrape_timeout longer than scrape_interval, targets written as URLs instead of host:port.',
+    example: "global:\n  scrape_interval: 15s\n  evaluation_interval: 15s\nalerting:\n  alertmanagers:\n    - static_configs:\n        - targets: ['localhost:9093']\nrule_files:\n  - 'rules/*.yml'\nscrape_configs:\n  - job_name: node\n    static_configs:\n      - targets: ['srv01.corp.lab:9100', 'db01.corp.lab:9100']",
+    relatedCommands: ['promtool', 'systemctl', 'journalctl'],
+  },
+  {
+    id: 'file:alert-rules', path: '/etc/prometheus/rules/*.yml (rule_files)', platform: 'Prometheus 2.x', kind: 'config',
+    services: ['Monitoring'],
+    purpose: 'Alerting rules (conditions that fire alerts) and recording rules (pre-computed series).',
+    contents: 'groups: [{ name, rules: [{ alert: Name, expr: PromQL, for: 5m, labels: { severity: page }, annotations: { summary: "… {{ $labels.instance }} … {{ $value }}" } }, { record: name, expr: PromQL }] }]. Annotations are templates: $labels, $value, | humanize, | humanizePercentage, | humanizeDuration.',
+    accessed: 'With prometheus.yml at start and reload; evaluated every evaluation_interval.',
+    permissions: 'root:root 644.',
+    problems: 'Invalid PromQL fails the whole load; a selector with a wrong label never matches (the rule silently never fires); for: too short pages on blips, too long hides outages.',
+    example: 'groups:\n  - name: availability\n    rules:\n      - alert: InstanceDown\n        expr: up == 0\n        for: 2m\n        labels:\n          severity: page\n        annotations:\n          summary: "{{ $labels.instance }} is down"',
+    relatedCommands: ['promtool'],
+  },
+  {
+    id: 'file:alertmanager-yml', path: '/etc/prometheus/alertmanager.yml', platform: 'Alertmanager 0.2x (Debian package)', kind: 'config',
+    services: ['Monitoring', 'Email'],
+    purpose: 'How alerts become notifications: global SMTP settings, the routing tree, receivers and inhibition rules.',
+    contents: 'global: smtp_smarthost (host:port), smtp_from, smtp_hello, smtp_auth_*, smtp_require_tls (default true). route: receiver, group_by, group_wait (30s), group_interval (5m), repeat_interval (4h), routes: [{ matchers: [\'severity="ticket"\'], receiver, continue }]. receivers: [{ name, email_configs: [{ to, send_resolved }] }]. inhibit_rules: source_matchers, target_matchers, equal.',
+    accessed: 'At start and reload (systemctl reload prometheus-alertmanager, POST /-/reload).',
+    permissions: 'root:root 644 (640 if it holds SMTP passwords).',
+    problems: 'Undefined receivers, a smarthost port that requires authentication (587), require_tls against a server without STARTTLS, routes ordered so a broad match catches everything first.',
+    example: "global:\n  smtp_smarthost: 'mail01.corp.lab:25'\n  smtp_from: 'alertmanager@corp.lab'\nroute:\n  receiver: oncall\n  group_by: ['alertname', 'instance']\n  routes:\n    - matchers: ['severity=\"ticket\"']\n      receiver: tickets\nreceivers:\n  - name: oncall\n    email_configs:\n      - to: 'oncall@corp.lab'\n        send_resolved: true\n  - name: tickets\n    email_configs:\n      - to: 'ops-tickets@corp.lab'",
+    relatedCommands: ['amtool', 'journalctl'],
+  },
+  {
+    id: 'file:snmpd-conf', path: '/etc/snmp/snmpd.conf (+ snmpd.conf.d/*.conf, /var/lib/snmp/snmpd.conf)', platform: 'net-snmp 5.9 (Debian snmpd)', kind: 'config',
+    services: ['Monitoring', 'SNMP'],
+    purpose: 'The SNMP agent: where it listens, what it says about the system, who may read what.',
+    contents: 'agentaddress udp:161 (Debian default: 127.0.0.1,[::1]); sysLocation, sysContact; view NAME included OID; rocommunity COMMUNITY SOURCE -V VIEW (rocommunity6 for IPv6); createUser USER SHA "authpass" AES "privpass"; rouser USER authpriv -V VIEW; includeDir /etc/snmp/snmpd.conf.d.',
+    accessed: 'At start and restart of snmpd. createUser lines are turned into keys and stored in /var/lib/snmp/snmpd.conf.',
+    permissions: 'root:root 600 (it holds communities and passphrases).',
+    problems: 'Listening on localhost only; the default "public" community left enabled; a view too small (only system); unknown tokens are warned about and ignored; a package update replacing a modified file (keep changes in snmpd.conf.d).',
+    example: 'agentaddress  udp:161\nview   all   included   .1\nrocommunity  corp-mon 10.0.20.55 -V all\ncreateUser monitor SHA "Snmp-Auth-2611" AES "Snmp-Priv-2611"\nrouser monitor authpriv -V all',
+    relatedCommands: ['snmpwalk', 'ss', 'systemctl'],
+  },
+];
+
+export const MON_PROCEDURES: Procedure[] = [
+  {
+    id: 'proc:monitor-new-server', title: 'Bring a new server under monitoring', platform: 'Debian 12 (Prometheus, node_exporter, snmpd)',
+    services: ['Monitoring'],
+    symptoms: ['New server', 'Not monitored'],
+    purpose: 'Exporter, firewall, target, rules and an end-to-end test of the page, as in Lab 9.',
+    steps: [
+      { title: 'Exporter with the collectors you need', command: 'apt install prometheus-node-exporter\nsed -i \'s/^ARGS=""$/ARGS="--collector.systemd"/\' /etc/default/prometheus-node-exporter\nsystemctl restart prometheus-node-exporter\ncurl -s localhost:9100/metrics | grep unit_state | head', why: 'The systemd collector reports service states for alerts on stopped units.' },
+      { title: 'Firewall: the monitoring server only', command: '# /etc/nftables.conf, input chain:\nip saddr 10.0.20.55 tcp dport 9100 accept\nnft -f /etc/nftables.conf', why: 'Metrics reveal a lot about a machine.' },
+      { title: 'Target, checked and reloaded', command: "# prometheus.yml, node job: - 'NEW.corp.lab:9100'\npromtool check config /etc/prometheus/prometheus.yml\nsystemctl reload prometheus\npromtool query instant http://localhost:9090 'up{instance=\"NEW.corp.lab:9100\"}'", why: 'A reload keeps the old configuration if the file is invalid.' },
+      { title: 'Rules for its service', command: 'promtool check rules /etc/prometheus/rules/NEW.yml\nsystemctl reload prometheus', why: 'Alert on what users of this server would notice.' },
+      { title: 'Test the page', command: 'systemctl stop SERVICE   # announced, in a quiet moment\n# wait for: + group_wait, read the mailbox, then:\nsystemctl start SERVICE', why: 'Only a real alert proves the path from rule to inbox.' },
+    ],
+    risks: 'Restarting Prometheus with an untested file stops all monitoring; leaving exporter or SNMP ports open to everyone leaks information.',
+    verify: 'up is 1, the rules are loaded, the test page and its [RESOLVED] arrived, and everything survives a reboot.',
+  },
+  {
+    id: 'proc:alert-not-received', title: 'An alert fired but nobody was notified', platform: 'Prometheus + Alertmanager',
+    services: ['Monitoring', 'Email'],
+    symptoms: ['No notification', 'Alert not received'],
+    purpose: 'Find the broken link between a firing rule and the inbox.',
+    steps: [
+      { title: 'Did Prometheus send it?', command: 'curl -s http://localhost:9090/api/v1/alerts\njournalctl -u prometheus | grep "Error sending alert"', why: 'Firing in Prometheus, and no delivery errors to Alertmanager.' },
+      { title: 'Did Alertmanager receive it, and is it suppressed?', command: 'amtool alert query -s\namtool silence query', why: 'Silences and inhibition suppress without errors.' },
+      { title: 'Where does it go?', command: 'amtool config routes test alertname=X severity=page instance=…', why: 'The route decides the receiver.' },
+      { title: 'Did the notification fail?', command: 'journalctl -u prometheus-alertmanager | grep "Notify for alerts failed"', why: 'SMTP refusals, TLS problems and wrong ports are only logged here (and on the mail server).' },
+    ],
+    risks: 'Fixing by turning TLS off or opening the mail relay creates new problems: fix the setting that is wrong.',
+    verify: 'A test alert (or a real one) reaches the mailbox; alertmanager_notifications_failed_total stops growing.',
+  },
+];

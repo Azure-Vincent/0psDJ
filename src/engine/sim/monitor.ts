@@ -389,7 +389,8 @@ export function loadPromConfig(host: Host, file = PROM_CONFIG, withRules = true)
     }
     return { config: { scrapeInterval, scrapeTimeout, evalInterval, external, scrapes, ruleFiles, rules, alertmanagers }, ruleCount: rules.length };
   } catch (e) {
-    if (e instanceof ConfigError || e instanceof YamlError) return { error: `parsing YAML file ${file}: ${e.message}`.replace(/parsing YAML file [^:]+: (found multiple|scrape timeout|global scrape|job_name|unknown scrape|"|not a valid|loading groups)/, '$1'), ruleCount: 0 };
+    // Validation runs while the YAML is unmarshalled, so Prometheus names the file; rule files load afterwards.
+    if (e instanceof ConfigError || e instanceof YamlError) return { error: e.message.startsWith('loading groups') ? e.message : `parsing YAML file ${file}: ${e.message}`, ruleCount: 0 };
     throw e;
   }
 }

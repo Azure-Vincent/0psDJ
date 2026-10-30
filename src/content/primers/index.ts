@@ -11,6 +11,7 @@ import { SMB_PRIMER } from '../ops/smb';
 import { EMAIL_PRIMER } from '../ops/email';
 import { DATABASE_PRIMER } from '../ops/database';
 import { BACKUP_PRIMER } from '../ops/backup';
+import { MONITORING_PRIMER } from '../ops/monitoring';
 import { GPO_PRIMER } from '../ops/gpo';
 import { WINDOWS_FIREWALL_PRIMER } from '../ops/windowsFirewall';
 import { NETOPS_PRIMER, NFTABLES_PRIMER, PFSENSE_PRIMER, RECOVERY_PRIMER, SSH_PRIMER, SYSTEMD_PRIMER } from './services';
@@ -43,6 +44,7 @@ export const PRIMERS: Record<string, Primer> = {
   email: EMAIL_PRIMER,
   database: DATABASE_PRIMER,
   backup: BACKUP_PRIMER,
+  monitoring: MONITORING_PRIMER,
   gpo: GPO_PRIMER,
   'windows-firewall': WINDOWS_FIREWALL_PRIMER,
 };
