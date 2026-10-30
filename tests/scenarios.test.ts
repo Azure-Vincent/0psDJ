@@ -150,6 +150,13 @@ const SYMPTOM: Record<string, RegExp> = {
   'db-backup-grant': /pg_dump: error: query failed: ERROR:  permission denied for table supplier_contracts/,
   'db-datadir-owner': /port 5432 failed: Connection refused/,
   'db-restore-orders': /WHERE id = 1004"\nroot@srv01# /,
+  'bk-timer-calendar': /^failed$/m,
+  'bk-hostkey-changed': /Job for restic-backup\.service failed because the control process exited with error code/,
+  'bk-stale-lock': /Job for restic-backup\.service failed because the control process exited with error code/,
+  'bk-envfile': /failed because of unavailable resources or another system error/,
+  'bk-disk-full': /Job for restic-backup\.service failed because the control process exited with error code/,
+  'bk-restore-file': /ls: cannot access '\/srv\/office\/budget-2025\.txt': No such file or directory/,
+  'bk-db-exclude': /^\/var\/backups\/postgresql\/scratch$/m,
   'mtu-uplink-mismatch': /curl: \(28\) Operation timed out after 30000 milliseconds with 0 out of 4718592 bytes received/,
 };
 

@@ -5,7 +5,8 @@
 // the members as JSON (the simulator keeps text, not bytes); its nominal size
 // follows tar's 512-byte blocks and a rough gzip ratio.
 
-import { basename, canAccess, canTraverse, dirname, getNode, modeString } from '../fs';
+import { noSpace } from '../sim/disk';
+import { basename, canAccess, canTraverse, dirname, getNode, mergeWorld, modeString } from '../fs';
 import { runSsh, endSession } from '../sim/ssh';
 import type { FileNode, Host, UserAccount, World } from '../types';
 import { sha256Hex } from '../util/sha256';
@@ -73,7 +74,7 @@ export function sshTransport(ctx: CmdCtx, target: string, user: string | undefin
       answers.push(ctx.ask(res.prompt!.text, res.prompt!.secret, res.lines.join('\n')));
       continue;
     }
-    if (snapshot !== ctx.world) Object.assign(ctx.world, snapshot);
+    if (snapshot !== ctx.world) mergeWorld(ctx.world, snapshot);
     if (res.outcome !== 'session' || !res.session) return { error: { out: res.lines.join('\n'), code: res.exitCode || 255 } };
     const s = res.session;
     const world: World = ctx.world;
@@ -225,6 +226,7 @@ const tar: CommandDef = {
       if (warnedSlash) out.unshift('tar: Removing leading `/\' from member names');
       const enc = encodeTar(entries, gz);
       if (!archivePath) return { out: enc.content, code: errors.length ? 2 : 0 };
+      if (noSpace(ctx.host, archivePath, enc.size, ctx.user.uid === 0)) return err([...out, `tar: ${file}: Wrote only 0 of 10240 bytes`, 'tar: Error is not recoverable: exiting now'].join('\n'), 2);
       const e = writeChecked(ctx, archivePath, enc.content);
       if (e) return err(`tar: ${file}: Cannot open: ${e}\ntar: Error is not recoverable: exiting now`, 2);
       ctx.host.fs[archivePath].size = enc.size;
@@ -473,6 +475,7 @@ const rsync: CommandDef = {
       if (o.n) continue;
       const parent = dest.host.fs[dirname(t)];
       if (!parent) { errors.push(`rsync: [${role}] mkstemp "${t}" failed: No such file or directory (2)`); continue; }
+      if (noSpace(dest.host, t, fileSize(n), destUser.uid === 0)) { errors.push(`rsync: [${role}] write failed on "${t}": No space left on device (28)`); continue; }
       if (cur ? !canAccess(cur, destUser, 'w') && !canAccess(parent, destUser, 'w') : !canAccess(parent, destUser, 'w')) {
         errors.push(`rsync: [${role}] mkstemp "${dirname(t)}/.${basename(t)}.XXXXXX" failed: Permission denied (13)`);
         continue;

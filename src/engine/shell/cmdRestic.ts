@@ -99,7 +99,7 @@ function repoWrite(ctx: CmdCtx, repo: Repo, rel: string, content: string, size?:
   const first = parents.length ? dirname(parents[0]) : dirname(p);
   const parent = repo.host.fs[first];
   if (!parent || !canTraverse(repo.host, first + '/x', repo.user) || !canAccess(parent, repo.user, 'w')) throw new Fatal(ioError(repo, 'write', p, 'denied'));
-  if (noSpace(repo.host, p, size ?? content.length)) throw new Fatal(ioError(repo, 'write', p, 'space'));
+  if (noSpace(repo.host, p, size ?? content.length, repo.user.uid === 0)) throw new Fatal(ioError(repo, 'write', p, 'space'));
   for (const d of parents) repo.host.fs[d] = { type: 'dir', mode: 0o700, owner: repo.user.name, group: repo.user.primaryGroup, content: '', mtime: ctx.world.clock };
   repo.host.fs[p] = { type: 'file', mode: 0o600, owner: repo.user.name, group: repo.user.primaryGroup, content, mtime: ctx.world.clock, ...(size !== undefined ? { size } : {}) };
 }
@@ -240,8 +240,13 @@ function lock(ctx: CmdCtx, repo: Repo, exclusive: boolean, o: Opts, out: string[
   }
   const pid = (ctx.host.nextPid += 3);
   const l: Lock = { time: ctx.world.clock, exclusive, hostname: ctx.host.hostname, username: ctx.user.name, pid, uid: ctx.user.uid, gid: ctx.user.gid };
-  repo.lockId = newId(ctx, 'lock');
-  repoWrite(ctx, repo, `locks/${repo.lockId}`, JSON.stringify(l));
+  const lockId = newId(ctx, 'lock');
+  try {
+    repoWrite(ctx, repo, `locks/${lockId}`, JSON.stringify(l));
+  } catch (e) {
+    throw new Fatal(`unable to create lock in backend: ${(e as Error).message}`);
+  }
+  repo.lockId = lockId;
 }
 
 function close(repo: Repo): void {

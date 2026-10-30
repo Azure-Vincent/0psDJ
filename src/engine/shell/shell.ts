@@ -10,7 +10,7 @@ import { runDueTimers, setUnitRunner } from '../sim/timers';
 import { maintainLeases } from '../sim/dhcp';
 import { syslogFlush } from '../sim/syslog';
 import { nfsSync } from '../sim/nfs';
-import { canAccess, listDir, normalizePath } from '../fs';
+import { canAccess, listDir, mergeWorld, normalizePath } from '../fs';
 import { endSession } from '../sim/ssh';
 import type { Host, UserAccount, World } from '../types';
 import { bootHost } from '../sim/services';
@@ -643,10 +643,7 @@ setUnitRunner({
     const sh = new Shell(() => w, (n) => (w = n), { hostId, user, cwd, env: { ...env }, vars: { ...env } });
     const r = sh.execute(line);
     // Merge back in place: callers hold references to the World's host objects.
-    const { hosts, ...rest } = w;
-    Object.assign(world, rest);
-    for (const [id, h] of Object.entries(hosts)) { if (world.hosts[id]) Object.assign(world.hosts[id], h); else world.hosts[id] = h; }
-    for (const id of Object.keys(world.hosts)) if (!hosts[id]) delete world.hosts[id];
+    mergeWorld(world, w);
     if (r.needInput) return { out: `${r.output ? r.output + '\n' : ''}${r.needInput.text.trim()} (no terminal: cannot read a password)`, code: 1 };
     return { out: r.output, code: r.code };
   },

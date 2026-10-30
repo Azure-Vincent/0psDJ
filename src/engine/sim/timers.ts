@@ -499,7 +499,8 @@ export function runDueTimers(world: World): void {
         if (!host.units || host.kind === 'windows' || host.kind === 'pfsense' || host.kind === 'container') continue;
         for (const [name, rt] of Object.entries(host.units)) {
           if (!name.endsWith('.timer') || rt.state !== 'active') continue;
-          const at = rt.catchUp ? host.bootTime + 60_000 : timerNext(host, name);
+          // A missed Persistent= run starts right after the timer was activated (boot or start).
+          const at = rt.catchUp ? rt.since + 1_000 : timerNext(host, name);
           if (at === null || at > world.clock) continue;
           if (!best || at < best.at) best = { host, timer: name, at };
         }

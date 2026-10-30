@@ -30,8 +30,8 @@ export function diskUsedKB(host: Host, d: Disk): number {
   return kb;
 }
 
-/** Would writing BYTES more under PATH exceed the disk? */
-export function noSpace(host: Host, path: string, bytes: number): boolean {
+/** Would writing BYTES more under PATH exceed the disk? ext4 keeps 5% for root: other users stop at 95%. */
+export function noSpace(host: Host, path: string, bytes: number, root = true): boolean {
   const d = diskOf(host, path);
-  return !!d && diskUsedKB(host, d) + blocksKB(bytes) > d.sizeKB;
+  return !!d && diskUsedKB(host, d) + blocksKB(bytes) > (root ? d.sizeKB : Math.floor(d.sizeKB * 0.95));
 }
