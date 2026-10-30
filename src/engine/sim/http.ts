@@ -131,10 +131,8 @@ function handleIisRequest(host: Host, s: NginxLoadedServer, req: { method: strin
  * port to its container, and application servers inside containers (gunicorn)
  * answer HTTP themselves.
  */
-export const httpHooks: {
-  proxy?: (world: World, host: Host, port: number) => { host: Host; port: number } | null;
-  apps: Record<string, (world: World, host: Host, req: HttpRequestInfo) => HttpResponse>;
-} = { apps: {} };
+export { httpHooks } from './httpHooks';
+import { httpHooks } from './httpHooks';
 
 /** The server that answers HTTP on host:port: through docker-proxy to the container when the port is a published one. */
 export function httpBackend(world: World, host: Host, port: number, localAddr: string): { host: Host; port: number; local: string; proxyFrom?: string } {

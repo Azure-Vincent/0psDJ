@@ -22,6 +22,7 @@ export type Phase =
   | 'HTTP'
   | 'Kerberos'
   | 'NTP'
+  | 'SNMP'
   | 'Teardown';
 
 export interface EndpointState {

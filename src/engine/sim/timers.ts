@@ -489,6 +489,9 @@ function trigger(world: World, host: Host, timer: string, at: number): void {
 
 let firing = false;
 /** Fire every active timer whose next elapse has passed (in order of time), on every Linux host. */
+/** Other background work that runs as simulated time passes (monitoring scrapes and rule evaluations). */
+export const backgroundHooks: ((world: World) => void)[] = [];
+
 export function runDueTimers(world: World): void {
   if (firing || !runner) return;
   firing = true;
@@ -508,6 +511,7 @@ export function runDueTimers(world: World): void {
       if (!best) break;
       trigger(world, best.host, best.timer, best.at);
     }
+    for (const hook of backgroundHooks) hook(world);
   } finally {
     firing = false;
   }

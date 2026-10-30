@@ -22,6 +22,8 @@ function proto(f: CapturedFrame): string {
   if (p.app?.protocol === 'SMTP') return 'SMTP';
   if (p.app?.protocol === 'IMAP') return 'IMAP';
   if (p.app?.protocol === 'PGSQL') return 'PGSQL';
+  if (p.app?.protocol === 'SNMP') return 'SNMP';
+  if (p.app?.protocol === 'HTTP') return 'HTTP';
   if (p.app?.protocol === 'DATA') return p.tcp?.sport === 80 || p.tcp?.dport === 80 ? 'HTTP' : 'DATA';
   if (p.icmp && p.src.includes(':')) return 'ICMPv6';
   return p.proto.toUpperCase();

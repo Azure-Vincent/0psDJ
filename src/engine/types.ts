@@ -331,7 +331,7 @@ export interface IcmpHeader {
 }
 
 export interface AppLayer {
-  protocol: 'DNS' | 'SSH' | 'DATA' | 'DHCP' | 'DHCPv6' | 'TLS' | 'KRB5' | 'KADMIN' | 'RDP' | 'NTP' | 'SYSLOG' | 'SMB2' | 'SMTP' | 'IMAP' | 'PGSQL';
+  protocol: 'DNS' | 'SSH' | 'DATA' | 'DHCP' | 'DHCPv6' | 'TLS' | 'KRB5' | 'KADMIN' | 'RDP' | 'NTP' | 'SYSLOG' | 'SMB2' | 'SMTP' | 'IMAP' | 'PGSQL' | 'SNMP' | 'HTTP';
   /** Short Wireshark-style "Info" text. */
   info: string;
   /** Decoded protocol fields visible to an observer. */

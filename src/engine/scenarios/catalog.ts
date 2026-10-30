@@ -826,5 +826,45 @@ export const CAUSES: Record<string, Cause> = Object.fromEntries(
       signature: 'Everything connects and runs, but rows are missing or wrong; queries return fewer rows than expected. The cause is a statement (DELETE/UPDATE without WHERE, a faulty job), not the server.',
       check: 'Count the rows now; compare with the last backup (pg_restore -l, or restore into a scratch database); check log_statement output if enabled.',
     },
+    {
+      id: 'mon-scrape-blocked', title: 'A firewall blocks the scrape (exporter fine, port unreachable from the monitoring server)', category: 'Firewall', concept: 'mon.metrics',
+      signature: 'The target is down in Prometheus with "context deadline exceeded" (drop) or "connection refused"; on the machine itself curl localhost:9100/metrics works and the exporter runs.',
+      check: 'The target\'s lastError (curl …/api/v1/targets); curl the exporter from the monitoring server and locally; nft list ruleset on the target.',
+    },
+    {
+      id: 'mon-exporter-down', title: 'The exporter is not running (it failed to start)', category: 'Service', concept: 'mon.metrics',
+      signature: 'The target is down with "connect: connection refused"; systemctl status of the exporter shows failed, and the journal names the reason (an unknown flag, a bad listen address).',
+      check: 'systemctl status prometheus-node-exporter; journalctl -u prometheus-node-exporter; the ARGS line in /etc/default/prometheus-node-exporter; ss -tlnp.',
+    },
+    {
+      id: 'mon-config-invalid', title: 'An invalid Prometheus configuration or rule file', category: 'Configuration', concept: 'mon.alerting',
+      signature: 'After a restart Prometheus is failed ("Error loading config"); after a reload it keeps running the old configuration ("Error reloading config", prometheus_config_last_reload_successful 0), so changes never take effect.',
+      check: 'promtool check config /etc/prometheus/prometheus.yml (it also checks the rule files); journalctl -u prometheus.',
+    },
+    {
+      id: 'mon-notify-failed', title: 'Alertmanager cannot deliver notifications', category: 'Service', concept: 'mon.alerting',
+      signature: 'Alerts are firing in Prometheus and active in Alertmanager, but nobody is notified; Alertmanager logs "Notify for alerts failed" with the SMTP (or webhook) error.',
+      check: 'journalctl -u prometheus-alertmanager; amtool alert; the receiver and global smtp_* settings; the mail server\'s log.',
+    },
+    {
+      id: 'mon-silenced', title: 'A silence (or inhibition) hides the alert', category: 'Configuration', concept: 'mon.alerting',
+      signature: 'The alert fires in Prometheus but amtool alert does not list it (amtool alert -s shows it as suppressed); amtool silence query shows a broad or long silence.',
+      check: 'amtool silence query; amtool alert query -s; the inhibit_rules in alertmanager.yml.',
+    },
+    {
+      id: 'mon-alert-true', title: 'The alert is right: the monitored service really has a problem', category: 'Service', concept: 'mon.alerting',
+      signature: 'The alert\'s condition is confirmed on the machine itself (a failed job, a full disk, a stopped service); fixing that resolves the alert.',
+      check: 'Read the alert\'s expression and labels, then look at the machine and service it names.',
+    },
+    {
+      id: 'snmp-agent-localhost', title: 'snmpd only listens on localhost (agentaddress)', category: 'Configuration', concept: 'mon.snmp',
+      signature: 'Every remote SNMP request times out ("Timeout: No Response"), while snmpget on the agent itself works; ss -ulnp shows 127.0.0.1:161 only.',
+      check: 'ss -ulnp | grep 161 on the agent; the agentaddress line of /etc/snmp/snmpd.conf.',
+    },
+    {
+      id: 'snmp-access-denied', title: 'The SNMP request is not allowed (community, source or view)', category: 'Authentication', concept: 'mon.snmp',
+      signature: 'v2c: "Timeout: No Response" from an agent that is listening (a wrong community or source address is silently dropped), or "No Such Object" for OIDs outside the view. v3: "Unknown user name", "Authentication failure", or authorizationError.',
+      check: 'The rocommunity / rouser lines and views in snmpd.conf; the community, user and security level the manager uses.',
+    },
   ] as Cause[]).map((c) => [c.id, c]),
 );

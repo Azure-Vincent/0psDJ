@@ -12,86 +12,8 @@ import {
   startContainer, stopContainer, syncDockerRules, type ContainerConfig, type Mount, type NetworkConfig, type PortBinding, type RestartPolicy,
 } from './docker';
 
-// ---------------------------------------------------------------------------
-// YAML (the subset compose files use)
-// ---------------------------------------------------------------------------
-
-export type Yaml = string | Yaml[] | { [k: string]: Yaml } | null;
-
-export class YamlError extends Error {}
-
-function scalar(raw: string): Yaml {
-  const v = raw.trim();
-  if (v === '' || v === '~' || v === 'null') return null;
-  if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) return v.slice(1, -1);
-  if (v.startsWith('[') && v.endsWith(']')) return v.slice(1, -1).split(',').map((x) => x.trim()).filter(Boolean).map((x) => scalar(x) as string);
-  if (v === '{}') return {};
-  return v;
-}
-
-/** Strip a comment (a # after whitespace, outside quotes). */
-function uncomment(line: string): string {
-  let q: string | null = null;
-  for (let i = 0; i < line.length; i++) {
-    const c = line[i];
-    if (q) { if (c === q) q = null; continue; }
-    if (c === '"' || c === "'") q = c;
-    else if (c === '#' && (i === 0 || /\s/.test(line[i - 1]))) return line.slice(0, i);
-  }
-  return line;
-}
-
-export function parseYaml(text: string): Yaml {
-  const lines: { n: number; indent: number; text: string }[] = [];
-  text.split('\n').forEach((raw, i) => {
-    if (/^\s*\t/.test(raw) || /^\t/.test(raw)) throw new YamlError(`yaml: line ${i + 1}: found character that cannot start any token`);
-    const t = uncomment(raw).replace(/\s+$/, '');
-    if (!t.trim()) return;
-    lines.push({ n: i + 1, indent: t.length - t.trimStart().length, text: t.trim() });
-  });
-  let pos = 0;
-  const block = (indent: number): Yaml => {
-    const first = lines[pos];
-    if (!first) return null;
-    if (first.text.startsWith('- ') || first.text === '-') {
-      const out: Yaml[] = [];
-      while (pos < lines.length && lines[pos].indent === indent && (lines[pos].text.startsWith('- ') || lines[pos].text === '-')) {
-        const l = lines[pos];
-        const rest = l.text.replace(/^-\s*/, '');
-        pos++;
-        const kv = /^([^:'"\s][^:]*?):(\s+(.*))?$/.exec(rest);
-        if (kv && !/^\S+:\/\//.test(rest) && !/^[\d.]+:\d/.test(rest)) {
-          // "- key: value" starts a mapping whose other keys are indented further.
-          const obj: Record<string, Yaml> = {};
-          obj[kv[1]] = kv[3] !== undefined ? scalar(kv[3]) : pos < lines.length && lines[pos].indent > l.indent ? block(lines[pos].indent) : null;
-          if (pos < lines.length && lines[pos].indent > l.indent && !(lines[pos].text.startsWith('- '))) Object.assign(obj, block(lines[pos].indent) as Record<string, Yaml>);
-          out.push(obj);
-        } else if (rest === '') {
-          out.push(pos < lines.length && lines[pos].indent > indent ? block(lines[pos].indent) : null);
-        } else out.push(scalar(rest));
-      }
-      if (pos < lines.length && lines[pos].indent > indent) throw new YamlError(`yaml: line ${lines[pos].n}: did not find expected '-' indicator`);
-      return out;
-    }
-    const obj: Record<string, Yaml> = {};
-    while (pos < lines.length && lines[pos].indent === indent) {
-      const l = lines[pos];
-      const m = /^("[^"]*"|'[^']*'|[^:]+?):(\s+(.*)|)$/.exec(l.text);
-      if (!m) throw new YamlError(`yaml: line ${l.n}: could not find expected ':'`);
-      const key = (scalar(m[1]) as string) ?? '';
-      pos++;
-      if (m[3] !== undefined && m[3] !== '') obj[key] = scalar(m[3]);
-      else if (pos < lines.length && lines[pos].indent > indent) obj[key] = block(lines[pos].indent);
-      else if (pos < lines.length && lines[pos].indent === indent && lines[pos].text.startsWith('- ')) obj[key] = block(indent);
-      else obj[key] = null;
-    }
-    if (pos < lines.length && lines[pos].indent > indent) throw new YamlError(`yaml: line ${lines[pos].n}: mapping values are not allowed in this context`);
-    return obj;
-  };
-  const doc = block(lines[0]?.indent ?? 0);
-  if (pos < lines.length) throw new YamlError(`yaml: line ${lines[pos].n}: did not find expected key`);
-  return doc;
-}
+export { parseYaml, YamlError, type Yaml } from '../config/yaml';
+import { parseYaml, YamlError, type Yaml } from '../config/yaml';
 
 // ---------------------------------------------------------------------------
 // The project

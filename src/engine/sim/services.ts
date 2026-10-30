@@ -24,6 +24,8 @@ import { parseSmbConf, SAMBA_VERSION, SMB_CONF } from './smb';
 import { postfixLoad, type PostfixLoaded } from './mail';
 import { dovecotStart, removeSockets, type DovecotLoaded } from './dovecot';
 import { pgCleanup, pgReload, pgStart, pgStop, type PgLoaded } from './postgres';
+import { snmpdListeners, snmpdLoad, type SnmpdLoaded } from './snmp';
+import { monitorListeners, monitorStart, promReload, type AmLoaded, type NodeExporterLoaded, type PromLoaded } from './monitor';
 import { type Cert, parseCerts, parseKey } from './pki';
 import type { Host, ServiceRuntime, World } from '../types';
 import { log } from './journal';
@@ -1228,7 +1230,89 @@ const postgresql: ServiceDef = {
   },
 };
 
-export const SERVICE_DEFS: ServiceDef[] = [networking, rsyslog, timesyncd, chrony, nftables, nfsServer, smbd, postgresql, dovecot, postfix, named, krb5kdc, kadmind, dhcpd, dhcrelay, radvd, sshd, nginx];
+// ---------------------------------------------------------------------------
+// Monitoring: node_exporter, Prometheus, Alertmanager (Debian packages)
+// ---------------------------------------------------------------------------
+
+const nodeExporter: ServiceDef = {
+  name: 'prometheus-node-exporter',
+  unit: 'prometheus-node-exporter.service',
+  aliases: ['prometheus-node-exporter', 'node-exporter', 'node_exporter'],
+  description: 'Prometheus exporter for machine metrics',
+  configFiles: ['/etc/default/prometheus-node-exporter'],
+  start(world, host, rt) {
+    rt.pid = allocPid(host);
+    rt.loaded = monitorStart.nodeExporterStart(world, host, rt);
+    return rt.loaded !== null;
+  },
+  listeners: (_host, rt) => monitorListeners('prometheus-node-exporter', rt),
+  statusLines(_host, rt) {
+    const l = rt.loaded as NodeExporterLoaded | null;
+    return l ? [`             └─${l.pid} /usr/bin/prometheus-node-exporter${(l.systemd ? ' --collector.systemd' : '')}`] : [];
+  },
+};
+
+const prometheus: ServiceDef = {
+  name: 'prometheus',
+  unit: 'prometheus.service',
+  aliases: ['prometheus', 'prometheus.service'],
+  description: 'Monitoring system and time series database',
+  configFiles: ['/etc/prometheus/prometheus.yml'],
+  start(world, host, rt) {
+    rt.pid = allocPid(host);
+    rt.loaded = monitorStart.promStart(world, host, rt);
+    return rt.loaded !== null;
+  },
+  reload: (world, host, rt) => promReload(world, host, rt),
+  listeners: (_host, rt) => monitorListeners('prometheus', rt),
+  statusLines(_host, rt) {
+    const l = rt.loaded as PromLoaded | null;
+    return l ? [`             └─${l.pid} /usr/bin/prometheus`] : [];
+  },
+};
+
+const alertmanager: ServiceDef = {
+  name: 'prometheus-alertmanager',
+  unit: 'prometheus-alertmanager.service',
+  aliases: ['prometheus-alertmanager', 'alertmanager'],
+  description: 'Alertmanager for prometheus',
+  configFiles: ['/etc/prometheus/alertmanager.yml'],
+  start(world, host, rt) {
+    rt.pid = allocPid(host);
+    rt.loaded = monitorStart.amStart(world, host, rt);
+    return rt.loaded !== null;
+  },
+  reload: (world, host, rt) => monitorStart.amReload(world, host, rt),
+  listeners: (_host, rt) => monitorListeners('prometheus-alertmanager', rt),
+  statusLines(_host, rt) {
+    const l = rt.loaded as AmLoaded | null;
+    return l ? [`             └─${l.pid} /usr/bin/prometheus-alertmanager`] : [];
+  },
+};
+
+const snmpd: ServiceDef = {
+  name: 'snmpd',
+  unit: 'snmpd.service',
+  aliases: ['snmpd', 'snmpd.service'],
+  description: 'Simple Network Management Protocol (SNMP) Daemon.',
+  configFiles: ['/etc/snmp/snmpd.conf'],
+  start(world, host, rt) {
+    rt.pid = allocPid(host);
+    rt.loaded = snmpdLoad(world, host, rt);
+    return rt.loaded !== null;
+  },
+  reload(world, host, rt) {
+    rt.loaded = snmpdLoad(world, host, rt);
+    return true;
+  },
+  listeners: (_host, rt) => snmpdListeners(rt),
+  statusLines(_host, rt) {
+    const l = rt.loaded as SnmpdLoaded | null;
+    return l ? [`             └─${l.pid} /usr/sbin/snmpd -LOw -u Debian-snmp -g Debian-snmp -I -smux,mteTrigger,mteTriggerConf -f -p /run/snmpd.pid`] : [];
+  },
+};
+
+export const SERVICE_DEFS: ServiceDef[] = [networking, rsyslog, timesyncd, chrony, nftables, nfsServer, smbd, postgresql, dovecot, postfix, named, krb5kdc, kadmind, dhcpd, dhcrelay, radvd, sshd, nginx, nodeExporter, prometheus, alertmanager, snmpd];
 
 export function findService(host: Host, name: string): ServiceDef | undefined {
   const n = name.replace(/\.service$/, '');

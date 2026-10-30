@@ -5,6 +5,7 @@
 // exactly the same intermediate state.
 
 import { RESTIC_COMMANDS } from './cmdRestic';
+import { MON_COMMANDS } from './cmdMon';
 import { BACKUP_COMMANDS } from './cmdBackup';
 import { runDueTimers, setUnitRunner } from '../sim/timers';
 import { maintainLeases } from '../sim/dhcp';
@@ -34,7 +35,7 @@ import { expandParams, GLOB, parseCommandLine, type Segment } from './tokenize';
 import { type CmdCtx, type CmdResult, type CommandDef, type EditorRequest, NeedInput, type SessionFrame } from './types';
 
 export const COMMANDS: Record<string, CommandDef> = Object.fromEntries(
-  [...FILE_COMMANDS, ...NET_COMMANDS, ...HTTP_COMMANDS, ...SYSTEM_COMMANDS, ...KRB_COMMANDS, ...RDP_COMMANDS, ...DOCKER_COMMANDS, ...NTP_COMMANDS, ...LOG_COMMANDS, ...NFS_COMMANDS, ...SMB_COMMANDS, ...MAIL_COMMANDS, ...PG_COMMANDS, ...BACKUP_COMMANDS, ...RESTIC_COMMANDS].map((c) => [c.name, c]),
+  [...FILE_COMMANDS, ...NET_COMMANDS, ...HTTP_COMMANDS, ...SYSTEM_COMMANDS, ...KRB_COMMANDS, ...RDP_COMMANDS, ...DOCKER_COMMANDS, ...NTP_COMMANDS, ...LOG_COMMANDS, ...NFS_COMMANDS, ...SMB_COMMANDS, ...MAIL_COMMANDS, ...PG_COMMANDS, ...BACKUP_COMMANDS, ...RESTIC_COMMANDS, ...MON_COMMANDS].map((c) => [c.name, c]),
 );
 
 export interface ExecResult {
