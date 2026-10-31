@@ -103,7 +103,7 @@ export function guid(seed: string): string {
 }
 
 function userDn(ad: AdState, u: AdUser): string {
-  return `CN=${u.name},CN=Users,${domainDn(ad.domain)}`;
+  return `CN=${u.name},${u.ou ?? `CN=Users,${domainDn(ad.domain)}`}`;
 }
 
 function groupDn(ad: AdState, g: AdGroup): string {

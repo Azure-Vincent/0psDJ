@@ -8,6 +8,7 @@
 // StrictModes path checks, authorized_keys matching, PAM password checks and
 // the exact journal lines sshd writes at the configured LogLevel.
 
+import { pamRadiusAuth, pamRadiusControl } from './radius';
 import { inCidr, parseCidr } from '../net/ip';
 import { effectiveConfig, LOG_LEVELS, type SshdEffective } from '../config/sshdConfig';
 import { canAccess, dirname, mkdir, readFile, writeFile } from '../fs';
@@ -792,11 +793,17 @@ function runSshInner(world: World, o: SshClientOptions, out: string[]): SshResul
       const rootBlocked = user === 'root' && ctxEff.permitRootLogin !== 'yes';
       const flLocked = !!fl && !rootBlocked && faillockLocked(server, user, world.clock, fl);
       if (flLocked) log(world, server, 'sshd', `pam_faillock(sshd:auth): Consecutive login failures for user ${user} account temporarily locked`, { pid: childPid, unit: 'ssh.service', priority: 'err' });
-      const correct = valid && pw!.password !== null && pw!.password === given && !rootBlocked && !flLocked;
+      // pam_radius_auth before common-auth in /etc/pam.d/sshd: the RADIUS server decides first.
+      const radCtl = ctxEff.usePAM && valid && !rootBlocked && !flLocked ? pamRadiusControl(server, 'sshd') : null;
+      const radius = radCtl ? pamRadiusAuth(world, server, 'sshd', user, given, cip, childPid) : null;
+      const unixOk = valid && pw!.password !== null && pw!.password === given && !rootBlocked && !flLocked;
+      const correct = radCtl === 'required' ? radius === 'accept' && unixOk : radius === 'accept' || unixOk;
       if (correct) {
         if (fl) faillockReset(server, user);
         authed = 'password';
-        note('PAM authentication succeeded', ctxEff.usePAM ? 'With UsePAM yes, sshd hands the password to the PAM stack (/etc/pam.d/sshd → common-auth → pam_unix), which compares it with the hash in /etc/shadow.' : 'sshd compared the password with /etc/shadow directly.', server.id);
+        note('PAM authentication succeeded', radius === 'accept'
+          ? `/etc/pam.d/sshd calls pam_radius_auth first: it sent an Access-Request for ${user} to the RADIUS server in /etc/pam_radius_auth.conf and got an Access-Accept. As a "sufficient" module, that success ends the auth stack; the local password in /etc/shadow is not used.`
+          : ctxEff.usePAM ? `With UsePAM yes, sshd hands the password to the PAM stack (/etc/pam.d/sshd → common-auth → pam_unix), which compares it with the hash in /etc/shadow.${radCtl ? ` pam_radius_auth came first but ${radius === 'reject' ? 'the RADIUS server rejected the login' : 'no RADIUS server answered'}; as a "sufficient" module its failure is ignored and the stack goes on to pam_unix.` : ''}` : 'sshd compared the password with /etc/shadow directly.', server.id);
         break;
       }
       failures++;
@@ -810,7 +817,9 @@ function runSshInner(world: World, o: SshClientOptions, out: string[]): SshResul
         ? 'The account is invalid or not allowed, so even a correct password fails. The client sees exactly the same response as for a wrong password.'
         : rootBlocked ? `PermitRootLogin ${ctxEff.permitRootLogin} forbids password logins for root.`
           : flLocked ? `pam_faillock refused the attempt before the password was even checked: ${user} has ${fl!.deny} or more recent failures (faillock --user ${user}).${fl!.unlockTime === 0 ? ' unlock_time = 0: the account stays locked until an administrator resets it.' : ` It unlocks ${fl!.unlockTime} s after the last failure.`}`
-            : 'pam_unix compared the password against /etc/shadow and it did not match.', server.id);
+            : radius === 'reject' ? 'pam_radius_auth asked the RADIUS server, which answered Access-Reject (see its radius.log for why); pam_unix then compared the password with /etc/shadow, which did not match either.'
+              : radius === 'unavailable' ? 'pam_radius_auth got no usable answer from any RADIUS server (journalctl -u ssh shows why: no response, or a reply that failed verification); pam_unix then compared the password with /etc/shadow, which did not match either.'
+                : 'pam_unix compared the password against /etc/shadow and it did not match.', server.id);
       enc('s2c', 30 + methodList.length, `SSH_MSG_USERAUTH_FAILURE methods="${methodList}"`, [], 'USERAUTH_FAILURE', 'Authentication failed.');
       if (failures >= maxTries) return tooMany();
       if (attempt < prompts - 1) out.push('Permission denied, please try again.');

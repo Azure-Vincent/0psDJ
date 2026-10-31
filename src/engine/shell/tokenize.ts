@@ -9,9 +9,9 @@ export const GLOB = '\u0003';
 /** Reads a parameter name after "$" at line[i]; returns the name and the index of its last character. */
 function paramAt(line: string, i: number): { name: string; end: number } | null {
   const next = line[i + 1];
-  if (next === '?') return { name: '?', end: i + 1 };
+  if (next === '?' || next === '#' || next === '@' || next === '*' || (next !== undefined && /[0-9]/.test(next))) return { name: next, end: i + 1 };
   if (next === '{') {
-    const m = /^\{([A-Za-z_][A-Za-z0-9_]*|\?)\}/.exec(line.slice(i + 1));
+    const m = /^\{([A-Za-z_][A-Za-z0-9_]*|[?#@*]|[0-9]+)\}/.exec(line.slice(i + 1));
     return m ? { name: m[1], end: i + m[0].length } : null;
   }
   const m = /^[A-Za-z_][A-Za-z0-9_]*/.exec(line.slice(i + 1));

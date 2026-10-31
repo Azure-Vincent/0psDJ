@@ -866,5 +866,40 @@ export const CAUSES: Record<string, Cause> = Object.fromEntries(
       signature: 'v2c: "Timeout: No Response" from an agent that is listening (a wrong community or source address is silently dropped), or "No Such Object" for OIDs outside the view. v3: "Unknown user name", "Authentication failure", or authorizationError.',
       check: 'The rocommunity / rouser lines and views in snmpd.conf; the community, user and security level the manager uses.',
     },
+    {
+      id: 'ldap-anonymous-bind', title: 'The application searches without binding (anonymous), which Active Directory refuses', category: 'Authentication', concept: 'id.ldap',
+      signature: 'Searches fail with "Operations error (1)" and "000004DC: LdapErr: … In order to perform this operation a successful bind must be completed on the connection". The rootDSE (-s base -b \'\') still answers; ldapwhoami prints "anonymous".',
+      check: 'The ldapsearch line or application settings: is there a bind DN (-D) and a password (-w/-W/-y)? ldapwhoami with the same options.',
+    },
+    {
+      id: 'ldap-signing-required', title: 'The DC requires signing or TLS, and the client binds in clear text over ldap://', category: 'Configuration', concept: 'id.ldap',
+      signature: 'Simple binds over ldap://…:389 fail with "Strong(er) authentication required (8)" and "00002028: … The server requires binds to turn on integrity checking if SSL\\TLS are not already active". The same bind over ldaps:// or with -ZZ works.',
+      check: 'The URI the client uses; LDAPServerIntegrity under HKLM:\\System\\CurrentControlSet\\Services\\NTDS\\Parameters on the DC (2 = require signing).',
+    },
+    {
+      id: 'ldap-tls-untrusted', title: 'The LDAP client does not trust the DC\'s certificate (CA missing, wrong CA file or name mismatch)', category: 'Cryptography', concept: 'id.ldap',
+      signature: '"Can\'t contact LDAP server (-1)" although the DC listens, with additional info "certificate verify failed (unable to get local issuer certificate)", "could not load CA certificate file …" or "hostname does not match". Plain TCP to 636 works.',
+      check: 'TLS_CACERT / ca_file and whether the corp root is in it (openssl s_client -connect dc01.ad.corp.lab:636 -CAfile …); the name in the URI against the certificate\'s subjectAltName.',
+    },
+    {
+      id: 'ldap-svc-credentials', title: 'The service account cannot bind (wrong or old password, locked out or disabled)', category: 'Authentication', concept: 'id.ldap',
+      signature: '"Invalid credentials (49)" with AD\'s data code: 52e wrong password, 775 locked out, 533 disabled, 532 password expired. Old passwords left in scripts lock the account out by retrying.',
+      check: 'ldapwhoami -x -D <service DN> -y <password file>; Get-ADUser <account> -Properties LockedOut,Enabled,BadLogonCount on the DC; Security events 4625 and 4740.',
+    },
+    {
+      id: 'radius-secret-mismatch', title: 'The NAS and the RADIUS server use different shared secrets', category: 'Authentication', concept: 'id.radius',
+      signature: 'The NAS cannot verify the replies ("packet from RADIUS server … failed verification: The shared secret is probably incorrect" from pam_radius_auth), or the server drops requests with "invalid Message-Authenticator! (Shared secret is incorrect.)"; radtest times out.',
+      check: 'The secret in the server\'s client{} section against the NAS configuration (/etc/pam_radius_auth.conf); radius.log on the server and the NAS\'s log.',
+    },
+    {
+      id: 'radius-unknown-client', title: 'The request comes from an address no client{} entry covers', category: 'Configuration', concept: 'id.radius',
+      signature: 'The server logs "Ignoring request to auth address * port 1812 … from unknown client 10.0.20.1" and does not answer; the NAS reports that the server failed to respond. Editing clients.conf only helps after a restart (a HUP does not re-read clients).',
+      check: 'The source address in the server\'s log against ipaddr in clients.conf; which address the NAS sends from (its interface towards the server); systemctl restart freeradius after the change.',
+    },
+    {
+      id: 'radius-not-authorized', title: 'Authentication works but policy refuses the user (not in the required group)', category: 'Authorization', concept: 'id.radius',
+      signature: 'The password is right (LDAP binds as the user would work) but the server answers Access-Reject with the policy\'s Reply-Message, e.g. "Not a member of Network-Admins"; radius.log shows "Login incorrect" without a bind failure.',
+      check: 'The rule in mods-config/files/authorize; the user\'s memberOf (ldapsearch … memberOf or Get-ADUser -Properties MemberOf).',
+    },
   ] as Cause[]).map((c) => [c.id, c]),
 );

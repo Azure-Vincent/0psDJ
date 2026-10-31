@@ -7,6 +7,7 @@
 // with start type Automatic start, and the firewall is compiled into the
 // packet filter the network engine evaluates.
 
+import type { Cert } from '../sim/pki';
 import { parseRuleExpr, type Rule, type Ruleset } from '../config/nft';
 import { formatIp, networkOf, parseCidr, parseIp } from '../net/ip';
 import { linkLocalFromMac } from '../net/ip6';
@@ -124,6 +125,8 @@ export interface WinState {
   features?: string[];
   /** Active Directory database: present on a domain controller. */
   ad?: AdState;
+  /** Certificates in the computer's personal store (Cert:\\LocalMachine\\My): LDAPS uses the DC's. */
+  certificates?: { cert: Cert; chain: Cert[]; hasKey?: boolean }[];
   /** DNS Server role (zones and forwarders). */
   dnsServer?: DnsServerState;
   /** Domain membership in effect (set at boot from pendingDomain). */
@@ -177,6 +180,8 @@ export interface AdUser {
   lastLogon?: number;
   /** servicePrincipalName (service accounts). */
   spns?: string[];
+  /** Containing OU's DN when the user is not in CN=Users. */
+  ou?: string;
 }
 
 export interface AdGroup {

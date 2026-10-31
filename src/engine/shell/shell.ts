@@ -6,6 +6,8 @@
 
 import { RESTIC_COMMANDS } from './cmdRestic';
 import { MON_COMMANDS } from './cmdMon';
+import { LDAP_COMMANDS } from './cmdLdap';
+import { RADIUS_COMMANDS } from './cmdRadius';
 import { BACKUP_COMMANDS } from './cmdBackup';
 import { runDueTimers, setUnitRunner } from '../sim/timers';
 import { maintainLeases } from '../sim/dhcp';
@@ -35,7 +37,7 @@ import { expandParams, GLOB, parseCommandLine, type Segment } from './tokenize';
 import { type CmdCtx, type CmdResult, type CommandDef, type EditorRequest, NeedInput, type SessionFrame } from './types';
 
 export const COMMANDS: Record<string, CommandDef> = Object.fromEntries(
-  [...FILE_COMMANDS, ...NET_COMMANDS, ...HTTP_COMMANDS, ...SYSTEM_COMMANDS, ...KRB_COMMANDS, ...RDP_COMMANDS, ...DOCKER_COMMANDS, ...NTP_COMMANDS, ...LOG_COMMANDS, ...NFS_COMMANDS, ...SMB_COMMANDS, ...MAIL_COMMANDS, ...PG_COMMANDS, ...BACKUP_COMMANDS, ...RESTIC_COMMANDS, ...MON_COMMANDS].map((c) => [c.name, c]),
+  [...FILE_COMMANDS, ...NET_COMMANDS, ...HTTP_COMMANDS, ...SYSTEM_COMMANDS, ...KRB_COMMANDS, ...RDP_COMMANDS, ...DOCKER_COMMANDS, ...NTP_COMMANDS, ...LOG_COMMANDS, ...NFS_COMMANDS, ...SMB_COMMANDS, ...MAIL_COMMANDS, ...PG_COMMANDS, ...BACKUP_COMMANDS, ...RESTIC_COMMANDS, ...MON_COMMANDS, ...LDAP_COMMANDS, ...RADIUS_COMMANDS].map((c) => [c.name, c]),
 );
 
 export interface ExecResult {
@@ -105,7 +107,10 @@ export class Shell {
     const executed: string[] = [];
     let editor: EditorRequest | undefined;
     let clear = false;
+    // sshpass: password prompts are answered from its -p/-f/-e value instead of the terminal.
+    let sshpass: { password: string; prompts: number } | null = null;
     const ask = (text: string, secret: boolean, partial = '') => {
+      if (sshpass && secret && /password: ?$/i.test(text)) { sshpass.prompts++; return sshpass.password; }
       if (queue.length === 0) throw new NeedInput(text, secret, partial);
       return queue.shift()!;
     };
@@ -172,6 +177,8 @@ export class Shell {
       const lookup = (n: string): string => {
         switch (n) {
           case '?': return String(status);
+          case '#': return String(frame.args?.length ?? 0);
+          case '@': case '*': return (frame.args ?? []).join(' ');
           case 'HOME': return user?.home ?? '/';
           case 'USER': case 'LOGNAME': return frame.user;
           case 'HOSTNAME': return host.hostname;
@@ -179,7 +186,7 @@ export class Shell {
           case 'SHELL': return user?.shell ?? '/bin/bash';
           case 'UID': return String(user?.uid ?? 0);
           case 'PATH': return user?.uid === 0 ? '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin' : '/usr/local/bin:/usr/bin:/bin:/usr/local/games:/usr/games';
-          default: return frame.vars?.[n] ?? frame.env?.[n] ?? '';
+          default: return /^[0-9]+$/.test(n) ? (n === '0' ? 'bash' : frame.args?.[Number(n) - 1] ?? '') : frame.vars?.[n] ?? frame.env?.[n] ?? '';
         }
       };
       const argv = seg.argv.flatMap((a) => {
@@ -223,7 +230,7 @@ export class Shell {
 
     let scriptDepth = 0;
     /** Run a shell script line by line (set -e stops at the first failing line; exit N ends it). */
-    const runScriptFile = (frame: SessionFrame, path: string, stdin: string | undefined, needExec: boolean, source = false): CmdResult => {
+    const runScriptFile = (frame: SessionFrame, path: string, stdin: string | undefined, needExec: boolean, source = false, scriptArgs: string[] = []): CmdResult => {
       const host = world.hosts[frame.hostId];
       const p = normalizePath(path, frame.cwd, host.users[frame.user].home);
       const node = host.fs[p];
@@ -241,6 +248,8 @@ export class Shell {
       let errexit = false;
       // `source FILE` runs in this shell; an executed script runs in a child shell.
       const sub = source ? frame : childFrame(frame);
+      const savedArgs = sub.args;
+      if (!source || scriptArgs.length) sub.args = scriptArgs;
       try {
         for (const raw of f.content!.split('\n')) {
           const line = raw.trim();
@@ -256,6 +265,7 @@ export class Shell {
         }
       } finally {
         scriptDepth--;
+        if (source) sub.args = savedArgs;
       }
       return { out: out.join('\n'), code };
     };
@@ -346,7 +356,7 @@ export class Shell {
         case 'source':
         case '.':
           if (!args[0]) return { out: `-bash: ${name}: filename argument required\n${name}: usage: ${name} filename [arguments]`, code: 2 };
-          return runScriptFile(frame, args[0], stdin, false, true);
+          return runScriptFile(frame, args[0], stdin, false, true, args.slice(1));
         case 'exit':
         case 'logout': {
           const top = frames[frames.length - 1];
@@ -448,10 +458,41 @@ export class Shell {
           frames.push({ hostId: frame.hostId, user: target, cwd, su: true });
           return { out: '', code: 0 };
         }
+        case 'sshpass': {
+          // sshpass -p PASS | -f FILE | -e (SSHPASS) command …: answers the password prompt; a second prompt means a wrong password (exit 5).
+          let password: string | undefined;
+          let i = 0;
+          for (; i < args.length && args[i].startsWith('-'); i++) {
+            const a = args[i];
+            if (a === '-p' || a.startsWith('-p') ) { password = a.length > 2 ? a.slice(2) : args[++i]; continue; }
+            if (a === '-e') { password = frame.env?.SSHPASS ?? frame.vars?.SSHPASS; if (password === undefined) return { out: 'sshpass: -e option given but SSHPASS environment variable not set', code: 3 }; continue; }
+            if (a === '-f' || a.startsWith('-f')) {
+              const file = a.length > 2 ? a.slice(2) : args[++i] ?? '';
+              const f = getFile(makeCtx(frame, undefined), normalizePath(file, frame.cwd, host.users[frame.user].home));
+              if (f.error) return { out: `sshpass: Failed to open password file "${file}": ${f.error}`, code: 3 };
+              password = (f.content ?? '').split('\n')[0];
+              continue;
+            }
+            if (a === '-v') continue;
+            return { out: `sshpass: invalid option -- '${a.replace(/^-/, '')}'\nUsage: sshpass [-f|-d|-p|-e[env_var]] [-hV] command parameters`, code: 2 };
+          }
+          if (!args[i]) return { out: 'Usage: sshpass [-f|-d|-p|-e[env_var]] [-hV] command parameters', code: 2 };
+          const prev = sshpass;
+          sshpass = { password: password ?? '', prompts: 0 };
+          const used = sshpass;
+          try {
+            const r = runArgv(frame, args.slice(i), stdin);
+            // sshpass hides the prompts it answered; it exits 5 when ssh asks again (wrong password).
+            const out = r.out.split('\n').filter((l) => !/password: ?$/i.test(l) && l !== 'Permission denied, please try again.').join('\n');
+            return used.prompts > 1 ? { out: '', code: 5 } : { out, code: r.code };
+          } finally {
+            sshpass = prev;
+          }
+        }
         case 'sh':
         case 'bash': {
           if (!args[0] || args[0] === '-c') return args[0] === '-c' ? runIn(childFrame(frame), args[1] ?? '', stdin) : { out: '', code: 0 };
-          return runScriptFile(frame, args[0], stdin, false);
+          return runScriptFile(frame, args[0], stdin, false, false, args.slice(1));
         }
         default: {
           // pfSense: FreeBSD tools and pfSense scripts first; Linux tools do not exist (tcsh wording).
@@ -460,11 +501,11 @@ export class Shell {
           const def = (pf ? PF_COMMANDS[name] : undefined) ?? COMMANDS[name];
           if (!def) {
             // A program given by path (./backup.sh), or a script installed in a PATH directory.
-            if (!pf && name.includes('/')) return runScriptFile(frame, name, stdin, true);
+            if (!pf && name.includes('/')) return runScriptFile(frame, name, stdin, true, false, args);
             const u = host.users[frame.user];
             const dirs = u?.uid === 0 ? ['/usr/local/sbin', '/usr/local/bin', '/usr/sbin', '/usr/bin'] : ['/usr/local/bin', '/usr/bin'];
             const found = !pf && dirs.map((d) => `${d}/${name}`).find((p) => host.fs[p]?.type === 'file');
-            if (found) return runScriptFile(frame, found, stdin, true);
+            if (found) return runScriptFile(frame, found, stdin, true, false, args);
             return { out: `-bash: ${name}: command not found`, code: 127 };
           }
           const r = def.run(args, makeCtx(frame, stdin));
