@@ -150,7 +150,7 @@ const ldapwhoami: CommandDef = {
     const r = openAndBind(ctx, o, 'ldapwhoami');
     if ('out' in r) return { out: r.out, code: r.code };
     const ad = r.session.dc.win!.ad!;
-    return ok(r.session.bound ? `u:${ad.netbios}\\${r.session.bound}` : 'anonymous');
+    return ok(`${r.warn ? `${r.warn}\n` : ''}${r.session.bound ? `u:${ad.netbios}\\${r.session.bound}` : 'anonymous'}`);
   },
 };
 

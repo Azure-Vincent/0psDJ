@@ -6,6 +6,7 @@ import { GUIDED_LABS } from '../src/engine/labs';
 import { LAB7 } from '../src/engine/labs/lab7';
 import { LAB8 } from '../src/engine/labs/lab8';
 import { LAB9 } from '../src/engine/labs/lab9';
+import { LAB10 } from '../src/engine/labs/lab10';
 import { LAB1 } from '../src/engine/labs/lab1';
 import { LAB2 } from '../src/engine/labs/lab2';
 import { LAB3 } from '../src/engine/labs/lab3';
@@ -202,6 +203,41 @@ describe('guided labs', () => {
     }
     const final = checkStep(world, LAB9, LAB9.steps.at(-1)!);
     expect(final.results.filter((r) => !r.ok).map((r) => `${r.step} / ${r.id}: ${r.detail}`)).toEqual([]);
+  });
+
+  it('Lab 10: each step fails before its solution and passes after it; the reboot test passes at the end', () => {
+    let world: World = LAB10.build();
+    for (const step of LAB10.steps.filter((s) => !s.afterReboot)) {
+      const before = checkStep(world, LAB10, step);
+      expect(before.passed, `${step.id} should not pass before its solution`).toBe(false);
+      world = applySolution(world, step);
+      const after = checkStep(world, LAB10, step);
+      expect(after.results.filter((r) => !r.ok).map((r) => `${r.id}: ${r.detail}`), step.id).toEqual([]);
+    }
+    const final = checkStep(world, LAB10, LAB10.steps.at(-1)!);
+    expect(final.results.filter((r) => !r.ok).map((r) => `${r.step} / ${r.id}: ${r.detail}`)).toEqual([]);
+  });
+
+  it('Lab 10: a reload instead of a restart, or pam_radius_auth as "required", is caught', () => {
+    const upTo = (id: string): World => {
+      let w = LAB10.build();
+      for (const s of LAB10.steps) { if (s.id === id) break; w = applySolution(w, s); }
+      return w;
+    };
+    const run = (w: World, host: string, lines: string[]): World => {
+      const l = new Lab(w);
+      for (const line of lines) l.run(host, 'root', line);
+      return l.world;
+    };
+    let w = upTo('client');
+    w = run(w, 'rad01', [printfTo('\nclient rtr01 {\n\tipaddr = 10.0.20.1\n\tsecret = Rtr01-Lab10-9xQe4LmZ\n}\n', '/etc/freeradius/3.0/clients.conf', true), 'systemctl reload freeradius']);
+    const step = LAB10.steps.find((s) => s.id === 'client')!;
+    expect(checkStep(w, LAB10, step).results.find((r) => r.id === 'client')?.detail).toMatch(/read at start-up only/);
+    let n = upTo('break-glass');
+    n = run(n, 'rtr01', ["sed -i 's/^auth       sufficient   pam_radius_auth.so/auth       required     pam_radius_auth.so/' /etc/pam.d/sshd"]);
+    const bg = LAB10.steps.find((s) => s.id === 'break-glass')!;
+    n = applySolution(n, bg);
+    expect(checkStep(n, LAB10, bg).results.find((r) => r.id === 'break-glass')?.ok).toBe(false);
   });
 
   it.each(GUIDED_LABS.map((l) => l.id))('%s: links, terminals and solutions are well-formed', (id) => {

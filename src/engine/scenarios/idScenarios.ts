@@ -47,7 +47,7 @@ const phonebookWorks: Goal = {
 const rtrLogin = (user: string, password: string): Goal => ({
   kind: 'command',
   description: `${user} logs in to rtr01 over SSH with the Active Directory password (checked by RADIUS).`,
-  steps: [{ host: 'ws01', user: 'alice', command: `sshpass -p '${password}' ssh -o StrictHostKeyChecking=accept-new ${user}@rtr01.corp.lab hostname` }],
+  steps: [{ host: 'ws01', user: 'alice', command: `sshpass -p '${password}' ssh -o StrictHostKeyChecking=accept-new ${user}@rtr01.corp.lab hostname || echo "${user}@rtr01.corp.lab: Permission denied (sshpass exit $?: the password was not accepted)"` }],
   expect: '^rtr01$',
 });
 
@@ -268,16 +268,16 @@ export const ID_SCENARIOS: Scenario[] = [
     },
     solution: [
       { host: 'srv01', commands: [`printf '%s' '${SVC_NEW_PASSWORD}' > ${PHONEBOOK_PW}`, `chmod 640 ${PHONEBOOK_PW}`] },
-      { host: 'dc01', commands: ['Unlock-ADAccount -Identity svc-ldap'] },
+      { host: 'dc01', user: 'Administrator', commands: ['Unlock-ADAccount -Identity svc-ldap'] },
     ],
     constraints: [
       {
         id: 'id-svc-password-kept', required: true,
-        description: 'svc-ldap keeps the rotated password (CHG-2744); the old one is not set back.',
+        description: 'svc-ldap keeps the password from the rotation (CHG-2744): the record in the change is what other teams rely on.',
         check(world) {
           const u = world.hosts.dc01.win?.ad?.users['svc-ldap'];
-          const ok = !!u && u.password !== LDAP_SVC.password && u.enabled;
-          return { id: this.id, ok, required: true, message: ok ? 'The rotation stands.' : !u ? 'svc-ldap is gone.' : !u.enabled ? 'svc-ldap is disabled.' : 'svc-ldap has its old password again: the rotation (CHG-2744) is undone. Use the new password in bind.pw instead.' };
+          const ok = !!u && u.password === SVC_NEW_PASSWORD && u.enabled;
+          return { id: this.id, ok, required: true, message: ok ? 'The rotation stands.' : !u ? 'svc-ldap is gone.' : !u.enabled ? 'svc-ldap is disabled.' : u.password === LDAP_SVC.password ? 'svc-ldap has its old password again: the rotation (CHG-2744) is undone.' : 'svc-ldap was reset to a password that is not the one recorded in CHG-2744: use the rotated password in bind.pw instead of resetting the account.' };
         },
       },
       bindPwPrivate, phonebookBindsAsService, noPrivilegedGroups('svc-ldap'),
@@ -352,7 +352,7 @@ export const ID_SCENARIOS: Scenario[] = [
       evidence: 'radtest dana … → Access-Reject with Reply-Message "Not a member of Network-Admins"; dana\'s memberOf lacks CN=Network-Admins.',
       prevention: 'Grant access through documented security groups; make onboarding requests name the group, and check memberOf (not the mailing lists) when access fails.',
     },
-    solution: [{ host: 'dc01', commands: ['Add-ADGroupMember -Identity Network-Admins -Members dana'] }],
+    solution: [{ host: 'dc01', user: 'Administrator', commands: ['Add-ADGroupMember -Identity Network-Admins -Members dana'] }],
     constraints: [policyKept, noPrivilegedGroups('dana')],
     concepts: ['id.radius', 'id.ldap'],
   },

@@ -164,6 +164,13 @@ const SYMPTOM: Record<string, RegExp> = {
   'mon-backup-alert': /Job for restic-backup\.service failed because the control process exited with error code/,
   'snmp-dpkg-default': /Timeout: No Response from rtr01\.corp\.lab/,
   'mon-exporter-flag': /up\{instance="db01\.corp\.lab:9100", job="node", site="corp"\} => 0 @/,
+  'id-phonebook-anonymous': /Operations error \(1\)\nAdditional information: 000004DC/,
+  'id-ldap-signing': /ldap_bind: Strong\(er\) authentication required \(8\)/,
+  'id-svc-locked': /ldap_bind: Invalid credentials \(49\)\n\tadditional info: 80090308: .* data 775,/,
+  'id-radius-ca': /alice@rtr01\.corp\.lab: Permission denied \(sshpass exit 5/,
+  'id-radius-group': /dana@rtr01\.corp\.lab: Permission denied \(sshpass exit 5/,
+  'id-radius-secret': /alice@rtr01\.corp\.lab: Permission denied \(sshpass exit 5/,
+  'id-radius-unknown-client': /alice@rtr01\.corp\.lab: Permission denied \(sshpass exit 5/,
   'mtu-uplink-mismatch': /curl: \(28\) Operation timed out after 30000 milliseconds with 0 out of 4718592 bytes received/,
 };
 

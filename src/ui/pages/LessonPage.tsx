@@ -429,6 +429,17 @@ function widgetsFor(id: string): LessonWidgets {
       ],
     };
   }
+  if (id === 'identity') {
+    return {
+      sandbox: [
+        { hostId: 'srv01', user: 'root', label: 'srv01 console (root)', banner: 'Sandbox: srv01, an LDAP client (ldap-utils). Try: cat /etc/ldap/ldap.conf, phonebook alice, ldapsearch -x -s base -b \'\' -LLL defaultNamingContext, ldapwhoami -x -D \'CN=svc-ldap,OU=Service Accounts,DC=ad,DC=corp,DC=lab\' -y /etc/phonebook/bind.pw, ldapsearch -x -H ldap://dc01.ad.corp.lab -LLL (no bind).' },
+        { hostId: 'rad01', user: 'root', label: 'rad01 console (root)', banner: 'Sandbox: rad01, FreeRADIUS. Try: freeradius -XC, cat /etc/freeradius/3.0/clients.conf /etc/freeradius/3.0/mods-config/files/authorize, radtest alice Office-Corp-2026 localhost 0 testing123, radtest dana Sales-Corp-2026 localhost 0 testing123, tail -n 20 /var/log/freeradius/radius.log.' },
+        { hostId: 'rtr01', user: 'root', label: 'rtr01 console (root)', banner: 'Sandbox: rtr01, the NAS. Try: cat /etc/pam.d/sshd /etc/pam_radius_auth.conf, journalctl -u ssh -n 20, then from ws01: ssh alice@rtr01.corp.lab (password Office-Corp-2026).' },
+        { hostId: 'dc01', user: 'Administrator', label: 'dc01 (domain controller)', banner: 'Sandbox: dc01. Try: Get-ADUser -Filter * | Select Name,DistinguishedName, Get-ADGroupMember Network-Admins, Get-ItemProperty HKLM:\\System\\CurrentControlSet\\Services\\NTDS\\Parameters.' },
+        { hostId: 'ws01', user: 'alice', label: 'ws01 (alice)', banner: 'Sandbox: ws01. Try: ssh alice@rtr01.corp.lab (her AD password: Office-Corp-2026) and ssh netadmin@rtr01.corp.lab (the break-glass account).' },
+      ],
+    };
+  }
   if (id === 'monitoring') {
     return {
       sandbox: [
