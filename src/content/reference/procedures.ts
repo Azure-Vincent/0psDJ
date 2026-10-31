@@ -8,5 +8,6 @@ import { MAIL_PROCEDURES } from './mailRefs';
 import { DB_PROCEDURES } from './dbRefs';
 import { BACKUP_PROCEDURES } from './backupRefs';
 import { MON_PROCEDURES } from './monRefs';
+import { ID_PROCEDURES } from './idRefs';
 
-export const PROCEDURES: Procedure[] = [...PROCEDURES_LINUX, ...KRB_PROCEDURES, ...PROCEDURES_PLATFORM, ...MAIL_PROCEDURES, ...DB_PROCEDURES, ...BACKUP_PROCEDURES, ...MON_PROCEDURES];
+export const PROCEDURES: Procedure[] = [...PROCEDURES_LINUX, ...KRB_PROCEDURES, ...PROCEDURES_PLATFORM, ...MAIL_PROCEDURES, ...DB_PROCEDURES, ...BACKUP_PROCEDURES, ...MON_PROCEDURES, ...ID_PROCEDURES];

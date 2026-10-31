@@ -351,7 +351,7 @@ Test with \`radtest USER PASSWORD localhost 0 testing123\` on rad01 before you i
   ],
   prerequisites: [
     { label: 'TLS and certificates', link: 'lesson/tls/what' },
-    { label: 'Active Directory domain', link: 'lesson/domain/what' },
+    { label: 'Active Directory domain', link: 'lesson/ad-kerberos/what' },
     { label: 'Directory services and RADIUS', link: 'lesson/identity/what' },
   ],
   setupNote: `**rad01** (${RAD01_IP}, sw01 port swp22) runs FreeRADIUS with Debian's defaults (only the localhost client, the ldap module not enabled). **dc01** is the domain controller (LDAPS for dc01.ad.corp.lab). **rtr01** runs sshd; pam_radius_auth is installed but not used yet.`,

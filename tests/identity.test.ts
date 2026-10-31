@@ -276,3 +276,14 @@ describe('identity tickets reject the tempting wrong fixes', () => {
     expect(v.constraints.find((c) => c.id === 'id-radius-clients-specific')?.ok).toBe(false);
   });
 });
+
+describe('identity lesson', () => {
+  it('is registered with every identity ticket and its assessment', async () => {
+    const { getLesson } = await import('../src/content/lessons');
+    const { ID_SCENARIOS } = await import('../src/engine/scenarios/idScenarios');
+    const L = getLesson('identity')!;
+    expect(L).toBeDefined();
+    expect([...L.scenarioIds].sort()).toEqual(ID_SCENARIOS.map((s) => s.id).sort());
+    expect(L.assessmentId).toBe('identity');
+  });
+});
