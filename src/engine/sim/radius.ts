@@ -222,11 +222,13 @@ export type RadiusResult =
   | { kind: 'timeout'; id: number; sport: number }
   | { kind: 'accept' | 'reject'; id: number; sport: number; from: string; reply: { attr: string; value: string }[]; verified: boolean };
 
+const prefixLen = (ipaddr: string) => (ipaddr === '*' ? 0 : Number(ipaddr.split('/')[1] ?? 32));
+
 function clientFor(l: RadiusdLoaded, src: string): RadClient | undefined {
   // The most specific match wins, as in FreeRADIUS's client tree.
   return l.clients
     .filter((c) => c.ipaddr === '*' || (c.ipaddr.includes('/') ? inCidr(src, parseCidr(c.ipaddr)!) : c.ipaddr === src))
-    .sort((a, b) => Number(b.ipaddr.split('/')[1] ?? 32) - Number(a.ipaddr.split('/')[1] ?? 32))[0];
+    .sort((a, b) => prefixLen(b.ipaddr) - prefixLen(a.ipaddr))[0];
 }
 
 const ldapFail = (e: LdapError) => `${e.name}${e.info ? `: ${e.info}` : ''}`;
@@ -258,7 +260,8 @@ function authorize(world: World, srv: Host, l: RadiusdLoaded, user: string, pass
     if (be.info) radLog(world, srv, 'Error', `(${n}) ldap: Server said: ${be.info}`);
     return reject('rlm_ldap (ldap): Bind failed');
   }
-  const filterText = m.userFilter.replace(/%\{%\{Stripped-User-Name\}:-%\{User-Name\}\}|%\{User-Name\}|%\{Stripped-User-Name\}/g, user.replace(/[*()\\]/g, (ch) => `\\${ch.charCodeAt(0).toString(16)}`));
+  const escaped = user.replace(/[*()\\]/g, (ch) => `\\${ch.charCodeAt(0).toString(16)}`);
+  const filterText = m.userFilter.replace(/%\{%\{Stripped-User-Name\}:-%\{User-Name\}\}|%\{User-Name\}|%\{Stripped-User-Name\}/g, () => escaped);
   const f = parseFilter(filterText);
   if (!f) return reject(`rlm_ldap (ldap): Bad search filter: ${filterText}`);
   const r = ldapSearch(c.session, m.baseDn, 'sub', f, ['*']);
@@ -284,11 +287,15 @@ function authorize(world: World, srv: Host, l: RadiusdLoaded, user: string, pass
       else if (ch.op !== ':=' && ch.op !== '=') match = false; // a comparison with an attribute the request does not carry (Framed-Protocol == PPP …)
     }
     if (!match) { if (e.checks.some((ch) => ch.attr.toLowerCase() === 'auth-type')) authType = null; continue; }
-    reply.push(...e.replies.map((x) => ({ attr: x.attr, value: x.value.replace(/%\{User-Name\}/g, user) })));
+    reply.push(...e.replies.map((x) => ({ attr: x.attr, value: x.value.replace(/%\{User-Name\}/g, () => user) })));
     if (!e.fallThrough) break;
   }
   if (authType && authType.toLowerCase() === 'reject') return reject(null, reply);
-  // Authenticate: bind as the user with the password from the request.
+  // Authenticate: bind as the user with the password from the request (an empty one would be an anonymous bind).
+  if (!password) {
+    radLog(world, srv, 'Error', `(${n}) ldap: Empty password supplied`);
+    return reject('ldap: Empty password supplied');
+  }
   const c2 = ldapConnect(world, srv, uri, conf);
   if ('error' in c2) return reject('rlm_ldap (ldap): No connections available');
   const ue = ldapBind(world, c2.session, srv, entry.dn, password);
@@ -396,7 +403,8 @@ export function pamRadiusControl(host: Host, service: string): 'sufficient' | 'r
   for (const raw of (readFile(host, `/etc/pam.d/${service}`) ?? '').split('\n')) {
     const m = /^\s*auth\s+(\S+|\[[^\]]*\])\s+(?:\S*\/)?pam_radius_auth\.so\b/.exec(raw);
     if (!m) continue;
-    return m[1] === 'sufficient' || /success=done/.test(m[1]) ? 'sufficient' : 'required';
+    // sufficient, optional or a bracket that ignores failures: a reject falls through to the next modules.
+    return m[1] === 'sufficient' || m[1] === 'optional' || /success=done|default=ignore/.test(m[1]) ? 'sufficient' : 'required';
   }
   return null;
 }

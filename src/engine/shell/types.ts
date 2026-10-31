@@ -22,6 +22,8 @@ export interface SessionFrame {
   su?: boolean;
   /** Positional parameters of a running script ($1 …). */
   args?: string[];
+  /** $0 of a running script (its path). */
+  argv0?: string;
   /** Shell variables (VAR=value); exported ones are also in env. */
   vars?: Record<string, string>;
   /** Exported variables: the environment of the commands this shell runs. */

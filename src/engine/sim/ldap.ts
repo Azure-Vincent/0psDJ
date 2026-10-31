@@ -252,7 +252,8 @@ function tlsCheck(world: World, client: Host, dc: Host, name: string, conf: Ldap
   const trusted = trustStore(client, conf.caFile);
   if (!client.fs[conf.caFile]) return CANT_CONTACT(`could not load CA certificate file ${conf.caFile}`);
   const v = verifyChain(c.cert, c.chain, trusted, world.clock);
-  if (!v.ok && conf.reqcert !== 'try') return CANT_CONTACT(`error:0A000086:SSL routines::certificate verify failed (${VERIFY_TEXT[v.errors[0]?.code ?? 20]})`);
+  // 'try' and 'demand'/'hard' all end the session on a bad certificate; only 'allow' goes on.
+  if (!v.ok) return CANT_CONTACT(`error:0A000086:SSL routines::certificate verify failed (${VERIFY_TEXT[v.errors[0]?.code ?? 20]})`);
   if (!matchesHost(c.cert, name)) return CANT_CONTACT('TLS: hostname does not match CN in peer certificate');
   return null;
 }
@@ -360,25 +361,6 @@ function project(e: LdapEntry, attrs: string[]): LdapEntry {
     if (k) out[k] = e.attrs[k];
   }
   return { dn: e.dn, attrs: out };
-}
-
-/** One authenticated lookup as an application does it (bind as a service account, search, bind as the user). */
-export function ldapAuthenticate(world: World, client: Host, uri: LdapUri, conf: LdapClientConf, svcDn: string, svcPassword: string, base: string, userFilter: string, password: string): { ok: true; dn: string; entry: LdapEntry } | { ok: false; stage: 'connect' | 'service-bind' | 'search' | 'not-found' | 'user-bind'; error?: LdapError } {
-  const c1 = ldapConnect(world, client, uri, conf);
-  if ('error' in c1) return { ok: false, stage: 'connect', error: c1.error };
-  const e1 = ldapBind(world, c1.session, client, svcDn, svcPassword);
-  if (e1) return { ok: false, stage: 'service-bind', error: e1 };
-  const f = parseFilter(userFilter);
-  if (!f) return { ok: false, stage: 'search', error: ERR(-7, 'Bad search filter') };
-  const r = ldapSearch(c1.session, base, 'sub', f, ['*']);
-  if (r.error) return { ok: false, stage: 'search', error: r.error };
-  if (!r.entries.length) return { ok: false, stage: 'not-found' };
-  const entry = r.entries[0];
-  const c2 = ldapConnect(world, client, uri, conf);
-  if ('error' in c2) return { ok: false, stage: 'connect', error: c2.error };
-  const e2 = ldapBind(world, c2.session, client, entry.dn, password);
-  if (e2) return { ok: false, stage: 'user-bind', error: e2 };
-  return { ok: true, dn: entry.dn, entry };
 }
 
 /** LDIF value: plain, or base64 ("::") when it is not safe as-is. */

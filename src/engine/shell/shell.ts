@@ -108,9 +108,9 @@ export class Shell {
     let editor: EditorRequest | undefined;
     let clear = false;
     // sshpass: password prompts are answered from its -p/-f/-e value instead of the terminal.
-    let sshpass: { password: string; prompts: number } | null = null;
+    let sshpass: { password: string; prompts: string[] } | null = null;
     const ask = (text: string, secret: boolean, partial = '') => {
-      if (sshpass && secret && /password: ?$/i.test(text)) { sshpass.prompts++; return sshpass.password; }
+      if (sshpass && secret && /password: ?$/i.test(text)) { sshpass.prompts.push(text); return sshpass.password; }
       if (queue.length === 0) throw new NeedInput(text, secret, partial);
       return queue.shift()!;
     };
@@ -186,7 +186,7 @@ export class Shell {
           case 'SHELL': return user?.shell ?? '/bin/bash';
           case 'UID': return String(user?.uid ?? 0);
           case 'PATH': return user?.uid === 0 ? '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin' : '/usr/local/bin:/usr/bin:/bin:/usr/local/games:/usr/games';
-          default: return /^[0-9]+$/.test(n) ? (n === '0' ? 'bash' : frame.args?.[Number(n) - 1] ?? '') : frame.vars?.[n] ?? frame.env?.[n] ?? '';
+          default: return /^[0-9]+$/.test(n) ? (n === '0' ? frame.argv0 ?? '-bash' : frame.args?.[Number(n) - 1] ?? '') : frame.vars?.[n] ?? frame.env?.[n] ?? '';
         }
       };
       const argv = seg.argv.flatMap((a) => {
@@ -250,6 +250,7 @@ export class Shell {
       const sub = source ? frame : childFrame(frame);
       const savedArgs = sub.args;
       if (!source || scriptArgs.length) sub.args = scriptArgs;
+      if (!source) sub.argv0 = path;
       try {
         for (const raw of f.content!.split('\n')) {
           const line = raw.trim();
@@ -478,13 +479,22 @@ export class Shell {
           }
           if (!args[i]) return { out: 'Usage: sshpass [-f|-d|-p|-e[env_var]] [-hV] command parameters', code: 2 };
           const prev = sshpass;
-          sshpass = { password: password ?? '', prompts: 0 };
+          sshpass = { password: password ?? '', prompts: [] };
           const used = sshpass;
           try {
-            const r = runArgv(frame, args.slice(i), stdin);
-            // sshpass hides the prompts it answered; it exits 5 when ssh asks again (wrong password).
-            const out = r.out.split('\n').filter((l) => !/password: ?$/i.test(l) && l !== 'Permission denied, please try again.').join('\n');
-            return used.prompts > 1 ? { out: '', code: 5 } : { out, code: r.code };
+            // sshpass gives up when it sees a second password prompt (exit 5): ssh gets one try.
+            const argv = args.slice(i);
+            const cmd = argv[0] === 'ssh' ? ['ssh', '-o', 'NumberOfPasswordPrompts=1', ...argv.slice(1)] : argv;
+            const r = runArgv(frame, cmd, stdin);
+            const refused = used.prompts.length > 0 && r.code === 255 && /Permission denied \(/.test(r.out);
+            if (refused) return { out: '', code: 5 };
+            // sshpass hides the prompts it answered (and only those).
+            const lines = r.out.split('\n');
+            for (const p of used.prompts) {
+              const k = lines.indexOf(p);
+              if (k >= 0) lines.splice(k, 1);
+            }
+            return { out: lines.join('\n'), code: r.code };
           } finally {
             sshpass = prev;
           }

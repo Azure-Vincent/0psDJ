@@ -178,7 +178,7 @@ describe('pam_radius_auth on rtr01', () => {
     l.run('rtr01', 'root', "sed -i 's/Rtr01-Nas-Secret-2702/other/' /etc/pam_radius_auth.conf");
     expect(l.run('ws01', 'alice', SSH('alice', 'Office-Corp-2026')).code).toBe(5);
     expect(l.run('rtr01', 'root', 'journalctl -u ssh').output).toMatch(/pam_radius_auth: packet from RADIUS server 10\.0\.20\.65 failed verification: The shared secret is probably incorrect\./);
-    expect(Number(l.run('dc01', 'Administrator', '(Get-ADUser alice -Properties BadLogonCount).BadLogonCount').output)).toBeGreaterThanOrEqual(2);
+    expect(Number(l.run('dc01', 'Administrator', '(Get-ADUser alice -Properties BadLogonCount).BadLogonCount').output)).toBe(1);
   });
 
   it('example servers are skipped with their log lines', () => {
@@ -274,6 +274,29 @@ describe('identity tickets reject the tempting wrong fixes', () => {
     const v = verifyScenario(b.l.world, findScenario('id-radius-unknown-client')!);
     expect(v.now[0].ok).toBe(true);
     expect(v.constraints.find((c) => c.id === 'id-radius-clients-specific')?.ok).toBe(false);
+  });
+});
+
+describe('review fixes', () => {
+  it('an empty password is rejected by the ldap module, not taken as an anonymous bind', () => {
+    const l = lab();
+    expect(l.run('rad01', 'root', "radtest alice '' localhost 0 testing123").output).toMatch(/Access-Reject/);
+    expect(l.run('rad01', 'root', 'tail -n 1 /var/log/freeradius/radius.log').output).toMatch(/Login incorrect \(ldap: Empty password supplied\): \[alice\]/);
+  });
+
+  it('sshpass tries a wrong password once (one bad password in AD, not three)', () => {
+    const l = lab();
+    expect(l.run('ws01', 'alice', SSH('alice', 'wrong')).code).toBe(5);
+    expect(l.run('dc01', 'Administrator', '(Get-ADUser alice -Properties BadLogonCount).BadLogonCount').output).toBe('1');
+  });
+
+  it('a wildcard client ranks below a specific one; $0 is the script path', () => {
+    const l = lab();
+    l.run('rad01', 'root', "printf 'client any {\\n\\tipaddr = *\\n\\tsecret = catch-all-secret\\n}\\n' >> /etc/freeradius/3.0/clients.conf");
+    l.run('rad01', 'root', 'systemctl restart freeradius');
+    expect(l.run('ws01', 'alice', SSH('alice', 'Office-Corp-2026')).output).toMatch(/rtr01$/);
+    l.run('srv01', 'root', `printf '#!/bin/sh\\necho "usage: $0"\\n' > /usr/local/bin/u && chmod 755 /usr/local/bin/u`);
+    expect(l.run('srv01', 'root', 'u').output).toBe('usage: /usr/local/bin/u');
   });
 });
 

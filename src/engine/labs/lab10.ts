@@ -257,7 +257,7 @@ const nasReady: LabCheck = {
     const srv = servers.find((s) => s.host === RAD01_IP || /^rad01(\.corp\.lab)?$/.test(s.host));
     if (!srv) return NO(`/etc/pam_radius_auth.conf has no line for rad01 (${RAD01_IP}  SECRET  3).`);
     const c = radiusdCheck(w.hosts.rad01);
-    const client = 'msg' in c ? undefined : c.clients.find((x) => x.ipaddr.startsWith('10.0.20.1'));
+    const client = 'msg' in c ? undefined : c.clients.find((x) => x.ipaddr === '10.0.20.1' || x.ipaddr === '10.0.20.1/32');
     if (client && srv.secret !== client.secret) return NO('The secret in /etc/pam_radius_auth.conf differs from the one in rad01\'s clients.conf: they must be identical.');
     const mode = rtr.fs[PAM_RADIUS_CONF]?.mode ?? 0;
     if ((mode & 0o077) !== 0) return NO(`/etc/pam_radius_auth.conf has mode 0${(mode & 0o777).toString(8)}: chmod 600 (the secret lets anyone forge RADIUS answers).`);
