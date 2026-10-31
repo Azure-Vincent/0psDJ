@@ -23,6 +23,8 @@ export type Phase =
   | 'Kerberos'
   | 'NTP'
   | 'SNMP'
+  | 'LDAP'
+  | 'RADIUS'
   | 'Teardown';
 
 export interface EndpointState {

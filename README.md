@@ -60,7 +60,9 @@ For every technology it answers the same questions:
   encrypted restic repository on bak01, a nightly systemd timer, a retention
   policy and a restore test (Lab 8), and bring a new web server under
   monitoring: exporter, firewall, Prometheus target, an alert rule tested
-  end to end, and SNMPv3 (Lab 9). The simulator checks each step against the running machines, and
+  end to end, and SNMPv3 (Lab 9), and let network administrators log in to
+  the router with their Active Directory accounts through RADIUS, with a
+  group policy and a local break-glass account (Lab 10). The simulator checks each step against the running machines, and
   the last step reboots everything.
 - **An Infrastructure Builder**: draw your own network (workstations, servers,
   routers, VLAN-aware switches), set addresses, gateways, VLANs, firewall
@@ -132,6 +134,15 @@ For every technology it answers the same questions:
   forgotten maintenance silence together with a disabled exporter, a
   BackupTooOld alert that is right, an snmpd package update that restored
   Debian's localhost-only configuration, and a misspelled exporter flag.
+  A **Directory services and RADIUS** set breaks lookups and logins that
+  depend on Active Directory: a phone-book script that searches without
+  binding, a DC that starts requiring signing while the client still binds
+  in clear text, a rotated service password that locked the account out, a
+  rebuilt RADIUS server that does not trust the internal CA, a new
+  administrator in a mailing list instead of the security group, a shared
+  secret rotated on one side only (which counts bad passwords in AD), and a
+  NAS listed under the wrong source address. Fixes must keep the hardening,
+  the certificate checks and the group policy.
   A **Windows Defender Firewall** set breaks win01's host firewall one rule at
   a time: a web rule scoped to w3wp.exe while http.sys (System) owns port 80,
   a Block rule added "after" an allow rule (Block always wins), a monitoring
@@ -229,6 +240,13 @@ Prometheus' real errors), evaluates alert rules written in PromQL, and
 Alertmanager routes, groups, silences and mails the alerts through mail01.
 promtool and amtool work like the real ones, and mon01 polls rtr01 by SNMP
 (v2c communities and v3 users) with snmpget and snmpwalk.
+dc01 answers LDAP and LDAPS (its certificate is issued by the internal CA):
+`ldapsearch` and `ldapwhoami` behave like OpenLDAP's tools against Active
+Directory, with simple binds as service accounts, StartTLS, the DC's signing
+policy, AD's error codes, lockouts and referrals. rad01 runs FreeRADIUS
+(clients.conf, the ldap module over LDAPS, a group policy in the files
+module, radius.log, `radtest`, `freeradius -XC`), and rtr01's sshd asks it
+through pam_radius_auth, with a local break-glass account.
 Group Policy runs on the domain: GPOs with registry and firewall settings,
 links to the domain and to OUs, Block Inheritance and Enforced, security
 filtering against the computer's token, SYSVOL read over SMB at startup and

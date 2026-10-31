@@ -10,7 +10,7 @@ export function Topology() {
     </g>
   );
   return (
-    <svg viewBox="0 0 340 1120" width="100%" style={{ maxWidth: 480 }} role="img" aria-label="Lab topology">
+    <svg viewBox="0 0 340 1194" width="100%" style={{ maxWidth: 480 }} role="img" aria-label="Lab topology">
       <text x={8} y={14} fontSize={11} style={{ fill: 'var(--muted)' }}>VLAN 10 office · 10.0.10.0/24</text>
       <line x1={10} y1={22} x2={330} y2={22} stroke="var(--accent)" strokeWidth={3} />
       {box(4, 34, 'ws01', ['10.0.10.25', 'static (alice)'], 98)}
@@ -40,7 +40,7 @@ export function Topology() {
       <path d="M24 250 V358 H40" fill="none" stroke="var(--ok)" />
       {box(40, 336, 'win01', ['10.0.20.30', 'Windows Server 2022', 'IIS, RDP, SMB, WinRM'], 150)}
       <path d="M24 358 V432 H40" fill="none" stroke="var(--ok)" />
-      {box(40, 410, 'dc01', ['10.0.20.5', 'AD DS + DNS', 'ad.corp.lab (CORP)'], 150)}
+      {box(40, 410, 'dc01', ['10.0.20.5', 'AD DS + DNS, LDAPS :636', 'ad.corp.lab (CORP)'], 150)}
       {box(208, 336, 'dev02', ['DHCP via relay', 'DHCPv6 from rtr01'], 124)}
       <path d="M24 432 V510 H40" fill="none" stroke="var(--ok)" />
       {box(40, 488, 'fw01', ['pfSense 2.7.2', 'WAN vtnet0 203.0.113.10', 'LAN vtnet1 10.0.20.254', 'DMZ vtnet2 172.16.50.1'], 150)}
@@ -64,8 +64,10 @@ export function Topology() {
       {box(40, 944, 'bak01', ['10.0.20.45', 'restic repositories (SFTP :22)', 'nightly backups of servers'], 150)}
       <path d="M24 966 V1040 H40" fill="none" stroke="var(--ok)" />
       {box(40, 1018, 'mon01', ['10.0.20.55', 'Prometheus :9090, Alertmanager', 'scrapes :9100, polls SNMP'], 150)}
-      <text x={8} y={1100} style={{ fill: 'var(--muted)', fontSize: 9.5 }}>All LAN ports are on sw01 (VLAN-aware Linux bridge): access ports for</text>
-      <text x={8} y={1112} style={{ fill: 'var(--muted)', fontSize: 9.5 }}>VLAN 10/20/30, trunk swp7 to rtr01 eth3. Console: sw01.</text>
+      <path d="M24 1040 V1114 H40" fill="none" stroke="var(--ok)" />
+      {box(40, 1092, 'rad01', ['10.0.20.65', 'FreeRADIUS UDP 1812', 'logins to rtr01, users from AD'], 150)}
+      <text x={8} y={1174} style={{ fill: 'var(--muted)', fontSize: 9.5 }}>All LAN ports are on sw01 (VLAN-aware Linux bridge): access ports for</text>
+      <text x={8} y={1186} style={{ fill: 'var(--muted)', fontSize: 9.5 }}>VLAN 10/20/30, trunk swp7 to rtr01 eth3. Console: sw01.</text>
     </svg>
   );
 }

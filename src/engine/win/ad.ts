@@ -219,6 +219,9 @@ function dcRecords(domain: string, dcName: string, ip: string): ZoneRecord[] {
  * hosts the AD-integrated zone, the previous DNS servers become forwarders and
  * the server's own DNS client points at itself. Takes effect at the restart.
  */
+/** HKLM key of the AD DS parameters (LDAPServerIntegrity: 2 = require signing or TLS for simple binds). */
+export const NTDS_PARAMS = 'HKLM:\\System\\CurrentControlSet\\Services\\NTDS\\Parameters';
+
 export function promoteForest(world: World, host: Host, domain: string, netbios: string): void {
   const w = host.win!;
   const ip = w.adapters[0]?.address ?? '127.0.0.1';
@@ -245,6 +248,11 @@ export function promoteForest(world: World, host: Host, domain: string, netbios:
     },
   };
   gpData(w.ad);
+  // The directory service's own settings (dcpromo writes them); LDAPServerIntegrity 1 = "None" (signing negotiated, not required).
+  w.registry[NTDS_PARAMS] = {
+    'DSA Working Directory': 'C:\\Windows\\NTDS', 'DSA Database file': 'C:\\Windows\\NTDS\\ntds.dit', 'Database log files path': 'C:\\Windows\\NTDS',
+    'Root Domain': domainDn(domain), LDAPServerIntegrity: 1,
+  };
   const forwarders = w.adapters.flatMap((a) => a.dns).filter((d) => d !== ip && !d.startsWith('127.'));
   w.dnsServer = { zones: [{ origin: `${domain}.`, records: dcRecords(domain, dcName, ip), serial: 1, dsIntegrated: true }], forwarders };
   for (const a of w.adapters) a.dns = ['127.0.0.1'];

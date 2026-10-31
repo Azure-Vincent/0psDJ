@@ -25,6 +25,7 @@ import { postfixLoad, type PostfixLoaded } from './mail';
 import { dovecotStart, removeSockets, type DovecotLoaded } from './dovecot';
 import { pgCleanup, pgReload, pgStart, pgStop, type PgLoaded } from './postgres';
 import { snmpdListeners, snmpdLoad, type SnmpdLoaded } from './snmp';
+import { radiusdListeners, type RadiusdLoaded, radiusdReload, radiusdStart } from './radius';
 import { monitorListeners, monitorStart, promReload, type AmLoaded, type NodeExporterLoaded, type PromLoaded } from './monitor';
 import { type Cert, parseCerts, parseKey } from './pki';
 import type { Host, ServiceRuntime, World } from '../types';
@@ -1312,7 +1313,26 @@ const snmpd: ServiceDef = {
   },
 };
 
-export const SERVICE_DEFS: ServiceDef[] = [networking, rsyslog, timesyncd, chrony, nftables, nfsServer, smbd, postgresql, dovecot, postfix, named, krb5kdc, kadmind, dhcpd, dhcrelay, radvd, sshd, nginx, nodeExporter, prometheus, alertmanager, snmpd];
+const freeradius: ServiceDef = {
+  name: 'freeradius',
+  unit: 'freeradius.service',
+  aliases: ['freeradius', 'radiusd'],
+  description: 'FreeRADIUS multi-protocol policy server',
+  configFiles: ['/etc/freeradius/3.0/radiusd.conf', '/etc/freeradius/3.0/clients.conf'],
+  start(world, host, rt) {
+    rt.pid = allocPid(host);
+    rt.loaded = radiusdStart(world, host, rt);
+    return rt.loaded !== null;
+  },
+  reload: (world, host, rt) => radiusdReload(world, host, rt),
+  listeners: (_host, rt) => radiusdListeners(rt),
+  statusLines(_host, rt) {
+    const l = rt.loaded as RadiusdLoaded | null;
+    return l ? [`             └─${l.pid} /usr/sbin/freeradius -f`] : [];
+  },
+};
+
+export const SERVICE_DEFS: ServiceDef[] = [networking, rsyslog, timesyncd, chrony, nftables, nfsServer, smbd, postgresql, dovecot, postfix, named, krb5kdc, kadmind, dhcpd, dhcrelay, radvd, sshd, nginx, nodeExporter, prometheus, alertmanager, snmpd, freeradius];
 
 export function findService(host: Host, name: string): ServiceDef | undefined {
   const n = name.replace(/\.service$/, '');

@@ -587,6 +587,7 @@ const ssh: CommandDef = {
         strictHostKeyChecking: (p.opts.stricthostkeychecking?.toLowerCase() as 'yes' | 'no' | 'ask' | 'accept-new') ?? 'ask',
         batchMode: yesno(p.opts.batchmode),
         connectTimeoutS: p.opts.connecttimeout ? Number(p.opts.connecttimeout) : undefined,
+        passwordPrompts: p.opts.numberofpasswordprompts ? Number(p.opts.numberofpasswordprompts) : undefined,
         family: p.opts.addressfamily === 'inet6' ? 6 : p.opts.addressfamily === 'inet' ? 4 : 0,
         pubkeyAuthentication: yesno(p.opts.pubkeyauthentication),
         passwordAuthentication: yesno(p.opts.passwordauthentication),

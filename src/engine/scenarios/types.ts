@@ -8,7 +8,8 @@ export type ConceptId =
   | 'linux.fs' | 'net.ops' | 'ops.recovery' | 'win.services' | 'win.firewall' | 'win.rdp' | 'ad.dns' | 'ad.kerberos' | 'ad.gpo'
   | 'docker.lifecycle' | 'docker.networking' | 'pfsense.rules' | 'pfsense.nat' | 'tls.pki' | 'net.mtu' | 'net.interfaces' | 'web.proxy' | 'ntp.sync' | 'logs.central' | 'files.nfs' | 'files.smb' | 'mail.smtp' | 'mail.imap' | 'db.access' | 'db.admin'
   | 'bk.schedule' | 'bk.transport' | 'bk.operate' | 'bk.restore'
-  | 'mon.metrics' | 'mon.alerting' | 'mon.snmp';
+  | 'mon.metrics' | 'mon.alerting' | 'mon.snmp'
+  | 'id.ldap' | 'id.radius';
 
 export type CauseCategory = 'Name resolution' | 'Network path' | 'Firewall' | 'Service' | 'Configuration' | 'Authentication' | 'Authorization' | 'Permissions' | 'Client' | 'Cryptography' | 'Persistence';
 

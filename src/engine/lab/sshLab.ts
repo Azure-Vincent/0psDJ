@@ -17,6 +17,7 @@ import { installMail01, seedMail } from './mailLab';
 import { installDb01, seedBackup } from './dbLab';
 import { installBackups, seedBackupHistory } from './backupLab';
 import { installMonitoring } from './monLab';
+import { installDirectory, installLdapClient, installPhonebook, installRadius } from './identityLab';
 import { syslogFlush } from '../sim/syslog';
 import { endSession, runSsh } from '../sim/ssh';
 import { makeKeyPair, type KeyType } from '../sim/keys';
@@ -332,10 +333,15 @@ iface swp20
     alias mon01 (monitoring server)
     bridge-access 20
 
+auto swp22
+iface swp22
+    alias rad01 (RADIUS server)
+    bridge-access 20
+
 auto br0
 iface br0
     bridge-vlan-aware yes
-    bridge-ports swp1 swp2 swp3 swp4 swp5 swp6 swp7 swp8 swp9 swp11 swp12 swp13 swp15 swp16 swp18 swp20
+    bridge-ports swp1 swp2 swp3 swp4 swp5 swp6 swp7 swp8 swp9 swp11 swp12 swp13 swp15 swp16 swp18 swp20 swp22
     bridge-vids 10 20 30
     bridge-pvid 1
     bridge-stp yes
@@ -456,6 +462,8 @@ srv01   IN A    10.0.20.10
 srv01   IN AAAA 2001:db8:20::10
 win01   IN A    10.0.20.30
 dc01    IN A    10.0.20.5
+; LDAPS clients use the DC's AD name, the one its certificate carries (CHG-2701)
+dc01.ad IN A    10.0.20.5
 fw01    IN A    10.0.20.254
 dmz01   IN A    172.16.50.10
 portal  IN A    172.16.50.10
@@ -466,6 +474,7 @@ mail01  IN A    10.0.20.25
 db01    IN A    10.0.20.35
 bak01   IN A    10.0.20.45
 mon01   IN A    10.0.20.55
+rad01   IN A    10.0.20.65
 ; Mail for corp.lab goes to mail01 (CHG-2401)
 @       IN MX   10 mail01.corp.lab.
 inventory IN CNAME dock01
@@ -531,7 +540,7 @@ function buildSshLabFresh(): World {
   world.links = [
     ['ws01', 'eth0', 'swp1'], ['ws02', 'eth0', 'swp2'], ['ns1', 'eth0', 'swp3'], ['rtr01', 'eth0', 'swp4'],
     ['rtr01', 'eth1', 'swp5'], ['srv01', 'eth0', 'swp6'], ['rtr01', 'eth3', 'swp7'], ['dev01', 'eth0', 'swp8'], ['dev02', 'eth0', 'swp9'],
-    ['dock01', 'eth0', 'swp11'], ['log01', 'eth0', 'swp12'], ['fs01', 'eth0', 'swp13'], ['mail01', 'eth0', 'swp15'], ['db01', 'eth0', 'swp16'], ['bak01', 'eth0', 'swp18'], ['mon01', 'eth0', 'swp20'],
+    ['dock01', 'eth0', 'swp11'], ['log01', 'eth0', 'swp12'], ['fs01', 'eth0', 'swp13'], ['mail01', 'eth0', 'swp15'], ['db01', 'eth0', 'swp16'], ['bak01', 'eth0', 'swp18'], ['mon01', 'eth0', 'swp20'], ['rad01', 'eth0', 'swp22'],
   ].map(([host, iface, port]) => ({ a: { host, iface }, b: { host: 'sw01', iface: port } }));
   const t = world.clock;
 
@@ -541,7 +550,7 @@ function buildSshLabFresh(): World {
     ifaces: Array.from({ length: 9 }, (_, k) => ({ name: `swp${k + 1}`, mac: `52:54:00:5e:00:${(k + 1).toString(16).padStart(2, '0')}`, segment: null })),
     services: [],
   });
-  // swp10 is left free (Lab 1 cables a new server to it); swp11 is dock01's port, swp12 log01's, swp13 fs01's, swp15 mail01's, swp16 db01's, swp18 bak01's, swp20 mon01's (Lab 5 cables app01 to swp14, Lab 7 db02 to swp17).
+  // swp10 is left free (Lab 1 cables a new server to it); swp11 is dock01's port, swp12 log01's, swp13 fs01's, swp15 mail01's, swp16 db01's, swp18 bak01's, swp20 mon01's, swp22 rad01's (Lab 5 cables app01 to swp14, Lab 7 db02 to swp17).
   sw.ifaces.push({ name: 'swp11', mac: '52:54:00:5e:00:0b', segment: null, address: null, prefix: null, up: false, staticSegment: null, addrs6: [] });
   sw.ifaces.push({ name: 'swp12', mac: '52:54:00:5e:00:0c', segment: null, address: null, prefix: null, up: false, staticSegment: null, addrs6: [] });
   sw.ifaces.push({ name: 'swp13', mac: '52:54:00:5e:00:0d', segment: null, address: null, prefix: null, up: false, staticSegment: null, addrs6: [] });
@@ -549,6 +558,7 @@ function buildSshLabFresh(): World {
   sw.ifaces.push({ name: 'swp16', mac: '52:54:00:5e:00:10', segment: null, address: null, prefix: null, up: false, staticSegment: null, addrs6: [] });
   sw.ifaces.push({ name: 'swp18', mac: '52:54:00:5e:00:12', segment: null, address: null, prefix: null, up: false, staticSegment: null, addrs6: [] });
   sw.ifaces.push({ name: 'swp20', mac: '52:54:00:5e:00:14', segment: null, address: null, prefix: null, up: false, staticSegment: null, addrs6: [] });
+  sw.ifaces.push({ name: 'swp22', mac: '52:54:00:5e:00:16', segment: null, address: null, prefix: null, up: false, staticSegment: null, addrs6: [] });
   writeFile(sw, '/etc/network/interfaces', SW01_INTERFACES, t);
   writeFile(sw, '/etc/resolv.conf', '', t);
 
@@ -675,6 +685,9 @@ function buildSshLabFresh(): World {
   installKerberos(world);
   const win = installWin01(world);
   const dc = installDc01(world, true);
+  installDirectory(world);
+  installLdapClient(srv, t);
+  installPhonebook(srv, t);
   const fw = installFw01(world);
   const dmz = installDmz01(world);
   const dock = installDock01(world);
@@ -684,6 +697,7 @@ function buildSshLabFresh(): World {
   const dbsrv = installDb01(world);
   const baksrv = installBackups(world);
   const monsrv = installMonitoring(world);
+  const radsrv = installRadius(world);
   for (const id of LOG_SENDERS) installRsyslog(world.hosts[id], world.clock, true);
   // On the Internet the portal is reached through fw01's public address.
   writeFile(ext, '/etc/hosts', `${readFile(ext, '/etc/hosts') ?? ''}203.0.113.10\tportal.corp.lab\n`, world.clock);
@@ -692,7 +706,7 @@ function buildSshLabFresh(): World {
   // ns1 must serve DHCP before ws02 boots, rtr01 must advertise before dev01.
   installNtp(world);
   // fs01 before its NFS clients (srv01, ws01 mount its shares at boot).
-  for (const h of [sw, rtr, ns1, files, srv, ws, ws2, ext, dev, dev2, fw, dmz, dc, win, dock, logsrv, mail, dbsrv, baksrv, monsrv]) bootHost(world, h);
+  for (const h of [sw, rtr, ns1, files, srv, ws, ws2, ext, dev, dev2, fw, dmz, dc, win, dock, logsrv, mail, dbsrv, baksrv, monsrv, radsrv]) bootHost(world, h);
   // NTP converges in the minutes after boot (rtr01 needs ext01, the clients need rtr01).
   ntpSettle(world);
   seedMail(world);
