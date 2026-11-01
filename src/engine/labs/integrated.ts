@@ -5,7 +5,7 @@
 // learner's commands are classified to give feedback on the process.
 
 import { CAUSES } from '../scenarios/catalog';
-import { rebootAll } from '../scenarios/engine';
+import { rebootAll, settle } from '../scenarios/engine';
 import type { World } from '../types';
 import { applySolution } from './engine';
 import type { GuidedLab, LabCheck, LabFault, RequestPath } from './types';
@@ -27,6 +27,9 @@ export interface HopResult {
 export function probePath(world: World, path: RequestPath): HopResult[] {
   const out: HopResult[] = [];
   let stopped = false;
+  // Daemons keep working while the learner reads: let them catch up, as a check would.
+  world = structuredClone(world);
+  settle(world);
   for (const n of path.nodes) {
     if (stopped) { out.push({ id: n.id, label: n.label, role: n.role, host: n.host, status: 'not-reached', evidence: '' }); continue; }
     let r: { ok: boolean; evidence: string };

@@ -661,6 +661,8 @@ function dockerdStart(world: World, host: Host, pid: number): boolean {
   host.services.docker.state = 'active';
   for (const c of listContainers(host)) {
     // After a daemon restart, only "always" and "unless-stopped" (not stopped by hand) come back.
+    // live-restore: the containers kept running while the daemon was down; it just reattaches to them.
+    if (c.state.status === 'running' && runningHost(world, host, c)) continue;
     const wasUp = c.state.status === 'running' || c.state.status === 'restarting';
     if (wasUp) c.state = { ...c.state, status: 'exited', exitCode: c.state.status === 'running' ? 255 : c.state.exitCode, finishedAt: world.clock, pid: 0 };
     saveContainer(host, c, world.clock);
