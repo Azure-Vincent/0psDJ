@@ -7,7 +7,6 @@ import { TroubleshootList, TroubleshootWorkspace } from './pages/Troubleshoot';
 import { GuidedLabList, GuidedLabPage } from './pages/GuidedLab';
 import { Reference } from './pages/Reference';
 import { CaseStudyList, CaseStudyPage } from './pages/CaseStudies';
-import { Certification } from './pages/Certification';
 import { PacketLab } from './pages/PacketLab';
 import { Glossary } from './pages/Glossary';
 import { History } from './pages/History';
@@ -34,7 +33,6 @@ const NAV: [string, string, string?][] = [
   ['packets', 'Packet Lab'],
   ['#Reference', ''],
   ['reference', 'Reference library'],
-  ['certification', 'Certification map'],
   ['glossary', 'Glossary'],
   ['history', 'History'],
   ['settings', 'Settings'],
@@ -99,7 +97,6 @@ function Shell() {
     case 'commands': page = <Reference initialTab="command" />; break;
     case 'reference': page = <Reference />; break;
     case 'cases': page = a ? <CaseStudyPage key={a} id={a} /> : <CaseStudyList />; break;
-    case 'certification': page = <Certification />; break;
     case 'packets': page = <PacketLab />; break;
     case 'glossary': page = <Glossary />; break;
     case 'history': page = <History id={a} />; break;

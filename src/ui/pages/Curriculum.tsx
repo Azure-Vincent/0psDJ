@@ -4,7 +4,7 @@ import { INTEGRATED_LABS } from '../../engine/labs';
 import type { CurriculumModule } from '../../content/types';
 import { go } from '../state';
 
-const STATUS: Record<string, string> = { available: 'ok', partial: 'accent', planned: '' };
+const STATUS: Record<string, string> = { available: 'ok', partial: 'accent' };
 
 export function Curriculum() {
   return (
@@ -12,7 +12,7 @@ export function Curriculum() {
       <h1>Curriculum</h1>
       <p className="muted">
         Modules build on each other (arrows show prerequisites). <span className="badge ok">available</span> = complete lesson,{' '}
-        <span className="badge accent">partial</span> = covered inside an available lesson or lab, <span className="badge">planned</span> = on the roadmap, not yet implemented.
+        <span className="badge accent">partial</span> = covered inside an available lesson or lab.
       </p>
       <ModuleMap />
       {CURRICULUM.map((m) => (

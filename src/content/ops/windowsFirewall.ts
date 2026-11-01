@@ -434,7 +434,6 @@ A: **SEND**: a packet win01 was sending. Check \`DefaultOutboundAction\` (Get-Ne
     { title: 'Microsoft Learn: Windows Filtering Platform', url: 'https://learn.microsoft.com/windows/win32/fwp/windows-filtering-platform-start-page' },
   ],
   guide: WINDOWS_FIREWALL_GUIDE,
-  objectives: ['N10-009:4.3', 'N10-009:5.3'],
 };
 
 // --- Primer -------------------------------------------------------------------------

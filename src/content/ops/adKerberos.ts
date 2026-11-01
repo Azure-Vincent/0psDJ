@@ -504,7 +504,6 @@ A: Fix the **practice**: avoid restoring old snapshots of domain members (or rep
   ],
   guide: AD_KERBEROS_GUIDE,
   caseStudyIds: ['domain-login', 'rdp-after-change'],
-  objectives: ['N10-009:1.4', 'N10-009:3.4', 'N10-009:4.1', 'N10-009:5.3', '200-301:4.2', '200-301:4.3', '200-301:5.8'],
 };
 
 // --- Assessment -------------------------------------------------------------------------

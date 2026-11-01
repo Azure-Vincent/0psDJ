@@ -1,12 +1,11 @@
 // Cross-reference integrity for the content: every id a lesson, guide, case
-// study or certification objective links to must exist, and every command
+// study or curriculum topic links to must exist, and every command
 // marked as runnable in the simulator must be a simulator command.
 
 import { describe, expect, it } from 'vitest';
 import { CASE_STUDIES } from '../src/content/cases';
-import { CERT_EXAMS } from '../src/content/certification';
 import { COMMAND_REFS } from '../src/content/commands';
-import { CURRICULUM } from '../src/content/curriculum';
+import { CURRICULUM, LABS } from '../src/content/curriculum';
 import { ASSESSMENTS, LESSONS, getLesson } from '../src/content/lessons';
 import { practiceBlocks, stripPractice } from '../src/content/practice';
 import { readFileSync, readdirSync } from 'node:fs';
@@ -19,7 +18,6 @@ import { resolveCommand } from '../src/engine/win/ps/runtime';
 
 const SHELL_BUILTINS = new Set(['sudo', 'exit', 'logout', 'clear', 'true', 'false', 'help', 'which', 'type', 'for', 'echo', 'set', '.']);
 const SECTIONS = new Set(['what', 'internals', 'visualize', 'deploy', 'config', 'operate', 'troubleshoot', 'assess']);
-const OBJECTIVES = new Set(CERT_EXAMS.flatMap((e) => e.domains.flatMap((d) => d.objectives.map((o) => o.id))));
 
 /** Is an in-app route valid? */
 function routeOk(link: string): string | null {
@@ -39,7 +37,7 @@ function routeOk(link: string): string | null {
       const id = new URLSearchParams(query ?? '').get('id');
       return !id || getRef(id) ? null : `unknown reference ${id}`;
     }
-    case 'packets': case 'glossary': case 'commands': case 'certification': case 'curriculum': return null;
+    case 'packets': case 'glossary': case 'commands': case 'curriculum': return null;
     default: return `unknown route ${link}`;
   }
 }
@@ -82,7 +80,6 @@ describe.each(LESSONS.map((L) => [L.id, L] as const))('lesson %s', (_id, L) => {
     expect(L.deployment.length, 'deployment guides').toBeGreaterThan(0);
     for (const s of L.scenarioIds) expect(ALL_SCENARIOS.some((x) => x.id === s), `ticket ${s}`).toBe(true);
     for (const c of L.caseStudyIds ?? []) expect(CASE_STUDIES.some((x) => x.id === c), `case ${c}`).toBe(true);
-    for (const o of L.objectives ?? []) expect(OBJECTIVES.has(o), `objective ${o}`).toBe(true);
     for (const r of L.guide?.refIds ?? []) expect(getRef(r), `ref ${r}`).toBeDefined();
   });
   it('marks only real simulator commands as runnable', () => {
@@ -145,22 +142,17 @@ describe('case studies', () => {
   });
 });
 
-describe('certification map', () => {
-  it('has objective ids prefixed with the exam code and valid links', () => {
-    for (const e of CERT_EXAMS) {
-      for (const d of e.domains) {
-        for (const o of d.objectives) {
-          expect(o.id.startsWith(e.code + ':'), o.id).toBe(true);
-          for (const l of o.links) expect(routeOk(l), `${o.id} → ${l}`).toBeNull();
-        }
-      }
-    }
-  });
-});
-
 describe('curriculum', () => {
   it('links resolve', () => {
     for (const m of CURRICULUM) for (const t of m.topics) if (t.link) expect(routeOk(t.link), `${m.id}: ${t.title}`).toBeNull();
+  });
+  it('lists only what the application covers (no roadmap items)', () => {
+    for (const m of CURRICULUM) for (const t of m.topics) {
+      expect(['available', 'partial'], `${m.id}: ${t.title}`).toContain(t.status);
+      expect(t.link, `${m.id}: ${t.title}`).toBeTruthy();
+      expect(t.note ?? '', `${m.id}: ${t.title}`).not.toMatch(/\bplanned\b/);
+    }
+    for (const l of LABS) expect(l.status, l.title).not.toBe('planned');
   });
 });
 

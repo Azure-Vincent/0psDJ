@@ -21,7 +21,6 @@ import { CidrCalculator, HookDiagram, PacketTester } from '../components/Firewal
 import { RunVisualizer } from '../components/RunVisualizer';
 import { type CatalogueFile, FileCatalogue, GuideArchitecture, GuideDiagrams as ServiceDiagrams, GuideFailures, GuideOperate, GuideWorkflow } from '../components/GuideView';
 import { CASE_STUDIES } from '../../content/cases';
-import { CERT_EXAMS } from '../../content/certification';
 import { EncapsulationExplorer, ResolverTracer, RouteLookup, SubnetPractice } from '../components/NetworkWidgets';
 import { DHCP_LANES, IPV6_LANES, KRB_LANES, LAB_LANES, MTU_LANES, NAT_LANES, TLS_LANES, VLAN_LANES, segmentOf } from '../components/labLanes';
 import { ChainInspector, MtuCalculator } from '../components/TlsMtuWidgets';
@@ -513,13 +512,6 @@ function Visualize({ L, sim }: { L: Lesson; sim?: ReactNode }) {
   );
 }
 
-function objectiveTitle(id: string): string {
-  const [code, num] = id.split(':');
-  const exam = CERT_EXAMS.find((e) => e.code === code);
-  const o = exam?.domains.flatMap((d) => d.objectives).find((x) => x.id === id);
-  return o ? `${exam!.name} ${num} ${o.title}` : id;
-}
-
 /** What each tab answers, so the reader knows where to look. */
 const TAB_QUESTIONS: Record<Section['id'], string> = {
   what: 'What is it, why does it matter, where will I meet it?',
@@ -580,12 +572,6 @@ export function LessonPage({ lessonId, section }: { lessonId: string; section: s
             </div>
           ) : null;
         })()}
-        {(L.objectives ?? []).length > 0 && (
-          <div className="row small" style={{ marginTop: 6, gap: 4 }}>
-            <span className="muted">Supports:</span>
-            {L.objectives!.map((o) => <a key={o} className="badge" href={`#/certification?o=${encodeURIComponent(o)}`} title={objectiveTitle(o)}>{o}</a>)}
-          </div>
-        )}
       </div>
       <TabBar
         label="Lesson sections"

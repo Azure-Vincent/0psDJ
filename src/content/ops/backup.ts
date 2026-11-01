@@ -497,7 +497,6 @@ A: **Free space** on the backup server: \`df -h /srv/backup\` on bak01.
     { title: 'Microsoft Learn: wbadmin', url: 'https://learn.microsoft.com/windows-server/administration/windows-commands/wbadmin' },
   ],
   guide: BACKUP_GUIDE,
-  objectives: ['N10-009:3.3'],
 };
 
 // --- Primer -------------------------------------------------------------------------

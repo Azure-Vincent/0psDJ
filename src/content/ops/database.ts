@@ -493,7 +493,6 @@ A: In the **server log**: the DETAIL line (for example "does not have a valid SC
     { title: 'Microsoft Learn: Create a login (SQL Server)', url: 'https://learn.microsoft.com/sql/relational-databases/security/authentication-access/create-a-login' },
   ],
   guide: DATABASE_GUIDE,
-  objectives: ['N10-009:1.4', 'N10-009:5.3'],
 };
 
 // --- Primer -------------------------------------------------------------------------

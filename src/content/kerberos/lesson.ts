@@ -271,5 +271,4 @@ A: \`klist -ke\` on the server.
   ],
   guide: KERBEROS_GUIDE,
   caseStudyIds: ['domain-login'],
-  objectives: ['N10-009:1.4', 'N10-009:4.1', 'N10-009:5.3'],
 };

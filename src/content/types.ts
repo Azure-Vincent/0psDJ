@@ -189,8 +189,6 @@ export interface Lesson {
   guide?: ServiceGuide;
   /** End-to-end case studies related to this lesson. */
   caseStudyIds?: string[];
-  /** Certification objective ids (e.g. "N10-009:5.3", "CCNA:2.1") this lesson supports. */
-  objectives?: string[];
 }
 
 // --- Case studies -----------------------------------------------------------------
@@ -247,26 +245,6 @@ export interface Procedure {
   steps: { title: string; command?: string; why: RichText }[];
   risks: RichText;
   verify: RichText;
-}
-
-// --- Certification mapping ----------------------------------------------------------
-
-export interface CertObjective {
-  id: string;
-  title: string;
-  coverage: 'covered' | 'partial' | 'gap';
-  /** App routes that cover it (lesson/..., troubleshoot/..., cases/..., reference?id=...). */
-  links: string[];
-  note?: RichText;
-}
-
-export interface CertExam {
-  id: string;
-  name: string;
-  code: string;
-  version: string;
-  officialUrl: string;
-  domains: { id: string; title: string; weight: string; objectives: CertObjective[] }[];
 }
 
 // --- Assessments --------------------------------------------------------------
@@ -385,7 +363,7 @@ export interface GlossaryEntry {
 export interface Topic {
   title: string;
   level: Level;
-  status: 'available' | 'partial' | 'planned';
+  status: 'available' | 'partial';
   /** Where to go when available: a route such as "lesson/ssh". */
   link?: string;
   note?: string;

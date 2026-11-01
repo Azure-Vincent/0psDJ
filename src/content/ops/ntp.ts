@@ -391,7 +391,6 @@ A: The server's **firewall** dropping them before chronyd, or chronyd's **allow 
     { title: 'RFC 8915: Network Time Security for NTP', url: 'https://www.rfc-editor.org/rfc/rfc8915' },
   ],
   guide: NTP_GUIDE,
-  objectives: ['N10-009:1.4', 'N10-009:3.4', 'N10-009:5.3'],
 };
 
 // --- Primer -------------------------------------------------------------------------

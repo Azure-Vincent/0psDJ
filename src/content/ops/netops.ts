@@ -201,7 +201,6 @@ export const NETOPS_LESSON: Lesson = {
   mode: 'simulated',
   guide: NETOPS_GUIDE,
   caseStudyIds: ['linux-no-internet', 'shared-dependency'],
-  objectives: ['N10-009:5.1', 'N10-009:5.2', 'N10-009:5.3', 'N10-009:5.5', '200-301:1.10', '200-301:3.1'],
 
   what: `
 "The network is down" is a symptom, not a diagnosis. On a host, networking is a stack of separate pieces of state, and each one can be checked with one command:

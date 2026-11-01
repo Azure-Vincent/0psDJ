@@ -177,7 +177,6 @@ export const SYSTEMD_LESSON: Lesson = {
   mode: 'simulated',
   guide: SYSTEMD_GUIDE,
   caseStudyIds: ['ssh-refused', 'shared-dependency'],
-  objectives: ['N10-009:3.2', 'N10-009:5.3', '200-301:4.5'],
 
   what: `
 Most of the important programs on a Linux server run in the background without anyone logged in: the SSH server, the web server, the DNS server, the firewall loader. These background programs are called **services** (or **daemons**). Something has to start them at boot, in the right order, restart them if they crash, and keep their logs. On almost every current Linux distribution (Debian, Ubuntu, RHEL, Rocky, Alma, SUSE, Fedora), that something is **systemd**.

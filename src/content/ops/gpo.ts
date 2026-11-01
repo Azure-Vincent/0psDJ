@@ -331,7 +331,6 @@ A: Step 3, **filtering**: the computer cannot even **read** the GPO. Give Authen
     { title: 'MS16-072: security update for Group Policy (computers read GPOs)', url: 'https://support.microsoft.com/help/3163622' },
   ],
   guide: GPO_GUIDE,
-  objectives: ['N10-009:4.3', 'N10-009:5.3'],
 };
 
 // --- Primer -------------------------------------------------------------------------

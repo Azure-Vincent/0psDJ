@@ -379,7 +379,6 @@ A: Step 1, **connect**: a firewall drops TCP 445 (a refused connection would mea
     { title: 'Red Hat: Using Samba as a server (RHEL 9)', url: 'https://docs.redhat.com/en/documentation/red_hat_enterprise_linux/9/html/configuring_and_using_network_file_services/assembly_using-samba-as-a-server_configuring-and-using-network-file-services' },
   ],
   guide: SMB_GUIDE,
-  objectives: ['N10-009:1.4', 'N10-009:5.3'],
 };
 
 // --- Primer -------------------------------------------------------------------------

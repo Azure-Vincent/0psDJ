@@ -197,7 +197,6 @@ export const RECOVERY_LESSON: Lesson = {
   mode: 'simulated',
   guide: RECOVERY_GUIDE,
   caseStudyIds: ['ssh-refused', 'linux-no-internet', 'shared-dependency', 'pfsense-blocks', 'rdp-after-change'],
-  objectives: ['N10-009:3.1', 'N10-009:3.3', 'N10-009:5.1'],
 
   what: `
 Every other lesson teaches how a technology works and how to find a fault. This one teaches **how to touch production safely** while you fix it, because the most common cause of an outage is a change, and the most common cause of a *long* outage is a change made without a way back.

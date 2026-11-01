@@ -127,7 +127,6 @@ dashboard recommends it *and* any prerequisite that is not yet proficient.
 │  Packet Lab  │ Troubleshooting workspace (3 columns):                          │
 │ REFERENCE    │  ticket/briefing/topology/hints │ terminals: ws01 · srv01 ·     │
 │  Ref. library│  field manual (workflows, refs) │ ns1 · rtr01 consoles          │
-│  Cert. map   │                                 │                               │
 │  Glossary    │                                 │                               │
 │  History     │                                 │ │ notes · evidence log ·      │
 │  Settings    │                                 │ │ diagnosis · verify · RCA    │
@@ -148,8 +147,8 @@ dashboard recommends it *and* any prerequisite that is not yet proficient.
 | Troubleshooting | Where do I start, what does this error mean, how do I tell causes apart? | `troubleshootingIntro`, guide workflow, error map, guide failures, case studies, tickets |
 | Assessment | Do I understand it? | primer self-check, graded assessment |
 
-Principles: no decorative controls; every button does something; planned
-features are labelled "planned" and have no buttons; the answer to a ticket is
+Principles: no decorative controls; every button does something; the
+curriculum lists only what the application covers; the answer to a ticket is
 never visible until it is solved or explicitly revealed (the topology shows
 addresses and roles only, never runtime state).
 
@@ -166,7 +165,7 @@ Lesson { id, moduleId, title, level, concepts[], what, internals,            // 
          configFiles[], directives[] { name, compiledDefault, distroDefault, recommended, explanation, security },
          troubleshootingIntro, errorMap[], scenarioIds[], assessmentId, references[] }
 
-         mode?: 'simulated' | 'reference', guide?: ServiceGuide, caseStudyIds?[], objectives?[] }
+         mode?: 'simulated' | 'reference', guide?: ServiceGuide, caseStudyIds?[] }
 
 ServiceGuide { purpose, architecture[] {q, a}, ports[], processes[],
                dependencies: LayeredDiagram, sequence?: StaticSequence,
@@ -178,7 +177,6 @@ CaseStudy { id, letter, scenarioId?, outputSource, symptoms, environment, expect
             investigation[] { host, command, output, interpretation }, rootCause, repair[], restart, verify[], prevention[], lessonIds[], refIds[] }
 FileRef { id 'file:…', path, platform, kind, services[], purpose, contents, accessed, permissions, problems, example?, relatedCommands[] }
 Procedure { id 'proc:…', title, platform, services[], symptoms[], purpose, steps[] { title, command?, why }, risks, verify }
-CertExam { code, version, officialUrl, domains[] { weight, objectives[] { id 'N10-009:5.3', coverage, links[], note } } }
 
 Question = single | multi | order | text | nft-rule | sshd-config            // practical kinds graded by the engine
 CommandRef { name, platform, purpose, syntax, args[], example, interpretation, limitations, simulator?,
@@ -421,6 +419,6 @@ options is implemented and unsupported options say so.
 ### Adding a new service (checklist)
 1. Engine: add a `ServiceDef` in `sim/services.ts` (start/reload/listeners/config parsing) and any protocol simulator under `sim/` that records `TraceEvent`s.
 2. Shell: add the service's admin/diagnostic commands under `shell/`.
-3. Content: add a `Lesson` (with a `ServiceGuide`, which is shown across the tabs) and an `Assessment` and register them in `src/content/lessons.ts`; add command, file and procedure entries to the reference library (`src/content/reference/`), glossary entries, and objective links in `src/content/certification.ts`. Mark a command `sim: true` only if it runs in the simulator exactly as written; `tests/content-integrity.test.ts` checks this and every cross-link. Optional interactive widgets are wired in `widgetsFor()` in `src/ui/pages/LessonPage.tsx`.
+3. Content: add a `Lesson` (with a `ServiceGuide`, which is shown across the tabs) and an `Assessment` and register them in `src/content/lessons.ts`; add command, file and procedure entries to the reference library (`src/content/reference/`), and glossary entries. Mark a command `sim: true` only if it runs in the simulator exactly as written; `tests/content-integrity.test.ts` checks this and every cross-link. Optional interactive widgets are wired in `widgetsFor()` in `src/ui/pages/LessonPage.tsx`.
 4. Scenarios: add `Scenario` objects (goals: SSH login, HTTP request or name lookup) with `setup`, `solution` and constraints, and register the set in `src/engine/scenarios/index.ts`; the generic scenario test proves each one breaks and is fixable.
 5. Curriculum: flip the topic status to `available` with a link.

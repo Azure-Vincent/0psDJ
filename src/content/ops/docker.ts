@@ -578,7 +578,6 @@ A: It hides the real problem (usually a listen address or a port mapping) and re
   ],
   guide: DOCKER_GUIDE,
   caseStudyIds: ['docker-unreachable'],
-  objectives: ['200-301:1.12', 'N10-009:5.3', 'N10-009:5.5'],
 };
 
 // --- Assessment -------------------------------------------------------------------------

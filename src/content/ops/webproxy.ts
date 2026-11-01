@@ -426,7 +426,6 @@ A: **504 Gateway Time-out**.
     { title: 'RFC 9110: HTTP Semantics (502, 503, 504; Forwarded headers in RFC 7239)', url: 'https://www.rfc-editor.org/rfc/rfc9110' },
   ],
   guide: WEBPROXY_GUIDE,
-  objectives: ['N10-009:1.2', 'N10-009:1.4', 'N10-009:5.3'],
 };
 
 // --- Primer -------------------------------------------------------------------------

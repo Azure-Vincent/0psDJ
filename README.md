@@ -173,8 +173,7 @@ For every technology it answers the same questions:
 - **Reference library** of commands, configuration files, logs and recovery
   procedures for Linux, Windows, Docker, pfSense and Cisco IOS.
 - **Packet Lab** with Wireshark-style captures (exportable as PCAP), a
-  certification objective map for Network+ and CCNA, a glossary, and progress
-  tracking.
+  glossary, and progress tracking.
 
 Everything is stored locally, and the app works without an Internet connection.
 The sidebar can be hidden (the « button, or Ctrl+\\) to give lessons, labs and
@@ -404,7 +403,7 @@ npm run typecheck    # TypeScript checks
 | Path | Contents |
 |---|---|
 | `src/engine/` | the simulator: network, services, shell commands, troubleshooting scenarios, guided labs, PCAP |
-| `src/content/` | lessons, guides, case studies, reference library, certification map, glossary (plain data) |
+| `src/content/` | lessons, guides, case studies, reference library, glossary (plain data) |
 | `src/ui/` | the React interface |
 | `src/learning/` | grading and progress tracking |
 | `electron/`, `build/`, `scripts/` | desktop shell, packaging configuration and Linux launch helpers |
@@ -480,6 +479,4 @@ floating rules and packages are not simulated, and the webConfigurator shows
 only the pages these features need.
 Other output for Windows, Active Directory, Docker, pfSense and Cisco IOS is
 representative of the versions named on each page; check the exact wording
-against your own systems when it matters. The certification map is a study
-aid, not a guarantee of exam readiness: check objectives against the vendors'
-current documents.
+against your own systems when it matters.
