@@ -30,6 +30,16 @@ export function probe(world: World, host: string, user: string, line: string): {
   return { output: r.output, code: r.code };
 }
 
+/** Several command lines in one shell on one copy of the world (background daemons run between them). */
+export function probeSeq(world: World, host: string, user: string, lines: string[]): { output: string; code: number } {
+  let w = structuredClone(world);
+  const home = w.hosts[host].users[user]?.home ?? '/';
+  const sh = new Shell(() => w, (n) => (w = n), { hostId: host, user, cwd: home });
+  let last = { output: '', code: 0 };
+  for (const l of lines) { const r = sh.execute(l); last = { output: r.output, code: r.code }; }
+  return last;
+}
+
 export interface CheckOutcome extends LabCheckResult {
   id: string;
   description: string;

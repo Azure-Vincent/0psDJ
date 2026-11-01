@@ -45,7 +45,16 @@ For every technology it answers the same questions:
   Windows, pfSense, Docker), configuration reference, an **Operate & recover**
   guide (files, logs, service management, diagnostic workflow, common
   failures) and a graded assessment.
-- **Nine guided labs**: build a freshly installed Debian server into a
+- **Ten integrated labs** that combine subjects in realistic situations: a small
+  office network, a secured Linux web server, an Active Directory environment,
+  cross-platform troubleshooting, a containerised application, pfSense
+  segmentation, an enterprise DNS failure, a multi-service outage, securing and
+  maintaining servers, and a complete deployment. Each runs in six stages
+  (environment, dependencies with request paths probed hop by hop, configuration,
+  verification, an incident to diagnose and repair, review with feedback on the
+  subjects and on the troubleshooting process), in guided, assisted or
+  independent mode. See docs/INTEGRATED_LABS.md.
+- **Ten guided service labs**: build a freshly installed Debian server into a
   hardened intranet web server (Lab 1), create an Active Directory domain and
   join a member server (Lab 2), turn a fresh pfSense into the perimeter
   firewall with a DMZ and a published web server (Lab 3), take over a
@@ -366,7 +375,12 @@ is stored separately and is kept; it can also be exported and imported under
 Start with **Curriculum** for the learning path, or open a lesson from the
 sidebar. Each lesson has tabs from "What is it?" to "Assessment".
 **Guided labs** walks you through building something step by step, with a
-**Check step** button, hints and a reference solution for every step.
+**Check step** button, hints and a reference solution for every step. The
+**integrated labs** add stages (environment, dependencies, configure, verify,
+troubleshoot, review): choose a learning mode before you start, probe the
+request paths in stage 2 to see where communication stops, start the incident
+in stage 5 once your build is verified, and read your feedback in stage 6.
+Notes and progress are kept; "Start over" asks before resetting.
 **Infrastructure Builder** lets you design a network on a canvas: add devices,
 press **Connect** and click two devices to cable them, then click a device to
 set its addresses and rules. The checks below the canvas list mistakes such as

@@ -10,5 +10,6 @@ import { ILAB6 } from './ilab6';
 import { ILAB7 } from './ilab7';
 import { ILAB8 } from './ilab8';
 import { ILAB9 } from './ilab9';
+import { ILAB10 } from './ilab10';
 
-export const INTEGRATED_LABS: GuidedLab[] = [ILAB1, ILAB2, ILAB3, ILAB4, ILAB5, ILAB6, ILAB7, ILAB8, ILAB9];
+export const INTEGRATED_LABS: GuidedLab[] = [ILAB1, ILAB2, ILAB3, ILAB4, ILAB5, ILAB6, ILAB7, ILAB8, ILAB9, ILAB10];

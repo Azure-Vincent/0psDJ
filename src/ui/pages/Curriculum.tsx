@@ -1,4 +1,6 @@
 import { CURRICULUM, LABS } from '../../content/curriculum';
+import { getLesson } from '../../content/lessons';
+import { INTEGRATED_LABS } from '../../engine/labs';
 import type { CurriculumModule } from '../../content/types';
 import { go } from '../state';
 
@@ -38,6 +40,18 @@ export function Curriculum() {
         <tbody>
           {LABS.map((l) => (
             <tr key={l.id}><td>{'link' in l && l.link ? <a href={`#/${l.link}`}>{l.title}</a> : l.title}{l.note && <div className="small muted">{l.note}</div>}</td><td style={{ width: 100 }}><span className={`badge ${STATUS[l.status]}`}>{l.status}</span></td></tr>
+          ))}
+        </tbody>
+      </table>
+      <h2>Integrated labs</h2>
+      <p className="small muted">Several subjects in one realistic situation, in the order of the learning path. Each builds on the lessons listed (recommended, not required) and ends with an incident to troubleshoot; the last one prepares for the unguided <a href="#/cases">case studies</a>.</p>
+      <table>
+        <tbody>
+          {INTEGRATED_LABS.map((l) => (
+            <tr key={l.id}>
+              <td><a href={`#/labs/${l.id}`}>{l.title}</a><div className="small muted">Builds on: {l.integrated!.after.map((a) => getLesson(a)?.title ?? a).join(', ')}</div></td>
+              <td style={{ width: 100 }}><span className="badge">{l.level}</span></td>
+            </tr>
           ))}
         </tbody>
       </table>

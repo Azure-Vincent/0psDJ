@@ -6,6 +6,7 @@ import { SECTIONS } from '../sections';
 import { DHCP_RUNS, FIREWALL_RUNS, IP_RUNS, IPV6_RUNS, KRB_RUNS, MTU_RUNS, NAT_RUNS, TLS_RUNS, TRANSPORT_RUNS, VLAN_RUNS } from '../../engine/lab/visualRuns';
 import { OUTCOME_LABELS, SSH_DEPENDENCIES, freshLab, runWithFault } from '../../engine/lab/dependencies';
 import { ALL_SCENARIOS } from '../../engine/scenarios';
+import { INTEGRATED_LABS } from '../../engine/labs';
 import { deployProxy } from '../../engine/scenarios/proxyScenarios';
 import type { World } from '../../engine/types';
 import { AssessmentView } from '../components/Assessment';
@@ -570,6 +571,15 @@ export function LessonPage({ lessonId, section }: { lessonId: string; section: s
         <h1>{L.title}</h1>
         <div className="muted">{L.summary}</div>
         {L.mode === 'reference' && <div className="callout small" style={{ marginTop: 8 }}><strong>Reference lesson.</strong> The simulator runs Debian-style Linux hosts and the lab network only; this technology is taught from documentation and representative output from the named real platforms. Practise it on your own lab VMs.</div>}
+        {(() => {
+          const labs = INTEGRATED_LABS.filter((x) => x.integrated!.after.includes(L.id));
+          return labs.length ? (
+            <div className="small" style={{ marginTop: 6 }}>
+              <span className="muted">Practise it with other subjects: </span>
+              {labs.map((x, i) => <span key={x.id}>{i > 0 && ' · '}<a href={`#/labs/${x.id}`}>{x.title.replace(/^Integrated Lab (\d+):.*/, 'Integrated Lab $1')}</a></span>)}
+            </div>
+          ) : null;
+        })()}
         {(L.objectives ?? []).length > 0 && (
           <div className="row small" style={{ marginTop: 6, gap: 4 }}>
             <span className="muted">Supports:</span>

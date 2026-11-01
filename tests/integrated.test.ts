@@ -34,7 +34,8 @@ function finished(lab: GuidedLab): World {
 
 describe('integrated labs: definitions are complete and consistent', () => {
   it('ten labs, numbered 1–10, each with every stage filled in', () => {
-    expect(INTEGRATED_LABS.map((l) => l.integrated?.number)).toEqual(INTEGRATED_LABS.map((_, i) => i + 1));
+    expect(INTEGRATED_LABS.map((l) => l.integrated?.number)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+    expect(new Set(INTEGRATED_LABS.map((l) => l.id)).size).toBe(10);
   });
 
   it.each(INTEGRATED_LABS.map((l) => [l.id, l] as const))('%s: scenario, dependencies, tools, fault and review are well-formed', (_id, lab) => {

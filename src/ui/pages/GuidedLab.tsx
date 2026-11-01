@@ -47,7 +47,7 @@ export function GuidedLabList() {
       <h1>Guided labs</h1>
       <p className="muted">Build something real, one verified step at a time. Each step is checked by the simulator against the running machines, and the last step reboots everything to prove the change is complete.</p>
       <h2>Integrated labs</h2>
-      <p className="small muted">Several subjects in one realistic situation, in six stages: understand the environment and its dependencies, configure, verify, troubleshoot an incident, review. Each can be done guided, assisted or independently, and repeated in a harder mode. They lead up to the enterprise capstone.</p>
+      <p className="small muted">Several subjects in one realistic situation, in six stages: understand the environment and its dependencies, configure, verify, troubleshoot an incident, review. Each can be done guided, assisted or independently, and repeated in a harder mode. They follow the learning path, and the last one prepares for the unguided <a href="#/cases">case studies</a>.</p>
       {INTEGRATED_LABS.map((l) => <LabCard key={l.id} l={l} />)}
       <h2 style={{ marginTop: 24 }}>Service labs</h2>
       <p className="small muted">One service each, built step by step.</p>
