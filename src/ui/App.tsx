@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { ProgressProvider, go, useProgress, useRoute } from './state';
 import { Dashboard } from './pages/Dashboard';
+import { StartHere } from './pages/StartHere';
 import { Curriculum } from './pages/Curriculum';
 import { LessonPage } from './pages/LessonPage';
 import { TroubleshootList, TroubleshootWorkspace } from './pages/Troubleshoot';
@@ -18,6 +19,7 @@ import { LESSONS } from '../content/lessons';
 import { CURRICULUM } from '../content/curriculum';
 
 const NAV: [string, string, string?][] = [
+  ['start', 'Start here'],
   ['dashboard', 'Dashboard'],
   ['curriculum', 'Curriculum'],
   // Lessons grouped by curriculum module, in module order.
@@ -89,6 +91,7 @@ function Shell() {
   const [head, a, b] = route;
   let page;
   switch (head) {
+    case 'start': page = <StartHere />; break;
     case 'curriculum': page = <Curriculum />; break;
     case 'lesson': page = <LessonPage key={a} lessonId={a ?? 'ssh'} section={b ?? 'what'} />; break;
     case 'builder': page = <Builder />; break;

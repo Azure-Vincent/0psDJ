@@ -29,6 +29,7 @@ import { DhcpAllocator, NatInspector } from '../components/NetServiceWidgets';
 import type { TermSpec } from '../components/LabTerminals';
 import type { ReactNode } from 'react';
 import { go, routeQuery, useProgress } from '../state';
+import { RoadmapBar } from '../components/RoadmapBar';
 
 
 function SshVisualize() {
@@ -558,6 +559,7 @@ export function LessonPage({ lessonId, section }: { lessonId: string; section: s
 
   return (
     <div className="page">
+      <RoadmapBar kind="lesson" id={L.id} />
       <div>
         <div className="muted small">Module {L.moduleId} · {mod?.title} · {L.level}</div>
         <h1>{L.title}</h1>
@@ -617,6 +619,7 @@ export function LessonPage({ lessonId, section }: { lessonId: string; section: s
           <AssessmentView assessment={ASSESSMENTS[L.assessmentId]} lessonId={L.id} />
         </>
       )}
+      {sec === 'assess' && <div style={{ marginTop: 18 }}><RoadmapBar kind="lesson" id={L.id} emphasiseNext /></div>}
     </div>
   );
 }

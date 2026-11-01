@@ -11,6 +11,7 @@ import { LabTerminals } from '../components/LabTerminals';
 import { Markdown } from '../components/Markdown';
 import { Topology } from '../components/Topology';
 import { go, useProgress } from '../state';
+import { RoadmapBar } from '../components/RoadmapBar';
 
 // The lab world lives for the browser session (not in saved progress): navigating
 // away and back keeps the machines as you left them; after a reload the
@@ -188,6 +189,8 @@ export function GuidedLabPage({ id }: { id: string }) {
   };
 
   const header = (
+    <>
+    <RoadmapBar kind="lab" id={lab.id} emphasiseNext={finished} />
     <div className="spread">
       <div>
         <button className="link" onClick={() => go('labs')}>← Guided labs</button>
@@ -198,6 +201,7 @@ export function GuidedLabPage({ id }: { id: string }) {
         {running && <button onClick={() => { if (confirm('Discard the lab machines and start again from the starting configuration? Your completed steps, incident and review answers are reset (your notes are kept).')) begin(false, mode); }}>Start over</button>}
       </div>
     </div>
+    </>
   );
 
   if (!running) {

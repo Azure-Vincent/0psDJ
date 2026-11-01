@@ -7,6 +7,8 @@ import { CAUSES } from '../../engine/scenarios/catalog';
 import type { ConceptId } from '../../engine/scenarios/types';
 import type { Lesson } from '../../content/types';
 import { mastery, type MasteryLevel, type Progress } from '../../learning/progress';
+import { ROADMAP, ROADMAP_STEPS } from '../../content/roadmap';
+import { currentStepIndex, roadmapCounts, viewStep } from '../roadmapProgress';
 import { SECTIONS } from '../sections';
 import { go, useProgress } from '../state';
 
@@ -79,22 +81,24 @@ export function Dashboard() {
           <h1>Cyber Owl Lab</h1>
           <p className="muted">Learn how infrastructure services work internally, and practise diagnosing them from evidence. Everything runs locally and offline.</p>
         </div>
-        {nextLesson && (
-          <div className="dash-next card">
-            <div className="small muted">{fresh ? 'Start here' : 'Pick up where you left off'}</div>
-            <h3>{nextLesson.title}</h3>
-            {(() => {
-              const s = lessonState(progress, nextLesson);
-              return (
-                <>
-                  <span className="meter"><span style={{ width: `${pct(s.visited, SECTIONS.length)}%` }} /></span>
-                  <p className="small muted">{s.visited} of {SECTIONS.length} sections{s.next ? ` · next: ${s.next.title}` : ''}</p>
-                  <button type="button" className="primary" onClick={() => go(s.link)}>{s.visited ? 'Continue the lesson' : 'Start the lesson'}</button>
-                </>
-              );
-            })()}
-          </div>
-        )}
+        {(() => {
+          const ci = currentStepIndex(progress);
+          const { phase, step } = ROADMAP_STEPS[ci];
+          const v = viewStep(progress, step);
+          const { done, total } = roadmapCounts(progress);
+          return (
+            <div className="dash-next card">
+              <div className="small muted">{fresh ? 'New here? Follow the roadmap' : 'Next on your roadmap'} · Phase {ROADMAP.indexOf(phase) + 1}: {phase.title}</div>
+              <h3>{v.title}</h3>
+              {v.fraction !== undefined && <span className="meter"><span style={{ width: `${Math.round(v.fraction * 100)}%` }} /></span>}
+              <p className="small muted">{v.kindLabel} · {v.detail}</p>
+              <div className="row">
+                <button type="button" className="primary" onClick={() => go(v.link)}>{v.status === 'started' ? 'Continue' : 'Start'}</button>
+                <button type="button" className="link" onClick={() => go('start')}>{fresh ? 'Start here: how it works' : `Roadmap: ${done} of ${total} steps`}</button>
+              </div>
+            </div>
+          );
+        })()}
       </header>
 
       <div className="stat-row">
@@ -201,6 +205,7 @@ export function Dashboard() {
       </p>
       <details className="card" open={concepts.some((c) => levels.get(c)!.level !== 'not started')}>
         <summary className="small">All {concepts.length} concepts, those needing attention first</summary>
+        <div style={{ overflowX: 'auto' }}>
         <table style={{ marginTop: 8 }}>
           <thead><tr><th>Concept</th><th style={{ width: 160 }}>Mastery</th><th>Status</th><th>Observed misconceptions</th></tr></thead>
           <tbody>
@@ -222,6 +227,7 @@ export function Dashboard() {
             })}
           </tbody>
         </table>
+        </div>
       </details>
 
       <h2>Recent troubleshooting</h2>
