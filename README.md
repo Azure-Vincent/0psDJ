@@ -33,6 +33,11 @@ For every technology it answers the same questions:
 
 ## What's inside
 
+- **A Start here page and study roadmap**: how the lab works, then every
+  lesson and lab in ten phases (network foundations → capstone), each with
+  its goal and why it comes at that point. Labs always come after the lessons
+  they rely on. Lesson and lab pages show where they sit on the roadmap and
+  lead to the next step.
 - **26 lessons** on networking, interfaces and virtual switches, TLS, remote
   access, identity (including Kerberos and Group Policy), firewalls (nftables,
   pfSense, Windows Defender Firewall), containers, web servers and
@@ -45,7 +50,16 @@ For every technology it answers the same questions:
   Windows, pfSense, Docker), configuration reference, an **Operate & recover**
   guide (files, logs, service management, diagnostic workflow, common
   failures) and a graded assessment.
-- **Nine guided labs**: build a freshly installed Debian server into a
+- **Ten integrated labs** that combine subjects in realistic situations: a small
+  office network, a secured Linux web server, an Active Directory environment,
+  cross-platform troubleshooting, a containerised application, pfSense
+  segmentation, an enterprise DNS failure, a multi-service outage, securing and
+  maintaining servers, and a complete deployment. Each runs in six stages
+  (environment, dependencies with request paths probed hop by hop, configuration,
+  verification, an incident to diagnose and repair, review with feedback on the
+  subjects and on the troubleshooting process), in guided, assisted or
+  independent mode. See docs/INTEGRATED_LABS.md.
+- **Ten guided service labs**: build a freshly installed Debian server into a
   hardened intranet web server (Lab 1), create an Active Directory domain and
   join a member server (Lab 2), turn a fresh pfSense into the perimeter
   firewall with a DMZ and a published web server (Lab 3), take over a
@@ -164,8 +178,7 @@ For every technology it answers the same questions:
 - **Reference library** of commands, configuration files, logs and recovery
   procedures for Linux, Windows, Docker, pfSense and Cisco IOS.
 - **Packet Lab** with Wireshark-style captures (exportable as PCAP), a
-  certification objective map for Network+ and CCNA, a glossary, and progress
-  tracking.
+  glossary, and progress tracking.
 
 Everything is stored locally, and the app works without an Internet connection.
 The sidebar can be hidden (the « button, or Ctrl+\\) to give lessons, labs and
@@ -363,10 +376,19 @@ is stored separately and is kept; it can also be exported and imported under
 
 ## Using the app
 
-Start with **Curriculum** for the learning path, or open a lesson from the
-sidebar. Each lesson has tabs from "What is it?" to "Assessment".
+Start with **Start here**: it explains how the lab works and gives the
+recommended order of study, with your progress and a button to continue
+where you stopped. The bar at the top of each lesson and lab leads to the
+previous and next step. **Curriculum** shows the same subjects by module.
+For how to study (self-testing, spacing, interleaving, a troubleshooting
+routine and a weekly plan), see [docs/STUDY_GUIDE.txt](docs/STUDY_GUIDE.txt). Each lesson has tabs from "What is it?" to "Assessment".
 **Guided labs** walks you through building something step by step, with a
-**Check step** button, hints and a reference solution for every step.
+**Check step** button, hints and a reference solution for every step. The
+**integrated labs** add stages (environment, dependencies, configure, verify,
+troubleshoot, review): choose a learning mode before you start, probe the
+request paths in stage 2 to see where communication stops, start the incident
+in stage 5 once your build is verified, and read your feedback in stage 6.
+Notes and progress are kept; "Start over" asks before resetting.
 **Infrastructure Builder** lets you design a network on a canvas: add devices,
 press **Connect** and click two devices to cable them, then click a device to
 set its addresses and rules. The checks below the canvas list mistakes such as
@@ -390,7 +412,7 @@ npm run typecheck    # TypeScript checks
 | Path | Contents |
 |---|---|
 | `src/engine/` | the simulator: network, services, shell commands, troubleshooting scenarios, guided labs, PCAP |
-| `src/content/` | lessons, guides, case studies, reference library, certification map, glossary (plain data) |
+| `src/content/` | lessons, guides, case studies, reference library, glossary (plain data) |
 | `src/ui/` | the React interface |
 | `src/learning/` | grading and progress tracking |
 | `electron/`, `build/`, `scripts/` | desktop shell, packaging configuration and Linux launch helpers |
@@ -466,6 +488,4 @@ floating rules and packages are not simulated, and the webConfigurator shows
 only the pages these features need.
 Other output for Windows, Active Directory, Docker, pfSense and Cisco IOS is
 representative of the versions named on each page; check the exact wording
-against your own systems when it matters. The certification map is a study
-aid, not a guarantee of exam readiness: check objectives against the vendors'
-current documents.
+against your own systems when it matters.

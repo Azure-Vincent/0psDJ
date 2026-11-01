@@ -171,7 +171,6 @@ export const WINDOWS_RDP_LESSON: Lesson = {
   mode: 'simulated',
   guide: WINDOWS_RDP_GUIDE,
   caseStudyIds: ['rdp-after-change', 'domain-login'],
-  objectives: ['N10-009:1.4', 'N10-009:3.5', 'N10-009:5.3'],
 
   what: `
 Windows Server is administered through a small number of building blocks. Many of them have a direct Linux equivalent you have already met: services instead of [systemd units](#/lesson/systemd/what), the Event Viewer instead of the journal, Windows Defender Firewall instead of [nftables](#/lesson/nftables/what), the registry instead of files in /etc. Once you know where each one lives, the same diagnostic questions you use on Linux work on Windows: **is it running, is it configured, is it reachable, is it allowed, and what does the log say?**

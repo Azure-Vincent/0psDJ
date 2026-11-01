@@ -55,13 +55,18 @@ export function goalLabel(goal: Goal): string {
   return `${goal.user}@${goal.target}`;
 }
 
+/** Let background daemons catch up (NTP polls, rsyslog forwards, Docker restarts containers) before looking at the world. */
+export function settle(world: World): void {
+  ntpSettle(world);
+  syslogFlush(world);
+  for (const h of Object.values(world.hosts)) if (h.services.docker?.state === 'active') dockerTick(world, h);
+}
+
 export function checkGoal(world: World, goal: Goal): GoalResult {
   // Daemons keep working in the background while the user is away: NTP clients poll
   // again, and Docker retries containers in "restarting". Let them catch up before the check.
   world = structuredClone(world);
-  ntpSettle(world);
-  syslogFlush(world);
-  for (const h of Object.values(world.hosts)) if (h.services.docker?.state === 'active') dockerTick(world, h);
+  settle(world);
   if (goal.kind === 'scored-ssh') return { goal, ...scoredSshCheck(world, goal) };
   if (goal.kind === 'scored-web') return { goal, ...scoredWebCheck(world, goal) };
   if (goal.kind === 'scored-dns') return { goal, ...scoredDnsCheck(world, goal) };

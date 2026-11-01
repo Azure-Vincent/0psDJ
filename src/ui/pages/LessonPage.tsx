@@ -6,6 +6,7 @@ import { SECTIONS } from '../sections';
 import { DHCP_RUNS, FIREWALL_RUNS, IP_RUNS, IPV6_RUNS, KRB_RUNS, MTU_RUNS, NAT_RUNS, TLS_RUNS, TRANSPORT_RUNS, VLAN_RUNS } from '../../engine/lab/visualRuns';
 import { OUTCOME_LABELS, SSH_DEPENDENCIES, freshLab, runWithFault } from '../../engine/lab/dependencies';
 import { ALL_SCENARIOS } from '../../engine/scenarios';
+import { INTEGRATED_LABS } from '../../engine/labs';
 import { deployProxy } from '../../engine/scenarios/proxyScenarios';
 import type { World } from '../../engine/types';
 import { AssessmentView } from '../components/Assessment';
@@ -20,7 +21,6 @@ import { CidrCalculator, HookDiagram, PacketTester } from '../components/Firewal
 import { RunVisualizer } from '../components/RunVisualizer';
 import { type CatalogueFile, FileCatalogue, GuideArchitecture, GuideDiagrams as ServiceDiagrams, GuideFailures, GuideOperate, GuideWorkflow } from '../components/GuideView';
 import { CASE_STUDIES } from '../../content/cases';
-import { CERT_EXAMS } from '../../content/certification';
 import { EncapsulationExplorer, ResolverTracer, RouteLookup, SubnetPractice } from '../components/NetworkWidgets';
 import { DHCP_LANES, IPV6_LANES, KRB_LANES, LAB_LANES, MTU_LANES, NAT_LANES, TLS_LANES, VLAN_LANES, segmentOf } from '../components/labLanes';
 import { ChainInspector, MtuCalculator } from '../components/TlsMtuWidgets';
@@ -29,6 +29,7 @@ import { DhcpAllocator, NatInspector } from '../components/NetServiceWidgets';
 import type { TermSpec } from '../components/LabTerminals';
 import type { ReactNode } from 'react';
 import { go, routeQuery, useProgress } from '../state';
+import { RoadmapBar } from '../components/RoadmapBar';
 
 
 function SshVisualize() {
@@ -512,13 +513,6 @@ function Visualize({ L, sim }: { L: Lesson; sim?: ReactNode }) {
   );
 }
 
-function objectiveTitle(id: string): string {
-  const [code, num] = id.split(':');
-  const exam = CERT_EXAMS.find((e) => e.code === code);
-  const o = exam?.domains.flatMap((d) => d.objectives).find((x) => x.id === id);
-  return o ? `${exam!.name} ${num} ${o.title}` : id;
-}
-
 /** What each tab answers, so the reader knows where to look. */
 const TAB_QUESTIONS: Record<Section['id'], string> = {
   what: 'What is it, why does it matter, where will I meet it?',
@@ -565,17 +559,21 @@ export function LessonPage({ lessonId, section }: { lessonId: string; section: s
 
   return (
     <div className="page">
+      <RoadmapBar kind="lesson" id={L.id} />
       <div>
         <div className="muted small">Module {L.moduleId} · {mod?.title} · {L.level}</div>
         <h1>{L.title}</h1>
         <div className="muted">{L.summary}</div>
         {L.mode === 'reference' && <div className="callout small" style={{ marginTop: 8 }}><strong>Reference lesson.</strong> The simulator runs Debian-style Linux hosts and the lab network only; this technology is taught from documentation and representative output from the named real platforms. Practise it on your own lab VMs.</div>}
-        {(L.objectives ?? []).length > 0 && (
-          <div className="row small" style={{ marginTop: 6, gap: 4 }}>
-            <span className="muted">Supports:</span>
-            {L.objectives!.map((o) => <a key={o} className="badge" href={`#/certification?o=${encodeURIComponent(o)}`} title={objectiveTitle(o)}>{o}</a>)}
-          </div>
-        )}
+        {(() => {
+          const labs = INTEGRATED_LABS.filter((x) => x.integrated!.after.includes(L.id));
+          return labs.length ? (
+            <div className="small" style={{ marginTop: 6 }}>
+              <span className="muted">Practise it with other subjects: </span>
+              {labs.map((x, i) => <span key={x.id}>{i > 0 && ' · '}<a href={`#/labs/${x.id}`}>{x.title.replace(/^Integrated Lab (\d+):.*/, 'Integrated Lab $1')}</a></span>)}
+            </div>
+          ) : null;
+        })()}
       </div>
       <TabBar
         label="Lesson sections"
@@ -621,6 +619,7 @@ export function LessonPage({ lessonId, section }: { lessonId: string; section: s
           <AssessmentView assessment={ASSESSMENTS[L.assessmentId]} lessonId={L.id} />
         </>
       )}
+      {sec === 'assess' && <div style={{ marginTop: 18 }}><RoadmapBar kind="lesson" id={L.id} emphasiseNext /></div>}
     </div>
   );
 }

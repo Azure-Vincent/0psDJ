@@ -419,7 +419,6 @@ A: \`smtpd_tls_cert_file\` and \`smtpd_tls_key_file\` (do they match?), and the 
     { title: 'swaks: Swiss Army Knife for SMTP', url: 'https://jetmore.org/john/code/swaks/' },
   ],
   guide: EMAIL_GUIDE,
-  objectives: ['N10-009:1.4', 'N10-009:5.3'],
 };
 
 // --- Primer -------------------------------------------------------------------------

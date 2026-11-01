@@ -501,7 +501,6 @@ A: The agent's **listen address** (ss -ulnp, agentaddress) and its **firewall**;
     { title: 'Google SRE book: Monitoring Distributed Systems', url: 'https://sre.google/sre-book/monitoring-distributed-systems/' },
   ],
   guide: MONITORING_GUIDE,
-  objectives: ['N10-009:3.2'],
 };
 
 // --- Primer -------------------------------------------------------------------------

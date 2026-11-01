@@ -365,7 +365,6 @@ A: **UID numbers**: \`id tom\` on the client versus \`ls -ln\` on the server. If
     { title: 'Microsoft Learn: SMB file sharing overview', url: 'https://learn.microsoft.com/windows-server/storage/file-server/file-server-smb-overview' },
   ],
   guide: NFS_GUIDE,
-  objectives: ['N10-009:1.4', 'N10-009:5.3'],
 };
 
 // --- Primer -------------------------------------------------------------------------

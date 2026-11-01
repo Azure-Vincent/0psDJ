@@ -49,16 +49,16 @@ import type { Assessment, Lesson } from './types';
 
 /** Registry of complete lessons. Adding a lesson = adding an entry here (plus optional UI widgets). */
 export const LESSONS: Lesson[] = [
-  { ...IP_LESSON, guide: IPNET_GUIDE, caseStudyIds: ['linux-no-internet'], objectives: ['N10-009:1.1', 'N10-009:1.7', 'N10-009:2.1', 'N10-009:5.3', '200-301:1.6', '200-301:3.1', '200-301:3.2', '200-301:3.3'] },
-  { ...TRANSPORT_LESSON, guide: TRANSPORT_GUIDE, caseStudyIds: ['shared-dependency'], objectives: ['N10-009:1.4', 'N10-009:3.4', 'N10-009:5.3', '200-301:1.5', '200-301:4.3'] },
-  { ...DHCP_LESSON, guide: DHCP_GUIDE, objectives: ['N10-009:3.4', 'N10-009:5.3', '200-301:4.3', '200-301:4.6'] },
-  { ...NAT_LESSON, guide: NAT_GUIDE, caseStudyIds: ['linux-no-internet'], objectives: ['N10-009:1.7', '200-301:1.7', '200-301:4.1'] }, { ...VLAN_LESSON, guide: VLAN_GUIDE, objectives: ['N10-009:2.2', '200-301:1.13', '200-301:2.1', '200-301:2.2'] },
-  { ...IPV6_LESSON, guide: IPV6_GUIDE, objectives: ['N10-009:3.4', '200-301:1.8', '200-301:1.9', '200-301:3.3'] },
-  { ...NETIF_LESSON, guide: NETIF_GUIDE, objectives: ['N10-009:2.2', 'N10-009:5.2', '200-301:1.12', '200-301:1.13'] },
-  { ...MTU_LESSON, guide: MTU_GUIDE, objectives: ['N10-009:5.2', 'N10-009:5.5', '200-301:1.4'] },
-  { ...TLS_LESSON, guide: TLS_GUIDE, objectives: ['N10-009:1.4', 'N10-009:4.1', 'N10-009:5.3', '200-301:2.8', '200-301:5.4'] },
-  { ...SSH_LESSON, guide: SSH_GUIDE, caseStudyIds: ['ssh-refused'], objectives: ['N10-009:3.5', 'N10-009:5.3', '200-301:4.8', '200-301:2.8'] },
-  { ...NFTABLES_LESSON, guide: NFTABLES_GUIDE, caseStudyIds: ['shared-dependency', 'ssh-refused'], objectives: ['N10-009:4.3', 'N10-009:5.3', '200-301:5.6'] },
+  { ...IP_LESSON, guide: IPNET_GUIDE, caseStudyIds: ['linux-no-internet'] },
+  { ...TRANSPORT_LESSON, guide: TRANSPORT_GUIDE, caseStudyIds: ['shared-dependency'] },
+  { ...DHCP_LESSON, guide: DHCP_GUIDE },
+  { ...NAT_LESSON, guide: NAT_GUIDE, caseStudyIds: ['linux-no-internet'] }, { ...VLAN_LESSON, guide: VLAN_GUIDE },
+  { ...IPV6_LESSON, guide: IPV6_GUIDE },
+  { ...NETIF_LESSON, guide: NETIF_GUIDE },
+  { ...MTU_LESSON, guide: MTU_GUIDE },
+  { ...TLS_LESSON, guide: TLS_GUIDE },
+  { ...SSH_LESSON, guide: SSH_GUIDE, caseStudyIds: ['ssh-refused'] },
+  { ...NFTABLES_LESSON, guide: NFTABLES_GUIDE, caseStudyIds: ['shared-dependency', 'ssh-refused'] },
   PFSENSE_LESSON, WINDOWS_FIREWALL_LESSON, WINDOWS_RDP_LESSON, AD_KERBEROS_LESSON, KERBEROS_LESSON, DOCKER_LESSON,
   SYSTEMD_LESSON, NETOPS_LESSON, RECOVERY_LESSON, WEBPROXY_LESSON, NTP_LESSON, LOGGING_LESSON, NFS_LESSON, SMB_LESSON, EMAIL_LESSON, DATABASE_LESSON, BACKUP_LESSON, MONITORING_LESSON, IDENTITY_LESSON, GPO_LESSON];
 

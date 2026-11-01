@@ -579,7 +579,6 @@ A: The **base DN** (or an OU in it) does not exist; the DC found only the domain
     { title: 'pam_radius (GitHub)', url: 'https://github.com/FreeRADIUS/pam_radius' },
   ],
   guide: IDENTITY_GUIDE,
-  objectives: ['N10-009:4.1', '200-301:2.8', '200-301:5.8'],
 };
 
 // --- Primer -------------------------------------------------------------------------

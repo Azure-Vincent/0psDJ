@@ -30,6 +30,16 @@ export function probe(world: World, host: string, user: string, line: string): {
   return { output: r.output, code: r.code };
 }
 
+/** Several command lines in one shell on one copy of the world (background daemons run between them). */
+export function probeSeq(world: World, host: string, user: string, lines: string[]): { output: string; code: number } {
+  let w = structuredClone(world);
+  const home = w.hosts[host].users[user]?.home ?? '/';
+  const sh = new Shell(() => w, (n) => (w = n), { hostId: host, user, cwd: home });
+  let last = { output: '', code: 0 };
+  for (const l of lines) { const r = sh.execute(l); last = { output: r.output, code: r.code }; }
+  return last;
+}
+
 export interface CheckOutcome extends LabCheckResult {
   id: string;
   description: string;
@@ -52,7 +62,10 @@ function run(c: LabCheck, world: World, step?: string): CheckOutcome {
 export function checkStep(world: World, lab: GuidedLab, step: LabStep): { passed: boolean; results: CheckOutcome[] } {
   if (step.afterReboot) {
     const rebooted = rebootAll(world);
-    const results = lab.steps.filter((s) => !s.afterReboot).flatMap((s) => s.checks.map((c) => run(c, rebooted, s.title)));
+    const results = [
+      ...lab.steps.filter((s) => !s.afterReboot).flatMap((s) => s.checks.map((c) => run(c, rebooted, s.title))),
+      ...step.checks.map((c) => run(c, rebooted, step.title)),
+    ];
     return { passed: results.every((r) => r.ok), results };
   }
   const results = step.checks.map((c) => run(c, world));

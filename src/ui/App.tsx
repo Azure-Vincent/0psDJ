@@ -1,13 +1,13 @@
 import { useEffect, useState } from 'react';
 import { ProgressProvider, go, useProgress, useRoute } from './state';
 import { Dashboard } from './pages/Dashboard';
+import { StartHere } from './pages/StartHere';
 import { Curriculum } from './pages/Curriculum';
 import { LessonPage } from './pages/LessonPage';
 import { TroubleshootList, TroubleshootWorkspace } from './pages/Troubleshoot';
 import { GuidedLabList, GuidedLabPage } from './pages/GuidedLab';
 import { Reference } from './pages/Reference';
 import { CaseStudyList, CaseStudyPage } from './pages/CaseStudies';
-import { Certification } from './pages/Certification';
 import { PacketLab } from './pages/PacketLab';
 import { Glossary } from './pages/Glossary';
 import { History } from './pages/History';
@@ -19,6 +19,7 @@ import { LESSONS } from '../content/lessons';
 import { CURRICULUM } from '../content/curriculum';
 
 const NAV: [string, string, string?][] = [
+  ['start', 'Start here'],
   ['dashboard', 'Dashboard'],
   ['curriculum', 'Curriculum'],
   // Lessons grouped by curriculum module, in module order.
@@ -34,7 +35,6 @@ const NAV: [string, string, string?][] = [
   ['packets', 'Packet Lab'],
   ['#Reference', ''],
   ['reference', 'Reference library'],
-  ['certification', 'Certification map'],
   ['glossary', 'Glossary'],
   ['history', 'History'],
   ['settings', 'Settings'],
@@ -91,6 +91,7 @@ function Shell() {
   const [head, a, b] = route;
   let page;
   switch (head) {
+    case 'start': page = <StartHere />; break;
     case 'curriculum': page = <Curriculum />; break;
     case 'lesson': page = <LessonPage key={a} lessonId={a ?? 'ssh'} section={b ?? 'what'} />; break;
     case 'builder': page = <Builder />; break;
@@ -99,7 +100,6 @@ function Shell() {
     case 'commands': page = <Reference initialTab="command" />; break;
     case 'reference': page = <Reference />; break;
     case 'cases': page = a ? <CaseStudyPage key={a} id={a} /> : <CaseStudyList />; break;
-    case 'certification': page = <Certification />; break;
     case 'packets': page = <PacketLab />; break;
     case 'glossary': page = <Glossary />; break;
     case 'history': page = <History id={a} />; break;

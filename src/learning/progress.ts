@@ -37,8 +37,31 @@ export interface Progress {
   predictions: Record<string, { attempts: number; correct: boolean }>;
   attempts: TroubleshootingAttempt[];
   /** Guided labs: completed step ids (in order of completion), steps done with "do it for me", timestamps. */
-  labs: Record<string, { completed: string[]; assisted: string[]; startedAt: number; finishedAt?: number }>;
+  labs: Record<string, LabProgress>;
   settings: { theme: Theme };
+}
+
+export interface LabProgress {
+  completed: string[];
+  assisted: string[];
+  startedAt: number;
+  finishedAt?: number;
+  // Integrated labs (all optional: older saved progress stays valid).
+  mode?: 'guided' | 'assisted' | 'independent';
+  /** Modes in which the whole lab (including troubleshooting and review) was finished. */
+  modesCompleted?: ('guided' | 'assisted' | 'independent')[];
+  hints?: number;
+  commands?: number;
+  /** Diagnostic tools used (first words: ping, ss, dig, journalctl …). */
+  tools?: string[];
+  /** Service restarts and reboots typed by the learner (during troubleshooting: before the diagnosis). */
+  restarts?: number;
+  fault?: { injectedAt: number; restartsBefore?: number; solutionShown?: boolean; diagnosis?: { selected: string[]; correct: boolean; attempts: number }; repairedAt?: number; hints?: number; commandsBefore?: number };
+  /** Review answers: question id → chosen index (first answer counts). */
+  review?: Record<string, number>;
+  notes?: string;
+  /** Assisted mode: steps whose detailed tasks were revealed (each counted once as a hint). */
+  tasksShown?: string[];
 }
 
 export const STORAGE_KEY = 'infralab.progress.v1';

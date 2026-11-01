@@ -8,10 +8,16 @@ import { LAB7 } from './lab7';
 import { LAB8 } from './lab8';
 import { LAB9 } from './lab9';
 import { LAB10 } from './lab10';
+import { INTEGRATED_LABS } from './integrated/index';
 import type { GuidedLab } from './types';
 
-/** Guided multi-step labs (the "Progressive enterprise labs" of the curriculum that are simulated). */
-export const GUIDED_LABS: GuidedLab[] = [LAB1, LAB2, LAB3, LAB4, LAB5, LAB6, LAB7, LAB8, LAB9, LAB10];
+/** Service labs: one subject each (the "Progressive enterprise labs" of the curriculum that are simulated). */
+export const SERVICE_LABS: GuidedLab[] = [LAB1, LAB2, LAB3, LAB4, LAB5, LAB6, LAB7, LAB8, LAB9, LAB10];
+
+/** Every guided lab: the service labs, then the integrated (multi-subject) labs. */
+export const GUIDED_LABS: GuidedLab[] = [...SERVICE_LABS, ...INTEGRATED_LABS];
+
+export { INTEGRATED_LABS };
 
 export function findLab(id: string): GuidedLab | undefined {
   return GUIDED_LABS.find((l) => l.id === id);

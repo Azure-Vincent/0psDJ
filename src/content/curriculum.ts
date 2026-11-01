@@ -1,6 +1,6 @@
 // The curriculum map. "available" items are fully implemented; "partial"
-// items are covered inside an available lesson; "planned" items are listed so
-// learners can see the roadmap, and have no buttons.
+// items are covered inside an available lesson or lab. Only what the
+// application covers is listed: every item links to it.
 
 import type { CurriculumModule } from './types';
 
@@ -39,10 +39,6 @@ export const CURRICULUM: CurriculumModule[] = [
       { title: 'SSH (complete lesson: all seven sections, 14 troubleshooting scenarios)', level: 'beginner', status: 'available', link: 'lesson/ssh/what' },
       { title: 'Windows Server administration and RDP (reference lesson: services, Event Viewer, registry, firewall, NLA, user rights, GPO)', level: 'intermediate', status: 'available', link: 'lesson/windows-rdp/what' },
       { title: 'WinRM and PowerShell Remoting', level: 'intermediate', status: 'partial', link: 'lesson/windows-rdp/internals', note: 'Covered within the Windows/RDP lesson.' },
-      { title: 'VNC', level: 'beginner', status: 'planned' },
-      { title: 'Telnet (and why not)', level: 'beginner', status: 'planned' },
-      { title: 'VPN technologies', level: 'advanced', status: 'planned' },
-      { title: 'Remote desktop gateways', level: 'advanced', status: 'planned' },
     ],
   },
   {
@@ -78,11 +74,8 @@ export const CURRICULUM: CurriculumModule[] = [
       { title: 'pfSense (simulated fw01: webConfigurator, interfaces, aliases, rules, port forwards, outbound NAT, states, firewall log; DHCP, DNS Resolver and captures as reference)', level: 'intermediate', status: 'available', link: 'lesson/pfsense/what' },
       { title: 'Windows Defender Firewall (complete lesson: profiles, rule conditions, Block over Allow, outbound filtering, pfirewall.log, rules from Group Policy, 5 tickets)', level: 'intermediate', status: 'available', link: 'lesson/windows-firewall/what' },
       { title: 'UFW and firewalld', level: 'beginner', status: 'partial', link: 'lesson/nftables/deploy', note: 'Deployment guides only (real VM).' },
-      { title: 'NAT', level: 'intermediate', status: 'available', link: 'lesson/nat/internals', note: 'nftables masquerade/SNAT/DNAT; pfSense port forwards and outbound NAT on fw01; Windows NAT planned' },
-      { title: 'VLAN-based segmentation', level: 'intermediate', status: 'partial', link: 'lesson/vlan/internals', note: 'Linux VLAN-aware bridge and router-on-a-stick; inter-VLAN firewall policy on pfSense planned' },
-      { title: 'VPN routing', level: 'advanced', status: 'planned' },
-      { title: 'IDS/IPS fundamentals', level: 'advanced', status: 'planned' },
-      { title: 'Network access control', level: 'advanced', status: 'planned' },
+      { title: 'NAT', level: 'intermediate', status: 'available', link: 'lesson/nat/internals', note: 'nftables masquerade/SNAT/DNAT; pfSense port forwards and outbound NAT on fw01' },
+      { title: 'VLAN-based segmentation', level: 'intermediate', status: 'partial', link: 'lesson/vlan/internals', note: 'Linux VLAN-aware bridge and router-on-a-stick' },
     ],
   },
   {
@@ -93,10 +86,7 @@ export const CURRICULUM: CurriculumModule[] = [
       { title: 'docker run -d -p 8080:80 nginx, step by step', level: 'intermediate', status: 'available', link: 'lesson/docker/internals' },
       { title: 'Docker Compose', level: 'intermediate', status: 'available', link: 'lesson/docker/deploy' },
       { title: 'Container networking and port publishing', level: 'intermediate', status: 'available', link: 'lesson/docker/internals' },
-      { title: 'Linux namespaces and control groups', level: 'advanced', status: 'planned' },
       { title: 'Images, layers, volumes and bind mounts', level: 'intermediate', status: 'available', link: 'lesson/docker/internals' },
-      { title: 'Hypervisors: VirtualBox, VMware, Hyper-V, KVM/QEMU', level: 'beginner', status: 'planned' },
-      { title: 'Virtual networking', level: 'intermediate', status: 'planned' },
     ],
   },
   {
@@ -108,7 +98,7 @@ export const CURRICULUM: CurriculumModule[] = [
       { title: 'Safe infrastructure recovery: backups, validation, rollback, incident records (complete lesson)', level: 'intermediate', status: 'available', link: 'lesson/recovery/what' },
       { title: 'End-to-end case studies A–G', level: 'intermediate', status: 'available', link: 'cases' },
       { title: 'Windows Server 2019/2022', level: 'beginner', status: 'partial', link: 'lesson/windows-rdp/what', note: 'Services, Event Viewer, registry, firewall, RDP, WinRM; roles such as IIS/file services not covered.' },
-      { title: 'DHCP servers', level: 'beginner', status: 'partial', link: 'lesson/dhcp/deploy', note: 'ISC dhcpd and isc-dhcp-relay; Kea and Windows DHCP failover planned' },
+      { title: 'DHCP servers', level: 'beginner', status: 'partial', link: 'lesson/dhcp/deploy', note: 'ISC dhcpd and isc-dhcp-relay' },
       { title: 'Web servers (IIS, Apache, Nginx)', level: 'beginner', status: 'partial', link: 'lesson/webproxy/what', note: 'nginx server blocks, locations, status codes and nginx -t/reload (web servers and reverse proxies lesson, TLS lesson); Apache and IIS only as deployment notes.' },
       { title: 'NFS file server (simulated: fs01 exports, fstab mounts, 4 tickets)', level: 'intermediate', status: 'available', link: 'lesson/nfs/what' },
       { title: 'SMB file server (simulated: Samba on fs01, smbclient and net use, 4 tickets)', level: 'intermediate', status: 'available', link: 'lesson/smb/what' },

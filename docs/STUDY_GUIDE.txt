@@ -1,0 +1,234 @@
+CYBER OWL LAB - STUDY GUIDE
+How to study infrastructure so it sticks
+==========================================================================
+
+This guide explains study habits that learning research has shown to work,
+and how to apply each one in Cyber Owl Lab. Use it alongside the roadmap on
+the "Start here" page: the roadmap tells you WHAT to study next, this guide
+tells you HOW to study it.
+
+
+--------------------------------------------------------------------------
+1. THE SHORT VERSION
+--------------------------------------------------------------------------
+
+  * Test yourself instead of re-reading.
+  * Study a little, often, and come back to old topics later.
+  * Mix subjects once you know the basics of each.
+  * Ask "why does this work?" and answer in your own words.
+  * Practise on machines, not only on paper.
+  * Troubleshoot from evidence: look first, then decide, then change.
+  * Track what you get wrong and go back to it.
+  * Sleep, take breaks, and remove distractions while you study.
+
+
+--------------------------------------------------------------------------
+2. PROVEN STUDY HABITS
+--------------------------------------------------------------------------
+
+2.1 Retrieval practice (test yourself)
+    Pulling an answer out of memory strengthens it far more than reading
+    the same page again. Re-reading feels productive because the text looks
+    familiar, but familiarity is not the same as being able to use it.
+
+    In the lab:
+      - Answer the "Check yourself" questions in your head BEFORE you click
+        "Show answer".
+      - Take the Assessment tab of each lesson without looking back at the
+        lesson first. Then read the sections it links to for anything missed.
+      - Before typing a command, say what output you expect. Compare.
+      - Close the lesson and explain the topic on paper: "How does a client
+        get an address from DHCP across a router?"
+
+2.2 Spaced practice (spread it out)
+    Several short sessions spread over days beat one long session. Forgetting
+    a little between sessions and then recalling it is what makes memory
+    durable.
+
+    In the lab:
+      - Aim for regular sessions (for example 30-60 minutes, most days)
+        rather than one long weekend session.
+      - When you start a new lesson, first spend five minutes on one ticket
+        or assessment question from an earlier lesson.
+      - Revisit a finished lesson's assessment after about a day, a week and
+        a month. The dashboard's "Understanding by concept" table shows which
+        concepts are weakest: start there.
+
+2.3 Interleaving (mix topics)
+    Once you know the basics of several subjects, practising them mixed
+    together teaches you to recognise WHICH tool or idea a problem needs,
+    which is the real skill in operations work.
+
+    In the lab:
+      - After the first phases of the roadmap, pick troubleshooting tickets
+        from different lessons in one session instead of all from one.
+      - The integrated labs are interleaving by design: DNS, routing,
+        firewalls and services fail together, as they do in real life.
+
+2.4 Elaboration (ask why and how)
+    Connect new facts to what you already know. Ask "why does this happen?",
+    "what would break if this were missing?", "how is this like something I
+    already understand?"
+
+    In the lab:
+      - Use the Dependencies stage of the integrated labs: for each hop on a
+        request path, say what it needs from the hop before it.
+      - Read "How it works" before "Deploy": knowing the mechanism makes the
+        configuration steps make sense instead of being a list to memorise.
+      - Write in the Notes box why a fix worked, not only what you typed.
+
+2.5 Concrete examples and dual coding (words plus pictures)
+    Abstract ideas are easier to learn from specific examples, and combining
+    words with diagrams gives you two ways to recall the same idea.
+
+    In the lab:
+      - Use the Visualize tab and the Packet Lab to see what a description
+        means on the wire.
+      - Draw the network from the topology view yourself, from memory, and
+        compare. Add addresses, gateways and which service runs where.
+      - Build small networks in the Infrastructure Builder and trace packets.
+
+2.6 Deliberate practice (work at the edge of your ability)
+    Improvement comes from practice that is slightly too hard, with clear
+    goals and fast feedback - not from repeating what you can already do.
+
+    In the lab:
+      - Repeat integrated labs in a harder mode: guided, then assisted, then
+        independent.
+      - Use hints one at a time, only after you are stuck, and try again
+        after each one. Avoid "Do it for me" unless you are truly blocked;
+        then redo that step yourself later.
+      - When a check fails, read its detail and change one thing at a time.
+
+2.7 Metacognition (know what you know)
+    Learners often overestimate what they understand. Checking yourself
+    honestly tells you where to spend time.
+
+    In the lab:
+      - Before checking a step or submitting a diagnosis, rate your
+        confidence (sure / unsure / guessing). Compare with the result.
+      - Keep an error log (see section 5). Patterns in your mistakes are the
+        best guide to what to review.
+      - Review concepts marked "struggling" or "learning" on the dashboard
+        before starting new material.
+
+2.8 Learn by teaching
+    Explaining a topic to someone else (or to an imaginary beginner) exposes
+    gaps quickly.
+
+    In the lab:
+      - After each phase of the roadmap, explain its goal in a few sentences
+        as if to a new colleague, without notes.
+      - Study with a partner: one breaks something in a lab, the other
+        diagnoses it.
+
+2.9 Look after the basics: sleep, breaks, focus
+    Memory is consolidated during sleep, attention fades in long unbroken
+    sessions, and switching between tasks costs more than it seems.
+
+      - Study in focused blocks (for example 25-50 minutes) with short breaks.
+      - Silence notifications and close unrelated tabs while studying.
+      - Do not trade sleep for extra study before an exam or deadline.
+      - Physical activity and regular meals help concentration.
+
+
+--------------------------------------------------------------------------
+3. A TROUBLESHOOTING HABIT (the one that matters most in this field)
+--------------------------------------------------------------------------
+
+The lab rewards the way experienced engineers work. Practise it every time:
+
+  1. Reproduce: confirm the symptom yourself. What exactly fails, for whom?
+  2. Scope: what still works? Compare a working path with the broken one.
+  3. Gather evidence: status, logs, connectivity tests, configuration.
+     (ip, ss, ping, dig, curl, journalctl, systemctl status, nft list ...)
+  4. Locate: find the first layer that does not work - everything above it
+     will fail too. The request-path probes show where traffic stops.
+  5. Hypothesise: name a cause that explains ALL the evidence.
+  6. Change one thing, then verify from the user's side.
+  7. Make it persistent and prove it survives a reboot.
+  8. Write down the root cause and how you would prevent it.
+
+Avoid: restarting services "to see if it helps", changing several things at
+once, and declaring success because a command printed no error. The lab
+tracks restarts before a diagnosis and comments on them for this reason.
+
+
+--------------------------------------------------------------------------
+4. A WEEKLY ROUTINE (example - adapt it to your time)
+--------------------------------------------------------------------------
+
+  Each session (30-60 min):
+    5 min   Warm-up: one question or ticket from an EARLIER lesson.
+    20-40   New material: the next roadmap step (lesson sections, terminal
+            practice, or a lab step).
+    5-10    Self-test: answer the "Check yourself" questions or a few
+            assessment questions without looking back.
+    2 min   Write one line in your log: what you learned, what is unclear.
+
+  Once a week:
+    - One troubleshooting ticket or integrated-lab incident without hints.
+    - Review the dashboard's weakest concepts and redo their assessments.
+    - Redo one step you completed with "Do it for me", on your own.
+
+  End of each roadmap phase:
+    - Explain the phase goal aloud without notes.
+    - Do the phase's integrated lab (or redo it in a harder mode).
+
+
+--------------------------------------------------------------------------
+5. KEEPING AN ERROR LOG
+--------------------------------------------------------------------------
+
+For every wrong answer, failed check or wrong diagnosis, write:
+
+  Date | Topic | What I thought | What was true | Why I was wrong | Fix
+
+Re-read the log weekly. Recurring entries (for example "forgot the firewall
+on the return path", "changed the file but not the running state") show the
+habits to correct. Retest those topics first.
+
+
+--------------------------------------------------------------------------
+6. HOW TO USE EACH PART OF THE LAB
+--------------------------------------------------------------------------
+
+  Start here       Follow the roadmap in order; it never assumes something
+                   you have not learned yet.
+  Lessons          Read the sections in order. Type the commands yourself in
+                   the terminals rather than only reading them.
+  Assessments      Attempt first, then read the linked sections for misses.
+  Tickets          Diagnose before fixing. Use hints sparingly.
+  Guided labs      Build step by step; read why each check passes or fails.
+  Integrated labs  Probe the request paths, then troubleshoot the incident.
+                   Repeat in assisted and independent mode.
+  Case studies     Read the symptoms, predict the cause, then read on.
+  Dashboard        Use it to choose what to review, not as a score to chase.
+  Notes            Record evidence and reasoning; they are saved with your
+                   progress.
+
+
+--------------------------------------------------------------------------
+7. COMMON TRAPS
+--------------------------------------------------------------------------
+
+  * Re-reading and highlighting instead of testing yourself.
+  * Cramming everything into one long session.
+  * Copying commands without predicting what they will do.
+  * Skipping the "How it works" sections to get to configuration faster.
+  * Using "Do it for me" or the reference solution as the first resort.
+  * Counting a lesson as learned because every section was opened.
+  * Studying only the topics you already like.
+
+
+--------------------------------------------------------------------------
+8. FURTHER READING ON HOW LEARNING WORKS
+--------------------------------------------------------------------------
+
+  * Brown, Roediger and McDaniel, "Make It Stick: The Science of Successful
+    Learning" (2014).
+  * Dunlosky et al., "Improving Students' Learning With Effective Learning
+    Techniques", Psychological Science in the Public Interest (2013).
+  * The Learning Scientists (learningscientists.org): free material on the
+    six strategies - spaced practice, retrieval practice, elaboration,
+    interleaving, concrete examples and dual coding.

@@ -169,7 +169,6 @@ export const PFSENSE_LESSON: Lesson = {
   mode: 'simulated',
   guide: PFSENSE_GUIDE,
   caseStudyIds: ['pfsense-blocks'],
-  objectives: ['N10-009:1.2', 'N10-009:2.1', 'N10-009:2.2', 'N10-009:3.4', 'N10-009:4.3', 'N10-009:5.3', 'N10-009:5.5', '200-301:4.1', '200-301:5.6'],
 
   what: `
 **pfSense CE** (Community Edition) is a free, open-source firewall and router that you install as a complete system, built on FreeBSD and its **pf** packet filter, and manage through a web interface. It is often used as the **perimeter firewall**: the device that sits between an organisation's networks and the Internet and decides what may pass in each direction. It is common in small and medium networks, labs and competitions, so it is the network appliance you are most likely to meet next to Linux servers.

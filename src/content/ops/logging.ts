@@ -379,7 +379,6 @@ A: Logging fails **silently** (UDP loss, selectors, skipped lines). Monitor for 
     { title: 'Microsoft Learn: Use Windows Event Forwarding', url: 'https://learn.microsoft.com/windows/security/operating-system-security/device-management/use-windows-event-forwarding-to-assist-in-intrusion-detection' },
   ],
   guide: LOGGING_GUIDE,
-  objectives: ['N10-009:3.2', 'N10-009:1.4', 'N10-009:5.3'],
 };
 
 // --- Primer -------------------------------------------------------------------------
