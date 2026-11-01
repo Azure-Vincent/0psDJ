@@ -51,7 +51,7 @@ describe('integrated labs: definitions are complete and consistent', () => {
     // The systems named in the story exist, and every terminal opens on a real account.
     const w = lab.build();
     for (const s of i.systems) expect(w.hosts[s.host], s.host).toBeDefined();
-    for (const t of lab.terminals) expect(w.hosts[t.hostId]?.users[t.user], `${t.hostId}/${t.user}`).toBeDefined();
+    for (const t of lab.terminals) { const h = t.kind === 'pfweb' ? t.fromHost! : t.hostId; expect(w.hosts[h]?.users[t.user], `${h}/${t.user}`).toBeDefined(); expect(w.hosts[t.hostId], t.hostId).toBeDefined(); }
     // Configure steps first, then at least one verify step; the last one reboots.
     expect(lab.steps.some((s) => s.stage === 'verify')).toBe(true);
     expect(lab.steps.at(-1)!.afterReboot).toBe(true);
