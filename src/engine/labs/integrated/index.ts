@@ -4,5 +4,6 @@ import type { GuidedLab } from '../types';
 import { ILAB1 } from './ilab1';
 import { ILAB2 } from './ilab2';
 import { ILAB3 } from './ilab3';
+import { ILAB4 } from './ilab4';
 
-export const INTEGRATED_LABS: GuidedLab[] = [ILAB1, ILAB2, ILAB3];
+export const INTEGRATED_LABS: GuidedLab[] = [ILAB1, ILAB2, ILAB3, ILAB4];
