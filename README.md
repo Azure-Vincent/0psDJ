@@ -379,7 +379,9 @@ is stored separately and is kept; it can also be exported and imported under
 Start with **Start here**: it explains how the lab works and gives the
 recommended order of study, with your progress and a button to continue
 where you stopped. The bar at the top of each lesson and lab leads to the
-previous and next step. **Curriculum** shows the same subjects by module. Each lesson has tabs from "What is it?" to "Assessment".
+previous and next step. **Curriculum** shows the same subjects by module.
+For how to study (self-testing, spacing, interleaving, a troubleshooting
+routine and a weekly plan), see [docs/STUDY_GUIDE.txt](docs/STUDY_GUIDE.txt). Each lesson has tabs from "What is it?" to "Assessment".
 **Guided labs** walks you through building something step by step, with a
 **Check step** button, hints and a reference solution for every step. The
 **integrated labs** add stages (environment, dependencies, configure, verify,
