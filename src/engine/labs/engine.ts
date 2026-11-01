@@ -52,7 +52,10 @@ function run(c: LabCheck, world: World, step?: string): CheckOutcome {
 export function checkStep(world: World, lab: GuidedLab, step: LabStep): { passed: boolean; results: CheckOutcome[] } {
   if (step.afterReboot) {
     const rebooted = rebootAll(world);
-    const results = lab.steps.filter((s) => !s.afterReboot).flatMap((s) => s.checks.map((c) => run(c, rebooted, s.title)));
+    const results = [
+      ...lab.steps.filter((s) => !s.afterReboot).flatMap((s) => s.checks.map((c) => run(c, rebooted, s.title))),
+      ...step.checks.map((c) => run(c, rebooted, step.title)),
+    ];
     return { passed: results.every((r) => r.ok), results };
   }
   const results = step.checks.map((c) => run(c, world));
