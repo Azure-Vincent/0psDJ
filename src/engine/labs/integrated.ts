@@ -34,7 +34,8 @@ export function probePath(world: World, path: RequestPath): HopResult[] {
     if (stopped) { out.push({ id: n.id, label: n.label, role: n.role, host: n.host, status: 'not-reached', evidence: '' }); continue; }
     let r: { ok: boolean; evidence: string };
     try {
-      r = n.probe(structuredClone(world));
+      // Each probe runs on its own copy (engine.probe clones), so the settled world is shared.
+      r = n.probe(world);
     } catch (e) {
       r = { ok: false, evidence: `probe failed to run: ${(e as Error).message}` };
     }
@@ -87,7 +88,7 @@ export function gradeLabDiagnosis(fault: LabFault, selected: string[]): LabDiagn
 const DIAGNOSTIC = new Set([
   'ping', 'ip', 'ss', 'netstat', 'dig', 'host', 'nslookup', 'getent', 'resolvectl', 'traceroute', 'tracepath', 'mtr', 'curl', 'wget', 'nc', 'tcpdump',
   'journalctl', 'cat', 'less', 'tail', 'head', 'grep', 'ls', 'stat', 'id', 'nft', 'iptables', 'named-checkzone', 'named-checkconf', 'nginx', 'sshd', 'testparm',
-  'timedatectl', 'chronyc', 'klist', 'ldapsearch', 'ldapwhoami', 'radtest', 'docker', 'exportfs', 'showmount', 'df', 'ps', 'openssl', 'arp', 'route', 'cat',
+  'timedatectl', 'chronyc', 'klist', 'ldapsearch', 'ldapwhoami', 'radtest', 'docker', 'exportfs', 'showmount', 'df', 'ps', 'openssl', 'arp', 'route',
   'Test-NetConnection', 'Resolve-DnsName', 'Get-NetIPConfiguration', 'Get-NetIPAddress', 'Get-NetRoute', 'Get-Service', 'Get-NetFirewallRule', 'Get-WinEvent',
   'Get-ADUser', 'Get-ADComputer', 'Get-ADGroupMember', 'Test-ComputerSecureChannel', 'nltest', 'w32tm', 'gpresult', 'ipconfig', 'Get-DnsClientServerAddress', 'pfctl', 'clog',
 ]);
@@ -105,7 +106,17 @@ export function classifyCommand(line: string): { kind: CommandKind; tool: string
   if (tool === 'systemctl' && /^(status|is-active|is-enabled|is-failed|list-units|list-timers|cat|show)$/.test(words[1] ?? '')) return { kind: 'diagnostic', tool: 'systemctl' };
   if (tool === 'nft' && /^list$/.test(words[1] ?? '')) return { kind: 'diagnostic', tool };
   if (tool === 'nft') return { kind: 'change', tool };
-  if (tool === 'docker' && /^(ps|logs|inspect|network|exec)$/.test(words[1] ?? '')) return { kind: 'diagnostic', tool };
+  if ((tool === 'docker' && /^(restart|start|stop|kill)$/.test(words[1] ?? '')) || (tool === 'docker' && words[1] === 'compose' && /^(restart|up|down|start|stop)$/.test(words[2] ?? ''))) return { kind: 'restart', tool };
+  if (tool === 'nginx' && words.includes('-s')) return { kind: 'restart', tool };
+  if (tool === 'rndc' && /^(reload|reconfig|restart)$/.test(words[1] ?? '')) return { kind: 'restart', tool };
+  if (tool === 'docker') return { kind: /^(ps|logs|inspect|network|exec|images|top|port|stats|version|info)$/.test(words[1] ?? '') || (words[1] === 'compose' && /^(ps|logs|config|top)$/.test(words[2] ?? '')) ? 'diagnostic' : 'change', tool };
+  // ip, pfctl, openssl and chronyc both look and change: only their read-only forms are evidence.
+  if (tool === 'ip' && /\b(add|del|delete|change|replace|set|flush|append)\b/.test(words.slice(1).join(' '))) return { kind: 'change', tool };
+  if (tool === 'pfctl' && !/^-s/.test(words[1] ?? '')) return { kind: 'change', tool };
+  if (tool === 'openssl' && !/^(s_client|x509|verify|crl|req)$/.test(words[1] ?? '')) return { kind: 'change', tool };
+  if (tool === 'openssl' && words[1] === 'req' && words.includes('-new')) return { kind: 'change', tool };
+  if (tool === 'chronyc' && /^(makestep|burst|online|offline|settime)$/.test(words[1] ?? '')) return { kind: 'change', tool };
+  if ((tool === 'cat' || tool === 'grep' || tool === 'head' || tool === 'tail') && /(^|[^2&])>/.test(line)) return { kind: 'change', tool };
   if (DIAGNOSTIC.has(tool) || /^Get-/.test(tool) || /^Test-/.test(tool)) return { kind: 'diagnostic', tool };
   return { kind: 'change', tool };
 }

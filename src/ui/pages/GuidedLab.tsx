@@ -93,13 +93,13 @@ export function GuidedLabPage({ id }: { id: string }) {
   const [results, setResults] = useState<Record<string, { passed: boolean; results: CheckOutcome[] }>>({});
   const [hints, setHints] = useState<Record<string, number>>({});
   const [showSolution, setShowSolution] = useState<Record<string, boolean>>({});
-  const [showTasks, setShowTasks] = useState<Record<string, boolean>>({});
   const [busy, setBusy] = useState(false);
 
   if (!lab) return <div className="page"><h1>Unknown lab</h1><button onClick={() => go('labs')}>Back</button></div>;
   const integrated = lab.integrated;
   const mode: LabMode = saved?.mode ?? 'guided';
   const completed = new Set(saved?.completed ?? []);
+  const tasksShown = new Set(saved?.tasksShown ?? []);
 
   const setWorld = (w: World) => { worldRef.current = w; LIVE.set(id, w); };
   const getWorld = () => worldRef.current!;
@@ -124,7 +124,7 @@ export function GuidedLabPage({ id }: { id: string }) {
     setLabKey((k) => k + 1);
   };
 
-  const check = (s: LabStep) => {
+  const check = (s: LabStep, assistedNow = false) => {
     setBusy(true);
     setTimeout(() => {
       const r = checkStep(worldRef.current!, lab, s);
@@ -132,7 +132,7 @@ export function GuidedLabPage({ id }: { id: string }) {
       setBusy(false);
       if (r.passed && !completed.has(s.id)) {
         patchLab((p) => ({ ...p, completed: [...p.completed, s.id], finishedAt: s.afterReboot && !integrated ? Date.now() : p.finishedAt }));
-        if (s.concepts.length) update((p) => recordConcepts(p, s.concepts, !(saved?.assisted ?? []).includes(s.id), Date.now()));
+        if (s.concepts.length) update((p) => recordConcepts(p, s.concepts, !assistedNow && !(saved?.assisted ?? []).includes(s.id), Date.now()));
       }
     }, 10);
   };
@@ -142,7 +142,8 @@ export function GuidedLabPage({ id }: { id: string }) {
     // The terminals keep their history: they read the world through getWorld.
     setWorld(applySolution(worldRef.current!, s));
     patchLab((p) => ({ ...p, assisted: [...new Set([...p.assisted, s.id])] }));
-    check(s);
+    // `saved` in this render does not have the step as assisted yet.
+    check(s, true);
   };
 
   const onCommand = (e: CommandLogEntry) => {
@@ -279,13 +280,13 @@ export function GuidedLabPage({ id }: { id: string }) {
               <Markdown text={step.background} />
             </details>
           )}
-          {(mode === 'guided' || showTasks[step.id]) && (
+          {(mode === 'guided' || tasksShown.has(step.id)) && (
             <>
               <h4>Do this</h4>
               <ol className="small">{step.tasks.map((t, i) => <li key={i}><Markdown text={t} /></li>)}</ol>
             </>
           )}
-          {mode === 'assisted' && !showTasks[step.id] && <button type="button" className="link small" onClick={() => { setShowTasks((x) => ({ ...x, [step.id]: true })); patchLab((p) => ({ ...p, hints: (p.hints ?? 0) + 1 })); }}>Show the detailed steps (counts as a hint)</button>}
+          {mode === 'assisted' && !tasksShown.has(step.id) && <button type="button" className="link small" onClick={() => patchLab((p) => ({ ...p, hints: (p.hints ?? 0) + 1, tasksShown: [...new Set([...(p.tasksShown ?? []), step.id])] }))}>Show the detailed steps (counts as a hint)</button>}
           {mode === 'guided' && step.commands && step.commands.length > 0 && (
             <>
               <h4>The important commands</h4>
@@ -381,7 +382,7 @@ export function GuidedLabPage({ id }: { id: string }) {
         }}
         onRepaired={() => patchLab((p) => maybeFinish({ ...p, fault: { ...p.fault!, repairedAt: p.fault?.repairedAt ?? Date.now() } }))}
         onHint={() => patchLab((p) => ({ ...p, hints: (p.hints ?? 0) + 1, fault: { ...p.fault!, hints: (p.fault?.hints ?? 0) + 1 } }))}
-        onShowSolution={() => patchLab((p) => ({ ...p, fault: { ...p.fault!, hints: (p.fault?.hints ?? 0) + 3 } }))} />
+        onShowSolution={() => patchLab((p) => ({ ...p, fault: { ...p.fault!, solutionShown: true } }))} />
     );
     right = saved?.fault ? <DependencyPanel lab={lab} getWorld={getWorld} showExplanation={false} /> : <ToolsCard lab={lab} />;
   } else {

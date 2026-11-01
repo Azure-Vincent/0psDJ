@@ -21,7 +21,7 @@ function ticket(id: string): Scenario {
 /** A ticket's goals (all, or the ones listed) as lab checks. */
 export function ticketGoalChecks(id: string, which?: number[]): LabCheck[] {
   const s = ticket(id);
-  return s.goals.filter((_g, i) => !which || which.includes(i)).map((g, i) => ({
+  return s.goals.map((g, i) => ({ g, i })).filter(({ i }) => !which || which.includes(i)).map(({ g, i }) => ({
     id: `${id}-goal-${i}`,
     description: g.description,
     check(world) {

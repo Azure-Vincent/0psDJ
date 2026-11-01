@@ -193,6 +193,20 @@ describe('process tracking and feedback', () => {
     expect(classifyCommand('systemctl restart nginx').kind).toBe('restart');
     expect(classifyCommand('Restart-Service DNS').kind).toBe('restart');
     expect(classifyCommand('reboot').kind).toBe('restart');
+    // Tools that both look and change: only the read-only forms are evidence.
+    expect(classifyCommand('docker restart app').kind).toBe('restart');
+    expect(classifyCommand('docker compose up -d').kind).toBe('restart');
+    expect(classifyCommand('docker compose logs db').kind).toBe('diagnostic');
+    expect(classifyCommand('docker rm -f app').kind).toBe('change');
+    expect(classifyCommand('nginx -s reload').kind).toBe('restart');
+    expect(classifyCommand('nginx -t').kind).toBe('diagnostic');
+    expect(classifyCommand('ip route add default via 10.0.30.1').kind).toBe('change');
+    expect(classifyCommand('ip link set eth0 down').kind).toBe('change');
+    expect(classifyCommand('ip -br addr').kind).toBe('diagnostic');
+    expect(classifyCommand('pfctl -d').kind).toBe('change');
+    expect(classifyCommand('pfctl -sr').kind).toBe('diagnostic');
+    expect(classifyCommand('cat > /etc/resolv.conf').kind).toBe('change');
+    expect(classifyCommand('rndc reload').kind).toBe('restart');
     expect(classifyCommand('nft list ruleset').kind).toBe('diagnostic');
     expect(classifyCommand('nft add rule inet filter input tcp dport 22 accept').kind).toBe('change');
     expect(classifyCommand("sed -i 's/a/b/' /etc/x").kind).toBe('change');

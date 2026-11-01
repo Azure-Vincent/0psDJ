@@ -67,6 +67,7 @@ export function labFeedback(lab: GuidedLab, p: LabProgress | undefined): LabFeed
     if (f.diagnosis && !f.diagnosis.correct) process.push({ ok: false, text: 'The diagnosis is not right yet: compare the evidence with each cause\'s signature.' });
     if (f.diagnosis?.correct) process.push({ ok: f.diagnosis.attempts === 1, text: f.diagnosis.attempts === 1 ? 'Root cause identified at the first attempt.' : `Root cause identified after ${f.diagnosis.attempts} attempts: note which evidence would have told the causes apart.` });
     if (f.repairedAt) process.push({ ok: true, text: 'The repair was verified, including after a reboot of every machine.' });
+    if (f.solutionShown && !f.repairedAt) process.push({ ok: false, text: 'The reference repair was opened before the repair was verified: next time, try to repair from your own diagnosis first.' });
     if ((f.hints ?? 0) > 0) process.push({ ok: (f.hints ?? 0) <= 1, text: `${f.hints} hint${f.hints === 1 ? '' : 's'} used during troubleshooting.` });
   }
   const tools = p?.tools ?? [];

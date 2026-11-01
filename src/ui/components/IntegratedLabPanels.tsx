@@ -196,7 +196,7 @@ export function FaultPanel({ lab, mode, saved, ready, getWorld, onInject, onDiag
       )}
       {(mode !== 'independent' || st.repairedAt) && (
         <div className="card">
-          <div className="spread"><h3>Reference repair</h3><button type="button" className="link" onClick={() => { if (!showSol && !st.repairedAt && !confirm('Show the reference repair? Try to diagnose first: the diagnosis is what this stage teaches.')) return; if (!showSol) onShowSolution(); setShowSol(!showSol); }}>{showSol ? 'Hide' : 'Show'}</button></div>
+          <div className="spread"><h3>Reference repair</h3><button type="button" className="link" onClick={() => { if (!showSol && !st.repairedAt && !confirm('Show the reference repair? Try to diagnose first: the diagnosis is what this stage teaches.')) return; if (!showSol && !st.repairedAt) onShowSolution(); setShowSol(!showSol); }}>{showSol ? 'Hide' : 'Show'}</button></div>
           {showSol && f.solution.map((s, k) => <div key={k}><div className="small muted">{s.user}@{s.host}</div><pre className="mono small" style={{ whiteSpace: 'pre-wrap' }}>{s.commands.join('\n')}</pre></div>)}
         </div>
       )}

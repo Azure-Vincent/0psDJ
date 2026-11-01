@@ -56,10 +56,12 @@ export interface LabProgress {
   tools?: string[];
   /** Service restarts and reboots typed by the learner (during troubleshooting: before the diagnosis). */
   restarts?: number;
-  fault?: { injectedAt: number; restartsBefore?: number; diagnosis?: { selected: string[]; correct: boolean; attempts: number }; repairedAt?: number; hints?: number; commandsBefore?: number };
+  fault?: { injectedAt: number; restartsBefore?: number; solutionShown?: boolean; diagnosis?: { selected: string[]; correct: boolean; attempts: number }; repairedAt?: number; hints?: number; commandsBefore?: number };
   /** Review answers: question id → chosen index (first answer counts). */
   review?: Record<string, number>;
   notes?: string;
+  /** Assisted mode: steps whose detailed tasks were revealed (each counted once as a hint). */
+  tasksShown?: string[];
 }
 
 export const STORAGE_KEY = 'infralab.progress.v1';
