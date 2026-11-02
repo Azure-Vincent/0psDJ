@@ -721,4 +721,41 @@ const updateCaCertificates: CommandDef = {
   },
 };
 
-export const HTTP_COMMANDS: CommandDef[] = [curl, openssl, updateCaCertificates];
+/**
+ * BusyBox wget (in minimal container images): wget -qO- URL, -O FILE, -T timeout,
+ * --spider. Fetches with the same HTTP stack as curl; errors use BusyBox's wording.
+ */
+const wget: CommandDef = {
+  name: 'wget',
+  summary: 'retrieve files via HTTP (BusyBox, in containers)',
+  usage: 'wget [-q] [-O FILE|-O-] [-T SEC] [--spider] URL',
+  run(args, ctx) {
+    if (ctx.host.kind !== 'container') return err('-bash: wget: command not found', 127);
+    const { flags, rest } = parseFlags(args, ['-O', '-T']);
+    const url = rest[0];
+    if (!url) return err('BusyBox v1.36.1 (2023-05-18 22:34:17 UTC) multi-call binary.\n\nUsage: wget [-cqS] [--spider] [-O FILE] [-o LOGFILE] [--header STR]\n\t[--post-data STR | --post-file FILE] [-Y on/off]\n\t[-P DIR] [-U AGENT] [-T SEC] URL...', 1);
+    const full = /^https?:\/\//.test(url) ? url : `http://${url}`;
+    const host = /^https?:\/\/([^/:]+)/.exec(full)?.[1] ?? '';
+    const t = flags.get('-T');
+    const r = ctx.run(`curl -s -m ${typeof t === 'string' ? t : '10'} -w '\n%{http_code}' ${full}`);
+    const quiet = flags.has('-q');
+    const out = flags.get('-O');
+    if (r.code === 6) return err(`wget: bad address '${host}'`, 1);
+    if (r.code === 7) return err(`${quiet ? '' : `Connecting to ${host}\n`}wget: can't connect to remote host: Connection refused`, 1);
+    if (r.code === 28) return err(`${quiet ? '' : `Connecting to ${host}\n`}wget: download timed out`, 1);
+    if (r.code !== 0) return err(`wget: error getting response`, 1);
+    const lines = r.out.split('\n');
+    const code = Number(lines.pop());
+    const body = lines.join('\n');
+    const head = quiet ? '' : `Connecting to ${host}\n`;
+    if (code >= 400) return err(`${head}wget: server returned error: HTTP/1.1 ${code} ${code === 404 ? 'Not Found' : code === 503 ? 'Service Unavailable' : code === 502 ? 'Bad Gateway' : code === 403 ? 'Forbidden' : 'Error'}`, 1);
+    if (flags.has('--spider')) return ok(`${head}remote file exists`.trim());
+    if (out === '-') return ok(`${head}${body}`.replace(/\n$/, ''));
+    const file = typeof out === 'string' ? out : (/\/([^/?]+)(\?.*)?$/.exec(full.replace(/^https?:\/\/[^/]+/, ''))?.[1] ?? 'index.html');
+    const w = ctx.run(`cat > ${file}`, undefined, body);
+    if (w.code) return w;
+    return ok(`${head}saving to '${file}'\n${file}             100% |********************************|   ${body.length}  0:00:00 ETA\n'${file}' saved`.trim());
+  },
+};
+
+export const HTTP_COMMANDS: CommandDef[] = [curl, wget, openssl, updateCaCertificates];

@@ -422,6 +422,18 @@ function natPrerouting(host: Host, p: Packet, iif: string): NatState {
   return st;
 }
 
+/** Output: DNAT the first packet of a new locally generated flow (nat chains on the output hook). */
+function natOutput(host: Host, p: Packet): NatState | null {
+  if (!hasNatChains(host) || p.icmp?.quoted || ctState(host, p) !== 'new' || natLookup(host, p).entry) return null;
+  const r = evaluateNat(host.nft, 'output', toContext(p, host, undefined));
+  if (!r || r.nat.kind !== 'dnat') return null;
+  const orig = tupleOf(p);
+  p.dst = r.nat.addr;
+  if (r.nat.port) setPorts(p, ports(p)[0], r.nat.port);
+  const rule = renderRule({ ...r.rule, counter: null });
+  return { pendingDnat: { orig, rule }, notes: [`output NAT: rule "${rule}" → destination ${orig.dst}:${orig.dport} rewritten to ${p.dst}:${ports(p)[1]}`] };
+}
+
 /** Postrouting: apply source translation and record new NAT flows. */
 function natPostrouting(world: World, host: Host, p: Packet, st: NatState, oif: string, egressAddr: string | null): void {
   if (st.entry) {
@@ -895,6 +907,8 @@ function transmitInner(world: World, fromHostId: string, original: Packet, opts:
       ingress = lo;
       continue;
     }
+    // Locally generated packets: DNAT in "type nat hook output" chains (kube-proxy's service rules), before routing.
+    const outDnat = natOutput(host, p);
     const rd = lookupRoute(host, p.dst, hops.length === 0 ? opts.oif : undefined);
     if (!rd) {
       hops.push({ host: host.id, ttl: p.ttl, note: `no route to ${p.dst} in the routing table` });
@@ -930,7 +944,7 @@ function transmitInner(world: World, fromHostId: string, original: Packet, opts:
       capture(world, host, egress, 'out', egress.mac, nh.mac, p);
       return { status: 'dropped', host: nh.host.id, hops, reason: `frame larger than ${nh.host.hostname} ${nh.iface.name} MTU ${big.mtu}` };
     }
-    const onat = natLookup(host, p);
+    const onat = outDnat ?? natLookup(host, p);
     natPostrouting(world, host, p, onat, egress.name, egress.address);
     const sw = switchPath(world, host, egress, nh.host, nh.iface);
     hops.push({ host: host.id, egress: egress.name, srcMac: egress.mac, dstMac: nh.mac, ttl: p.ttl, note: `route ${rd.route.dest}${rd.route.via ? ' via ' + rd.route.via : ''} dev ${egress.name}${onat.notes.length ? '; ' + onat.notes.join('; ') : ''}${sw ? '; ' + sw : ''}${big ? `; fragmented into ${Math.ceil((big.size - 20) / (big.mtu - 20))} fragments for the ${big.mtu}-byte MTU` : ''}` });

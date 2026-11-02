@@ -26,6 +26,7 @@ import { SYSTEM_COMMANDS } from './cmdSystem';
 import { KRB_COMMANDS } from './cmdKrb';
 import { RDP_COMMANDS } from './cmdRdp';
 import { DOCKER_COMMANDS } from './cmdDocker';
+import { KUBE_COMMANDS } from './cmdKube';
 import { NTP_COMMANDS } from './cmdNtp';
 import { LOG_COMMANDS } from './cmdLog';
 import { NFS_COMMANDS } from './cmdNfs';
@@ -37,7 +38,7 @@ import { expandParams, GLOB, parseCommandLine, type Segment } from './tokenize';
 import { type CmdCtx, type CmdResult, type CommandDef, type EditorRequest, NeedInput, type SessionFrame } from './types';
 
 export const COMMANDS: Record<string, CommandDef> = Object.fromEntries(
-  [...FILE_COMMANDS, ...NET_COMMANDS, ...HTTP_COMMANDS, ...SYSTEM_COMMANDS, ...KRB_COMMANDS, ...RDP_COMMANDS, ...DOCKER_COMMANDS, ...NTP_COMMANDS, ...LOG_COMMANDS, ...NFS_COMMANDS, ...SMB_COMMANDS, ...MAIL_COMMANDS, ...PG_COMMANDS, ...BACKUP_COMMANDS, ...RESTIC_COMMANDS, ...MON_COMMANDS, ...LDAP_COMMANDS, ...RADIUS_COMMANDS].map((c) => [c.name, c]),
+  [...FILE_COMMANDS, ...NET_COMMANDS, ...HTTP_COMMANDS, ...SYSTEM_COMMANDS, ...KRB_COMMANDS, ...RDP_COMMANDS, ...DOCKER_COMMANDS, ...KUBE_COMMANDS, ...NTP_COMMANDS, ...LOG_COMMANDS, ...NFS_COMMANDS, ...SMB_COMMANDS, ...MAIL_COMMANDS, ...PG_COMMANDS, ...BACKUP_COMMANDS, ...RESTIC_COMMANDS, ...MON_COMMANDS, ...LDAP_COMMANDS, ...RADIUS_COMMANDS].map((c) => [c.name, c]),
 );
 
 export interface ExecResult {

@@ -343,6 +343,29 @@ export const IMAGES: ImageDef[] = [
       return { ok: true, lines: [...boot, `${t} [7] [INFO] Connected to PostgreSQL at ${host}:${port} as ${user}`] };
     },
   },
+  {
+    // A minimal image for debugging and one-off jobs: its command decides what runs (sleep keeps it alive, exit N fails).
+    repo: 'busybox', tag: '1.36', id: 'sha256:3f57d9401f8d42f986df300f0c69192fc41da28ccc8d797829467780db3dd741', created: '14 months ago', size: '4.26MB',
+    cmd: ['sh'], command: '"sh"', env: ['PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'], exposed: [],
+    tools: [...BASE_TOOLS, 'wget', 'nslookup', 'nc', 'ping', 'df'], users: [],
+    files: {},
+    start(_world, _docker, _ctr, c) {
+      const line = c.cmd.join(' ');
+      const echoes = [...line.matchAll(/echo\s+(?:"([^"]*)"|'([^']*)'|([^;&|]+))/g)].map((m) => (m[1] ?? m[2] ?? m[3] ?? '').trim());
+      const exit = /\bexit\s+(\d+)/.exec(line);
+      if (/\bsleep\b|\btail\s+-f\b|while\s+true/.test(line) && !exit) return { ok: true, lines: echoes };
+      // sh with no terminal, or a command that finishes: the process ends.
+      return { ok: false, exitCode: exit ? Number(exit[1]) : 0, lines: echoes };
+    },
+  },
+  {
+    repo: 'rancher/mirrored-coredns-coredns', tag: '1.11.3', id: 'sha256:c69fa2e9cbf5f42dc48af631e956d3f95724c13f91596bc567591790e5e36db6', created: '6 months ago', size: '61.8MB',
+    cmd: ['/coredns', '-conf', '/etc/coredns/Corefile'], command: '"/coredns -conf /etc…"', env: [], exposed: [53, 9153], tools: [], users: [], files: {},
+    start(world, _docker, ctr) {
+      ctr.services.coredns = { state: 'active', enabled: false, since: world.clock, pid: 1, loaded: { port: 53 }, result: 'success' };
+      return { ok: true, lines: ['.:53', '[INFO] plugin/reload: Running configuration SHA512 = 3f11b6a2c2bd2e7a2c6de0a8d1f9b5e2c0a3d1e4b7c9f8a6d5e4c3b2a1f0e9d8', 'CoreDNS-1.11.3', 'linux/amd64, go1.21.11, a6338e9'] };
+    },
+  },
 ];
 
 export const findImage = (ref: string): ImageDef | undefined => {
@@ -521,7 +544,7 @@ function hostResolvConf(docker: Host, user: boolean): string {
 }
 
 /** Build the container's Host: image filesystem, mounts, its address on the network and the default route. */
-function materialise(world: World, docker: Host, c: ContainerConfig, img: ImageDef, net: NetworkConfig, ip: string): Host {
+export function materialise(world: World, docker: Host, c: ContainerConfig, img: ImageDef, net: NetworkConfig, ip: string): Host {
   const t = world.clock;
   const seg = segmentOf(docker, net);
   const short = c.id.slice(0, 12);
@@ -733,7 +756,7 @@ const dockerd: ServiceDef = {
 };
 
 /** Processes inside containers that are not systemd services (their listeners still show in ss and accept connections). */
-const containerProcess = (name: string, process: string): ServiceDef => ({
+export const containerProcess = (name: string, process: string): ServiceDef => ({
   name, unit: `${name}.service`, aliases: [], description: name, configFiles: [],
   start: () => true,
   listeners(_host, rt) {
@@ -742,7 +765,7 @@ const containerProcess = (name: string, process: string): ServiceDef => ({
   },
 });
 
-SERVICE_DEFS.push(dockerd, containerProcess('postgres', 'postgres'), containerProcess('gunicorn', 'gunicorn'));
+SERVICE_DEFS.push(dockerd, containerProcess('postgres', 'postgres'), containerProcess('gunicorn', 'gunicorn'), containerProcess('coredns', 'coredns'));
 
 /** Where a docker-proxy listener forwards: the container and port behind a published host port. */
 export function proxyTarget(world: World, docker: Host, port: number, proto: 'tcp' | 'udp' = 'tcp'): { ctr: Host; port: number } | null {
@@ -794,13 +817,21 @@ httpHooks.apps.gunicorn = (world, host, req): HttpResponse => {
   const path = req.path.split('?')[0];
   if (path === '/' || path === '/api/items') return json(200, 'OK', { service: 'inventory', version: '1.4', items: 128 });
   if (path === '/health') {
-    // The database must still be there: the health check opens a connection.
-    const docker = host.container ? world.hosts[host.container.host] : undefined;
-    const self = docker && host.container ? findContainer(docker, host.container.id) : undefined;
-    const dbName = self ? envOf(self, 'DB_HOST') ?? 'db' : 'db';
-    const db = docker ? listContainers(docker).find((c) => c.network === self?.network && (c.name === dbName || c.aliases.includes(dbName))) : undefined;
-    const up = !!(db && docker && runningHost(world, docker, db)?.services.postgres?.state === 'active');
-    return up ? json(200, 'OK', { status: 'ok', database: 'ok' }) : json(503, 'Service Unavailable', { status: 'error', database: `could not connect to ${dbName}:5432` });
+    // The database must still be there: the health check opens a connection, from the container, to DB_HOST.
+    const env = host.container?.env ?? (() => {
+      const docker = host.container ? world.hosts[host.container.host] : undefined;
+      const self = docker && host.container ? findContainer(docker, host.container.id) : undefined;
+      return self?.env ?? [];
+    })();
+    const get = (k: string) => [...env].reverse().find((e) => e.startsWith(k + '='))?.slice(k.length + 1);
+    const dbName = get('DB_HOST') ?? 'db';
+    const dbPort = Number(get('DB_PORT') ?? '5432');
+    const res = resolve(world, host, dbName, { family: 4 });
+    const c = res.ok ? tcpConnect(world, host, res.ip, dbPort, { timeoutMs: 2000 }) : null;
+    // The server that answered (behind a Service's DNAT it is not the address that was dialled).
+    const up = !!(c?.ok && c.conn.server.services.postgres?.state === 'active');
+    if (c?.ok) c.conn.close('client');
+    return up ? json(200, 'OK', { status: 'ok', database: 'ok' }) : json(503, 'Service Unavailable', { status: 'error', database: `could not connect to ${dbName}:${dbPort}` });
   }
   return json(404, 'Not Found', { detail: 'Not found.' });
 };
