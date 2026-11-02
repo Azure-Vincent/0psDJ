@@ -210,9 +210,11 @@ export interface Host {
   osName: string;
   kind: 'linux' | 'router' | 'switch' | 'windows' | 'pfsense' | 'container';
   /** Present on containers: the Docker host that runs it and the container's identity there. */
-  container?: { host: string; id: string; name: string; image: string };
+  container?: { host: string; id: string; name: string; image: string; /** Environment of the main process (Kubernetes pods; Docker keeps it in the container's config). */ env?: string[]; /** Kubernetes pod (namespace/name) this container belongs to. */ pod?: string };
   /** Windows hosts: configuration (registry) and runtime state (services, event logs). */
   win?: WinState;
+  /** Kubernetes nodes: the kube-proxy rules last written (kube-proxy rewrites its table only when they change). */
+  kubeProxyRules?: string;
   /** pfSense runtime: the loaded pf ruleset (configuration is /conf/config.xml). */
   pf?: PfRuntime;
   role: string;

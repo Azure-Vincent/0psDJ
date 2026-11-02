@@ -12,6 +12,7 @@ import { EMAIL_PRIMER } from '../ops/email';
 import { DATABASE_PRIMER } from '../ops/database';
 import { BACKUP_PRIMER } from '../ops/backup';
 import { MONITORING_PRIMER } from '../ops/monitoring';
+import { KUBERNETES_PRIMER } from '../ops/kubernetes';
 import { IDENTITY_PRIMER } from '../ops/identity';
 import { GPO_PRIMER } from '../ops/gpo';
 import { WINDOWS_FIREWALL_PRIMER } from '../ops/windowsFirewall';
@@ -46,6 +47,7 @@ export const PRIMERS: Record<string, Primer> = {
   database: DATABASE_PRIMER,
   backup: BACKUP_PRIMER,
   monitoring: MONITORING_PRIMER,
+  kubernetes: KUBERNETES_PRIMER,
   identity: IDENTITY_PRIMER,
   gpo: GPO_PRIMER,
   'windows-firewall': WINDOWS_FIREWALL_PRIMER,

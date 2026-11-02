@@ -38,9 +38,9 @@ For every technology it answers the same questions:
   its goal and why it comes at that point. Labs always come after the lessons
   they rely on. Lesson and lab pages show where they sit on the roadmap and
   lead to the next step.
-- **26 lessons** on networking, interfaces and virtual switches, TLS, remote
+- **27 lessons** on networking, interfaces and virtual switches, TLS, remote
   access, identity (including Kerberos and Group Policy), firewalls (nftables,
-  pfSense, Windows Defender Firewall), containers, web servers and
+  pfSense, Windows Defender Firewall), containers and Kubernetes, web servers and
   reverse proxies, time synchronisation, central logging, NFS and SMB file sharing, Linux and Windows
   administration, and safe recovery. Each lesson starts in plain language (the short version,
   an everyday analogy, the key ideas each with a concrete example from the lab,
@@ -59,7 +59,7 @@ For every technology it answers the same questions:
   verification, an incident to diagnose and repair, review with feedback on the
   subjects and on the troubleshooting process), in guided, assisted or
   independent mode. See docs/INTEGRATED_LABS.md.
-- **Ten guided service labs**: build a freshly installed Debian server into a
+- **Eleven guided service labs**: build a freshly installed Debian server into a
   hardened intranet web server (Lab 1), create an Active Directory domain and
   join a member server (Lab 2), turn a fresh pfSense into the perimeter
   firewall with a DMZ and a published web server (Lab 3), take over a
@@ -76,7 +76,10 @@ For every technology it answers the same questions:
   monitoring: exporter, firewall, Prometheus target, an alert rule tested
   end to end, and SNMPv3 (Lab 9), and let network administrators log in to
   the router with their Active Directory accounts through RADIUS, with a
-  group policy and a local break-glass account (Lab 10). The simulator checks each step against the running machines, and
+  group policy and a local break-glass account (Lab 10), and move an application onto
+  a two-node Kubernetes (k3s) cluster: a kubeconfig, a namespace and a Secret,
+  the database and the API with probes, a NodePort Service, a failed release
+  rolled back, and a node drained without an outage (Lab 11). The simulator checks each step against the running machines, and
   the last step reboots everything.
 - **An Infrastructure Builder**: draw your own network (workstations, servers,
   routers, VLAN-aware switches), set addresses, gateways, VLANs, firewall
@@ -84,7 +87,7 @@ For every technology it answers the same questions:
   machine configured from the files the design generates. You get terminals
   on each machine and a packet tracer that shows every hop and every firewall
   and NAT decision.
-- **146 troubleshooting tickets**, each injecting a realistic fault into the
+- **153 troubleshooting tickets**, each injecting a realistic fault into the
   lab. You investigate with real commands in terminals, record a diagnosis and
   repair the fault. The app then checks your fix immediately, again after
   rebooting every machine, and against security rules, so "just open the
@@ -101,7 +104,11 @@ For every technology it answers the same questions:
   a defaced page (200 OK, wrong content), nginx failing to start after a
   certificate rename, port 80 closed for "HTTPS only", a hijacked DNS record,
   a zone that answers SERVFAIL after one typo, and a firewall that allows
-  DNS over TCP only. A **Containers** set breaks a Docker Compose application
+  DNS over TCP only. A **Kubernetes** set breaks an application on the k3s
+  cluster: a Service selector that matches no pod, a wrong targetPort, a
+  readiness probe on the wrong path that stalls a release, a Secret renamed
+  during a password rotation, CoreDNS scaled to zero, a memory limit that gets
+  PostgreSQL OOM-killed, and an image tag that was never pushed. A **Containers** set breaks a Docker Compose application
   the way it breaks in production: a port published on loopback, a renamed
   service, a host firewall that drops forwarded traffic, a leftover container
   on the port, no restart policy, and a daemon.json typo. A **Reverse proxy**

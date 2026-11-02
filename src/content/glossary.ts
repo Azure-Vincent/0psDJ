@@ -1,4 +1,5 @@
 import type { GlossaryEntry } from './types';
+import { K8S_GLOSSARY } from './reference/k8sRefs';
 
 const ENTRIES: GlossaryEntry[] = [
   { term: 'DHCP relay agent', definition: 'A router function (isc-dhcp-relay/dhcrelay on Linux, ip helper-address on Cisco) that receives DHCP broadcasts on a client network and forwards them as unicast to a DHCP server elsewhere, setting giaddr to its own address on the client network. Replies come back through it.', related: ['giaddr', 'DHCP lease timers'] },
@@ -176,4 +177,4 @@ const ENTRIES: GlossaryEntry[] = [
 ];
 
 /** Alphabetical (case-insensitive). */
-export const GLOSSARY: GlossaryEntry[] = [...ENTRIES].sort((a, b) => a.term.localeCompare(b.term, 'en', { sensitivity: 'base' }));
+export const GLOSSARY: GlossaryEntry[] = [...ENTRIES, ...K8S_GLOSSARY.filter((k) => !ENTRIES.some((e) => e.term.toLowerCase() === k.term.toLowerCase()))].sort((a, b) => a.term.localeCompare(b.term, 'en', { sensitivity: 'base' }));

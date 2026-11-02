@@ -103,13 +103,15 @@ export const ROADMAP: RoadmapPhase[] = [
   {
     id: 'applications',
     title: 'Applications and data',
-    goal: 'Run databases, containers and mail, and connect applications across Linux and Windows.',
+    goal: 'Run databases, containers (on a host and on a Kubernetes cluster) and mail, and connect applications across Linux and Windows.',
     why: 'Applications sit on top of everything else: they need the network, the firewall, names, storage and often the proxy.',
     steps: [
       { kind: 'lesson', id: 'database', why: 'PostgreSQL: roles, privileges, remote access and backups.' },
       { kind: 'lab', id: 'lab7', why: 'Set up a database server for one application, least privilege included.' },
       { kind: 'lesson', id: 'docker', why: 'Containers, images, networks and volumes.' },
       { kind: 'lab', id: 'lab4', why: 'Deploy a containerized application and harden its host.' },
+      { kind: 'lesson', id: 'kubernetes', why: 'Running containers on a cluster: desired state, Deployments and Services, probes, rollouts and the request path to a pod.' },
+      { kind: 'lab', id: 'lab11', why: 'Move an application onto Kubernetes, release and roll back, and drain a node without an outage.' },
       { kind: 'lab', id: 'ilab5', why: 'A containerized business app behind the reverse proxy, with its data kept.' },
       { kind: 'lab', id: 'ilab4', why: 'Four tickets across Linux, Windows, PostgreSQL and Samba.' },
       { kind: 'lesson', id: 'email', why: 'Mail delivery and mailboxes: Postfix and Dovecot.' },

@@ -482,6 +482,51 @@ export const CAUSES: Record<string, Cause> = Object.fromEntries(
       check: "docker ps -a; docker inspect -f '{{.HostConfig.RestartPolicy.Name}}' NAME; add restart: unless-stopped to each service and docker compose up -d.",
     },
     {
+      id: 'k8s-selector-mismatch', title: 'Service selector matches no pods (no endpoints)', category: 'Configuration', concept: 'k8s.networking',
+      signature: 'Pods are Running and Ready, but connections to the Service (ClusterIP or NodePort) are refused. kubectl get endpoints shows <none>; the Service\'s SELECTOR (get svc -o wide) differs from the pods\' labels (get pods --show-labels).',
+      check: 'kubectl get endpoints NAME; kubectl get svc NAME -o wide; kubectl get pods --show-labels; fix the selector (or the labels) and kubectl apply.',
+    },
+    {
+      id: 'k8s-target-port', title: 'Service targetPort is not the port the container listens on', category: 'Configuration', concept: 'k8s.networking',
+      signature: 'The Service has endpoints (Ready pods), but connections through it are refused: the endpoints show POD_IP:PORT with a port nothing in the pod listens on. curl POD_IP:CONTAINER_PORT works directly.',
+      check: 'kubectl get endpoints NAME (the port); kubectl describe svc NAME (TargetPort); kubectl describe pod (Port) or the application log; set targetPort to the container port (or its name).',
+    },
+    {
+      id: 'k8s-readiness-probe', title: 'Readiness probe checks the wrong path or port', category: 'Configuration', concept: 'k8s.workloads',
+      signature: 'Pods are Running but 0/1 Ready; describe shows "Readiness probe failed: HTTP probe failed with statuscode: 404" (or connection refused) although the application works on its real health path. Ready pods are missing from the endpoints; a rolling update stalls.',
+      check: 'kubectl describe pod (Readiness line and Events); curl the application from a debug pod on the probed path and on its real one; fix the probe and kubectl apply.',
+    },
+    {
+      id: 'k8s-missing-secret', title: 'Pod references a Secret or ConfigMap (or key) that does not exist', category: 'Configuration', concept: 'k8s.workloads',
+      signature: 'New pods stay in CreateContainerConfigError (env from a missing Secret/ConfigMap or key) or ContainerCreating with FailedMount (a missing volume source); pods that were already running are unaffected until they are recreated.',
+      check: 'kubectl describe pod (Events: secret "NAME" not found / couldn\'t find key); kubectl get secrets,configmaps -n NS; compare with the Deployment\'s secretKeyRef / configMapKeyRef / envFrom / volumes.',
+    },
+    {
+      id: 'k8s-dns-down', title: 'Cluster DNS (CoreDNS) is not running', category: 'Name resolution', concept: 'k8s.networking',
+      signature: 'Inside pods, Service names do not resolve ("could not translate host name", nslookup: no servers could be reached) while ClusterIPs still work; kube-dns has no endpoints; the coredns Deployment in kube-system has 0 ready replicas.',
+      check: 'kubectl get deploy,pods -n kube-system; kubectl get endpoints kube-dns -n kube-system; kubectl exec DEBUG_POD -- nslookup NAME; scale coredns back to 1 or more.',
+    },
+    {
+      id: 'k8s-oom-limit', title: 'Memory limit below what the container needs (OOMKilled)', category: 'Service', concept: 'k8s.workloads',
+      signature: 'The container starts and is killed again and again (CrashLoopBackOff); describe shows Last State Terminated, Reason OOMKilled, Exit Code 137. Its memory limit is smaller than the process needs.',
+      check: 'kubectl describe pod (Last State, Limits); kubectl get pods (RESTARTS); raise limits.memory to peak usage plus headroom and kubectl apply.',
+    },
+    {
+      id: 'k8s-bad-image', title: 'The image or tag does not exist in the registry (ImagePullBackOff)', category: 'Configuration', concept: 'k8s.workloads',
+      signature: 'New pods stay in ErrImagePull / ImagePullBackOff; describe shows "Failed to pull image …: not found". In a rolling update the old pods keep serving, the rollout never completes and exceeds its progress deadline.',
+      check: 'kubectl describe pod (Events); kubectl rollout status / history; fix the image or kubectl rollout undo.',
+    },
+    {
+      id: 'k8s-node-notready', title: 'A node is NotReady (kubelet / k3s agent stopped or cut off)', category: 'Service', concept: 'k8s.workloads',
+      signature: 'kubectl get nodes shows NotReady; no new pods are scheduled there (taint node.kubernetes.io/unreachable); its pods may keep running but are no longer managed.',
+      check: 'kubectl get nodes; kubectl describe node NAME (Conditions); on the node: systemctl status k3s-agent (or k3s), journalctl -u k3s-agent.',
+    },
+    {
+      id: 'k8s-pending-resources', title: 'Pods are Pending: no node can run them (resources, selectors, taints, cordon)', category: 'Configuration', concept: 'k8s.workloads',
+      signature: 'Pods stay Pending without a node; describe shows FailedScheduling "0/2 nodes are available: … Insufficient memory / didn\'t match Pod\'s node affinity/selector / untolerated taint / unschedulable".',
+      check: 'kubectl describe pod (FailedScheduling message); kubectl describe nodes (Allocated resources, Taints, Unschedulable); lower the requests, fix the selector, or uncordon.',
+    },
+    {
       id: 'docker-daemon-config', title: 'dockerd does not start (invalid /etc/docker/daemon.json)', category: 'Configuration', concept: 'docker.lifecycle',
       signature: 'Every docker command says "Cannot connect to the Docker daemon … Is the docker daemon running?"; systemctl status docker is failed; journalctl -u docker shows "unable to configure the Docker daemon with file /etc/docker/daemon.json: …".',
       check: 'systemctl status docker; journalctl -u docker -n 20; validate the JSON (dockerd --validate --config-file /etc/docker/daemon.json on a real host).',

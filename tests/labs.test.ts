@@ -7,6 +7,7 @@ import { LAB7 } from '../src/engine/labs/lab7';
 import { LAB8 } from '../src/engine/labs/lab8';
 import { LAB9 } from '../src/engine/labs/lab9';
 import { LAB10 } from '../src/engine/labs/lab10';
+import { LAB11 } from '../src/engine/labs/lab11';
 import { LAB1 } from '../src/engine/labs/lab1';
 import { LAB2 } from '../src/engine/labs/lab2';
 import { LAB3 } from '../src/engine/labs/lab3';
@@ -216,6 +217,36 @@ describe('guided labs', () => {
     }
     const final = checkStep(world, LAB10, LAB10.steps.at(-1)!);
     expect(final.results.filter((r) => !r.ok).map((r) => `${r.step} / ${r.id}: ${r.detail}`)).toEqual([]);
+  });
+
+  it('Lab 11: each step fails before its solution and passes after it; the reboot test passes at the end', () => {
+    let world: World = LAB11.build();
+    for (const step of LAB11.steps.filter((s) => !s.afterReboot)) {
+      const before = checkStep(world, LAB11, step);
+      expect(before.passed, `${step.id} should not pass before its solution`).toBe(false);
+      world = applySolution(world, step);
+      const after = checkStep(world, LAB11, step);
+      expect(after.results.filter((r) => !r.ok).map((r) => `${r.id}: ${r.detail}`), step.id).toEqual([]);
+    }
+    const final = checkStep(world, LAB11, LAB11.steps.at(-1)!);
+    expect(final.results.filter((r) => !r.ok).map((r) => `${r.step} / ${r.id}: ${r.detail}`)).toEqual([]);
+  });
+
+  it('Lab 11: a password written into the Deployment, or both replicas on one node, is caught', () => {
+    let world: World = LAB11.build();
+    for (const step of LAB11.steps.slice(0, 3)) world = applySolution(world, step);
+    const api = LAB11.steps.find((s) => s.id === 'api')!;
+    const plain = new Lab(structuredClone(world));
+    const yaml = plain.world.hosts.kube01.fs['/srv/k8s/inventory/30-api.yaml'].content.replace('          valueFrom:\n            secretKeyRef:\n              name: inventory-db\n              key: password\n', '          value: Inv-K8s-2026\n');
+    plain.world.hosts.kube01.fs['/srv/k8s/inventory/30-api.yaml'].content = yaml;
+    plain.run('kube01', 'root', 'kubectl apply -f /srv/k8s/inventory/30-api.yaml');
+    plain.run('kube01', 'root', 'kubectl rollout status deploy/api -n inventory');
+    expect(checkStep(plain.world, LAB11, api).results.find((r) => r.id === 'api-up')?.detail).toMatch(/must come from the Secret/);
+    const one = new Lab(applySolution(world, api));
+    one.run('kube01', 'root', 'kubectl cordon kube02');
+    one.run('kube01', 'root', 'kubectl rollout restart deploy/api -n inventory');
+    one.run('kube01', 'root', 'kubectl rollout status deploy/api -n inventory');
+    expect(checkStep(one.world, LAB11, api).results.find((r) => r.id === 'api-up')?.detail).toMatch(/same node/);
   });
 
   it('Lab 10: a reload instead of a restart, or pam_radius_auth as "required", is caught', () => {

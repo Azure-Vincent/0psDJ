@@ -30,6 +30,7 @@ import type { TermSpec } from '../components/LabTerminals';
 import type { ReactNode } from 'react';
 import { go, routeQuery, useProgress } from '../state';
 import { RoadmapBar } from '../components/RoadmapBar';
+import { buildKubeLab } from '../../engine/lab/kubeLab';
 
 
 function SshVisualize() {
@@ -485,6 +486,16 @@ function widgetsFor(id: string): LessonWidgets {
         { hostId: 'dock01', user: 'root', label: 'dock01 console (root)', banner: 'Sandbox: console on dock01 (Debian 12, Docker Engine 26). Images: nginx:1.25, postgres:16, corp/inventory:1.4. Try: docker run -d --name web -p 8080:80 nginx:1.25, docker ps, docker logs web, nft list table ip nat, ss -tlnp.' },
         { hostId: 'ws01', user: 'alice', label: 'ws01 (alice)', banner: 'Sandbox: ws01, Debian 12. Test published ports from the office network: curl -sS -i http://dock01.corp.lab:8080/' },
       ],
+    };
+  }
+  if (id === 'kubernetes') {
+    return {
+      sandbox: [
+        { hostId: 'kube01', user: 'root', label: 'kube01 (root)', banner: 'Sandbox: the k3s server kube01 (with kube02 as worker). Images: nginx:1.25, postgres:16, corp/inventory:1.4, busybox:1.36. Try: kubectl get nodes, kubectl create deployment web --image=nginx:1.25 --replicas=2, kubectl expose deployment web --port=80 --type=NodePort, kubectl get pods,svc,ep -o wide, kubectl describe pod -l app=web.' },
+        { hostId: 'ws01', user: 'alice', label: 'ws01 (alice)', banner: 'Sandbox: ws01 with kubectl (alice\'s kubeconfig). Test NodePorts from the office: curl -sS -i http://kube01.corp.lab:PORT/' },
+        { hostId: 'kube02', user: 'root', label: 'kube02 (root)', banner: 'Sandbox: the worker kube02. Try: crictl ps, ip route, nft list table ip kube-proxy, systemctl status k3s-agent.' },
+      ],
+      sandboxWorld: buildKubeLab,
     };
   }
   if (id === 'ssh') {

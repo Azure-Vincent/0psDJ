@@ -677,7 +677,7 @@ export function explainPacket(rs: Ruleset, hook: Hook, p: PacketContext): { resu
  * flow. Returns the matching translation, if any. Later packets of the flow are
  * translated from the NAT table, not by re-evaluating rules (as in the kernel).
  */
-export function evaluateNat(rs: Ruleset, hook: 'prerouting' | 'postrouting', p: PacketContext): { nat: NonNullable<EvalResult['nat']>; rule: Rule; table: string; chain: string } | null {
+export function evaluateNat(rs: Ruleset, hook: 'prerouting' | 'postrouting' | 'output', p: PacketContext): { nat: NonNullable<EvalResult['nat']>; rule: Rule; table: string; chain: string } | null {
   const bases: { table: Table; chain: Chain }[] = [];
   for (const t of rs.tables) {
     if (!familyApplies(t.family, p)) continue;
