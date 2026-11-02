@@ -17,6 +17,9 @@ export interface ChainSpec {
   difficulty?: Scenario['difficulty'];
   /** Extra briefing line (for instance, what changed recently). */
   context?: string;
+  /** Order in which the reference solution applies the parts' fixes, when it differs from `parts`
+   *  (a fix may depend on another fault being repaired first). Defaults to `parts`. */
+  fixOrder?: string[];
 }
 
 const uniqBy = <T>(xs: T[], key: (x: T) => string) => [...new Map(xs.map((x) => [key(x), x])).values()];
@@ -63,7 +66,7 @@ export function chain(spec: ChainSpec, find: (id: string) => Scenario | undefine
       'After each fix, test again from the user\'s side and compare the new symptom with the old one: a different error means progress, not a failed fix.',
       ...parts.map((p) => p.hints.at(-1)!),
     ],
-    solution: parts.flatMap((p) => p.solution),
+    solution: (spec.fixOrder ?? spec.parts).flatMap((id) => parts[spec.parts.indexOf(id)].solution),
     explanation: {
       rootCause: parts.map((p, i) => `(${i + 1}) ${p.explanation.rootCause}`).join(' '),
       manifestation: `${parts[0].explanation.manifestation} Once that was fixed, the next fault showed: ${parts.slice(1).map((p) => p.explanation.manifestation).join(' Then: ')}`,

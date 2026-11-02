@@ -20,6 +20,8 @@ describe('Tier 2 tickets', () => {
       expect(s.rootCauses).toEqual([...new Set(s.parts!.flatMap((p) => findScenario(p)!.rootCauses))]);
     }
     expect(new Set(ALL_SCENARIOS.map((s) => s.id)).size).toBe(ALL_SCENARIOS.length);
+    // The reference solution covers every part exactly once.
+    for (const s of TIER2) expect(s.solution.length, s.id).toBe(s.parts!.reduce((n, p) => n + findScenario(p)!.solution.length, 0));
   });
 
   it('naming only one of the root causes is not a correct diagnosis', () => {

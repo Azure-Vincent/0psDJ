@@ -202,7 +202,7 @@ const SPECS: { id: string; title: string; specs: ChainSpec[] }[] = [
   {
     id: 'win-kerberos', title: 'Kerberos for Windows logons',
     specs: [
-      { id: 't2-winkrb-time-kdc', title: 'Time and the KDC', parts: ['krb-w32time-disabled', 'krb-dc-kdc-blocked'], ticket: 'Domain logons to win01 fail since the Windows hardening script ran on the servers.' },
+      { id: 't2-winkrb-time-kdc', title: 'Time and the KDC', parts: ['krb-dc-kdc-blocked', 'krb-w32time-disabled'], fixOrder: ['krb-w32time-disabled', 'krb-dc-kdc-blocked'], ticket: 'Monitoring: "win01 shows DOWN (no ping) since the Windows hardening script ran on the servers last night; gpupdate on win01 fails." Remote Desktop logons still work.' },
     ],
   },
   {
