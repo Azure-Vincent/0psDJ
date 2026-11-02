@@ -10,7 +10,7 @@ export function Topology() {
     </g>
   );
   return (
-    <svg viewBox="0 0 340 1194" width="100%" style={{ maxWidth: 480 }} role="img" aria-label="Lab topology">
+    <svg viewBox="0 0 340 1342" width="100%" style={{ maxWidth: 480 }} role="img" aria-label="Lab topology">
       <text x={8} y={14} fontSize={11} style={{ fill: 'var(--muted)' }}>VLAN 10 office · 10.0.10.0/24</text>
       <line x1={10} y1={22} x2={330} y2={22} stroke="var(--accent)" strokeWidth={3} />
       {box(4, 34, 'ws01', ['10.0.10.25', 'static (alice)'], 98)}
@@ -66,8 +66,14 @@ export function Topology() {
       {box(40, 1018, 'mon01', ['10.0.20.55', 'Prometheus :9090, Alertmanager', 'scrapes :9100, polls SNMP'], 150)}
       <path d="M24 1040 V1114 H40" fill="none" stroke="var(--ok)" />
       {box(40, 1092, 'rad01', ['10.0.20.65', 'FreeRADIUS UDP 1812', 'logins to rtr01, users from AD'], 150)}
-      <text x={8} y={1174} style={{ fill: 'var(--muted)', fontSize: 9.5 }}>All LAN ports are on sw01 (VLAN-aware Linux bridge): access ports for</text>
-      <text x={8} y={1186} style={{ fill: 'var(--muted)', fontSize: 9.5 }}>VLAN 10/20/30, trunk swp7 to rtr01 eth3. Console: sw01.</text>
+      <path d="M24 1114 V1188 H40" fill="none" stroke="var(--ok)" strokeDasharray="4 3" />
+      {box(40, 1166, 'kube01', ['10.0.20.90', 'k3s server + worker', 'pods 10.42.0.0/24, NodePorts'], 150)}
+      <path d="M24 1188 V1262 H40" fill="none" stroke="var(--ok)" strokeDasharray="4 3" />
+      {box(40, 1240, 'kube02', ['10.0.20.91', 'k3s agent (worker)', 'pods 10.42.1.0/24'], 150)}
+      <text x={200} y={1220} style={{ fill: 'var(--muted)', fontSize: 9.5 }}>Kubernetes lesson,</text>
+      <text x={200} y={1232} style={{ fill: 'var(--muted)', fontSize: 9.5 }}>tickets and Lab 11 only</text>
+      <text x={8} y={1322} style={{ fill: 'var(--muted)', fontSize: 9.5 }}>All LAN ports are on sw01 (VLAN-aware Linux bridge): access ports for</text>
+      <text x={8} y={1334} style={{ fill: 'var(--muted)', fontSize: 9.5 }}>VLAN 10/20/30, trunk swp7 to rtr01 eth3. Console: sw01.</text>
     </svg>
   );
 }

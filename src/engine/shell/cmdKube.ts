@@ -978,11 +978,11 @@ function defaults(kind: string, spec: J): J {
 }
 
 function readManifests(ctx: CmdCtx, file: string): { docs: J[]; name: string } | CmdResult {
-  const path = file.startsWith('/') ? file : `${ctx.frame.cwd.replace(/\/$/, '')}/${file}`;
+  const path = (file.startsWith('/') ? file : `${ctx.frame.cwd.replace(/\/$/, '')}/${file}`).replace(/\/\.?\/?$/, '').replace(/\/\.\//g, '/') || '/';
   const node = ctx.host.fs[path];
   if (!node) return err(`error: the path "${file}" does not exist`, 1);
   if (node.type === 'dir') {
-    const files = Object.keys(ctx.host.fs).filter((p) => p.startsWith(path.replace(/\/$/, '') + '/') && /\.(ya?ml|json)$/.test(p) && !p.slice(path.length + 1).includes('/')).sort();
+    const files = Object.keys(ctx.host.fs).filter((p) => p.startsWith(path + '/') && /\.(ya?ml|json)$/.test(p) && !p.slice(path.length + 1).includes('/')).sort();
     const docs: J[] = [];
     for (const f of files) { const r = readManifests(ctx, f); if ('code' in r) return r; docs.push(...r.docs.map((d) => ({ ...d, __file: f.slice(f.lastIndexOf('/') + 1) }))); }
     return { docs, name: file };
@@ -1021,8 +1021,9 @@ function applyCmd(ctx: CmdCtx, a: Args, verb: 'apply' | 'create'): CmdResult {
   const dry = flagStr(a, '--dry-run');
   const lines: string[] = [];
   let code = 0;
-  for (const d of m.docs) {
-    const r = admit(c, d, d.__file ?? m.name, verb, nsFlag, !!dry && dry !== 'none');
+  for (const d0 of m.docs) {
+    const { __file: file0, ...d } = d0;
+    const r = admit(c, d, file0 ?? m.name, verb, nsFlag, !!dry && dry !== 'none');
     lines.push(r.line);
     code = Math.max(code, r.code);
   }
@@ -1069,7 +1070,7 @@ function deleteCmd(ctx: CmdCtx, a: Args): CmdResult {
     for (const t of targets) {
       const ns = NAMESPACED.has(t.res.kind) ? c.ns : undefined;
       let objs: KObj[];
-      if (t.names.length) objs = t.names.map((n) => { const o = find(c.st, t.res.kind, ns ?? '', n); if (!o) { out.push(notFound(t.res.kind, n)); code = 1; } return o; }).filter((x): x is KObj => !!x);
+      if (t.names.length) objs = t.names.map((n) => { const o = find(c.st, t.res.kind, ns ?? '', n); if (!o && !flag(a, '--ignore-not-found')) { out.push(notFound(t.res.kind, n)); code = 1; } return o; }).filter((x): x is KObj => !!x);
       else if (sel || all) objs = list(c.st, t.res.kind, ns).filter((o) => selectorMatch(sel, o.metadata.labels));
       else return err('error: resource(s) were provided, but no name was specified', 1);
       if (!objs.length && !t.names.length) out.push(`No resources found`);
@@ -1314,6 +1315,7 @@ function cordonCmd(ctx: CmdCtx, a: Args, on: boolean, drain = false): CmdResult 
   const out: string[] = [];
   const was = !!n.spec.unschedulable;
   n.spec.unschedulable = on || undefined;
+  if (was !== on) event(ctx.world, c.st, n, 'Normal', on ? 'NodeNotSchedulable' : 'NodeSchedulable', `Node ${name} status is now: ${on ? 'NodeNotSchedulable' : 'NodeSchedulable'}`, 'kubelet');
   out.push(`node/${name} ${on ? (was ? 'already cordoned' : 'cordoned') : (was ? 'uncordoned' : 'already uncordoned')}`);
   if (drain) {
     const pods = list(c.st, 'Pod').filter((p) => p.spec.nodeName === name);

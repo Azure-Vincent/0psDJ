@@ -16,6 +16,7 @@ import { SCORING_REACH_SCENARIOS } from './scoringReachScenarios';
 import { SCORING_WEB_DNS_SCENARIOS } from './scoringWebDnsScenarios';
 import { SCORING_SCENARIOS } from './scoringScenarios';
 import { CONTAINER_SCENARIOS } from './containerScenarios';
+import { KUBE_SCENARIOS } from './kubeScenarios';
 import { PROXY_SCENARIOS } from './proxyScenarios';
 import { NTP_SCENARIOS } from './ntpScenarios';
 import { LOG_SCENARIOS } from './logScenarios';
@@ -50,6 +51,7 @@ export const SCENARIO_SETS: { id: string; title: string; scenarios: Scenario[] }
   { id: 'nftables', title: 'Firewalls (nftables)', scenarios: FIREWALL_SCENARIOS },
   { id: 'pfsense', title: 'Perimeter firewall (pfSense)', scenarios: PF_SCENARIOS },
   { id: 'containers', title: 'Containers (Docker)', scenarios: CONTAINER_SCENARIOS },
+  { id: 'kubernetes', title: 'Kubernetes (k3s)', scenarios: KUBE_SCENARIOS },
   { id: 'proxy', title: 'Web servers and reverse proxies', scenarios: PROXY_SCENARIOS },
   { id: 'ntp', title: 'Time synchronisation (NTP)', scenarios: NTP_SCENARIOS },
   { id: 'logging', title: 'Central logging (rsyslog)', scenarios: LOG_SCENARIOS },
