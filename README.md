@@ -87,7 +87,7 @@ For every technology it answers the same questions:
   machine configured from the files the design generates. You get terminals
   on each machine and a packet tracer that shows every hop and every firewall
   and NAT decision.
-- **153 troubleshooting tickets**, each injecting a realistic fault into the
+- **173 troubleshooting tickets** (Tier 1) plus **42 chained Tier 2 incidents**, each injecting a realistic fault into the
   lab. You investigate with real commands in terminals, record a diagnosis and
   repair the fault. The app then checks your fix immediately, again after
   rebooting every machine, and against security rules, so "just open the
@@ -401,7 +401,11 @@ press **Connect** and click two devices to cable them, then click a device to
 set its addresses and rules. The checks below the canvas list mistakes such as
 duplicate addresses or an unreachable gateway. **Build & run** starts the
 network. Designs are saved in the browser and can be exported as JSON.
-**Troubleshooting lab** lists the tickets. Each ticket opens a workspace with
+**Troubleshooting lab** lists the tickets in two tiers. **Tier 1** tickets
+have a single fault. **Tier 2** tickets chain two related Tier 1 faults from
+the same area: fixing the first one changes the symptom instead of resolving
+the ticket, so you re-test and keep going until both are repaired and you
+diagnose both root causes. Each ticket opens a workspace with
 terminals on the affected machines, a notes area, hints that get more specific
 each time you ask, and a **Verify** button. Lesson sandboxes reset with one
 click, so experiment freely.

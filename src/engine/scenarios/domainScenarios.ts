@@ -9,6 +9,7 @@ import type { World } from '../types';
 import { FW_PROFILES } from '../win/model';
 import { script } from './engine';
 import type { Constraint, Goal, Scenario } from './types';
+import { once } from './baseline';
 
 const RDP: Goal = { kind: 'rdp', description: 'From ws01, alice logs on to win01.corp.lab with her domain account ("xfreerdp /v:win01.corp.lab /u:CORP\\alice").', fromHost: 'ws01', localUser: 'alice', target: 'win01.corp.lab', user: 'CORP\\alice', password: AD_ALICE_PASSWORD };
 
@@ -31,11 +32,13 @@ const CANDIDATES = ['dom-member-dns', 'dom-dc-firewall', 'dom-trust-broken', 'do
 
 /** The state these tickets start from: win01 joined to ad.corp.lab, RDP for CORP\RDP-Users. */
 export function joinWin01(world: World): void {
-  script(world, 'win01', [
-    `Set-DnsClientServerAddress -InterfaceAlias Ethernet0 -ServerAddresses ${DC01_IP}`,
-    `Add-Computer -DomainName ad.corp.lab -Credential ${ADMIN_CRED} -Restart`,
-    'Add-LocalGroupMember -Group "Remote Desktop Users" -Member "CORP\\RDP-Users"',
-  ], 60_000);
+  once(world, 'joinWin01', () => {
+    script(world, 'win01', [
+      `Set-DnsClientServerAddress -InterfaceAlias Ethernet0 -ServerAddresses ${DC01_IP}`,
+      `Add-Computer -DomainName ad.corp.lab -Credential ${ADMIN_CRED} -Restart`,
+      'Add-LocalGroupMember -Group "Remote Desktop Users" -Member "CORP\\RDP-Users"',
+    ], 60_000);
+  });
 }
 
 function firewallsOn(): Constraint {

@@ -3,7 +3,7 @@ import { CONCEPTS } from '../../content/concepts';
 import { buildSshLab } from '../../engine/lab/sshLab';
 import { CAUSES } from '../../engine/scenarios/catalog';
 import { goalLabel, gradeDiagnosis, verifyScenario, type DiagnosisGrade, type Verification } from '../../engine/scenarios/engine';
-import { ALL_SCENARIOS, SCENARIO_SETS } from '../../engine/scenarios';
+import { ALL_SCENARIOS, SCENARIO_SETS, TIER2_SETS } from '../../engine/scenarios';
 import type { CauseCategory, Scenario } from '../../engine/scenarios/types';
 import type { CommandLogEntry } from '../../engine/shell/shell';
 import type { World } from '../../engine/types';
@@ -17,8 +17,37 @@ import { RefDetail } from './Reference';
 
 const ORDER: Scenario['difficulty'][] = ['beginner', 'intermediate', 'advanced'];
 
-export function TroubleshootList() {
+function TicketCard({ s }: { s: Scenario }) {
   const { progress } = useProgress();
+  const attempts = progress.attempts.filter((a) => a.scenarioId === s.id);
+  const best = attempts.find((a) => a.status === 'resolved') ?? attempts.find((a) => a.status === 'revealed');
+  const solvedParts = (s.parts ?? []).filter((p) => progress.attempts.some((a) => a.scenarioId === p && a.status === 'resolved')).length;
+  return (
+    <div className="card">
+      <div className="spread"><strong>{s.title}</strong>
+        <span className="row">
+          <span className="badge">{s.difficulty}</span>
+          {best ? <span className={`badge ${best.status === 'resolved' ? 'ok' : 'warn'}`}>{best.status}</span> : attempts.length ? <span className="badge">{attempts.length} attempt(s)</span> : null}
+        </span>
+      </div>
+      <p className="small">{s.ticket}</p>
+      {s.parts && (
+        <p className="small muted">
+          Chains {s.parts.length} Tier 1 faults ({solvedParts}/{s.parts.length} of those tickets solved{solvedParts < s.parts.length ? ': recommended first' : ''}).
+        </p>
+      )}
+      <button className="primary" onClick={() => go(`troubleshoot/${s.id}`)}>Open ticket</button>
+    </div>
+  );
+}
+
+const TIER_KEY = 'infralab.ticketTier';
+
+export function TroubleshootList() {
+  const [tier, setTier] = useState<1 | 2>(() => { try { return localStorage.getItem(TIER_KEY) === '2' ? 2 : 1; } catch { return 1; } });
+  const choose = (t: 1 | 2) => { setTier(t); try { localStorage.setItem(TIER_KEY, String(t)); } catch { /* storage unavailable */ } };
+  const sets = tier === 1 ? SCENARIO_SETS : TIER2_SETS;
+  const count = (xs: typeof SCENARIO_SETS) => xs.reduce((n, x) => n + x.scenarios.length, 0);
   return (
     <div className="page">
       <h1>Troubleshooting lab</h1>
@@ -27,30 +56,27 @@ export function TroubleshootList() {
         administrator would have run. The environment is a deterministic simulation: changing a firewall rule, route, file, permission or service changes logs,
         packets and connection results consistently. Nothing is pre-recorded.
       </p>
-      <div className="callout small">
-        Method: <strong>symptom</strong> (exact message) → <strong>locate</strong> the layer → <strong>evidence</strong> on both ends → <strong>hypothesis</strong> →
-        <strong> test</strong> → <strong>fix persistently</strong> → <strong>verify</strong> (now, after reboot, and without weakening security).
+      <div className="tabs" role="tablist" style={{ margin: '10px 0' }}>
+        <button type="button" role="tab" aria-selected={tier === 1} className={tier === 1 ? 'active' : ''} onClick={() => choose(1)}>Tier 1: single faults ({count(SCENARIO_SETS)})</button>
+        <button type="button" role="tab" aria-selected={tier === 2} className={tier === 2 ? 'active' : ''} onClick={() => choose(2)}>Tier 2: chained incidents ({count(TIER2_SETS)})</button>
       </div>
-      {SCENARIO_SETS.map((set) => (
+      {tier === 1 ? (
+        <div className="callout small">
+          Method: <strong>symptom</strong> (exact message) → <strong>locate</strong> the layer → <strong>evidence</strong> on both ends → <strong>hypothesis</strong> →
+          <strong> test</strong> → <strong>fix persistently</strong> → <strong>verify</strong> (now, after reboot, and without weakening security).
+        </div>
+      ) : (
+        <div className="callout small">
+          <strong>Chained incidents.</strong> Each Tier 2 ticket combines faults from Tier 1 tickets of the same area, introduced one after the other. The first symptom hides the next:
+          fixing one fault <strong>changes the symptom</strong> instead of ending the outage. Keep the method for every fault (symptom → evidence → cause → fix → re-test), note how the
+          error message changes after each fix, and name <strong>every</strong> root cause in the diagnosis. Solving the Tier 1 tickets of the same area first is recommended.
+        </div>
+      )}
+      {sets.map((set) => (
         <div key={set.id}>
           <h2>{set.title}</h2>
           <div className="grid3">
-            {set.scenarios.slice().sort((a, b) => ORDER.indexOf(a.difficulty) - ORDER.indexOf(b.difficulty)).map((s) => {
-              const attempts = progress.attempts.filter((a) => a.scenarioId === s.id);
-              const best = attempts.find((a) => a.status === 'resolved') ?? attempts.find((a) => a.status === 'revealed');
-              return (
-                <div className="card" key={s.id}>
-                  <div className="spread"><strong>{s.title}</strong>
-                    <span className="row">
-                      <span className="badge">{s.difficulty}</span>
-                      {best ? <span className={`badge ${best.status === 'resolved' ? 'ok' : 'warn'}`}>{best.status}</span> : attempts.length ? <span className="badge">{attempts.length} attempt(s)</span> : null}
-                    </span>
-                  </div>
-                  <p className="small">{s.ticket}</p>
-                  <button className="primary" onClick={() => go(`troubleshoot/${s.id}`)}>Open ticket</button>
-                </div>
-              );
-            })}
+            {set.scenarios.slice().sort((a, b) => ORDER.indexOf(a.difficulty) - ORDER.indexOf(b.difficulty)).map((s) => <TicketCard key={s.id} s={s} />)}
           </div>
         </div>
       ))}
@@ -123,10 +149,12 @@ export function TroubleshootWorkspace({ id }: { id: string }) {
   const diagnosedOk = attempt?.diagnoses.some((d) => d.correct) ?? false;
   const lastVerification = attempt?.verifications[attempt.verifications.length - 1];
 
+  // Concept credit needs fewer than 3 hints; a chained ticket allows the general hint plus one per fault.
+  const hintBudget = scenario.tier === 2 ? scenario.parts!.length + 2 : 3;
   const maybeResolve = (diagOk: boolean, verifyOk: boolean) => {
     if (diagOk && verifyOk && attempt?.status === 'in-progress') {
       patchAttempt((a) => ({ ...a, status: 'resolved', endedAt: Date.now() }));
-      update((p) => recordConcepts(p, scenario.concepts, (attempt?.hintsUsed ?? 0) < 3, Date.now()));
+      update((p) => recordConcepts(p, scenario.concepts, (attempt?.hintsUsed ?? 0) < hintBudget, Date.now()));
     }
   };
 
@@ -177,7 +205,7 @@ export function TroubleshootWorkspace({ id }: { id: string }) {
       <div className="spread">
         <div>
           <button className="link" onClick={() => go('troubleshoot')}>← All tickets</button>
-          <h1 style={{ marginTop: 4 }}>{scenario.title} <span className="badge">{scenario.difficulty}</span></h1>
+          <h1 style={{ marginTop: 4 }}>{scenario.title} <span className="badge">{scenario.difficulty}</span>{scenario.tier === 2 && <> <span className="badge">Tier 2: {scenario.parts!.length} chained faults</span></>}</h1>
         </div>
         <div className="row">
           {attempt && <span className={`badge ${attempt.status === 'resolved' ? 'ok' : attempt.status === 'revealed' ? 'warn' : 'accent'}`}>{attempt.status}</span>}

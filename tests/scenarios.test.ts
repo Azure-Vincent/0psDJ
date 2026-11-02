@@ -181,6 +181,10 @@ const SYMPTOM: Record<string, RegExp> = {
   'mtu-uplink-mismatch': /curl: \(28\) Operation timed out after 30000 milliseconds with 0 out of 4718592 bytes received/,
 };
 
+// A Tier 2 (chained) ticket shows its first part's symptom first: the parts are ordered so the
+// fault visible from the user's side comes first and hides the next.
+for (const s of SSH_SCENARIOS) if (s.tier === 2 && !SYMPTOM[s.id]) SYMPTOM[s.id] = SYMPTOM[s.parts![0]];
+
 describe.each(SSH_SCENARIOS.map((s) => [s.id, s] as const))('scenario %s', (id, scenario) => {
   it('is well-formed', () => {
     expect(SYMPTOM[id]).toBeDefined();

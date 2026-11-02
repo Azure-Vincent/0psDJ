@@ -12,6 +12,7 @@ import type { World } from '../types';
 import { deployInventory } from './containerScenarios';
 import { script } from './engine';
 import type { Constraint, HttpGoal, Scenario } from './types';
+import { once } from './baseline';
 
 export const APPS_UPSTREAM = 'http://dock01.corp.lab:8000/';
 
@@ -35,9 +36,11 @@ export const proxiedNginxConf = (proxyPass = APPS_UPSTREAM) => SRV01_NGINX_CONF.
 
 /** Deploy the inventory app on dock01 and publish it through srv01's nginx. */
 export function deployProxy(world: World, proxyPass = APPS_UPSTREAM): void {
-  deployInventory(world);
-  writeFile(world.hosts.srv01, '/etc/nginx/nginx.conf', proxiedNginxConf(proxyPass), world.clock);
-  script(world, 'srv01', ['systemctl reload nginx']);
+  once(world, `deployProxy:${proxyPass}`, () => {
+    deployInventory(world);
+    writeFile(world.hosts.srv01, '/etc/nginx/nginx.conf', proxiedNginxConf(proxyPass), world.clock);
+    script(world, 'srv01', ['systemctl reload nginx']);
+  });
 }
 
 export const APPS_CHECK: HttpGoal = {

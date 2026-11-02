@@ -13,6 +13,7 @@ import type { World } from '../types';
 import { joinWin01 } from './domainScenarios';
 import { script } from './engine';
 import type { Constraint, Goal, Scenario } from './types';
+import { once } from './baseline';
 
 const DN = 'DC=ad,DC=corp,DC=lab';
 const SERVERS = `OU=Servers,${DN}`;
@@ -46,13 +47,15 @@ const CANDIDATES = ['gpo-wrong-ou', 'gpo-filter-token', 'gpo-blocked-inheritance
 
 /** win01 joined; OU=Servers and the Server Baseline GPO with the monitoring rule. */
 export function gpoBaseline(world: World, link = SERVERS): void {
-  joinWin01(world);
-  script(world, 'dc01', [
-    `New-ADOrganizationalUnit -Name Servers -Path "${DN}" -Description "Member servers (CHG-2400)"`,
-    'New-GPO -Name "Server Baseline" -Comment "CHG-2401: monitoring and hardening for member servers"',
-    `New-NetFirewallRule -PolicyStore "ad.corp.lab\\Server Baseline" ${PING_RULE}`,
-    `New-GPLink -Name "Server Baseline" -Target "${link}"`,
-  ], 30_000);
+  once(world, `gpoBaseline:${link}`, () => {
+    joinWin01(world);
+    script(world, 'dc01', [
+      `New-ADOrganizationalUnit -Name Servers -Path "${DN}" -Description "Member servers (CHG-2400)"`,
+      'New-GPO -Name "Server Baseline" -Comment "CHG-2401: monitoring and hardening for member servers"',
+      `New-NetFirewallRule -PolicyStore "ad.corp.lab\\Server Baseline" ${PING_RULE}`,
+      `New-GPLink -Name "Server Baseline" -Target "${link}"`,
+    ], 30_000);
+  });
 }
 
 export const moveWin01 = `Move-ADObject -Identity "CN=WIN01,CN=Computers,${DN}" -TargetPath "${SERVERS}"`;

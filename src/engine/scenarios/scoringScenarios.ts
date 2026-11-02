@@ -16,6 +16,7 @@ import { Shell } from '../shell/shell';
 import type { World } from '../types';
 import { checkGoal, script, sshdPolicy } from './engine';
 import type { Constraint, Goal, Scenario, ScoredSshGoal } from './types';
+import { once } from './baseline';
 
 export const SCORE_USER = 'joe';
 export const SCORE_PASSWORD = 'Joe-Score-2026';
@@ -59,11 +60,13 @@ const CANDIDATES = ['score-password-changed', 'pam-faillock-lockout', 'root-logi
 
 /** The competition baseline on srv01: the scored account, root's published password, password logins for the scorer only. */
 export function scoringBaseline(world: World): void {
-  const srv = world.hosts.srv01;
-  addUser(srv, { name: SCORE_USER, uid: 1101, gid: 1101, primaryGroup: SCORE_USER, groups: ['scored'], home: `/home/${SCORE_USER}`, shell: '/bin/bash', gecos: 'Joe (scored account)', password: SCORE_PASSWORD }, world.clock);
-  srv.users.root.password = SCORE_ROOT_PASSWORD;
-  writeFile(srv, '/etc/ssh/sshd_config.d/50-scoring.conf', SCORING_CONF, world.clock);
-  script(world, 'srv01', ['systemctl reload ssh'], 60_000);
+  once(world, 'scoringBaseline', () => {
+    const srv = world.hosts.srv01;
+    addUser(srv, { name: SCORE_USER, uid: 1101, gid: 1101, primaryGroup: SCORE_USER, groups: ['scored'], home: `/home/${SCORE_USER}`, shell: '/bin/bash', gecos: 'Joe (scored account)', password: SCORE_PASSWORD }, world.clock);
+    srv.users.root.password = SCORE_ROOT_PASSWORD;
+    writeFile(srv, '/etc/ssh/sshd_config.d/50-scoring.conf', SCORING_CONF, world.clock);
+    script(world, 'srv01', ['systemctl reload ssh'], 60_000);
+  });
 }
 
 /** One SSH password attempt, as an attacker's tool makes them. */
