@@ -194,4 +194,7 @@ export interface Scenario {
   explanation: { rootCause: string; manifestation: string; evidence: string; prevention: string };
   constraints: Constraint[];
   concepts: ConceptId[];
+  /** Tier 2: a chained incident built from these Tier 1 tickets (faults applied in order). */
+  tier?: 2;
+  parts?: string[];
 }

@@ -148,6 +148,12 @@ const FILES: [string, string][] = [['00-namespace.yaml', NS_YAML], ['10-secret.y
 
 /** The cluster plus the inventory application, deployed and running for a while. */
 export function deployK8sInventory(world: World, files: [string, string][] = FILES): void {
+  // Already deployed (a chained ticket applies a second fault to the same cluster): only time passes.
+  if (world.hosts.kube01 && find(loadStore(world), 'Namespace', '', 'inventory')) {
+    world.clock += 3600_000;
+    kubeTick(world);
+    return;
+  }
   installKube(world);
   const h = world.hosts.kube01;
   for (const d of ['/srv', '/srv/k8s', K8S_APP_DIR]) if (!h.fs[d]) mkdir(h, d, world.clock);

@@ -11,6 +11,7 @@ import { bootHost } from '../sim/services';
 import type { World } from '../types';
 import { firewallStillRestrictive, script } from './engine';
 import type { Constraint, HttpGoal, Scenario } from './types';
+import { once } from './baseline';
 
 export const INVENTORY_DIR = '/srv/inventory';
 export const DB_PASSWORD = 'Inv-Db-2026';
@@ -41,12 +42,14 @@ volumes:
 
 /** Write the project and start it (docker compose up -d), as the team deployed it. */
 export function deployInventory(world: World, compose = INVENTORY_COMPOSE): void {
-  const h = world.hosts.dock01;
-  const t = world.clock;
-  if (!h.fs[INVENTORY_DIR]) mkdir(h, INVENTORY_DIR, t);
-  writeFile(h, `${INVENTORY_DIR}/compose.yaml`, compose, t);
-  writeFile(h, `${INVENTORY_DIR}/.env`, `DB_PASSWORD=${DB_PASSWORD}\n`, t, { mode: 0o600 });
-  script(world, 'dock01', [`cd ${INVENTORY_DIR} && docker compose up -d`], 30_000);
+  once(world, `deployInventory:${compose}`, () => {
+    const h = world.hosts.dock01;
+    const t = world.clock;
+    if (!h.fs[INVENTORY_DIR]) mkdir(h, INVENTORY_DIR, t);
+    writeFile(h, `${INVENTORY_DIR}/compose.yaml`, compose, t);
+    writeFile(h, `${INVENTORY_DIR}/.env`, `DB_PASSWORD=${DB_PASSWORD}\n`, t, { mode: 0o600 });
+    script(world, 'dock01', [`cd ${INVENTORY_DIR} && docker compose up -d`], 30_000);
+  });
 }
 
 export const INVENTORY_CHECK: HttpGoal = {

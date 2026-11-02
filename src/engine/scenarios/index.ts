@@ -30,6 +30,7 @@ import { DB_SCENARIOS } from './dbScenarios';
 import { BACKUP_SCENARIOS } from './backupScenarios';
 import { MON_SCENARIOS } from './monScenarios';
 import { ID_SCENARIOS } from './idScenarios';
+import { buildTier2Sets } from './tier2Scenarios';
 import type { Scenario } from './types';
 
 /** Every troubleshooting scenario, grouped by the lesson that introduces it. */
@@ -64,7 +65,12 @@ export const SCENARIO_SETS: { id: string; title: string; scenarios: Scenario[] }
   { id: 'cases', title: 'End-to-end case studies', scenarios: CASE_SCENARIOS },
 ];
 
-export const ALL_SCENARIOS: Scenario[] = SCENARIO_SETS.flatMap((s) => s.scenarios);
+const TIER1: Scenario[] = SCENARIO_SETS.flatMap((s) => s.scenarios);
+
+/** Tier 2: chained incidents built from Tier 1 tickets of the same area. */
+export const TIER2_SETS: { id: string; title: string; scenarios: Scenario[] }[] = buildTier2Sets((id) => TIER1.find((s) => s.id === id));
+
+export const ALL_SCENARIOS: Scenario[] = [...TIER1, ...TIER2_SETS.flatMap((s) => s.scenarios)];
 
 export function findScenario(id: string): Scenario | undefined {
   return ALL_SCENARIOS.find((s) => s.id === id);
