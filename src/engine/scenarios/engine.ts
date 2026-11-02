@@ -62,7 +62,7 @@ export function settle(world: World): void {
   syslogFlush(world);
   for (const h of Object.values(world.hosts)) if (h.services.docker?.state === 'active') dockerTick(world, h);
   // A Kubernetes cluster keeps reconciling: restarts, rollouts and endpoints catch up.
-  if (world.hosts.kube01) kubeTick(world);
+  kubeTick(world);
 }
 
 export function checkGoal(world: World, goal: Goal): GoalResult {

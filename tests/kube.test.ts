@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { buildKubeLab } from '../src/engine/lab/kubeLab';
 import { writeFile } from '../src/engine/fs';
-import { age } from '../src/engine/shell/cmdKube';
+import { age, parseDuration } from '../src/engine/shell/cmdKube';
 import { cpuMilli, memMi } from '../src/engine/sim/k8s';
 import { Lab } from './helpers';
 
@@ -229,6 +229,56 @@ describe('admission: the API server\'s validation messages', () => {
   });
 });
 
+describe('review fixes', () => {
+  it('timeouts accept Go durations; set-based selectors with several values match', () => {
+    const l = lab();
+    k(l, 'kubectl create deployment web --image=nginx:1.25');
+    k(l, 'kubectl label deploy web env=prod');
+    expect(k(l, "kubectl get deploy -l 'env in (prod,dev)' -o name").output).toBe('deployment.apps/web');
+    const w = k(l, 'kubectl wait --for=condition=Ready pod -l app=nope --timeout=1m30s');
+    expect(w.code).toBe(1);
+    expect(w.output).toMatch(/timed out waiting for the condition/);
+    k(l, 'kubectl set image deploy/web nginx=nginx:9.9');
+    expect(k(l, 'kubectl rollout status deploy/web --timeout=1m').output).toMatch(/error: timed out waiting for the condition$/);
+    expect(k(l, 'kubectl rollout status deploy/web --timeout=soon').output).toBe('error: invalid argument "soon" for "--timeout" flag: time: unknown unit in duration "soon"');
+  });
+
+  it('a ClusterIP flow from the node itself carries the whole request (output DNAT on every packet)', () => {
+    const l = lab();
+    k(l, 'kubectl create deployment web --image=nginx:1.25 --port=80');
+    k(l, 'kubectl expose deployment web --port=80');
+    k(l, 'sleep 5');
+    const ip = k(l, 'kubectl get svc web -o jsonpath={.spec.clusterIP}').output;
+    const r = k(l, `curl -sv -m 5 http://${ip}/`);
+    expect(r.code).toBe(0);
+    expect(r.output).toMatch(/< HTTP\/1\.1 200 OK/);
+  });
+
+  it('rejects a bad CPU quantity and restarts a pod whose image is changed by apply', () => {
+    const l = lab();
+    put(l, '/root/p.yaml', 'apiVersion: v1\nkind: Pod\nmetadata:\n  name: p\nspec:\n  containers:\n  - name: p\n    image: nginx:1.25\n    resources:\n      requests:\n        cpu: lots\n');
+    expect(k(l, 'kubectl apply -f p.yaml').output).toMatch(/^The Pod "p" is invalid: spec\.containers\[0\]\.resources\.requests\[cpu\]: Invalid value: "lots"/);
+    put(l, '/root/p.yaml', 'apiVersion: v1\nkind: Pod\nmetadata:\n  name: p\nspec:\n  containers:\n  - name: p\n    image: busybox:1.36\n    command: ["sleep", "3600"]\n');
+    k(l, 'kubectl apply -f p.yaml');
+    k(l, 'sleep 5');
+    put(l, '/root/p.yaml', 'apiVersion: v1\nkind: Pod\nmetadata:\n  name: p\nspec:\n  containers:\n  - name: p\n    image: busybox:1.36\n    command: ["sleep", "3600"]\n'.replace('busybox:1.36', 'nginx:1.25'));
+    expect(k(l, 'kubectl apply -f p.yaml').output).toBe('pod/p configured');
+    k(l, 'sleep 3');
+    expect(k(l, 'kubectl describe pod p').output).toMatch(/Container p definition changed, will be restarted/);
+    expect(k(l, 'kubectl get pod p -o jsonpath={.status.containerStatuses[0].restartCount}').output).toBe('1');
+  });
+
+  it('a long idle stretch is replayed quickly (event-driven catch-up)', () => {
+    const l = lab();
+    k(l, 'kubectl create deployment web --image=nginx:1.25 --replicas=2');
+    k(l, 'sleep 5');
+    k(l, 'sleep 3600');
+    const t0 = Date.now();
+    expect(k(l, 'kubectl get deploy web').output).toMatch(/^web +2\/2 /m);
+    expect(Date.now() - t0).toBeLessThan(2000);
+  });
+});
+
 describe('helpers', () => {
   it('formats ages like kubectl and parses quantities', () => {
     expect(age(45_000)).toBe('45s');
@@ -237,6 +287,10 @@ describe('helpers', () => {
     expect(age(3 * 3600_000 + 45 * 60_000)).toBe('3h45m');
     expect(age(30 * 3600_000)).toBe('30h');
     expect(age(3 * 86400_000 + 3600_000)).toBe('3d1h');
+    expect(parseDuration('1m30s')).toBe(90_000);
+    expect(parseDuration('500ms')).toBe(500);
+    expect(parseDuration('10')).toBe(10_000);
+    expect(parseDuration('soon')).toBeNull();
     expect(cpuMilli('250m')).toBe(250);
     expect(cpuMilli('1.5')).toBe(1500);
     expect(memMi('1Gi')).toBe(1024);

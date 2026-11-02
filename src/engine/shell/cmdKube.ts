@@ -186,6 +186,17 @@ function connect(ctx: CmdCtx, nsFlag?: string): Conn | CmdResult {
 
 const isConn = (c: Conn | CmdResult): c is Conn => 'st' in c;
 
+/** Go's time.ParseDuration subset kubectl accepts for --timeout: "30s", "2m", "1m30s", "1h", "500ms"; a bare number is seconds. */
+export function parseDuration(v: string): number | null {
+  if (/^\d+$/.test(v)) return Number(v) * 1000;
+  const re = /(\d+(?:\.\d+)?)(ms|s|m|h)/g;
+  let total = 0;
+  let used = 0;
+  for (const m of v.matchAll(re)) { total += Number(m[1]) * { ms: 1, s: 1000, m: 60_000, h: 3600_000 }[m[2] as 'ms' | 's' | 'm' | 'h']; used += m[0].length; }
+  return used === v.length && used > 0 ? total : null;
+}
+const badDuration = (v: string) => err(`error: invalid argument "${v}" for "--timeout" flag: time: unknown unit in duration "${v}"`, 1);
+
 // ---------------------------------------------------------------------------
 // Arguments
 // ---------------------------------------------------------------------------
@@ -231,7 +242,17 @@ const flagStr = (a: Args, ...names: string[]) => { const v = flag(a, ...names); 
 /** "app=web,tier!=db,env" label selectors. */
 function selectorMatch(sel: string | undefined, labels: Record<string, string> | undefined): boolean {
   if (!sel) return true;
-  return sel.split(',').map((x) => x.trim()).filter(Boolean).every((term) => {
+  const terms: string[] = [];
+  let depth = 0;
+  let cur = '';
+  for (const ch of sel) {
+    if (ch === '(') depth++;
+    if (ch === ')') depth--;
+    if (ch === ',' && depth === 0) { terms.push(cur); cur = ''; continue; }
+    cur += ch;
+  }
+  terms.push(cur);
+  return terms.map((x) => x.trim()).filter(Boolean).every((term) => {
     let m = /^([\w./-]+)\s*!=\s*(.*)$/.exec(term);
     if (m) return labels?.[m[1]] !== m[2];
     m = /^([\w./-]+)\s*==?\s*(.*)$/.exec(term);
@@ -845,6 +866,7 @@ function validate(o: J, st: Store, ns: string): string[] {
       else if (!LABEL.test(c.name)) e.push(`${base}.containers[${i}].name: Invalid value: "${c.name}": a lowercase RFC 1123 label must consist of lower case alphanumeric characters or '-', and must start and end with an alphanumeric character (e.g. 'my-name',  or '123-abc', regex used for validation is '[a-z0-9]([-a-z0-9]*[a-z0-9])?')`);
       if (!c.image) e.push(`${base}.containers[${i}].image: Required value`);
       (c.ports ?? []).forEach((p: J, k: number) => { if (!(Number(p.containerPort) >= 1 && Number(p.containerPort) <= 65535)) e.push(`${base}.containers[${i}].ports[${k}].containerPort: Invalid value: ${p.containerPort ?? 0}: must be between 1 and 65535, inclusive`); });
+      for (const kind of ['requests', 'limits'] as const) for (const [k, q] of Object.entries(c.resources?.[kind] ?? {})) if (k === 'cpu' && !/^\d+(\.\d+)?m?$/.test(String(q))) e.push(`${base}.containers[${i}].resources.${kind}[cpu]: Invalid value: "${q}": quantities must match the regular expression '^([+-]?[0-9.]+)([eEinumkKMGTP]*[-+]?[0-9]*)$'`);
       for (const [k, q] of Object.entries({ ...(c.resources?.requests ?? {}), ...(c.resources?.limits ?? {}) })) if (k === 'memory' && !/^\d+(\.\d+)?(Ki|Mi|Gi|Ti|K|M|G|k)?$/.test(String(q))) e.push(`${base}.containers[${i}].resources.requests[memory]: Invalid value: "${q}": quantities must match the regular expression '^([+-]?[0-9.]+)([eEinumkKMGTP]*[-+]?[0-9]*)$'`);
     });
     if (spec.restartPolicy && !['Always', 'OnFailure', 'Never'].includes(spec.restartPolicy)) e.push(`${base}.restartPolicy: Unsupported value: "${spec.restartPolicy}": supported values: "Always", "OnFailure", "Never"`);
@@ -912,8 +934,8 @@ function admit(c: Conn, raw: J, file: string, verb: 'apply' | 'create', nsFlag: 
   if (existing) {
     if (kind === 'Deployment' && JSON.stringify(existing.spec.selector) !== JSON.stringify(o.spec.selector)) return { line: `The Deployment "${o.metadata.name}" is invalid: spec.selector: Invalid value: v1.LabelSelector{MatchLabels:${goMap(o.spec.selector?.matchLabels)}, MatchExpressions:[]v1.LabelSelectorRequirement(nil)}: field is immutable`, code: 1 };
     if (kind === 'Pod') {
-      const strip = (s: J) => JSON.stringify({ ...s, nodeName: undefined, containers: (s.containers ?? []).map((x: J) => ({ ...x, image: undefined })) });
-      if (strip(existing.spec) !== strip({ ...o.spec, nodeName: existing.spec.nodeName })) return { line: `The Pod "${o.metadata.name}" is invalid: spec: Forbidden: pod updates may not change fields other than \`spec.containers[*].image\`,\`spec.initContainers[*].image\`,\`spec.activeDeadlineSeconds\`,\`spec.tolerations\` (only additions to existing tolerations),\`spec.terminationGracePeriodSeconds\` (allow it to be set to 1 if it was previously negative)`, code: 1 };
+      const strip = (s: J) => JSON.stringify({ ...s, nodeName: undefined, containers: (s.containers ?? []).map((x: J) => ({ ...x, image: undefined, imagePullPolicy: undefined })) });
+      if (strip(existing.spec) !== strip(defaults('Pod', o.spec))) return { line: `The Pod "${o.metadata.name}" is invalid: spec: Forbidden: pod updates may not change fields other than \`spec.containers[*].image\`,\`spec.initContainers[*].image\`,\`spec.activeDeadlineSeconds\`,\`spec.tolerations\` (only additions to existing tolerations),\`spec.terminationGracePeriodSeconds\` (allow it to be set to 1 if it was previously negative)`, code: 1 };
     }
     if (kind === 'Service' && o.spec.clusterIP && o.spec.clusterIP !== existing.spec.clusterIP) return { line: `The Service "${o.metadata.name}" is invalid: spec.clusterIPs[0]: Invalid value: []string{"${o.spec.clusterIP}"}: may not change once set`, code: 1 };
     const before = JSON.stringify([existing.spec, existing.data, existing.metadata.labels]);
@@ -928,10 +950,12 @@ function admit(c: Conn, raw: J, file: string, verb: 'apply' | 'create', nsFlag: 
     const after = JSON.stringify([next.spec, next.data, next.metadata.labels]);
     if (before === after) return { line: `${label} unchanged`, code: 0 };
     if (!dryRun) {
+      const specChanged = JSON.stringify(existing.spec) !== JSON.stringify(next.spec);
       Object.assign(existing, next);
-      if (kind === 'Deployment' && JSON.stringify(existing.spec) !== before) existing.metadata.generation = (existing.metadata.generation ?? 1) + 1;
+      if (kind === 'Deployment' && specChanged) existing.metadata.generation = (existing.metadata.generation ?? 1) + 1;
       existing.metadata.resourceVersion = String(++c.st.rv);
-      if (kind === 'Pod') { /* image change: the kubelet restarts the container */ const p = existing; if (p.status?._sim) { p.status._sim.nextStart = undefined; } }
+      // Pod image change: the kubelet sees the new definition and restarts the container (kubelet()).
+      if (kind === 'Pod' && existing.status?._sim) existing.status._sim.nextStart = undefined;
     }
     return { line: `${label} configured${dryRun ? ' (dry run)' : ''}`, code: 0 };
   }
@@ -1227,7 +1251,9 @@ function rolloutCmd(ctx: CmdCtx, a: Args): CmdResult {
     case 'status': {
       const out: string[] = [];
       const timeout = flagStr(a, '--timeout');
-      const limit = timeout ? Number(timeout.replace(/s$/, '')) * (timeout.endsWith('m') ? 60_000 : 1000) : Infinity;
+      const parsed = timeout ? parseDuration(timeout) : null;
+      if (timeout && parsed === null) return badDuration(timeout);
+      const limit = parsed || Infinity;
       const start = ctx.world.clock;
       let last = '';
       for (;;) {
@@ -1355,7 +1381,8 @@ function waitCmd(ctx: CmdCtx, a: Args): CmdResult {
   if (!isConn(c)) return c;
   const cond = flagStr(a, '--for') ?? '';
   const timeout = flagStr(a, '--timeout') ?? '30s';
-  const ms = Number(timeout.replace(/[sm]$/, '')) * (timeout.endsWith('m') ? 60_000 : 1000);
+  const ms = parseDuration(timeout);
+  if (ms === null) return badDuration(timeout);
   const targets = resolveTargets(a, 1);
   if (typeof targets === 'string') return err(targets, 1);
   const sel = flagStr(a, '-l', '--selector');

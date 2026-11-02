@@ -737,7 +737,8 @@ const wget: CommandDef = {
     const full = /^https?:\/\//.test(url) ? url : `http://${url}`;
     const host = /^https?:\/\/([^/:]+)/.exec(full)?.[1] ?? '';
     const t = flags.get('-T');
-    const r = ctx.run(`curl -s -m ${typeof t === 'string' ? t : '10'} -w '\n%{http_code}' ${full}`);
+    const q = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
+    const r = ctx.run(`curl -s -m ${typeof t === 'string' && /^\d+$/.test(t) ? t : '10'} -w '\n%{http_code}' ${q(full)}`);
     const quiet = flags.has('-q');
     const out = flags.get('-O');
     if (r.code === 6) return err(`wget: bad address '${host}'`, 1);
@@ -752,7 +753,7 @@ const wget: CommandDef = {
     if (flags.has('--spider')) return ok(`${head}remote file exists`.trim());
     if (out === '-') return ok(`${head}${body}`.replace(/\n$/, ''));
     const file = typeof out === 'string' ? out : (/\/([^/?]+)(\?.*)?$/.exec(full.replace(/^https?:\/\/[^/]+/, ''))?.[1] ?? 'index.html');
-    const w = ctx.run(`cat > ${file}`, undefined, body);
+    const w = ctx.run(`cat > ${q(file)}`, undefined, body);
     if (w.code) return w;
     return ok(`${head}saving to '${file}'\n${file}             100% |********************************|   ${body.length}  0:00:00 ETA\n'${file}' saved`.trim());
   },

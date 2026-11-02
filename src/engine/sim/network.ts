@@ -424,7 +424,18 @@ function natPrerouting(host: Host, p: Packet, iif: string): NatState {
 
 /** Output: DNAT the first packet of a new locally generated flow (nat chains on the output hook). */
 function natOutput(host: Host, p: Packet): NatState | null {
-  if (!hasNatChains(host) || p.icmp?.quoted || ctState(host, p) !== 'new' || natLookup(host, p).entry) return null;
+  if (p.icmp?.quoted) return null;
+  // Later packets of a flow whose first packet was translated here: the same destination rewrite, before routing.
+  const known = natLookup(host, p);
+  if (known.entry) {
+    if (known.dir === 'orig' && (known.entry.trans.dst !== p.dst || known.entry.trans.dport !== ports(p)[1])) {
+      known.notes.push(`output NAT (known flow): destination ${p.dst}:${ports(p)[1]} → ${known.entry.trans.dst}:${known.entry.trans.dport}`);
+      p.dst = known.entry.trans.dst;
+      setPorts(p, ports(p)[0], known.entry.trans.dport);
+    }
+    return known;
+  }
+  if (!hasNatChains(host) || ctState(host, p) !== 'new') return null;
   const r = evaluateNat(host.nft, 'output', toContext(p, host, undefined));
   if (!r || r.nat.kind !== 'dnat') return null;
   const orig = tupleOf(p);

@@ -757,8 +757,18 @@ function kubelet(world: World, st: Store): void {
       startPod(world, st, p);
       if (!sim.host) continue;
     }
-    // The container runs: the process may have died (a service stopped inside), then probes.
-    const ctr = world.hosts[sim.host!];
+    // The container runs. A changed image (kubectl apply on a Pod) restarts it with the new one.
+    let ctr = world.hosts[sim.host!];
+    if (ctr.container && ctr.container.image !== imageRef(String(containerSpec(p).image))) {
+      event(world, st, p, 'Normal', 'Killing', `Container ${containerSpec(p).name} definition changed, will be restarted`, 'kubelet');
+      stopPodContainer(world, p);
+      const cs = p.status.containerStatuses?.[0];
+      setContainerStatus(p, { restartCount: (cs?.restartCount ?? 0) + 1, ready: false, state: { waiting: { reason: 'ContainerCreating' } } });
+      startPod(world, st, p);
+      if (!sim.host) continue;
+      ctr = world.hosts[sim.host];
+    }
+    // The process may have died (a service stopped inside), then probes.
     const main = Object.entries(ctr.services).find(([k]) => ['nginx', 'postgres', 'gunicorn', 'coredns'].includes(k));
     if (main && main[1].state !== 'active') { stopPodContainer(world, p); terminated(world, st, p, 1, 'Error'); continue; }
     const c = containerSpec(p);
@@ -932,25 +942,46 @@ function syncKubeProxy(world: World, st: Store): void {
 // The reconcile loop
 // ---------------------------------------------------------------------------
 
+const snapshot = (st: Store) => JSON.stringify(st.objects.map((o) => [o.metadata.uid, o.spec?.replicas, o.spec?.nodeName, o.status?.phase, o.status?.containerStatuses?.[0]?.ready, o.status?.containerStatuses?.[0]?.state, o.status?.containerStatuses?.[0]?.restartCount, o.status?.failed, o.spec?.unschedulable, o.status?.ready]));
+
 function reconcile(world: World, st: Store): void {
   syncNodes(world, st);
-  const snap = () => JSON.stringify(st.objects.map((o) => [o.metadata.uid, o.spec?.replicas, o.spec?.nodeName, o.status?.phase, o.status?.containerStatuses?.[0]?.ready, o.status?.containerStatuses?.[0]?.state]));
   for (let pass = 0; pass < 6; pass++) {
-    const before = snap();
+    const before = snapshot(st);
     reconcileDeployments(world, st);
     reconcileReplicaSets(world, st);
     schedule(world, st);
     kubelet(world, st);
     reconcileEndpoints(world, st);
-    if (before === snap()) break;
+    if (before === snapshot(st)) break;
   }
   syncKubeProxy(world, st);
+}
+
+/** The next moment something changes by itself (a back-off ends, a sandbox is ready, a probe threshold or a progress deadline passes). */
+function nextDue(st: Store, after: number): number | undefined {
+  const times: number[] = [];
+  for (const p of list(st, 'Pod')) {
+    const sim = p.status?._sim;
+    if (!sim) continue;
+    if (sim.nextStart) times.push(sim.nextStart);
+    if (sim.createAt) times.push(sim.createAt);
+    if (sim.pullFailedAt) times.push(sim.pullFailedAt + 5001);
+    const c = containerSpec(p);
+    if (sim.livenessFailSince && c.livenessProbe) times.push(sim.livenessFailSince + Number(c.livenessProbe.periodSeconds ?? 10) * Number(c.livenessProbe.failureThreshold ?? 3) * 1000);
+    if (sim.startedAt) for (const pr of [c.readinessProbe, c.livenessProbe]) if (pr?.initialDelaySeconds) times.push(sim.startedAt + Number(pr.initialDelaySeconds) * 1000);
+  }
+  for (const d of list(st, 'Deployment')) if (d.status && !d.status.complete && !d.status.failed && d.status.lastProgress) times.push(d.status.lastProgress + Number(d.spec.progressDeadlineSeconds ?? 600) * 1000 + 1);
+  const future = times.filter((t) => t > after);
+  return future.length ? Math.min(...future) : undefined;
 }
 
 /**
  * Bring the cluster up to the current time: the controllers and kubelets run
  * every 5 s of simulated time since the last look (so a crashing container has
  * restarted with its back-off while the learner was doing something else).
+ * Quiet stretches are skipped: when a step changes nothing, the replay jumps
+ * to the next moment something is due.
  */
 export function kubeTick(world: World): void {
   const server = kubeServer(world);
@@ -963,10 +994,18 @@ export function kubeTick(world: World): void {
   const last = st.lastTick ?? now;
   // At most 15 minutes are replayed step by step; a longer gap jumps ahead.
   let t = Math.max(last, now - 15 * 60_000);
+  let prev = '';
   while (t + 5000 < now) {
     t += 5000;
     world.clock = t;
     reconcile(world, st);
+    const snap = snapshot(st);
+    if (snap === prev) {
+      const due = nextDue(st, t);
+      if (due === undefined || due >= now) break;
+      if (due > t + 5000) t = Math.floor(due / 5000) * 5000 - 5000;
+    }
+    prev = snap;
   }
   world.clock = now;
   reconcile(world, st);
@@ -984,9 +1023,19 @@ export function kubeWait(world: World, ms: number): void {
 // CoreDNS: cluster names for pods
 // ---------------------------------------------------------------------------
 
+/** A read-only parse of the datastore, reused while its text is unchanged (DNS lookups happen often). */
+let readCache: { text?: string; st?: Store } = {};
+function readStore(world: World): Store {
+  const s = kubeServer(world);
+  const t = s ? readFile(s, STATE) : undefined;
+  if (!t) return { rv: 1, objects: [], events: [] };
+  if (readCache.text !== t) readCache = { text: t, st: JSON.parse(t) as Store };
+  return readCache.st!;
+}
+
 function coreDnsUp(world: World): boolean {
   if (kubeServer(world)?.services.k3s?.state !== 'active') return false;
-  const st = loadStore(world);
+  const st = readStore(world);
   const ep = find(st, 'Endpoints', 'kube-system', 'kube-dns') as J;
   return !!ep?.subsets?.[0]?.addresses?.length;
 }
@@ -1000,7 +1049,7 @@ dnsHooks.embedded = (world: World, host: Host, server: string, qname: string, qt
   const name = qname.toLowerCase().replace(/\.$/, '');
   const m = /^([a-z0-9-]+)\.([a-z0-9-]+)\.svc\.cluster\.local$/.exec(name);
   if (m) {
-    const st = loadStore(world);
+    const st = readStore(world);
     const svc = find(st, 'Service', m[2], m[1]);
     if (!svc) return { server, qname, outcome: 'nxdomain', rttMs: 1, answer: { rcode: 'NXDOMAIN', authoritative: true, answers: [] } };
     if (qtype !== 'A') return { server, qname, outcome: 'nodata', rttMs: 1, answer: { rcode: 'NOERROR', authoritative: true, answers: [] } };
