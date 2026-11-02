@@ -5,15 +5,6 @@ troubleshoot and recover the services that real networks depend on: IP routing,
 DNS, DHCP, NAT, VLANs, IPv6, MTU, TLS certificates, SSH, firewalls, Linux
 services, Windows/RDP, Active Directory, Docker and pfSense.
 
-> Cyber Owl Lab was called **Infrastructure Lab** up to version 1.2.4. Installing
-> the new version keeps your progress (it is stored under the app's internal
-> name, `infrastructure-lab`, which has not changed). After upgrading:
-> - **Windows**: the installer replaces the app and its Start-menu and desktop
->   shortcuts; re-pin it to the taskbar if you had pinned Infrastructure Lab.
-> - **Linux (.deb)**: the command is now `cyber-owl-lab`.
-> - **macOS**: drag Cyber Owl Lab to Applications, then delete the old
->   Infrastructure Lab app (your progress is kept).
-
 ## Purpose
 
 Most courses explain what a service is; few teach what to do when it breaks.
@@ -273,114 +264,6 @@ filtering against the computer's token, SYSVOL read over SMB at startup and
 on `gpupdate`, and `gpresult` showing what applied and why the rest was
 filtered.
 
-## Installation
-
-The app runs on **Linux, Windows and macOS**. You need:
-
-- **Node.js 20 or newer**: download the LTS version from <https://nodejs.org>.
-  On Ubuntu/Debian `sudo apt install nodejs npm` works if your release ships
-  version 20+ (Ubuntu 24.04 does).
-- **The source code**: `git clone https://github.com/Azure-Vincent/0psDJ.git`,
-  or **Code → Download ZIP** on the GitHub page, then extract it.
-- **Internet access for the first start only**, to download the dependencies
-  (including the Electron runtime; about 600 MB on disk). After that, the app
-  works offline.
-
-### Linux
-
-Open a terminal in the project folder and run:
-
-```bash
-./launch.sh
-```
-
-The first run installs the dependencies and builds the app (one to two
-minutes); later runs start immediately. To add **Cyber Owl Lab** to your
-application menu, run `./launch.sh --add-to-menu` once
-(`./launch.sh --remove-from-menu` removes it). If you get "Permission denied",
-run `sh launch.sh` instead.
-
-On Ubuntu/Debian you can also build a regular installable package. It installs
-into the application menu and needs no Node.js afterwards:
-
-```bash
-npm install && npm run dist:linux
-sudo apt install ./release/CyberOwlLab-*-linux-amd64.deb
-```
-
-Start it from the menu or with `cyber-owl-lab`; remove it with
-`sudo apt remove infrastructure-lab` (the package keeps the app's first name
-so that upgrades from Infrastructure Lab work). The same command also produces an
-AppImage and a `.tar.gz` in `release/` for other distributions.
-
-> **Ubuntu 23.10 and later:** these releases restrict the user namespaces that
-> Chromium's sandbox uses. The launcher detects this and starts the app with
-> `--no-sandbox` (it prints a notice); the `.deb` instead installs the sandbox
-> helper so the sandbox stays on. The app only loads its own offline pages.
-
-### Windows
-
-**Easiest: download the app.** Open the
-[latest release](https://github.com/Azure-Vincent/0psDJ/releases/latest) and
-download one of:
-
-- **`CyberOwlLab-Setup-<version>-win-x64.exe`**: the installer. Double-click
-  it; it installs for your user only (no administrator rights needed), starts
-  the app, and adds **Cyber Owl Lab** to the Start menu and the desktop.
-  Remove it from **Settings → Apps**.
-- **`CyberOwlLab-<version>-win-x64-portable.exe`**: no installation; double-click
-  it to run (handy on a USB stick or a locked-down PC). It starts a little slower
-  because it unpacks itself each time.
-
-Neither needs Node.js. The files are not code-signed, so Windows SmartScreen
-may say "Windows protected your PC" the first time: choose **More info → Run
-anyway**.
-
-**From the source code** (for development): install Node.js 20+ from
-<https://nodejs.org>, download and extract the source code, and double-click
-**`launch.cmd`** in the project folder. The first start installs the
-dependencies and builds the app; keep the console window open while you use
-it. After updating the source code, run `launch.cmd --rebuild`. To build the
-installer and the portable `.exe` yourself, run `npm install` then
-`npm run dist:win`; the files appear in `release\`.
-
-### macOS
-
-Open Terminal in the project folder and run:
-
-```bash
-./launch.sh
-```
-
-To create an app bundle instead, run `npm install` then `npm run dist:mac`.
-This produces a `.dmg` in `release/`; drag the app to Applications. It is
-unsigned, so open it the first time with **right-click → Open**.
-
-### Updating
-
-The desktop app can update itself: **Settings → Updates** shows the installed
-version, checks the latest GitHub release and installs it. By default it checks
-automatically every few hours and installs verified updates when you quit the
-app (never in the middle of a session); both can be switched off there.
-
-- **Windows installer** and **Linux AppImage**: updated in place.
-- **Portable `.exe`, `.zip`, `.deb`, `.tar.gz`, macOS**: these cannot replace
-  themselves, so the verified file is saved to your Downloads folder for you
-  to install.
-
-An update is installed only if the release's manifest is signed with the
-project's private key (Ed25519; the app contains the public key) and the
-downloaded file matches the size and SHA-256 in that signed manifest. A
-tampered or substituted file, a download from anywhere other than GitHub, or
-an older version is refused, and nothing is installed. The check sends GitHub
-nothing but an ordinary request for the latest release.
-
-Without the automatic updater, on Windows download and run the new installer
-(or portable `.exe`) from the latest release. From source, download the new source (or `git pull`) and start
-the app again with `./launch.sh` (Linux/macOS) or `launch.cmd --rebuild` (Windows). Your progress
-is stored separately and is kept; it can also be exported and imported under
-**Settings**.
-
 ## Using the app
 
 Start with **Start here**: it explains how the lab works and gives the
@@ -443,38 +326,7 @@ identifiers keep the app's first name on purpose:
 
 Changing any of them makes every user start over or end up with two installs.
 
-### Release signing (maintainers)
-
-Installed apps accept an update only if its `update-manifest.json` is signed
-with the project key. Set this up once:
-
-1. `node scripts/update-keygen.cjs` creates `update-signing-key.pem` (git-ignored)
-   and adds the public key to `electron/update-public-keys.cjs`. Commit that file.
-2. In GitHub, create the environment **release** (Settings → Environments) and
-   store the whole private key file there as the secret **`UPDATE_SIGNING_KEY`**
-   (not as a repository secret). Then protect it:
-   - **Deployment branches and tags → Selected branches and tags**: add the tag
-     pattern `v*` only (and `main` if you create releases with a manual run);
-   - **Required reviewers**: yourself (and any co-maintainer);
-   - a **tag ruleset** (Settings → Rules) so that only maintainers can create
-     or move `v*` tags.
-
-   Only the `release` job of `.github/workflows/build.yml` can read the key, only
-   for a protected tag, and only after approval: a collaborator cannot change
-   the signing script on a branch and run it with the key.
-3. Move the private key file offline (a password manager) and delete it from
-   the working copy.
-
-Each release (a pushed `v*` tag, or a manual run with a release tag) then gets
-`update-manifest.json` and `update-manifest.json.sig` next to the executables.
-Without the secret, a release is published without them and apps do not offer
-it. Builds made before step 1 contain no key and never self-update; users of
-those builds install the first signed version by hand once.
-To rotate the key, add the new public key to `update-public-keys.cjs`, release
-that version with the old key, then switch the secret to the new key and remove
-the old public key in a later release. If the private key leaks, remove its
-public key in a release signed with another key you trust, and revoke the
-secret.
+Release signing for self-updates is described in [docs/RELEASING.md](docs/RELEASING.md).
 
 ## Accuracy
 
