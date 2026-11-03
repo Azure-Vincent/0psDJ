@@ -33,10 +33,9 @@ export function StartHere() {
             Cyber Owl Lab teaches how infrastructure services work and how to fix them when they break. You learn a subject in a lesson, practise it on
             simulated machines, then combine subjects in labs that end with a real-looking incident.
           </p>
-          <p className="muted small">The roadmap below gives an order that never assumes something you have not learned yet. You can open any lesson at any time; the roadmap is the recommended path, not a lock.</p>
         </div>
         <div className="dash-next card">
-          <div className="small muted">{fresh ? 'Your first step' : 'Continue the roadmap'} · Phase {phaseNo(current.phase.id)}: {current.phase.title}</div>
+          <div className="small muted">{fresh ? 'Start with' : 'Up next in'} Phase {phaseNo(current.phase.id)}: {current.phase.title}</div>
           <h3>{cv.title}</h3>
           {cv.fraction !== undefined && <span className="meter"><span style={{ width: `${Math.round(cv.fraction * 100)}%` }} /></span>}
           <p className="small muted">{cv.kindLabel} · {cv.detail}</p>
