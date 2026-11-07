@@ -1,7 +1,8 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { emptyProgress, type Progress, type Theme } from '../../learning/progress';
 import { useProgress } from '../state';
 import { updater, useUpdateStatus, type UpdateStatus } from '../updater';
+import { DEFAULT_POMODORO, POMODORO_LIMITS, pomodoroConfig, type PomodoroConfig } from '../../learning/pomodoro';
 
 const THEMES: [Theme, string][] = [
   ['system', 'Follow system (Paper / Ember)'],
@@ -76,6 +77,66 @@ function UpdatesCard() {
   );
 }
 
+const POMO_FIELDS: [keyof typeof POMODORO_LIMITS, string, string][] = [
+  ['studyMin', 'Study block', 'minutes'],
+  ['breakMin', 'Short break', 'minutes'],
+  ['longBreakMin', 'Long break', 'minutes'],
+  ['longEvery', 'Long break after', 'study blocks'],
+];
+
+/** A number box that saves (clamped) when it loses focus or on Enter, so typing "15" never passes through "1". */
+function NumberSetting({ value, min, max, label, onCommit }: { value: number; min: number; max: number; label: string; onCommit: (v: number) => void }) {
+  const [draft, setDraft] = useState(String(value));
+  useEffect(() => setDraft(String(value)), [value]);
+  const commit = () => {
+    const v = Number(draft);
+    if (draft.trim() === '' || !Number.isFinite(v)) setDraft(String(value));
+    else {
+      const c = Math.min(max, Math.max(min, Math.round(v)));
+      setDraft(String(c));
+      if (c !== value) onCommit(c);
+    }
+  };
+  return (
+    <input type="number" min={min} max={max} step={1} value={draft} aria-label={label}
+      onChange={(e) => setDraft(e.target.value)} onBlur={commit} onKeyDown={(e) => { if (e.key === 'Enter') commit(); }} />
+  );
+}
+
+function PomodoroCard() {
+  const { progress, update } = useProgress();
+  const cfg = pomodoroConfig(progress.settings.pomodoro);
+  const save = (patch: Partial<PomodoroConfig>) =>
+    update((p) => ({ ...p, settings: { ...p.settings, pomodoro: pomodoroConfig({ ...pomodoroConfig(p.settings.pomodoro), ...patch }) } }));
+  return (
+    <div className="card" style={{ marginBottom: 12 }}>
+      <h3>Study timer (Pomodoro)</h3>
+      <p className="small muted">
+        The timer in the sidebar alternates focused study blocks with short breaks, and gives a longer break after several blocks. When a block ends,
+        a pop-up times your break. New lengths apply from the next block or break. Allowed: study 5–120 min, short break 1–30, long break 5–60, long break after 2–8 blocks.
+      </p>
+      <div className="pomo-settings">
+        {POMO_FIELDS.map(([k, label, unit]) => {
+          const [lo, hi] = POMODORO_LIMITS[k];
+          return (
+            <label key={k}>
+              <span>{label}</span>
+              <span className="row" style={{ gap: 6 }}>
+                <NumberSetting value={cfg[k]} min={lo} max={hi} label={`${label} (${unit})`} onCommit={(v) => save({ [k]: v })} />
+                <span className="small muted">{unit}</span>
+              </span>
+            </label>
+          );
+        })}
+      </div>
+      <div className="row" style={{ marginTop: 8 }}>
+        <label className="row"><input type="checkbox" checked={cfg.sound} onChange={(e) => save({ sound: e.target.checked })} />Play a chime when a block or break ends</label>
+        <button onClick={() => save(DEFAULT_POMODORO)}>Restore defaults (25 / 5 / 15 min, long break after 4)</button>
+      </div>
+    </div>
+  );
+}
+
 export function Settings() {
   const { progress, update, reset, replace } = useProgress();
   const fileRef = useRef<HTMLInputElement>(null);
@@ -110,6 +171,7 @@ export function Settings() {
           ))}
         </div>
       </div>
+      <PomodoroCard />
       <div className="card" style={{ marginBottom: 12 }}>
         <h3>Progress data</h3>
         <p className="small muted">Progress is stored locally on this computer (browser storage; in the desktop app, inside its user-data folder). Nothing is sent anywhere.</p>

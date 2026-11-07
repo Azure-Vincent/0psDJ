@@ -3,6 +3,7 @@
 // this lives in the app's userData directory). No network, no accounts.
 
 import type { ConceptId } from '../engine/scenarios/types';
+import type { PomodoroConfig } from './pomodoro';
 
 export interface ConceptStat {
   correct: number;
@@ -38,7 +39,7 @@ export interface Progress {
   attempts: TroubleshootingAttempt[];
   /** Guided labs: completed step ids (in order of completion), steps done with "do it for me", timestamps. */
   labs: Record<string, LabProgress>;
-  settings: { theme: Theme };
+  settings: { theme: Theme; pomodoro?: Partial<PomodoroConfig> };
 }
 
 export interface LabProgress {

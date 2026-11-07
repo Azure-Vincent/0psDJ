@@ -292,6 +292,10 @@ diagnose both root causes. Each ticket opens a workspace with
 terminals on the affected machines, a notes area, hints that get more specific
 each time you ask, and a **Verify** button. Lesson sandboxes reset with one
 click, so experiment freely.
+**Study timer**: the Pomodoro timer at the bottom of the sidebar times a
+focused study block, then opens a pop-up that times your break, with a longer
+break after every few blocks. The block and break lengths are set under
+**Settings → Study timer**; the timer keeps running across pages and restarts.
 
 ## For developers
 

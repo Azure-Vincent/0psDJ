@@ -15,6 +15,7 @@ import { Settings } from './pages/Settings';
 import { Search } from './pages/Search';
 import { Builder } from './pages/Builder';
 import { useUpdateStatus } from './updater';
+import { PomodoroHost, PomodoroRail, PomodoroWidget } from './pomodoro';
 import { LESSONS } from '../content/lessons';
 import { CURRICULUM } from '../content/curriculum';
 
@@ -114,6 +115,7 @@ function Shell() {
       {collapsed && (
         <div className="rail">
           <button className="rail-toggle" onClick={toggleSidebar} aria-label="Show sidebar" aria-expanded={false} title="Show sidebar (Ctrl+\)">☰</button>
+          <PomodoroRail />
         </div>
       )}
       <aside className="sidebar" hidden={collapsed}>
@@ -131,6 +133,7 @@ function Shell() {
             ),
           )}
         </nav>
+        <PomodoroWidget />
         <div className="sidebar-foot">
           Offline · progress saved locally
           {update && ['available', 'ready', 'downloaded'].includes(update.state) && (
@@ -139,6 +142,7 @@ function Shell() {
         </div>
       </aside>
       <main className="main">{page}</main>
+      <PomodoroHost />
     </div>
   );
 }

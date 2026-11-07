@@ -468,3 +468,24 @@ span.meter { display: block; }
 .road-steps li.started .road-mark { border-color: var(--accent); color: var(--accent); }
 .road-body { min-width: 0; }
 @media (max-width: 560px) { .road-steps li { grid-template-columns: 24px minmax(0, 1fr); } .road-steps li > button { grid-column: 2; justify-self: start; } }
+
+/* Pomodoro study timer */
+.pomo { margin: 0 10px 8px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel-2); font-size: 12px; display: flex; flex-direction: column; gap: 6px; }
+.pomo-head { display: flex; align-items: center; gap: 6px; }
+.pomo-label { font-weight: 600; color: var(--text); }
+.pomo-time { margin-left: auto; font-family: var(--mono); font-size: 15px; font-variant-numeric: tabular-nums; color: var(--accent); }
+.pomo-break .pomo-time, .pomo-longBreak .pomo-time { color: var(--ok); }
+.pomo-dots { display: flex; gap: 4px; }
+.pomo-dots span { width: 8px; height: 8px; border-radius: 50%; border: 1px solid var(--muted); }
+.pomo-dots span.on { background: var(--accent); border-color: var(--accent); }
+.pomo-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.pomo-actions button { font-size: 12px; padding: 2px 8px; }
+.pomo-rail { margin-top: 12px; font-size: 11px; text-align: center; color: var(--accent); font-variant-numeric: tabular-nums; line-height: 1.3; }
+.pomo-rail.pomo-break, .pomo-rail.pomo-longBreak { color: var(--ok); }
+.modal.pomo-modal { width: min(440px, 94vw); text-align: center; align-items: center; padding: 22px; }
+.pomo-modal h2 { margin: 0; }
+.pomo-modal .meter { width: 100%; }
+.pomo-big { font-family: var(--mono); font-size: 52px; font-variant-numeric: tabular-nums; color: var(--ok); line-height: 1.1; }
+.pomo-settings { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; }
+.pomo-settings label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+.pomo-settings input[type='number'] { width: 80px; }

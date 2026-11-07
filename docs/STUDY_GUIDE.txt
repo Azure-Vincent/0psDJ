@@ -127,6 +127,9 @@ tells you HOW to study it.
     sessions, and switching between tasks costs more than it seems.
 
       - Study in focused blocks (for example 25-50 minutes) with short breaks.
+        The study timer in the app's sidebar does this for you (the Pomodoro
+        method): it times each block, then opens a pop-up that times the
+        break. Set the lengths under Settings > Study timer.
       - Silence notifications and close unrelated tabs while studying.
       - Do not trade sleep for extra study before an exam or deadline.
       - Physical activity and regular meals help concentration.
