@@ -10,11 +10,11 @@ export const NETIF_LESSON: Lesson = {
   mode: 'simulated',
 
   what: `
-A **network interface** is how the operating system sends and receives network traffic. Usually you think of it as "the network card", but to the kernel it is an object with a **name** (eth0), a number (its **index**), a **MAC address**, an **MTU** (the largest packet it sends), status flags, traffic counters, and zero or more IP addresses.
+To the kernel, a **network interface** is an object with a **name** (eth0), an **index**, a **MAC address**, an **MTU**, status flags, traffic counters, and zero or more IP addresses.
 
-Everything else in this module is attached to interfaces: addresses and routes ([IP networking](#/lesson/ipnet/what)), [VLANs](#/lesson/vlan/what), [DHCP](#/lesson/dhcp/what), and firewall rules that match \`iifname\` or \`oifname\` (the incoming or outgoing interface). So the first questions in any network fault are about the interface: **does it exist, is it switched on, does it have a link, and is it connected where I think it is?**
+Addresses and routes ([IP networking](#/lesson/ipnet/what)), [VLANs](#/lesson/vlan/what), [DHCP](#/lesson/dhcp/what) and firewall rules that match \`iifname\` or \`oifname\` (the incoming or outgoing interface) all attach to interfaces. The first questions in any network fault: **does it exist, is it switched on, does it have a link, and is it connected where I think it is?**
 
-Not every interface is a physical network card. The kernel has many **types** of interface:
+Interface **types**:
 
 | Type | Example | What it is |
 |---|---|---|
@@ -29,7 +29,12 @@ Not every interface is a physical network card. The kernel has many **types** of
 | WireGuard, GRE, VXLAN | wg0, gre1, vxlan100 | Tunnels: packets are encapsulated and sent over another interface. |
 
 ### Virtual switches
-A **hypervisor** is the software that runs virtual machines (KVM, Proxmox, VMware ESXi, Hyper-V). Every hypervisor contains a software switch. A VM's virtual NIC is "cabled" to a port of that switch, and the switch has uplinks to physical NICs. Linux uses the **bridge** (KVM, Proxmox \`vmbr0\`, libvirt \`virbr0\`, Docker \`docker0\`) or **Open vSwitch**; VMware has the **vSphere Standard/Distributed Switch**; Hyper-V the **Hyper-V Virtual Switch**. They all behave like a physical switch: they learn MAC addresses, they can be VLAN-aware, and a VM attached to the wrong port group/VLAN is exactly as isolated as a server plugged into the wrong switch port.
+Every **hypervisor** (the software that runs virtual machines: KVM, Proxmox, VMware ESXi, Hyper-V) contains a software switch. A VM's virtual NIC is "cabled" to one of its ports, and the switch has uplinks to physical NICs.
+- **Linux**: the **bridge** (KVM, Proxmox \`vmbr0\`, libvirt \`virbr0\`, Docker \`docker0\`) or **Open vSwitch**.
+- **VMware**: the **vSphere Standard/Distributed Switch**.
+- **Hyper-V**: the **Hyper-V Virtual Switch**.
+
+All learn MAC addresses and can be VLAN-aware. A VM attached to the wrong port group/VLAN is as isolated as a server plugged into the wrong switch port.
 
 :::practice
 Q: A VM was moved to a different port group in VMware, and now it cannot reach its old neighbours. Its configuration did not change. Why?
@@ -39,7 +44,7 @@ A: **docker0** (Docker) and **virbr0** (libvirt's default NAT network).
 :::
 
 ### Why this is a troubleshooting topic
-From the outside, an interface problem looks like "the server is down". But the cause is on the server itself, and often invisible from the network:
+From outside, an interface problem looks like "the server is down". Causes on the server itself:
 - The configuration names an interface that **does not exist** (renamed after a hypervisor migration, new NIC driver, cloned VM).
 - The interface is **administratively down** (\`ip link set dev X down\`, \`auto\` missing in /etc/network/interfaces) or has **no carrier** (cable, switch port shut, virtual NIC "disconnected" in the hypervisor).
 - A switch or bridge port is up but **not a member** of the bridge/VLAN, so frames go nowhere.
@@ -55,9 +60,9 @@ A: The configuration names an interface that **does not exist** (the clone has a
 - **sw01** is a Linux **VLAN-aware bridge** (\`br0\`) with ports swp1–swp9: \`ip -br link\`, \`ip -d link show br0\`, \`bridge link\`, \`bridge vlan show\`, \`bridge fdb show\`. Its configuration is ifupdown2 (/etc/network/interfaces with \`bridge-ports\`, \`bridge-access\`, \`bridge-vids\`).
 - **srv01, rtr01, ws01…** are Debian VMs with emulated Intel e1000 NICs (\`ethtool -i eth0\`). They keep the classic \`eth0\` names; \`ip link\` also shows the predictable name as \`altname enp1s0\`.
 - Kernel state is readable under **/sys/class/net/** (operstate, carrier, address, mtu, speed, duplex, type, ifindex).
-- You can create **dummy** interfaces (\`ip link add dummy0 type dummy\`) on any host.
+- **Dummy** interfaces can be created on any host (\`ip link add dummy0 type dummy\`).
 
-> The simulator implements interface names and indexes, admin state (UP), carrier (LOWER_UP / NO-CARRIER), operstate, MAC and MTU, VLAN sub-interfaces, dummy interfaces, the sw01 bridge (membership, runtime \`ip link set PORT master br0\` / \`nomaster\`, VLAN filtering, MAC learning, \`master br0\`/\`bridge_slave\` details), /sys/class/net attributes, \`ethtool\`, and ifupdown failures for interfaces named in /etc/network/interfaces that do not exist. Not simulated on lab hosts: creating bridges, bonds, veth pairs or tun/tap devices (\`ip link add\` explains this), udev renaming rules and network namespaces. Those are taught here with real command output.
+> Simulated: names and indexes, admin state (UP), carrier (LOWER_UP / NO-CARRIER), operstate, MAC, MTU, VLAN sub-interfaces, dummy interfaces, the sw01 bridge (membership, \`ip link set PORT master br0\` / \`nomaster\`, VLAN filtering, MAC learning), /sys/class/net, \`ethtool\`, ifupdown failures for missing interfaces. Not simulated (shown with real command output instead): creating bridges, bonds, veth pairs or tun/tap devices, udev renaming rules, network namespaces.
 `,
 
   internals: `

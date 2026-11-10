@@ -228,22 +228,18 @@ export const KUBERNETES_LESSON: Lesson = {
   concepts: ['k8s.workloads', 'k8s.networking', 'docker.lifecycle', 'docker.networking', 'net.nat', 'dns.resolution', 'svc.systemd'],
 
   what: `
-**Kubernetes** (often written **k8s**) runs containers on a group of machines and keeps them running the way you described. In the [Docker lesson](#/lesson/docker/what) you started each container yourself on one host. With Kubernetes you hand the cluster a description instead: "two copies of corp/inventory:1.4, with this configuration, reachable on port 30080". Kubernetes decides which machine runs each copy, starts it, watches it, and replaces it when it fails.
+With [Docker](#/lesson/docker/what) you started each container yourself on one host. **Kubernetes** (often written **k8s**) takes a description ("two copies of corp/inventory:1.4, with this configuration, reachable on port 30080") and decides which machine runs each copy.
 
-The machines are called **nodes**. The lab cluster has two, running **k3s**, a compact Kubernetes distribution packaged as a single program:
-- **kube01** (10.0.20.90) runs the **control plane** (the part that stores the description and makes decisions) and also runs application containers.
-- **kube02** (10.0.20.91) is a **worker** ("agent" in k3s): it only runs containers.
+The machines are called **nodes**. The lab has two, running **k3s**, a compact Kubernetes distribution packaged as a single program:
+- **kube01** runs the **control plane** (it stores the description and makes decisions) and also runs application containers.
+- **kube02** is a **worker** ("agent" in k3s): it only runs containers.
 
 ### Problems it solves
-- **A server dies at night.** With plain Docker, its containers are gone until someone starts them elsewhere. Kubernetes notices the node is gone and starts replacement copies on the other node.
-- **Updating without downtime.** A new version replaces the old copies a few at a time, and only continues while the new copies pass their health checks. A broken version stops the update while the old copies keep serving; one command rolls back.
-- **Finding each other.** Copies come and go with new IP addresses. A **Service** gives a group of copies one stable address and DNS name.
-- **Configuration as files.** The whole application (copies, configuration, network entry point) is described in YAML files kept in git, so the cluster can be rebuilt from them.
+- **Updating without downtime.** A new version replaces the old copies a few at a time, continuing only while the new copies pass their health checks. A broken version stops the update while the old copies keep serving; one command rolls back.
+- **Configuration as files.** The application (copies, configuration, network entry point) is described in YAML files kept in git, so the cluster can be rebuilt from them.
 
 ### Desired state and controllers
-The central idea: you never say "start a container". You store a **desired state** in the cluster's database through the **API server**, and **controllers** (small control loops) compare it with what is actually running and fix any difference, again and again. If you delete a pod that belongs to a Deployment, a new one appears within seconds, because the desired state still says "two".
-
-This is also why some fixes do not work in Kubernetes: restarting or deleting a broken pod gives you a new pod built from the same broken description. You fix the **description** (the manifest), and the controllers do the rest.
+You store a **desired state** in the cluster's database through the **API server**. **Controllers** (small control loops) keep comparing it with what is running and fix any difference. A deleted or restarted pod is therefore rebuilt from the same description: to fix a broken pod, fix the **manifest**.
 
 :::practice
 Q: A colleague deletes a crashing pod of the inventory Deployment, and a new pod with a different name appears and crashes in the same way. Why?
@@ -254,18 +250,18 @@ A: The desired state: \`replicas: 3\` in the Deployment (in the manifest, then \
 
 ### The pieces
 **Control plane** (inside \`k3s.service\` on kube01):
-- **API server** (port 6443): the front door. Every client and every component reads and writes objects through it, and it checks each request (who you are, what you may do, whether the object is valid).
-- **Datastore**: where objects are stored (etcd in most clusters; k3s uses SQLite by default).
+- **API server** (port 6443): every client and component reads and writes objects through it; it checks each request (who you are, what you may do, whether the object is valid).
+- **Datastore**: stores the objects (etcd in most clusters; SQLite by default in k3s).
 - **Scheduler**: picks a node for each new pod, based on free resources and rules.
 - **Controller manager**: the control loops (Deployments, ReplicaSets, Endpoints, nodes …).
 
 **Every node** (inside \`k3s.service\` on kube01 and \`k3s-agent.service\` on kube02):
-- **kubelet**: starts the pods the scheduler assigned to this node, runs their health checks, restarts crashed containers and reports back.
-- **Container runtime** (**containerd**, the same runtime Docker uses underneath): pulls images and runs containers.
+- **kubelet**: starts the pods assigned to this node, runs their health checks, restarts crashed containers and reports back.
+- **Container runtime** (**containerd**, the runtime Docker also uses underneath): pulls images and runs containers.
 - **kube-proxy**: turns Services into NAT rules in the node's firewall (nftables in the lab).
 - **CNI plugin** (**flannel**): gives each pod an IP address and connects the pod networks of the nodes.
 
-**kubectl** is the command-line client. It only talks to the API server; it never touches a node directly.
+**kubectl** is the command-line client. It only talks to the API server, never to a node directly.
 
 :::practice
 Q: kubectl on ws01 says "The connection to the server kube01.corp.lab:6443 was refused", but the inventory application still answers in the browser. How is that possible?
@@ -275,12 +271,12 @@ A: The **scheduler** chooses the node; the **kubelet** on that node starts the c
 :::
 
 ### The objects you will use
-- **Pod**: one or more containers that share an IP address. The unit Kubernetes runs. Pods are disposable: a replacement has a new name and IP.
-- **Deployment** → **ReplicaSet** → **Pods**: a Deployment describes the pod template and how many copies; for each template version it creates a ReplicaSet, which keeps that many pods running.
+- **Pod**: one or more containers that share an IP address. Disposable: a replacement has a new name and IP.
+- **Deployment** → **ReplicaSet** → **Pods**: a Deployment holds the pod template and the number of copies. It creates one ReplicaSet per template version, which keeps that many pods running.
 - **Service**: a stable virtual IP, port and DNS name in front of the pods it **selects**. **Endpoints** list the pods currently behind it (only the Ready ones).
 - **ConfigMap** and **Secret**: configuration and passwords, given to pods as environment variables or files.
 - **Namespace**: a named group of objects (\`default\`, \`kube-system\` where CoreDNS runs). Names only need to be unique within a namespace.
-- **Labels and selectors**: labels are key=value tags on objects (\`app=inventory\`); selectors pick objects by label. A Service finds its pods and a Deployment finds its pods only through labels.
+- **Labels and selectors**: labels are key=value tags (\`app=inventory\`); selectors pick objects by label. Services and Deployments find their pods only through labels.
 
 :::practice
 Q: Which object makes sure that two inventory pods exist at all times: the Deployment, the ReplicaSet or the Service?
@@ -290,7 +286,10 @@ A: Through its **selector**: it picks every pod whose labels match (for example 
 :::
 
 ### How it connects to earlier lessons
-Kubernetes reuses what you already know. A pod is a set of [containers](#/lesson/docker/internals) started by containerd, with namespaces and cgroups. Each pod is attached by a veth pair to a [Linux bridge](#/lesson/netif/what) (\`cni0\`) on its node, and the nodes route each other's pod subnets with ordinary routes. A Service is [destination NAT](#/lesson/nat/what): kube-proxy writes DNAT rules into [nftables](#/lesson/nftables/what). Pods find Services through DNS. And k3s itself is a [systemd service](#/lesson/systemd/what) on each node.
+- A pod is a set of [containers](#/lesson/docker/internals) started by containerd, with namespaces and cgroups.
+- Each pod is attached by a veth pair to a [Linux bridge](#/lesson/netif/what) (\`cni0\`) on its node. The nodes route each other's pod subnets with ordinary routes.
+- A Service is [destination NAT](#/lesson/nat/what): kube-proxy writes DNAT rules into [nftables](#/lesson/nftables/what). Pods find Services through DNS.
+- k3s itself is a [systemd service](#/lesson/systemd/what) on each node.
 
 :::practice
 Q: A Service's ClusterIP 10.43.67.69 is on no interface of any machine. Which earlier-lesson mechanism makes connections to it work?
@@ -300,14 +299,14 @@ A: Like any systemd service: \`systemctl status k3s-agent\` (on kube01 the unit 
 :::
 
 ### Where you meet it
-Internal platforms that host many small applications, CI/CD systems, vendor products delivered as "Helm charts", and every major cloud (Amazon EKS, Azure AKS, Google GKE). As an infrastructure administrator you may not write the applications, but you are asked why a pod does not start, why a Service answers nobody, or whether a node can be rebooted safely.
+Internal platforms that host many small applications, CI/CD systems, vendor products delivered as "Helm charts", and every major cloud (Amazon EKS, Azure AKS, Google GKE).
 
 ### In the lab
 > The cluster: **k3s v1.30.6+k3s1** on **kube01** (10.0.20.90, server, sw01 port swp24) and **kube02** (10.0.20.91, agent, swp25), Debian 12, server VLAN 20, DNS names kube01.corp.lab and kube02.corp.lab. flannel **host-gw**: pod subnets **10.42.0.0/24** (kube01, \`cni0\` 10.42.0.1) and **10.42.1.0/24** (kube02); Services from **10.43.0.0/16** (\`kubernetes\` 10.43.0.1:443, CoreDNS \`kube-dns\` **10.43.0.10**). k3s's Traefik, ServiceLB, metrics-server and local-storage are disabled: no Ingress, no LoadBalancer IPs, no \`kubectl top\`, no persistent volumes.
 >
 > Root on kube01 uses kubectl directly (admin kubeconfig \`/etc/rancher/k3s/k3s.yaml\`, mode 0600); on **ws01**, alice has her own \`~/.kube/config\` for https://kube01.corp.lab:6443. Images: nginx:1.25, postgres:16, corp/inventory:1.4 (gunicorn on port 8000; needs DB_HOST, DB_USER, DB_PASSWORD; \`/health\` returns 200 when the database is reachable, 503 otherwise) and busybox:1.36 (sleep, echo, wget, nslookup, nc).
 >
-> Simulated: \`kubectl get/describe/logs/exec/apply/create/delete/expose/scale/set image/rollout/label/cordon/uncordon/drain/wait/run/config/cluster-info/version\`, \`crictl ps/pods/images/logs\`, scheduling with requests, nodeSelector, taints and cordons, image pulls, ConfigMaps and Secrets, crash back-off, OOM kills, readiness and liveness probes, kube-proxy's nftables rules, CoreDNS, flannel routes. Simplified: a Service always sends traffic to its first Ready endpoint (no load balancing). Not simulated: edit, patch, port-forward, top, explain, Ingress, PersistentVolumeClaims, NetworkPolicy, DaemonSets, Jobs, autoscaling, Helm.
+> Simulated: the main \`kubectl\` commands (get, describe, logs, exec, apply, scale, set image, rollout, cordon, drain), \`crictl\`, scheduling (requests, nodeSelector, taints), image pulls, ConfigMaps and Secrets, crash back-off, OOM kills, probes, kube-proxy's nftables rules, CoreDNS, flannel routes. Not simulated: load balancing (a Service always uses its first Ready endpoint), kubectl edit, patch, port-forward and explain, NetworkPolicy, DaemonSets, Jobs, autoscaling, Helm.
 `,
 
   internals: `

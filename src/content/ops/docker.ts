@@ -220,25 +220,21 @@ export const DOCKER_LESSON: Lesson = {
   concepts: ['docker.lifecycle', 'docker.networking', 'net.nat', 'fw.path', 'dns.resolution', 'linux.permissions', 'svc.systemd', 'svc.listening', 'logs.journal', 'ops.recovery'],
 
   what: `
-**Docker** runs applications in **containers**. A container packages an application together with everything it needs to run (libraries, language runtime, configuration), so it runs the same way on any Docker host.
 
-A container is **not** a virtual machine. A VM runs a complete operating system with its own kernel. A container is an ordinary Linux process (plus its child processes) that shares the host's kernel, but the kernel shows it a separate, private view of the system:
-- **Namespaces** give the process its own view: its own filesystem (mount table and root directory), its own network stack (interfaces, addresses, ports), its own process IDs, hostname and inter-process communication.
-- **cgroups** (control groups) limit how much memory, CPU and how many processes it may use.
+**Docker** runs applications in **containers**: an application packaged with its libraries, language runtime and configuration, so it runs the same way on any Docker host.
 
-Its files come from an **image**: a stack of read-only **layers** containing the application and its userland (libraries, interpreter), with a thin writable layer added for each container. Because nothing else is started, a container starts in a second or two.
+A container is an ordinary Linux process (plus its children) that shares the host's kernel but gets a private view of the system:
+- **Namespaces** give it its own filesystem (mount table and root directory), network stack (interfaces, addresses, ports), process IDs, hostname and inter-process communication.
+- **cgroups** (control groups) limit its memory, CPU and number of processes.
 
-### Problems it solves
-- **"Works on my machine."** The image carries the exact dependencies, so the same artefact runs in development, test and production.
-- **Density and speed.** Dozens of isolated services on one host, started in seconds, without one VM each.
-- **Declarative deployment.** \`compose.yaml\` describes services, ports, volumes and networks; deploying a new version means pulling a new image tag and recreating the container.
+Its files come from an **image**: read-only **layers** with the application and its userland, plus a thin writable layer per container. Nothing else is started, so a container starts in a second or two.
 
 ### The pieces
 - **docker** (CLI) → **/var/run/docker.sock** → **dockerd** (the Docker Engine daemon, \`docker.service\`) → **containerd** (\`containerd.service\`) → **containerd-shim-runc-v2** (one per container) → **runc** (creates the namespaces and starts the process).
 - **Images and layers** (overlay2 under \`/var/lib/docker\`), pulled from **registries** such as Docker Hub or \`registry.corp.lab\`.
 - **Volumes** (managed by Docker, survive container removal) and **bind mounts** (a host directory mapped in).
 - **Networks**: the default bridge \`docker0\` (172.17.0.0/16), **user-defined bridges** (with built-in DNS), \`host\`, \`none\`, \`macvlan\`.
-- **Docker Compose v2** (\`docker compose\`): a CLI plugin that creates the containers, networks and volumes of a multi-service application from \`compose.yaml\`.
+- **Docker Compose v2** (\`docker compose\`): a CLI plugin that creates the containers, networks and volumes of a multi-service application from \`compose.yaml\`. A new version is deployed by pulling a new image tag and recreating the container.
 
 :::practice
 Q: A user who is not root runs \`docker ps\` and gets "permission denied while trying to connect to the Docker daemon socket". Which piece refuses them?
@@ -248,7 +244,10 @@ A: The **named volume** and the **bind-mounted directory**. The writable layer i
 :::
 
 ### How it connects to earlier lessons
-Container networking reuses what you already know. Each container gets a virtual interface and an IP address on a Linux bridge (a [virtual switch](#/lesson/netif/what)); the host [routes and NATs](#/lesson/nat/what) container traffic to the outside; a "published port" is a DNAT rule from a host port to the container's port; and Docker adds its rules to the host [firewall](#/lesson/nftables/what). Containers are started and supervised by the Docker daemon, which itself is a [systemd service](#/lesson/systemd/what).
+- Each container gets a virtual interface and an IP address on a Linux bridge (a [virtual switch](#/lesson/netif/what)).
+- The host [routes and NATs](#/lesson/nat/what) container traffic to the outside. A published port is a DNAT rule from a host port to the container's port.
+- Docker adds its rules to the host [firewall](#/lesson/nftables/what).
+- The Docker daemon, which starts and supervises containers, is itself a [systemd service](#/lesson/systemd/what).
 
 :::practice
 Q: A container's published port 8080 is reachable. Which earlier-lesson mechanism makes traffic to host port 8080 arrive at the container's port 80?
@@ -258,11 +257,11 @@ A: A **veth pair**, whose other end is a port of a Linux **bridge** (docker0 or 
 :::
 
 ### Where you meet it
-Internal web applications, CI runners, monitoring stacks (Prometheus/Grafana), reverse proxies, databases for development, vendor appliances shipped as images. As an infrastructure administrator you often do not own the application, but you own the host, its network and firewall, and you are the one asked why "the container is up but nobody can reach it".
+Internal web applications, CI runners, monitoring stacks (Prometheus/Grafana), reverse proxies, databases for development, vendor appliances shipped as images.
 
-> Output in this lesson is representative of **Docker Engine 27.3** and **Docker Compose v2.29** on **Ubuntu 24.04 LTS** (iptables backend, userland proxy enabled), on the lab's container host \`dock01\` (10.0.20.40). Docker Engine 28 changed some firewall chains (it adds a DOCKER-FORWARD chain), but DOCKER-USER and the behaviour described here remain.
+> Output shown: **Docker Engine 27.3** and **Docker Compose v2.29** on **Ubuntu 24.04 LTS** (iptables backend, userland proxy enabled). Docker Engine 28 adds a DOCKER-FORWARD chain; DOCKER-USER and the behaviour described here remain.
 >
-> The **sandbox and the tickets** use the simulated **dock01**: Debian 12 with Docker Engine 26 and the **nftables** backend (dockerd's rules appear as \`table ip nat\` and \`table ip filter\` in \`nft list ruleset\`, next to your own \`table inet filter\`). Simulated: \`docker run/ps/logs/inspect/exec/start/stop/rm/port/network/pull/info\`, \`docker compose up/down/ps/logs/config\`, published ports (DNAT and docker-proxy), the default bridge and user-defined networks with embedded DNS, restart policies across reboots, \`/etc/docker/daemon.json\` and the docker group. The images are nginx:1.25, postgres:16 and the team's corp/inventory:1.4. Not simulated: building images, healthchecks, resource limits, volumes' contents, ufw and Podman.
+> Simulated on **dock01** (10.0.20.40, Debian 12, Docker Engine 26, **nftables** backend: dockerd's rules appear as \`table ip nat\` and \`table ip filter\` in \`nft list ruleset\`): \`docker run/ps/logs/inspect/exec/start/stop/rm/port/network/pull/info\`, \`docker compose up/down/ps/logs/config\`, published ports (DNAT and docker-proxy), default and user-defined networks with embedded DNS, restart policies across reboots, \`/etc/docker/daemon.json\`, the docker group; images nginx:1.25, postgres:16, corp/inventory:1.4. Not simulated: building images, healthchecks, resource limits, volumes' contents, ufw and Podman.
 `,
 
   internals: `

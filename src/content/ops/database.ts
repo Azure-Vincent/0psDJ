@@ -147,25 +147,23 @@ export const DATABASE_LESSON: Lesson = {
   summary: 'Set up and run a database server: the cluster and its files, roles, databases and privileges, the path from connection to query (listen_addresses, pg_hba.conf, authentication, CONNECT, GRANT), reload versus restart, logical backups and restore drills, and the errors each layer produces.',
   concepts: ['db.access', 'db.admin', 'linux.permissions', 'fw.path'],
   what: `
-A **database server** keeps an organisation's structured data, such as orders, accounts or tickets, and lets many programs use it at the same time. Programs connect over the network, **log in** as a role, and ask for data in **SQL**: \`SELECT customer FROM orders WHERE id = 1004\`. The server makes sure that two changes at the same moment do not corrupt each other, that a change is either complete or not there at all, and that nothing committed is lost if the machine crashes.
+Programs ask a **database server** for data in **SQL**: \`SELECT customer FROM orders WHERE id = 1004\`. The server guarantees that:
+- two changes at the same moment do not corrupt each other;
+- a change is either complete or not there at all (**transactions**);
+- nothing committed is lost in a crash (the **write-ahead log**);
+- data stays valid: constraints (a primary key cannot repeat) and types (a quantity is a number).
 
-**PostgreSQL** is the open-source database server used here; MySQL/MariaDB and Microsoft SQL Server work on the same ideas (see the Deploy tab). The same network rules as for any service apply ([ports and firewalls](#/lesson/transport/what)), and the files and service are managed like any other ([systemd](#/lesson/systemd/what)).
-
-### Problems it solves
-- **Shared data.** Many applications and users read and change the same data safely.
-- **Integrity.** Transactions, constraints (a primary key cannot repeat) and types (a quantity is a number).
-- **Access control.** Each role sees and changes only what it was granted.
-- **Recovery.** A write-ahead log survives crashes; backups survive mistakes.
+**PostgreSQL** is the open-source database server used here; MySQL/MariaDB and Microsoft SQL Server work on the same ideas (see the Deploy tab). See also [ports and firewalls](#/lesson/transport/what) and [systemd](#/lesson/systemd/what).
 
 ### The pieces
 - **Cluster**: one running PostgreSQL server with its data directory and configuration (Debian names it by version and name: **15/main**).
 - **Databases** inside the cluster (inventory, postgres …), each with **tables** of rows and columns.
 - **Roles**: the accounts. A role with LOGIN is a user; roles can be members of other roles (groups). **postgres** is the superuser.
 - **Privileges**: what a role may do on which object (CONNECT to a database, SELECT/INSERT/UPDATE/DELETE on a table). The **owner** of an object may do everything with it.
-- **pg_hba.conf**: who may connect from where, and how they must prove who they are.
-- **Clients**: \`psql\` (the command-line client), applications (through a driver), \`pg_dump\` for backups.
+- **pg_hba.conf**: who may connect from where, and how they authenticate.
+- **Clients**: \`psql\` (command line), applications (through a driver), \`pg_dump\` (backups).
 
-> In the lab, **db01** (10.0.20.35) runs PostgreSQL 15 with the **inventory** database. The application on **srv01** logs in as **webapp**; a nightly job dumps the database as **backup**. As root on db01, \`sudo -u postgres psql\` opens the superuser's session. **Lab 7** builds a second server, db02, from a fresh install. Simulated: the Debian cluster layout (postgresql.conf with include_dir and postgresql.auto.conf, pg_hba.conf, the data directory and its ownership check, the log in Debian's format), settings that need a restart or only a reload, listen_addresses, pg_hba.conf matched top to bottom with peer, scram-sha-256, md5, trust and reject, stored SCRAM and MD5 hashes, ~/.pgpass, LOGIN/CONNECT/connection limits, roles and memberships (including pg_read_all_data), databases, tables and rows, GRANT/REVOKE and default privileges, ALTER SYSTEM, pg_stat_activity, pg_settings, pg_hba_file_rules, pg_authid, psql (interactive with \\l \\du \\dt \\d \\dp \\c \\conninfo \\password \\x, -c, -f), pg_dump (plain and custom format), pg_restore (-l, -t, --data-only, --clean), pg_dumpall --globals-only, pg_lsclusters, pg_ctlcluster, pg_isready, createuser/createdb/dropuser/dropdb. Simplified: one schema (public), a subset of SQL (no joins, views, indexes, sequences as objects or transactions that can be rolled back), no replication, WAL archiving or point-in-time recovery, no pg_upgradecluster.
+> Lab: **db01** (10.0.20.35) runs PostgreSQL 15 with the **inventory** database. The application on **srv01** logs in as **webapp**; a nightly job dumps the database as **backup**; as root on db01, \`sudo -u postgres psql\` opens the superuser's session. **Lab 7** builds a second server, db02, from a fresh install. Simulated: the Debian cluster layout, restart versus reload, listen_addresses, pg_hba.conf (peer, scram-sha-256, md5, trust, reject), ~/.pgpass, roles and memberships, GRANT/REVOKE and default privileges, ALTER SYSTEM, pg_stat_activity, pg_settings, pg_hba_file_rules, psql (with \\l \\du \\dt \\d \\dp \\c), pg_dump, pg_restore, pg_dumpall --globals-only, pg_lsclusters, pg_isready. Not simulated: schemas other than public, joins, views, indexes, transactions that can be rolled back, replication, WAL archiving, point-in-time recovery.
 
 :::practice
 Q: What is a role in PostgreSQL?

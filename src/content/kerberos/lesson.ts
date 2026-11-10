@@ -11,13 +11,9 @@ export const KERBEROS_LESSON: Lesson = {
   mode: 'simulated',
 
   what: `
-**Kerberos** is a way of proving who you are to the services on a network without sending your password to each of them. It relies on a trusted third party, the **KDC** (Key Distribution Center).
+**Kerberos** proves who you are to network services without sending your password to each of them, through a trusted third party, the **KDC** (Key Distribution Center). You prove your password to the KDC **once** and get a **ticket-granting ticket (TGT)**; for each service you then get a **service ticket** without authenticating again. That is **single sign-on**: your password never crosses the network, and the servers you use never see it.
 
-It works like a festival wristband. You show your ID **once** at the entrance (you prove your password to the KDC) and get a wristband, the **ticket-granting ticket (TGT)**. After that, for each stage you want to visit, you show the wristband at the ticket office and get a ticket for that stage, a **service ticket**, without showing your ID again. That is **single sign-on**. Your password never crosses the network, and the servers you use never see it.
-
-Kerberos depends on things from earlier lessons: [DNS](#/lesson/transport/what) to find the KDC and to name services, [time synchronisation](#/lesson/ntp/what) because tickets carry timestamps, and network access to the KDC on port 88.
-
-Kerberos is everywhere identity matters: every **Active Directory** logon and file share access, FreeIPA/IdM in Linux estates, SSH logins with GSSAPI, web single sign-on (SPNEGO), NFSv4 with sec=krb5, databases, Hadoop.
+It is used by every **Active Directory** logon and file share access, FreeIPA/IdM in Linux estates, SSH logins with GSSAPI, web single sign-on (SPNEGO), NFSv4 with sec=krb5, databases and Hadoop.
 
 ### Names
 - **Realm**: the administrative domain, by convention the DNS domain in capitals: \`CORP.LAB\`. (In AD the realm is the AD domain.)
@@ -34,7 +30,10 @@ A: A file holding a service's **long-term keys**. Anyone who reads it can impers
 :::
 
 ### Finding the KDC
-Clients either list KDCs in \`/etc/krb5.conf\` or look them up in **DNS SRV records**: \`_kerberos._udp.corp.lab\` → "priority 0, weight 0, port 88, host ns1.corp.lab". The name follows the pattern \`_service._protocol.domain\`, where the domain is the realm in lower case: realm CORP.LAB → \`_kerberos._udp.corp.lab\` (and \`_kerberos._tcp.corp.lab\`; \`_kerberos-adm._tcp\` finds the admin server). Realm names themselves are case-sensitive and written in upper case by convention, so \`alice@corp.lab\` is a different (usually non-existent) realm from \`alice@CORP.LAB\`. SRV records are the same mechanism Active Directory clients use to find domain controllers (\`_ldap._tcp.dc._msdcs.DOMAIN\`, \`_kerberos._tcp.DOMAIN\`): **broken DNS = broken logons**.
+Clients either list KDCs in \`/etc/krb5.conf\` or look them up in **DNS SRV records**: \`_kerberos._udp.corp.lab\` → "priority 0, weight 0, port 88, host ns1.corp.lab".
+- The name pattern is \`_service._protocol.domain\`, with the realm in lower case as the domain: realm CORP.LAB → \`_kerberos._udp.corp.lab\` and \`_kerberos._tcp.corp.lab\`; \`_kerberos-adm._tcp\` finds the admin server.
+- Realm names are case-sensitive: \`alice@corp.lab\` is a different (usually non-existent) realm from \`alice@CORP.LAB\`.
+- Active Directory clients find domain controllers the same way (\`_ldap._tcp.dc._msdcs.DOMAIN\`, \`_kerberos._tcp.DOMAIN\`): **broken DNS = broken logons**.
 
 :::practice
 Q: krb5.conf for the realm EXAMPLE.ORG lists no KDC. Which DNS names does the library look up?
@@ -44,7 +43,11 @@ A: "**Cannot find KDC** for realm …": the client does not know where to send i
 :::
 
 ### Why it is a troubleshooting topic
-Kerberos depends on four things that belong to other teams: **DNS** (to find the KDC and to build service names), **time** (5 minutes of skew is fatal), **the network** (UDP/TCP 88 to the KDC) and **keys** that must match on the KDC and in each server's keytab. Error messages are precise once you know what each one means.
+Kerberos depends on four things that belong to other teams:
+- **DNS**, to find the KDC and to build service names ([DNS](#/lesson/transport/what)).
+- **Time**: tickets carry timestamps and 5 minutes of skew is fatal ([time synchronisation](#/lesson/ntp/what)).
+- **The network**: UDP/TCP 88 to the KDC.
+- **Keys** that must match on the KDC and in each server's keytab.
 
 :::practice
 Q: Name the four things outside the KDC that Kerberos depends on.
@@ -54,9 +57,12 @@ A: Whoever runs **time synchronisation** (NTP) for that machine: the fix is the 
 :::
 
 ### In the lab
-corp.lab is the realm **CORP.LAB**. ns1 runs the MIT KDC and kadmind; the corp.lab zone has the SRV records; every corp.lab machine has \`/etc/krb5.conf\` (no KDC listed: DNS is used) and systemd-timesyncd. srv01 has a keytab for \`host/srv01.corp.lab\`. alice's Kerberos password is \`Corp-Lab-2026\`; the admin principal \`alice/admin\` has \`Corp-Admin-2026\`.
+- corp.lab is the realm **CORP.LAB**. ns1 runs the MIT KDC and kadmind; the corp.lab zone has the SRV records.
+- Every corp.lab machine has \`/etc/krb5.conf\` (no KDC listed: DNS is used) and systemd-timesyncd.
+- srv01 has a keytab for \`host/srv01.corp.lab\`.
+- alice's Kerberos password is \`Corp-Lab-2026\`; the admin principal \`alice/admin\` has \`Corp-Admin-2026\`.
 
-> The simulator implements krb5.conf and kdc.conf parsing, SRV-based KDC location, AS exchange with encrypted-timestamp pre-authentication, TGS exchange, ticket lifetimes (max_life), 300 s clock skew, kadmind ACLs, keytabs with key version numbers, \`kinit\`/\`klist\`/\`kvno\`/\`kdestroy\`/\`kadmin\`/\`kadmin.local\`, per-host clocks (\`date\`, \`timedatectl\`), and sshd \`GSSAPIAuthentication\` with \`.k5login\`. Requests are UDP/TCP packets through the lab network, so DNS, routing and firewalls affect them. Simplified: cryptography is synthetic, no cross-realm trust, ticket renewal, forwarding/delegation, NTP packets, or Windows clients.
+> Simulated: krb5.conf and kdc.conf parsing, SRV-based KDC location, AS exchange with encrypted-timestamp pre-authentication, TGS exchange, ticket lifetimes (max_life), 300 s clock skew, kadmind ACLs, keytabs with key version numbers, \`kinit\`/\`klist\`/\`kvno\`/\`kdestroy\`/\`kadmin\`/\`kadmin.local\`, per-host clocks (\`date\`, \`timedatectl\`) and sshd \`GSSAPIAuthentication\` with \`.k5login\`; requests are UDP/TCP packets through the lab network, so DNS, routing and firewalls affect them. Not simulated: real cryptography, cross-realm trust, ticket renewal, forwarding/delegation, NTP packets, Windows clients.
 `,
 
   internals: `

@@ -203,7 +203,8 @@ export const NETOPS_LESSON: Lesson = {
   caseStudyIds: ['linux-no-internet', 'shared-dependency'],
 
   what: `
-"The network is down" is a symptom, not a diagnosis. On a host, networking is a stack of separate pieces of state, and each one can be checked with one command:
+
+Host networking is a stack of separate pieces of state, each checked with one command:
 
 | Layer | Question | Linux | Windows |
 |---|---|---|---|
@@ -216,8 +217,7 @@ export const NETOPS_LESSON: Lesson = {
 | Port | Does the service answer? | \`nc -zv\`, \`curl\`, \`ss -tlnp\` (server) | \`Test-NetConnection -Port\` |
 | Firewall | Is something dropping it? | \`nft list ruleset\`, \`tcpdump\` | \`Get-NetFirewallRule\` |
 
-**Stop at the first layer that fails.** Each layer depends on the ones above it in this table. If there is no default route, DNS, SSH and HTTP will all fail too, but none of them is the problem, and fixing them would change nothing. This lesson brings together the checks from [IP networking](#/lesson/ipnet/troubleshoot), [Transport and DNS](#/lesson/transport/troubleshoot), [interfaces](#/lesson/netif/troubleshoot) and [DHCP](#/lesson/dhcp/troubleshoot) into one routine.
-
+**Stop at the first layer that fails.** Each layer depends on the ones above it in this table: without a default route, DNS, SSH and HTTP fail too, and fixing them changes nothing. The checks come from [IP networking](#/lesson/ipnet/troubleshoot), [Transport and DNS](#/lesson/transport/troubleshoot), [interfaces](#/lesson/netif/troubleshoot) and [DHCP](#/lesson/dhcp/troubleshoot).
 `,
 
   internals: `

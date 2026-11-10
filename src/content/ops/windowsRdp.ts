@@ -173,15 +173,15 @@ export const WINDOWS_RDP_LESSON: Lesson = {
   caseStudyIds: ['rdp-after-change', 'domain-login'],
 
   what: `
-Windows Server is administered through a small number of building blocks. Many of them have a direct Linux equivalent you have already met: services instead of [systemd units](#/lesson/systemd/what), the Event Viewer instead of the journal, Windows Defender Firewall instead of [nftables](#/lesson/nftables/what), the registry instead of files in /etc. Once you know where each one lives, the same diagnostic questions you use on Linux work on Windows: **is it running, is it configured, is it reachable, is it allowed, and what does the log say?**
+Windows Server administration rests on a few building blocks, most with a Linux equivalent: services for [systemd units](#/lesson/systemd/what), the Event Viewer for the journal, Windows Defender Firewall for [nftables](#/lesson/nftables/what), the registry for files in /etc. The same diagnostic questions apply: **is it running, is it configured, is it reachable, is it allowed, and what does the log say?**
 
 ### The building blocks
-- **Services and the Service Control Manager (SCM).** Long-running programs (DNS, DHCP, Remote Desktop Services, WinRM) run as services. Manage them with \`services.msc\`, \`Get-Service\` / \`Start-Service\` / \`Restart-Service\`, or \`sc.exe\`.
-- **Event Viewer** (\`eventvwr.msc\`, \`Get-WinEvent\`). The equivalent of the journal: System, Application and Security logs plus per-component "Applications and Services Logs".
+- **Services and the Service Control Manager (SCM).** Long-running programs (DNS, DHCP, Remote Desktop Services, WinRM). Tools: \`services.msc\`, \`Get-Service\` / \`Start-Service\` / \`Restart-Service\`, \`sc.exe\`.
+- **Event Viewer** (\`eventvwr.msc\`, \`Get-WinEvent\`). System, Application and Security logs plus per-component "Applications and Services Logs".
 - **Windows Defender Firewall** (\`wf.msc\`, \`Get-NetFirewallRule\`). A stateful host firewall with three **profiles** (Domain, Private, Public) chosen per network.
-- **The registry** (\`regedit\`, \`reg query\`, \`Get-ItemProperty\`). Where services and most components keep their configuration; the equivalent of \`/etc\`.
+- **The registry** (\`regedit\`, \`reg query\`, \`Get-ItemProperty\`). Where services and most components keep their configuration.
 - **Group Policy** (\`gpedit.msc\` locally, the Group Policy Management Console in a domain, \`gpresult\` to see what applied). Central configuration that overrides local settings.
-- **PowerShell and WinRM.** Every task above can be done from PowerShell, locally or remotely over WinRM (\`Invoke-Command\`, \`Enter-PSSession\`), which is how you repair a server whose RDP is broken.
+- **PowerShell and WinRM.** Everything above can be done from PowerShell, locally or remotely over WinRM (\`Invoke-Command\`, \`Enter-PSSession\`): the way to repair a server whose RDP is broken.
 - **Active Directory.** Domain logons need a domain controller, DNS that can find it, and synchronised clocks.
 
 :::practice
@@ -192,9 +192,9 @@ A: **Group Policy**: it reapplies its settings at every refresh and overrides th
 :::
 
 ### Remote Desktop Protocol (RDP)
-RDP gives you a graphical desktop on a remote Windows machine, the Windows counterpart of [SSH](#/lesson/ssh/what) (which gives you a text terminal). The server side is the **Remote Desktop Services** service (\`TermService\`), listening on **TCP and UDP port 3389**. It is the standard way to administer Windows Server with a graphical interface. Like SSH, it depends on everything underneath it, so it fails in many distinct ways: disabled, service stopped, port blocked, listener changed, NLA/CredSSP problems, missing user rights, domain authentication, DNS, routing, Group Policy. This lesson gives you a complete diagnostic process for all of them.
+RDP gives you a graphical desktop on a remote Windows machine, as [SSH](#/lesson/ssh/what) gives you a text terminal. The server side is the **Remote Desktop Services** service (\`TermService\`), listening on **TCP and UDP port 3389**. It depends on everything underneath it, so it fails in many distinct ways: disabled, service stopped, port blocked, listener changed, NLA/CredSSP problems, missing user rights, domain authentication, DNS, routing, Group Policy.
 
-> The examples follow a domain in the lab naming plan (\`corp.lab\`, member server \`app01\` 10.0.20.21, DC \`dc01\` 10.0.20.5, client \`WS01\` 10.0.10.25) and their output is representative of Windows Server 2022 and Windows 11 23H2. The **sandbox and the tickets** use the simulated server **win01** (10.0.20.30): a standalone Windows Server 2022 with a Windows PowerShell 5.1 console (services, the event log, the registry, Windows Defender Firewall, local accounts, NetTCPIP and DnsClient cmdlets, ipconfig, netstat, netsh, sc.exe, reg). Connect to it from ws01 with \`xfreerdp /v:win01.corp.lab /u:alice\`. Domain logons (CORP\\alice) work once win01 is joined to the simulated domain ad.corp.lab (dc01): see the [Active Directory lesson](#/lesson/ad-kerberos/what) and Lab 2. Group Policy is simulated too (see the [Group Policy lesson](#/lesson/gpo/what)), and domain logons use Kerberos tickets from dc01 after NLA.
+> Examples: domain \`corp.lab\`, member server \`app01\` 10.0.20.21, DC \`dc01\` 10.0.20.5, client \`WS01\` 10.0.10.25; output representative of Windows Server 2022 and Windows 11 23H2. Simulated (sandbox and tickets): **win01** (10.0.20.30), a standalone Windows Server 2022 with a Windows PowerShell 5.1 console (services, event log, registry, Windows Defender Firewall, local accounts, NetTCPIP and DnsClient cmdlets, ipconfig, netstat, netsh, sc.exe, reg), reached from ws01 with \`xfreerdp /v:win01.corp.lab /u:alice\`. Domain logons (CORP\\alice, Kerberos tickets from dc01 after NLA) work once win01 joins the simulated domain ad.corp.lab ([Active Directory lesson](#/lesson/ad-kerberos/what), Lab 2); Group Policy is simulated too ([Group Policy lesson](#/lesson/gpo/what)).
 
 :::practice
 Q: Which service provides RDP on a Windows server, and on which ports does it listen?
@@ -202,7 +202,6 @@ A: **TermService** (Remote Desktop Services), on **TCP and UDP 3389**.
 Q: Why can RDP fail in more distinct ways than "the server is down"?
 A: It depends on many layers: RDP enabled, the service, the listener and its port, the firewall profile, NLA/CredSSP, domain authentication (DNS, DC, time), user rights and Group Policy. Each has its own error.
 :::
-
 `,
 
   internals: `

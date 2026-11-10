@@ -7,10 +7,10 @@ import { roadmapCounts, currentStepIndex, viewStep, type StepStatus } from '../r
 import { go, useProgress } from '../state';
 
 const HOW = [
-  { title: 'Lessons', text: 'Each lesson has eight sections, from "What is it?" to an assessment. Read them in order: the overview and "How it works" explain the idea, the later sections show how to deploy, configure, operate and troubleshoot it. A lesson counts as completed when every section has been opened.' },
-  { title: 'Terminals', text: 'Lessons, tickets and labs give you terminals on a simulated company network (corp.lab). Type real Linux, PowerShell and pfSense commands: the machines react like real ones, but nothing leaves your computer.' },
-  { title: 'Troubleshooting tickets', text: 'Each lesson links to tickets: something is broken, and you find out why from evidence, submit a diagnosis, fix it and verify. Hints are available, but a ticket solved without revealing the answer counts most.' },
-  { title: 'Guided and integrated labs', text: 'Guided labs build one service step by step, each step checked against the running machines. Integrated labs combine several subjects, end with an incident to troubleshoot, and can be done guided, assisted or independently.' },
+  { title: 'Lessons', text: 'Eight tabs per lesson: the idea first, then deploy, configure, operate and troubleshoot it, then an assessment. A lesson is complete when every tab has been opened.' },
+  { title: 'Terminals', text: 'Real Linux, PowerShell and pfSense commands on a simulated company network (corp.lab). Nothing leaves your computer.' },
+  { title: 'Troubleshooting tickets', text: 'Something is broken: find the cause from evidence, submit a diagnosis, fix it and verify. Solving without revealing the answer counts most.' },
+  { title: 'Guided and integrated labs', text: 'Guided labs build one service in checked steps. Integrated labs combine subjects and end with an incident.' },
 ];
 
 const MARK: Record<StepStatus, string> = { done: '✓', started: '◐', todo: '' };
@@ -85,7 +85,6 @@ export function StartHere() {
               <span className={`badge ${complete ? 'ok' : d ? 'accent' : ''}`}>{complete ? 'done' : `${d}/${tracked.length}`}</span>
             </summary>
             <p className="small"><strong>Goal.</strong> {ph.goal}</p>
-            <p className="small muted"><strong>Why here.</strong> {ph.why}</p>
             <ol className="road-steps">
               {ph.steps.map((s) => {
                 const idx = ROADMAP_STEPS.findIndex((x) => x.step === s);
@@ -107,7 +106,6 @@ export function StartHere() {
           </details>
         );
       })}
-      <p className="small muted">Every lab on the roadmap comes after the lessons it relies on. The <a href="#/curriculum">curriculum</a> shows the same subjects grouped by module.</p>
     </div>
   );
 }

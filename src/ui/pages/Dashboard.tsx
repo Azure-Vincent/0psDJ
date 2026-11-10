@@ -79,7 +79,7 @@ export function Dashboard() {
       <header className="dash-hero">
         <div>
           <h1>Cyber Owl Lab</h1>
-          <p className="muted">Learn how infrastructure services work internally, and practise diagnosing them from evidence. Everything runs locally and offline.</p>
+          <p className="muted">Learn how infrastructure services work, then diagnose them from evidence.</p>
         </div>
         {(() => {
           const ci = currentStepIndex(progress);
@@ -120,7 +120,7 @@ export function Dashboard() {
       <div className="grid2" style={{ marginTop: 14 }}>
         <section className="card">
           <h3>In progress</h3>
-          {openLabs.length === 0 && openTickets.length === 0 && <p className="small muted">Nothing open. Labs and tickets you start appear here so you can return to them.</p>}
+          {openLabs.length === 0 && openTickets.length === 0 && <p className="small muted">Nothing open. Labs and tickets you start appear here.</p>}
           {openLabs.map(({ l, p }) => (
             <div key={l.id} className="dash-item">
               <div>
@@ -167,7 +167,7 @@ export function Dashboard() {
       </div>
 
       <h2>Learning path</h2>
-      <p className="small muted">Modules in the order they build on each other. A lesson counts as completed when every section has been opened.</p>
+      <p className="small muted">A lesson is complete when every section has been opened.</p>
       <div className="grid2">
         {CURRICULUM.map((m) => {
           const ls = LESSONS.filter((l) => l.moduleId === m.id);

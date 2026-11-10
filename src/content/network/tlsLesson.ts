@@ -10,20 +10,14 @@ export const TLS_LESSON: Lesson = {
   mode: 'simulated',
 
   what: `
-**TLS (Transport Layer Security)** adds encryption and identity checks on top of an ordinary [TCP connection](#/lesson/transport/what). It is the "S" in HTTPS (the padlock in your browser), and it also protects mail (SMTP and IMAP with STARTTLS), directory lookups (LDAPS), database connections, VPNs and APIs. TLS gives you three things:
-- **Confidentiality**: nobody on the path can read the data.
-- **Integrity**: nobody can change it unnoticed.
-- **Server authentication**: the client knows it talks to the real www.corp.lab and not to an impostor. This part is done with **certificates**, and it is where almost every operational problem comes from.
+**TLS (Transport Layer Security)** adds encryption and identity checks on top of a [TCP connection](#/lesson/transport/what). It is the "S" in HTTPS and also protects mail (SMTP and IMAP with STARTTLS), LDAPS, database connections, VPNs and APIs. It provides **confidentiality** (nobody on the path can read the data), **integrity** (nobody can change it unnoticed) and **server authentication** through **certificates**, the source of almost every operational problem.
 
 ### Certificates, step by step
-Encryption alone is not enough: you also need to know **who** you are encrypting for. That is the job of a **certificate**.
+- An X.509 certificate ties a **public key** to **names** (*subjectAltName*) for a limited **period** (*notBefore* to *notAfter*). A **certificate authority (CA)** signs it.
+- Clients keep a **trust store** of root CA certificates, shipped with the operating system and browser.
+- Roots usually sign through **intermediate CAs**; the server sends its certificate plus the intermediates: the **chain**.
 
-- A certificate (format X.509) is a small file that ties a **public key** to one or more **names** (listed in its *subjectAltName*, for example www.corp.lab and srv01.corp.lab), for a limited **period** (from *notBefore* to *notAfter*).
-- It is signed by a **certificate authority (CA)**, an organisation (or an internal server) whose job is to vouch that the key really belongs to that name. Think of a passport: it is only trusted because a government you trust issued it.
-- Every client keeps a **trust store**: a list of root CA certificates it trusts. Your operating system and browser ship with one.
-- Root CAs usually sign through one or more **intermediate CAs**, so a server sends its own certificate plus the intermediates. Together they form a **chain** up to a root.
-
-A server certificate is accepted only when all of these are true: the client can build a chain from it, through the intermediates, to a root in its trust store; every certificate in the chain is within its validity period; and the name the client asked for appears in the server's certificate.
+A certificate is accepted only when the chain reaches a root in the client's trust store, every certificate in it is within its validity period, and the requested name is in the server's certificate.
 
 :::practice
 Q: A certificate is signed correctly, unexpired, and lists the right name, but the client still rejects it with "unable to get local issuer certificate". Which of the conditions is not met?
@@ -48,9 +42,11 @@ A: The **name** check: the name you used is not in the certificate's subjectAltN
 :::
 
 ### In the lab
-srv01 serves **https://www.corp.lab/** (www is a CNAME for srv01) with nginx. Its certificate comes from the internal PKI: **Corp Lab Root CA** → **Corp Lab Issuing CA 1** → **www.corp.lab** (subjectAltName www.corp.lab and srv01.corp.lab). Every corp.lab machine trusts the root through Debian's ca-certificates. ext01 (203.0.113.80) is an Internet site whose certificate comes from a (fictitious) public CA in the default trust store.
+- srv01 serves **https://www.corp.lab/** with nginx (www is a CNAME for srv01).
+- Internal PKI: **Corp Lab Root CA** → **Corp Lab Issuing CA 1** → **www.corp.lab** (subjectAltName www.corp.lab and srv01.corp.lab). Every corp.lab machine trusts the root through Debian's ca-certificates.
+- ext01 (203.0.113.80): an Internet site with a certificate from a (fictitious) public CA in the default trust store.
 
-> The simulator implements X.509 certificates, keys and CSRs as PEM files, chain building and verification with OpenSSL's error codes, Debian's trust store (update-ca-certificates), nginx \`listen ... ssl\` with ssl_certificate/ssl_certificate_key (loaded at start/reload; key mismatch and missing files fail \`nginx -t\`), SNI-based server selection, \`curl\` HTTPS with verification, \`-k\`, \`--cacert\`, \`--resolve\` and verbose TLS output, and \`openssl x509 / verify / s_client / req / genrsa / rsa\`. Simplified: the cryptography is synthetic (PEM bodies are readable data, not DER), TLS 1.3 only, no OCSP/CRL revocation, no client certificates, no ECDSA keys, no HTTP/2.
+> Simulated: PEM certificates, keys and CSRs, chain verification with OpenSSL's error codes, Debian's trust store (update-ca-certificates), nginx \`listen ... ssl\` (files loaded at start/reload; key mismatch and missing files fail \`nginx -t\`), SNI, \`curl\` HTTPS (\`-k\`, \`--cacert\`, \`--resolve\`, verbose) and \`openssl x509 / verify / s_client / req / genrsa / rsa\`. Not simulated: real cryptography (PEM bodies are readable data, not DER), TLS below 1.3, OCSP/CRL revocation, client certificates, ECDSA keys, HTTP/2.
 `,
 
   internals: `

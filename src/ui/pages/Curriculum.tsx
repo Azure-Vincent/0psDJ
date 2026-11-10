@@ -44,7 +44,7 @@ export function Curriculum() {
         </tbody>
       </table>
       <h2>Integrated labs</h2>
-      <p className="small muted">Several subjects in one realistic situation, in the order of the learning path. Each builds on the lessons listed (recommended, not required) and ends with an incident to troubleshoot; the last one prepares for the unguided <a href="#/cases">case studies</a>.</p>
+      <p className="small muted">Several subjects in one scenario, each ending with an incident to troubleshoot.</p>
       <table>
         <tbody>
           {INTEGRATED_LABS.map((l) => (
@@ -55,7 +55,7 @@ export function Curriculum() {
           ))}
         </tbody>
       </table>
-      <p className="small muted">Design your own networks in the <a href="#/builder">Infrastructure Builder</a>: draw machines, switches and routers, then build and trace packets through them. See docs/ARCHITECTURE.md for the phased plan.</p>
+      <p className="small muted">Design your own networks in the <a href="#/builder">Infrastructure Builder</a>: draw machines, switches and routers, then build and trace packets through them.</p>
     </div>
   );
 }
@@ -151,7 +151,7 @@ function ModuleMap() {
           );
         })}
       </svg>
-      <p className="small muted" style={{ marginTop: 4 }}>Arrows point from a prerequisite to the module that builds on it. Click a module to jump to its topics.</p>
+      <p className="small muted" style={{ marginTop: 4 }}>Arrows point from prerequisite to dependent module. Click a module to jump to its topics.</p>
     </div>
   );
 }

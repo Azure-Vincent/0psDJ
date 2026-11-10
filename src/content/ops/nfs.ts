@@ -136,14 +136,10 @@ export const NFS_LESSON: Lesson = {
   concepts: ['files.nfs', 'linux.permissions', 'fw.path'],
 
   what: `
-**NFS** (Network File System) shares directories from a **file server** so that other machines can **mount** them: the shared directory appears inside the client's own file tree (for example as /mnt/projects), and programs use it like a local disk.
 
-NFS combines two things you have met before: a network service on TCP port 2049 (so routes and firewalls matter, see [Transport and DNS](#/lesson/transport/what)), and ordinary Linux file permissions based on user and group **numbers** (UID and GID). Most NFS surprises come from the second part.
+**NFS** (Network File System) lets clients **mount** a file server's directories into their own file tree (for example as /mnt/projects), where programs use them like a local disk.
 
-### Problems it solves
-- **One copy of the data.** Project files, home directories, installers and backups live on one server instead of being copied around.
-- **Transparent access.** Any program can use /mnt/projects; nothing needs to know it is remote.
-- **Central protection.** The file server is backed up, snapshotted and secured once.
+It combines a network service on TCP port 2049 (so routes and firewalls matter, see [Transport and DNS](#/lesson/transport/what)) with ordinary Linux file permissions based on user and group **numbers** (UID and GID). Most NFS surprises come from the second part.
 
 ### The pieces
 - **Exports** on the server: /etc/exports lists each shared directory, the clients allowed to mount it, and options (read-write or read-only, how root is treated). The kernel uses the **export table** loaded from it by \`exportfs -ra\`.
@@ -151,7 +147,7 @@ NFS combines two things you have met before: a network service on TCP port 2049 
 - **Identities**: with the default security (sec=sys) the client sends **numbers** (UID, GID), and the server checks normal Unix permissions against them.
 - **Transport**: NFSv4 over TCP port 2049 (NFSv3 also needs rpcbind 111 and mountd).
 
-> In the lab, **fs01** (10.0.20.60) is the file server: it exports /srv/projects read-write to the office (10.0.10.0/24) and server (10.0.20.0/24) networks and /srv/software read-only to 10.0.0.0/16. **ws01** mounts the project share on /mnt/projects and **srv01** the software share on /opt/software, both from /etc/fstab. Simulated: /etc/exports (client lists by network, address, name and wildcard; rw/ro, root_squash, no_root_squash, all_squash, anonuid/anongid), the export table and \`exportfs -v/-ra\`, \`showmount -e\`, \`mount\`/\`umount\`/\`mount -a\`/\`df\`, fstab mounts at boot with systemd's messages, TCP 2049/111 through routers and firewalls, numeric UID/GID mapping, root squashing, read-only exports and stale handles. Simplified: the mount is a synchronized view refreshed before and after each command (no partial I/O, locking or caching effects), NFSv4.2 only, sec=sys only, no Samba yet.
+> Lab: **fs01** (10.0.20.60) is the file server; **ws01** mounts /srv/projects on /mnt/projects and **srv01** mounts /srv/software on /opt/software, both from /etc/fstab. Simulated: /etc/exports (client lists by network, address, name and wildcard; rw/ro, root_squash, no_root_squash, all_squash, anonuid/anongid), the export table and \`exportfs -v/-ra\`, \`showmount -e\`, \`mount\`/\`umount\`/\`mount -a\`/\`df\`, fstab mounts at boot with systemd's messages, TCP 2049/111 through routers and firewalls, numeric UID/GID mapping, root squashing, read-only exports and stale handles. Simplified: the mount is a synchronized view refreshed before and after each command (no partial I/O, locking or caching effects), NFSv4.2 only, sec=sys only, no Samba yet.
 
 :::practice
 Q: Which file on the server lists what is shared, and which command makes the kernel use it?
@@ -159,7 +155,6 @@ A: **/etc/exports**; \`exportfs -ra\` loads it into the export table.
 Q: Which file on a client makes an NFS share mount at every boot?
 A: **/etc/fstab** (a line with type nfs4 and \`_netdev\`).
 :::
-
 `,
 
   internals: `

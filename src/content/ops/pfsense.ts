@@ -171,9 +171,9 @@ export const PFSENSE_LESSON: Lesson = {
   caseStudyIds: ['pfsense-blocks'],
 
   what: `
-**pfSense CE** (Community Edition) is a free, open-source firewall and router that you install as a complete system, built on FreeBSD and its **pf** packet filter, and manage through a web interface. It is often used as the **perimeter firewall**: the device that sits between an organisation's networks and the Internet and decides what may pass in each direction. It is common in small and medium networks, labs and competitions, so it is the network appliance you are most likely to meet next to Linux servers.
+**pfSense CE** (Community Edition) is a free, open-source firewall and router built on FreeBSD and its **pf** packet filter, installed as a complete system and managed through a web interface. It is often the **perimeter firewall** between an organisation's networks and the Internet, common in small and medium networks, labs and competitions.
 
-pfSense does in one box what the lab's Linux router rtr01 does with several separate pieces. If you have worked through [nftables](#/lesson/nftables/what), [NAT](#/lesson/nat/what), [VLANs](#/lesson/vlan/what) and [DHCP](#/lesson/dhcp/what), you already know the concepts; this table shows where each one lives on pfSense:
+It does in one box what the lab's Linux router rtr01 does with separate pieces ([nftables](#/lesson/nftables/what), [NAT](#/lesson/nat/what), [VLANs](#/lesson/vlan/what), [DHCP](#/lesson/dhcp/what)):
 
 | Function | Linux router (rtr01) | pfSense |
 |---|---|---|
@@ -184,7 +184,12 @@ pfSense does in one box what the lab's Linux router rtr01 does with several sepa
 | DHCP / DNS | isc-dhcp-server, bind9 on ns1 | Services > DHCP Server, DNS Resolver (unbound) |
 
 ### In the simulator
-The lab's perimeter firewall **fw01** is a simulated pfSense CE 2.7.2: WAN \`vtnet0\` 203.0.113.10, LAN \`vtnet1\` 10.0.20.254 (server network; rtr01 routes the internal networks 10.0.0.0/16 to it), DMZ (opt1) \`vtnet2\` 172.16.50.1/24 with the web server **dmz01** (172.16.50.10, published as portal.corp.lab). Its state is \`/conf/config.xml\`, compiled into a pf ruleset with pf's semantics (ingress filtering, first match, keep state, rdr before filtering, outbound NAT, logged default deny). You can use the **webConfigurator** (Interfaces, Aliases, Rules, NAT, Firewall log, States) from a browser on ws01 and the console shell (\`pfctl\`, \`easyrule\`, \`viconfig\`, \`/etc/rc.filter_configure\`, \`ifconfig\`, \`netstat -rn\`, \`/var/log/filter.log\`). The sandbox below, the pfSense tickets and **Lab 3** run on it. DHCP and DNS services, VLANs, VPNs, gateway monitoring, floating rules and packages are not simulated; for those, the examples in this lesson are from real systems.
+The lab's perimeter firewall **fw01** is a simulated pfSense CE 2.7.2:
+- **WAN** \`vtnet0\` 203.0.113.10.
+- **LAN** \`vtnet1\` 10.0.20.254 (server network; rtr01 routes the internal networks 10.0.0.0/16 to it).
+- **DMZ** (opt1) \`vtnet2\` 172.16.50.1/24 with the web server **dmz01** (172.16.50.10, published as portal.corp.lab).
+
+Simulated: \`/conf/config.xml\` compiled into a pf ruleset (ingress filtering, first match, keep state, rdr before filtering, outbound NAT, logged default deny), the **webConfigurator** on ws01 (Interfaces, Aliases, Rules, NAT, Firewall log, States) and the console shell (\`pfctl\`, \`easyrule\`, \`viconfig\`, \`/etc/rc.filter_configure\`, \`ifconfig\`, \`netstat -rn\`, \`/var/log/filter.log\`). The sandbox, the pfSense tickets and **Lab 3** run on it. Not simulated (examples are from real systems): DHCP and DNS services, VLANs, VPNs, gateway monitoring, floating rules, packages.
 
 ### The example network
 - **WAN** = \`vtnet0\`, DHCP from an upstream router: 192.168.1.50/24, gateway 192.168.1.1 (an RFC1918 address: typical of labs and home networks).
@@ -193,9 +198,9 @@ The lab's perimeter firewall **fw01** is a simulated pfSense CE 2.7.2: WAN \`vtn
 - **OPT2 "SERVERS"** = \`vtnet2\`, 10.0.20.1/24, srv01 10.0.20.10.
 
 ### What pfSense is not
-- It is not a switch: VLAN tags must be carried to it on a trunk by the switch or hypervisor.
+- Not a switch: the switch or hypervisor must carry VLAN tags to it on a trunk.
 - It does not filter traffic that never crosses it (two hosts in the same VLAN talk directly).
-- It is not configured by editing files: the GUI (or console menu) writes \`config.xml\`, from which everything else is generated.
+- Not configured by editing files: the GUI (or console menu) writes \`config.xml\`, from which everything else is generated.
 
 :::practice
 Q: Two hosts in VLAN 30 cannot talk to each other. Can a rule on pfSense's OPT1 tab be the cause?
@@ -203,7 +208,6 @@ A: **No.** Traffic inside one VLAN goes through the switch directly and never cr
 Q: Why should you not edit files under /var/unbound on pfSense to change DNS settings?
 A: pfSense is configured through **config.xml** (via the GUI or console); those files are regenerated from it and your edit is overwritten.
 :::
-
 `,
 
   internals: `

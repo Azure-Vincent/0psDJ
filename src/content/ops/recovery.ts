@@ -199,21 +199,15 @@ export const RECOVERY_LESSON: Lesson = {
   caseStudyIds: ['ssh-refused', 'linux-no-internet', 'shared-dependency', 'pfsense-blocks', 'rdp-after-change'],
 
   what: `
-Every other lesson teaches how a technology works and how to find a fault. This one teaches **how to touch production safely** while you fix it, because the most common cause of an outage is a change, and the most common cause of a *long* outage is a change made without a way back.
 
-### The problems it solves
-- **Lock-outs.** A firewall, network or sshd change that cuts off the administrator's own access turns a five-minute change into a trip to the data centre.
-- **"It worked until the reboot."** Changes made only to the running system (a rule added by hand, a unit started but not enabled) vanish at the next restart, often days later when nobody remembers them.
-- **Fixes that are not fixes.** Restarting a service frequently makes the symptom disappear for a while without touching the cause.
-- **Workarounds that add faults.** Changes made "to try something" during an incident and never undone become the next incident.
-- **Unnecessary downtime.** Rebooting a server to fix one daemon, or restarting a shared service in business hours, interrupts users who were not affected.
+The most common cause of an outage is a change, and the most common cause of a *long* outage is a change made without a way back.
 
 ### Why restarting sometimes helps, and sometimes does not
-Restarting a service clears its **runtime state**: memory, open connections, caches, a process that hung. So a restart fixes problems that live only in that state, such as a stuck process, a leaked resource, or a configuration change that was saved but never loaded.
+A restart clears a service's **runtime state**: memory, open connections, caches, a process that hung. It fixes problems that live only there: a stuck process, a leaked resource, or a configuration change that was saved but never loaded.
 
-It does **not** fix anything in the **saved state**: a wrong setting in a configuration file, a missing dependency, a full disk, a port already used by another program, a firewall rule or a wrong DNS record. In those cases the service fails again straight away, or comes back and fails later. Worse, the restart can hide the evidence (open connections, the last error) and cut off users who were working fine.
+It does **not** fix the **saved state**: a wrong setting in a configuration file, a missing dependency, a full disk, a port already used by another program, a firewall rule or a wrong DNS record. The service fails again straight away or later, and the restart can hide the evidence (open connections, the last error) and cut off users who were working fine.
 
-So before restarting, ask: "Do I know what is wrong, and does it live in memory or on disk?" If you do not know yet, look first (status, logs, the configuration checker), then restart only the one component that needs it.
+Before restarting, ask: "Do I know what is wrong, and does it live in memory or on disk?" If not, look first (status, logs, the configuration checker), then restart only the one component that needs it.
 
 :::practice
 Q: A service fails to start because another program already uses its port. Will restarting the service help?
@@ -235,7 +229,7 @@ A: **Yes**, this is a problem in runtime state: the saved change was never **loa
 - **Verify from the client's point of view**, now and after a reboot.
 - **Document** the incident and its remediation.
 
-> The practice for this lesson happens in the existing tickets: \`ssh-monday-reboot\`, \`ssh-config-typo\`, \`ssh-port-moved\`, \`fw-no-established\`, \`case-no-internet\` and \`case-dns-outage\`. Each of them was caused by a change made without one of these habits. The simulator models Debian 12 hosts; Windows, pfSense and Docker steps are representative of the named real versions.
+> Practice tickets: \`ssh-monday-reboot\`, \`ssh-config-typo\`, \`ssh-port-moved\`, \`fw-no-established\`, \`case-no-internet\` and \`case-dns-outage\`, each caused by a change made without one of these habits. Simulated: Debian 12 hosts. Windows, pfSense and Docker steps are representative of the named real versions.
 
 :::practice
 Q: Which habit protects you if a firewall change cuts off your SSH session?
@@ -243,7 +237,6 @@ A: **Keep alternative administrative access** (console, iLO, hypervisor) and rol
 Q: A change passed all tests today. Which habit catches the problem that only appears next week after patching?
 A: **Verify from the client's point of view after a reboot**: it proves the persistent configuration is correct, not just the runtime state.
 :::
-
 `,
 
   internals: `

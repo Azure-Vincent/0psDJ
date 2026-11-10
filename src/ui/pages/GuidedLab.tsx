@@ -46,9 +46,9 @@ export function GuidedLabList() {
   return (
     <div className="page">
       <h1>Guided labs</h1>
-      <p className="muted">Build something real, one verified step at a time. Each step is checked by the simulator against the running machines, and the last step reboots everything to prove the change is complete.</p>
+      <p className="muted">Build a service one step at a time. Every step is checked on the running machines; the last check is a reboot.</p>
       <h2>Integrated labs</h2>
-      <p className="small muted">Several subjects in one realistic situation, in six stages: understand the environment and its dependencies, configure, verify, troubleshoot an incident, review. Each can be done guided, assisted or independently, and repeated in a harder mode. They follow the learning path, and the last one prepares for the unguided <a href="#/cases">case studies</a>.</p>
+      <p className="small muted">Several subjects in one scenario: build, verify, then troubleshoot an incident. Choose guided, assisted or independent mode.</p>
       {INTEGRATED_LABS.map((l) => <LabCard key={l.id} l={l} />)}
       <h2 style={{ marginTop: 24 }}>Service labs</h2>
       <p className="small muted">One service each, built step by step.</p>
@@ -244,7 +244,7 @@ export function GuidedLabPage({ id }: { id: string }) {
               {completed.size > 0 && !finished && <button className="primary" onClick={() => begin(true)}>Continue ({completed.size} step{completed.size === 1 ? '' : 's'} done{saved?.fault ? ', incident started' : ''})</button>}
               <button className={completed.size && !finished ? '' : 'primary'} onClick={() => { if (completed.size && !confirm('Start again from the starting configuration? Progress in this lab is reset (notes and completed modes are kept).')) return; begin(false, chosenMode); }}>{completed.size ? `Start over${integrated ? ` (${MODE_INFO[chosenMode].label.toLowerCase()})` : ''}` : 'Start the lab'}</button>
             </div>
-            {completed.size > 0 && !finished && <p className="small muted">Continue rebuilds the lab and replays the reference solutions of your completed steps{integrated ? ' (and restarts the incident if you had started it)' : ''}: the machines themselves are not saved between sessions.</p>}
+            {completed.size > 0 && !finished && <p className="small muted">Continue rebuilds the lab and replays your completed steps{integrated ? ' (and the incident, if started)' : ''}.</p>}
           </div>
           <div className="card">
             <h3>Topology</h3>
@@ -321,7 +321,7 @@ export function GuidedLabPage({ id }: { id: string }) {
           <h3>Check this step</h3>
           <button type="button" className="primary" disabled={busy} onClick={() => check(step)}>{busy ? 'Checking…' : 'Check step'}</button>
         </div>
-        <p className="small muted">{step.afterReboot ? 'Reboots every machine on a copy of the lab and re-runs all checks.' : 'Runs these checks against the machines as they are now (on a copy: nothing is changed).'}</p>
+        <p className="small muted">{step.afterReboot ? 'Reboots every machine (on a copy) and re-runs all checks.' : 'Checks the machines as they are now; nothing is changed.'}</p>
         {r?.passed && (
           <div className="callout small" style={{ marginBottom: 8 }}>
             {step.afterReboot ? (integrated ? <><strong>Build verified.</strong> Everything still works after a reboot of every machine. <button type="button" className="link" onClick={() => setStage('troubleshoot')}>Next: troubleshooting →</button></> : <><strong>Lab complete.</strong> Everything still works after a reboot of every machine.</>) : <>Step done. {(() => { const n = lab.steps[lab.steps.indexOf(step) + 1]; return n ? <button type="button" className="link" onClick={() => { setStepIdx(lab.steps.indexOf(n)); if (integrated && n.stage === 'verify') setStage('verify'); }}>Next: {n.title} →</button> : null; })()}</>}

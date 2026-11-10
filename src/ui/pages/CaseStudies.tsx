@@ -14,9 +14,8 @@ export function CaseStudyList() {
     <div className="page">
       <h1>Case studies</h1>
       <p className="muted">
-        Complete incidents, from the first symptom to a verified repair: the environment and its dependencies, every command run and what its output means,
-        the root cause, the repair and why it works, what must be restarted, how to verify, and how to prevent it. Cases marked
-        <span className="badge accent" style={{ margin: '0 4px' }}>interactive ticket</span> can be reproduced and solved in the simulator.
+        Complete incidents, from first symptom to verified repair. Cases marked
+        <span className="badge accent" style={{ margin: '0 4px' }}>interactive ticket</span> can be solved in the simulator.
       </p>
       <div className="grid3">
         {CASE_STUDIES.map((c) => {

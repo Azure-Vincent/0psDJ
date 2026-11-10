@@ -157,12 +157,12 @@ export const BACKUP_LESSON: Lesson = {
   summary: 'Plan and run backups: recovery objectives (RPO, RTO), 3-2-1, full, incremental and deduplicated backups, an encrypted restic repository over SSH, scheduling with systemd timers, retention, monitoring, restore tests, and the errors each layer produces.',
   concepts: ['bk.schedule', 'bk.transport', 'bk.operate', 'bk.restore'],
   what: `
-A **backup** is a copy of data, taken at a known moment and kept somewhere else, so that what is lost can be brought back. Data gets lost in many ways: a user deletes a file, an update corrupts a database, a disk dies, a whole server burns, ransomware encrypts everything it can reach. A **backup service** makes those copies on a schedule, keeps them for a defined time, and lets an administrator restore a single file or a whole server.
+Backups protect against a deleted file, a corrupted database, a dead disk, a burnt server and ransomware. A restore can cover a single file or a whole server.
 
-Backups use services covered elsewhere: [SSH](#/lesson/ssh/what) carries the data and authenticates the clients, [systemd](#/lesson/systemd/what) runs the jobs, and the database lesson shows how to [dump a database](#/lesson/database/internals) so that a file backup can include it.
+Related: [SSH](#/lesson/ssh/what) carries the data and authenticates the clients, [systemd](#/lesson/systemd/what) runs the jobs, and a [database dump](#/lesson/database/internals) lets a file backup include a database.
 
 ### Two numbers decide the design
-- **RPO** (recovery point objective): how much work may be lost, measured in time. A nightly backup means up to a day of work can be lost; an RPO of one hour needs hourly backups (or replication).
+- **RPO** (recovery point objective): how much work may be lost, measured in time. A nightly backup can lose up to a day; an RPO of one hour needs hourly backups (or replication).
 - **RTO** (recovery time objective): how long the service may be down while it is restored. Restoring 2 TB over a slow link takes hours; a low RTO needs fast local copies or a standby system.
 
 :::practice
@@ -179,13 +179,12 @@ A: The **off-site** copy (and arguably a second kind of storage): a fire, theft 
 :::
 
 ### The pieces
-- **Clients**: the servers whose data is backed up (srv01, db01, fs01).
-- **Backup server / repository**: where the copies live (bak01, one restic repository per client on its own disk).
-- **Snapshots**: the copies, one per run, each a complete picture of the files at that moment.
-- **Schedule**: when jobs run (systemd timers), and **retention**: how long snapshots are kept.
+- **Clients** (srv01, db01, fs01): the servers whose data is backed up.
+- **Backup server / repository** (bak01): one restic repository per client, on its own disk.
+- **Snapshots**: one per run, each a complete picture of the files at that moment.
 - **Restore tests**: the only proof that the backups work.
 
-> In the lab, **bak01** (10.0.20.45) keeps encrypted **restic** repositories in /srv/backup/restic. Every night **srv01** (02:30), **db01** (02:45, after its database dump) and **fs01** (03:00) run **restic-backup.service** from **restic-backup.timer**: back up over SFTP as the user restic, then apply the retention policy. The lab starts on Monday morning with a week of snapshots. **Lab 8** puts a new server (wiki01) under backup. Simulated: environment variables (export, set -a, EnvironmentFile=), systemd services and timers written by the administrator (OnCalendar=, OnBootSec=, OnUnitActiveSec=, Persistent=, daemon-reload, enable --now, list-timers, the journal, Result=resources and exit codes), systemd-analyze calendar and verify, restic 0.14 (init, backup with parent snapshots, deduplication, excludes and tags, snapshots, ls, restore with --include, forget with --keep-* policies, prune, check, stats, unlock, locks left behind), the sftp: backend over SSH with known_hosts and authorized_keys restrict,from=, the backup disk with ext4's root reserve, tar, rsync (local and over SSH, --delete, -n), sha256sum, df and du. Simplified: chunks are whole files, repository files are JSON (only the password check is real), no REST or S3 backends, no mount, diff, find, copy or key commands, no RandomizedDelaySec spread, no ransomware.
+> Lab: **bak01** (10.0.20.45) keeps encrypted **restic** repositories in /srv/backup/restic. Every night **srv01** (02:30), **db01** (02:45, after its database dump) and **fs01** (03:00) run **restic-backup.service** from **restic-backup.timer**: back up over SFTP as the user restic, then apply the retention policy. The lab starts on Monday morning with a week of snapshots; **Lab 8** puts a new server (wiki01) under backup. Simulated: systemd services and timers, systemd-analyze calendar and verify, restic 0.14 (init, backup, snapshots, ls, restore, forget, prune, check, stats, unlock) over the sftp: backend with known_hosts and authorized_keys restrictions, the backup disk, tar, rsync, sha256sum, df and du. Not simulated: sub-file deduplication (chunks are whole files), REST or S3 backends, the mount, diff, find, copy and key commands, ransomware.
 
 :::practice
 Q: Where do the backups of srv01, db01 and fs01 end up in the lab?

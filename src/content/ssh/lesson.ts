@@ -9,12 +9,12 @@ export const SSH_LESSON: Lesson = {
   concepts: ['dns.resolution', 'net.routing', 'net.arp', 'tcp.handshake', 'fw.stateful', 'svc.systemd', 'svc.listening', 'ssh.kex', 'ssh.hostkeys', 'ssh.userauth', 'ssh.authorized-keys', 'linux.permissions', 'ssh.config', 'ssh.authz', 'logs.journal'],
 
   what: `
-**SSH** (Secure Shell, RFC 4251–4254) lets you open a terminal on another computer over a network, as if you were sitting at its keyboard. Everything you type and everything it prints travels **encrypted**, and both sides prove who they are before anything else happens. It is the standard way to administer Linux and Unix servers, network devices and, more and more, Windows servers. It is also the transport underneath tools such as \`scp\`, \`sftp\`, \`rsync\`, Git over SSH and Ansible.
+**SSH** (Secure Shell, RFC 4251–4254) opens an **encrypted** terminal on another computer. It is the standard way to administer Linux and Unix servers, network devices and, increasingly, Windows servers, and the transport under \`scp\`, \`sftp\`, \`rsync\`, Git over SSH and Ansible.
 
-On the server, a background program called **sshd** (the SSH daemon) listens for incoming connections on **TCP port 22**. A "daemon" is simply a program that runs in the background without a user attached, waiting to do its job. On the client, you run the \`ssh\` command.
+The server runs **sshd** (the SSH daemon, a background program) on **TCP port 22**; the client runs \`ssh\`.
 
 ### What SSH builds on
-An SSH connection uses almost everything from module A: the server's name has to resolve ([Transport and DNS](#/lesson/transport/what)), packets need a route there and back ([IP networking](#/lesson/ipnet/what)), a TCP connection to port 22 has to succeed, and every firewall on the way has to allow it. Only then does SSH itself start. That is why SSH problems are often not SSH problems at all, and why this lesson teaches you to read the exact error message to find the layer that failed.
+Before SSH itself starts, the server's name must resolve ([Transport and DNS](#/lesson/transport/what)), packets need a route there and back ([IP networking](#/lesson/ipnet/what)), every firewall on the way must allow them, and a TCP connection to port 22 must succeed. Many "SSH problems" are therefore in a lower layer; the exact error message shows which.
 
 :::practice
 Q: List, in order, what must work before sshd itself is even involved in a connection.
@@ -24,10 +24,10 @@ A: **No.** SSH never started: the TCP connection got no answer. Look at the netw
 :::
 
 ### Problems it solves
-- **Privacy and integrity.** Older tools (Telnet, rlogin, rsh) sent passwords and keystrokes as plain text that anyone on the path could read. Everything SSH sends after its key exchange is encrypted and protected against tampering.
-- **Proving the server's identity.** The client checks a cryptographic **host key** that belongs to the server. If the key changes, the client notices: you may be talking to a rebuilt server, the wrong machine because of a bad DNS record, or an attacker in the middle.
-- **Proving the user's identity.** Passwords are only ever sent inside the encrypted channel, and **public-key authentication** avoids sending a reusable secret at all.
-- **Several things over one connection.** A single connection can carry an interactive shell, remote commands, file transfer (the SFTP subsystem) and port forwarding, each as a separate **channel**.
+- **Privacy and integrity.** Telnet, rlogin and rsh sent passwords and keystrokes as plain text. SSH encrypts and tamper-protects everything after its key exchange.
+- **Server identity.** A changed **host key** means a rebuilt server, the wrong machine (bad DNS record) or an attacker in the middle.
+- **User identity.** Passwords travel only inside the encrypted channel; **public-key authentication** sends no reusable secret at all.
+- **Channels.** One connection carries an interactive shell, remote commands, file transfer (the SFTP subsystem) and port forwarding, each as a separate **channel**.
 
 :::practice
 Q: Why is Telnet unacceptable for administering a server across a shared network?
@@ -37,18 +37,17 @@ A: **Channels**: one SSH connection carries several independent channels (a shel
 :::
 
 ### Where you meet it
-- Administrators connecting from a workstation, or through a **bastion** (jump host), to servers: \`ssh -J bastion srv01\`.
-- Automation (Ansible, CI/CD deployment jobs, backups) using key-based logins that need no human.
-- Network devices (switches, routers, firewalls such as pfSense) and hypervisors.
-- Windows Server 2019/2022, which includes an optional **OpenSSH Server** feature.
+- Administration, directly or through a **bastion** (jump host): \`ssh -J bastion srv01\`.
+- Automation (Ansible, CI/CD deployment jobs, backups) with key-based logins.
+- Network devices (switches, routers, firewalls such as pfSense), hypervisors, and Windows Server 2019/2022 (optional **OpenSSH Server** feature).
 
 ### The pieces
-- Programs: \`ssh\` (the client), \`sshd\` (the server), \`ssh-keygen\` (creates keys), \`ssh-agent\` (holds your unlocked keys in memory), \`ssh-copy-id\` (installs your public key on a server), \`ssh-keyscan\` (fetches a server's host key).
-- The server's identity: **host key pairs** in \`/etc/ssh/ssh_host_*_key\`.
-- Your identity: **user key pairs** in \`~/.ssh/id_*\` on your computer. The public half of each is authorised on the server in \`~/.ssh/authorized_keys\`.
+- Programs: \`ssh\` (client), \`sshd\` (server), \`ssh-keygen\` (creates keys), \`ssh-agent\` (holds your unlocked keys in memory), \`ssh-copy-id\` (installs your public key on a server), \`ssh-keyscan\` (fetches a server's host key).
+- Server identity: **host key pairs** in \`/etc/ssh/ssh_host_*_key\`.
+- Your identity: **user key pairs** in \`~/.ssh/id_*\` on your computer; the public half is authorised on the server in \`~/.ssh/authorized_keys\`.
 - Your client's record of known servers: \`~/.ssh/known_hosts\`.
 
-> This lesson uses OpenSSH 9.2 on Debian 12, both as server and client. The simulator reproduces this version's messages and log lines; other versions differ in details (for example, Ubuntu 22.10 and later start sshd through systemd socket activation).
+> Simulated: OpenSSH 9.2 on Debian 12 (server and client), with this version's messages and log lines. Other versions differ in details (for example, Ubuntu 22.10 and later start sshd through systemd socket activation).
 
 :::practice
 Q: Which file on your workstation holds the host keys of servers you have trusted before, and which file on a server lists the public keys allowed to log in as a user?
@@ -56,7 +55,6 @@ A: Your **~/.ssh/known_hosts**; the user's **~/.ssh/authorized_keys** on the ser
 Q: Which tool installs your public key into a server account's authorized_keys?
 A: \`ssh-copy-id user@server\`.
 :::
-
 `,
   internals: `
 ### Three protocol layers (RFC 4251)

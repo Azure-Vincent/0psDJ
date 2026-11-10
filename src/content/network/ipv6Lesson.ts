@@ -9,11 +9,11 @@ export const IPV6_LESSON: Lesson = {
   concepts: ['net.ipv6', 'net.ndp', 'net.routing', 'fw.stateful'],
 
   what: `
-**IPv6** is the newer version of the Internet Protocol, designed to replace IPv4. Its main change is the address size: **128 bits** instead of 32, which gives about 3.4 × 10³⁸ addresses. That is enough that every local network normally gets a whole **/64** (2⁶⁴ addresses), so there is no address shortage and no need for [NAT](#/lesson/nat/what).
+**IPv6** addresses have **128 bits** instead of 32: about 3.4 × 10³⁸ addresses. Every local network normally gets a whole **/64** (2⁶⁴ addresses), so there is no need for [NAT](#/lesson/nat/what).
 
-Most networks today run **dual stack**: IPv4 and IPv6 side by side on the same hosts. When a destination has both kinds of address, applications usually try IPv6 first. That is why an IPv6 problem can show up as "this one service is slow or broken", even though IPv4 works fine.
+On **dual stack** hosts, applications usually try IPv6 first when a destination has both kinds of address. An IPv6 problem can therefore show up as "this one service is slow or broken" while IPv4 works fine.
 
-The good news is that the ideas from the [IP networking lesson](#/lesson/ipnet/what) still apply: addresses with a prefix, a routing table with longest prefix match, a default gateway, and finding the next hop's MAC address. What changes are the details: how addresses are written, how hosts configure themselves, and how they find their neighbours.
+The ideas from [IP networking](#/lesson/ipnet/what) still apply: prefixes, longest prefix match, a default gateway, and finding the next hop's MAC address.
 
 ### What changes compared to IPv4
 | | IPv4 | IPv6 |
@@ -36,9 +36,13 @@ A: Almost everything: **Neighbor Discovery** (finding MAC addresses), router dis
 :::
 
 ### In the lab
-The **IPv6 pilot** runs in the development VLAN 30: rtr01 advertises **2001:db8:30::/64** with **radvd** (M and O flags set); dev01 configures itself (SLAAC), the laptop dev02 gets its address and DNS server from **DHCPv6** (dhcpd -6 on rtr01) and only its default route from the RA. srv01 has the static address **2001:db8:20::10**, ns1 has **2001:db8:10::53** (the DNS server handed out by DHCPv6) and publishes an **AAAA** record for srv01. The office clients stay IPv4-only, like many real networks in transition. (2001:db8::/32 is the documentation prefix.)
+The **IPv6 pilot** runs in the development VLAN 30 (2001:db8::/32 is the documentation prefix):
+- **rtr01** advertises **2001:db8:30::/64** with **radvd** (M and O flags set) and runs the **DHCPv6** server (dhcpd -6).
+- **dev01** configures itself (SLAAC). The laptop **dev02** gets its address and DNS server from DHCPv6 and only its default route from the RA.
+- **srv01** has the static address **2001:db8:20::10**. **ns1** has **2001:db8:10::53** (the DNS server handed out by DHCPv6) and publishes an **AAAA** record for srv01.
+- The office clients stay IPv4-only.
 
-> The simulator implements IPv6 addresses (link-local EUI-64, static, SLAAC), routing with longest-prefix match, Neighbor Discovery (NS/NA via solicited-node multicast) and router discovery (RS/RA from radvd), ICMPv6 echo and errors, IPv6 forwarding (silent drop when disabled), nftables ip6/inet/icmpv6 matching with "untracked" ND messages, AAAA records with getaddrinfo() address selection, curl Happy Eyeballs vs ssh sequential fallback, and IPv6/ICMPv6 in tcpdump and PCAP export. DHCPv6 between dhclient -6 and ISC dhcpd -6 (Solicit/Advertise/Request/Reply, Information-request, Renew/Rebind/Release, DUID-LLT, IA_NA, lifetimes and T1/T2, dhcpd6.conf and dhcpd6.leases, nftables on both ends, ff02::1:2 in tcpdump and PCAP), the RA M/O flags and on-link prefixes, "beyond scope of source address" for link-local senders. ICMPv6 "packet too big" and path-MTU discovery are covered in the MTU lesson. Not modelled: DHCPv6 relays and prefix delegation, rapid commit, privacy (temporary) addresses, duplicate address detection, MLD, extension headers.
+> Simulated: addresses (link-local EUI-64, static, SLAAC); routing and forwarding (silent drop when disabled); Neighbor Discovery (NS/NA) and router discovery (RS/RA from radvd, M/O flags); ICMPv6 echo and errors; nftables ip6/inet/icmpv6 matching with "untracked" ND messages; AAAA records with getaddrinfo() address selection; curl Happy Eyeballs vs ssh sequential fallback; DHCPv6 between dhclient -6 and ISC dhcpd -6 (DUID-LLT, IA_NA, T1/T2, dhcpd6.conf, dhcpd6.leases); tcpdump and PCAP export. Not simulated: DHCPv6 relays and prefix delegation, rapid commit, privacy (temporary) addresses, duplicate address detection, MLD, extension headers; "packet too big" and path-MTU discovery are in the MTU lesson.
 `,
 
   internals: `

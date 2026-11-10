@@ -120,22 +120,17 @@ export const GPO_LESSON: Lesson = {
   concepts: ['ad.gpo', 'ad.dns', 'fw.path'],
 
   what: `
-**Group Policy** configures the computers and users of an [Active Directory](#/lesson/ad-kerberos/what) domain from one place. Instead of logging on to 200 servers to set the same firewall rule, you define it once and every server applies it by itself.
+**Group Policy** configures the computers and users of an [Active Directory](#/lesson/ad-kerberos/what) domain from one place: a setting is defined once and every member applies it by itself.
 
-A **Group Policy Object** (GPO) is a named set of settings. An **organizational unit** (OU) is a folder in the directory that holds computers or users, for example OU=Servers. **Linking** a GPO to the domain or to an OU makes every computer in that container apply it. Computers fetch their policy from a domain controller, so Group Policy depends on DC location (DNS), Kerberos and file sharing (SMB) all working.
-
-### Problems it solves
-- **Consistency**: every server gets the same security baseline, firewall rules and update settings.
-- **Scale**: one change on the DC reaches every member within 90 minutes (or immediately with gpupdate).
-- **Drift control**: local changes are overwritten at the next refresh.
+An **organizational unit** (OU) is a folder in the directory that holds computers or users, for example OU=Servers. Members fetch policy from a domain controller, so it depends on DC location (DNS), Kerberos and SMB. Local changes are overwritten at the next refresh.
 
 ### The pieces
 - **GPOs**: settings (here: registry-based policies and firewall rules), stored partly in AD and partly in **SYSVOL** on every DC.
-- **OUs and links**: where a GPO is linked decides who gets it; computers in the default **CN=Computers** container can only get domain-linked GPOs.
+- **OUs and links**: computers in the default **CN=Computers** container can only get domain-linked GPOs.
 - **Security filtering**: who may read and apply a GPO.
-- **The client**: every member processes its policy at startup, every 90 minutes and on \`gpupdate\`; \`gpresult\` shows the result.
+- **The client**: processes policy at startup, every 90 minutes (with a random offset) and on \`gpupdate\`.
 
-> In the lab, **dc01** is the DC of ad.corp.lab and has the Group Policy Management tools (GroupPolicy module); **win01** becomes a member. The tickets add OU=Servers and GPOs such as "Server Baseline" (a firewall rule allowing monitoring pings). Simulated: OUs and Move-ADObject, Add-Computer -OUPath, GPOs with registry policies (Set-GPRegistryValue) and firewall rules (New-NetFirewallRule -PolicyStore), links (enabled, enforced, order), Block Inheritance, security filtering (Get-/Set-GPPermission) evaluated with the computer's groups from its last startup, processing at startup and on gpupdate (DC location, LDAP bind, SYSVOL over SMB 445, events 1500/1502/1058/1129/1055/1006), removal of settings when a GPO stops applying, gpresult /r, Get-NetFirewallRule -PolicyStore RSOP. Not simulated: User Configuration, WMI filters, sites, loopback processing, security templates, software installation, GPMC's GUI.
+> Lab: **dc01** is the DC of ad.corp.lab and has the Group Policy Management tools (GroupPolicy module); **win01** becomes a member. The tickets add OU=Servers and GPOs such as "Server Baseline" (a firewall rule allowing monitoring pings). Simulated: OUs, GPOs with registry policies (Set-GPRegistryValue) and firewall rules (New-NetFirewallRule -PolicyStore), links (enabled, enforced, order), Block Inheritance, security filtering (Get-/Set-GPPermission), processing at startup and on gpupdate with events 1500/1502/1058/1129/1055/1006, gpresult /r, Get-NetFirewallRule -PolicyStore RSOP. Not simulated: User Configuration, WMI filters, sites, loopback processing, security templates, software installation, GPMC's GUI.
 
 :::practice
 Q: A new server joined without -OUPath gets no settings from the "Server Baseline" GPO linked to OU=Servers. Which piece explains it?

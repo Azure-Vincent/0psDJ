@@ -371,7 +371,7 @@ function Tracer({ design, getWorld }: { design: Design; getWorld: () => World })
   return (
     <div className="card" style={{ marginTop: 12 }}>
       <h3>Packet tracer</h3>
-      <p className="small muted">Runs one command with the packet recorder on a copy of the network (your machines are not changed) and shows every packet, every hop and every firewall and NAT decision.</p>
+      <p className="small muted">Runs one command on a copy of the network and shows every packet, hop, and firewall and NAT decision.</p>
       <div className="row small">
         From <select value={from} onChange={(e) => setFrom(e.target.value)} aria-label="Source machine">{machines.map((n) => <option key={n.id}>{n.name}</option>)}</select>
         to <select value={to} onChange={(e) => setTo(e.target.value)} aria-label="Target machine">{machines.filter((n) => n.name !== from).map((n) => <option key={n.id}>{n.name}</option>)}</select>
@@ -513,7 +513,7 @@ export function Builder() {
             <button className="primary" onClick={stop}>← Back to the design</button>
           </div>
         </div>
-        <p className="small muted">Every machine is a simulated Debian system configured from the files the design generated. Log in as <code>{BUILDER_USER}</code> (password <code>{BUILDER_PASSWORD}</code>, with sudo) on workstations and servers, as root on routers and switches. Changes you make in the terminals stay until you rebuild.</p>
+        <p className="small muted">Log in as <code>{BUILDER_USER}</code> (password <code>{BUILDER_PASSWORD}</code>, with sudo) on workstations and servers, as root on routers and switches. Terminal changes last until you rebuild.</p>
         <div className="builder-run">
           <div className="card" style={{ padding: 8 }}>
             <Canvas design={design} selected={null} connectFrom={null} problems={new Set()} readOnly onSelect={() => undefined} />
@@ -543,7 +543,7 @@ export function Builder() {
           <button className="primary" disabled={errors.length > 0} onClick={start} title={errors.length ? 'Fix the errors first' : 'Build the network and open terminals'}>Build &amp; run ▶</button>
         </div>
       </div>
-      <p className="small muted">Draw a network, give the machines addresses, VLANs and firewall rules, then build it: every device becomes a simulated Debian machine configured from real files (<code>/etc/network/interfaces</code>, <code>/etc/nftables.conf</code>, a VLAN-aware bridge on the switches), with terminals and a packet tracer.</p>
+      <p className="small muted">Draw a network, set addresses, VLANs and firewall rules, then build it: each device becomes a simulated Debian machine with a terminal and a packet tracer.</p>
 
       <div className="builder-grid">
         <div>

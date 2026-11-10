@@ -9,15 +9,12 @@ export const IP_LESSON: Lesson = {
   concepts: ['net.cidr', 'net.arp', 'net.routing', 'net.icmp'],
 
   what: `
-Before any service can work (a web site, a file share, a remote login), one computer has to be able to send data to another. On almost every network today that data travels as **IP packets**: small chunks of data, each labelled with the address of the computer that sent it and the computer that should receive it.
+Data travels between computers as **IP packets**: small chunks of data, each labelled with the sender's and the receiver's address. When something "can't connect", the cause is very often here: a wrong address, a missing gateway, a router that does not forward, or a server that cannot send its reply back.
 
-This lesson explains how that delivery works. You will learn how a computer decides whether a destination is nearby or far away, how it finds the next device to hand the packet to, and how **routers** pass packets from one network to the next until they arrive. Everything else in this course builds on these ideas, so it is worth taking your time here.
-
-### Why it matters
-When something "can't connect", the cause is very often here: a wrong address, a missing gateway, a router that does not forward, or a server that cannot send its reply back. If you understand how a packet travels, you can test each part of its journey and find the broken one, instead of guessing.
+> IPv6 uses the same logic with longer addresses and Neighbor Discovery instead of ARP: see the [IPv6 lesson](#/lesson/ipv6/what). Ports, TCP and DNS, the next layer up, are in [Transport and DNS](#/lesson/transport/what).
 
 ### The layers involved
-Network communication is usually described in **layers**. Each layer has one job and relies on the layer below it. You do not need to memorise the whole model, but you will see these names everywhere:
+Network communication is described in **layers**. Each layer has one job and relies on the layer below it:
 
 | Layer (TCP/IP) | OSI number | What travels | Addressed by | Examples |
 |---|---|---|---|---|
@@ -27,9 +24,9 @@ Network communication is usually described in **layers**. Each layer has one job
 | Link | 2 | frame | MAC addresses | Ethernet, ARP, VLAN tags |
 | Physical | 1 | bits | — | copper, fibre, radio |
 
-Each layer wraps the data from the layer above it, like putting a letter in an envelope and then that envelope in a parcel. This is called **encapsulation**: an HTTP request travels inside a TCP segment, which travels inside an IP packet, which travels inside an Ethernet frame.
+**Encapsulation**: each layer wraps the data from the layer above it. An HTTP request travels inside a TCP segment, inside an IP packet, inside an Ethernet frame.
 
-This lesson is about layers 2 and 3. **Switches** only look at layer 2 (MAC addresses) and move frames within one local network. **Routers** look at layer 3 (IP addresses) and move packets between networks, building a new layer 2 frame for each hop.
+This lesson covers layers 2 and 3. **Switches** only look at layer 2 (MAC addresses) and move frames within one local network. **Routers** look at layer 3 (IP addresses) and move packets between networks, building a new layer 2 frame for each hop.
 
 :::practice
 Q: A switch receives a frame. Which address does it look at to decide where to send it, and which layer is that?
@@ -37,15 +34,6 @@ A: The **destination MAC address**, layer 2 (link). A switch does not look at IP
 Q: Put these from the innermost to the outermost: Ethernet frame, HTTP request, IP packet, TCP segment.
 A: HTTP request → TCP segment → IP packet → Ethernet frame. Each layer wraps the one above it.
 :::
-
-### What you will be able to answer
-- Is this destination on my own network, or do I need a router? (the **prefix**, also called the subnet mask)
-- Which device is the next stop for my packet, and what is its hardware address? (**ARP**)
-- Which router, which network card and which source address will my computer use? (the **routing table** and **longest prefix match**)
-- What does each router do with the packet? (**TTL**, forwarding, a new frame)
-- How does the network tell me something went wrong? (**ICMP** error messages, or silence)
-
-> IPv6 uses the same logic with longer addresses and Neighbor Discovery instead of ARP. Once this lesson makes sense, the [IPv6 lesson](#/lesson/ipv6/what) shows the differences. Ports, TCP and DNS, the next layer up, are in [Transport and DNS](#/lesson/transport/what).
 `,
 
   internals: `

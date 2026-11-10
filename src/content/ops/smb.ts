@@ -139,22 +139,17 @@ export const SMB_LESSON: Lesson = {
   concepts: ['files.smb', 'linux.permissions', 'fw.path'],
 
   what: `
-**SMB** (Server Message Block) is the file-sharing protocol of Windows; **Samba** implements it on Linux. A server offers **shares** (named folders such as \\\\fs01\\office); a client logs on with a user name and password and then works with the files, often through a mapped drive letter such as O:.
+**SMB** (Server Message Block) is the file-sharing protocol of Windows; **Samba** implements it on Linux. A server offers **shares** (named folders such as \\\\fs01\\office), often used through a mapped drive letter such as O:. macOS and Linux clients connect too.
 
-Unlike [NFS](#/lesson/nfs/what), which trusts the user numbers a client sends, SMB makes each user **log on** with a password. After that, Samba checks access twice: once against the share's own settings in smb.conf, and once against the normal Linux file permissions of the account. It all runs over TCP port 445, so the network and firewall rules from earlier lessons apply.
-
-### Problems it solves
-- **Shared folders for every desktop.** Windows maps \\\\fs01\\office as O:; macOS and Linux connect too.
-- **Per-user access.** Users log on; the server knows who reads and writes every file.
-- **One place for data.** Backups, permissions and quotas are managed on the server.
+Unlike [NFS](#/lesson/nfs/what), which trusts the user numbers a client sends, SMB makes each user **log on**. Samba then checks access twice: against the share's settings in smb.conf, and against the Linux file permissions of the account. Everything runs over TCP port 445.
 
 ### The pieces
 - **smb.conf** on the server: one section per share (path, who may use it, read-only or writable).
-- **Samba users**: on a standalone server Samba keeps its own password database (\`smbpasswd -a\`); in a domain, the domain controllers check passwords.
-- **The Unix side**: every Samba user is a Unix account on the server, and file access is checked with its normal permissions.
-- **Clients**: \`net use\` and Explorer on Windows, \`smbclient\` (and \`mount -t cifs\`) on Linux, over TCP 445.
+- **Samba users**: a standalone server keeps its own password database (\`smbpasswd -a\`); in a domain, the domain controllers check passwords.
+- **The Unix side**: every Samba user is a Unix account on the server; file access is checked with its normal permissions.
+- **Clients**: \`net use\` and Explorer on Windows, \`smbclient\` (and \`mount -t cifs\`) on Linux.
 
-> In the lab, **fs01** (10.0.20.60) runs Samba next to its NFS server: [office] is /srv/office (read-write for the Unix group staff), [software] is /srv/software (read-only). alice and dana have Samba passwords. **ws01** uses smbclient; **win01** maps drives with \`net use\`. Simulated: smb.conf (shares, valid users / invalid users with @groups, read only / writable / read list / write list, guest ok, force user / force group, create and directory masks, hosts allow / hosts deny, restrict anonymous, unknown parameters), Samba's password database (\`smbpasswd\`, \`pdbedit\`), the connection steps over TCP 445 with SMB2 packets (negotiate, session setup, tree connect) and their NT_STATUS errors, file operations as the server-side Unix account, per-client logs with log level 2, \`testparm\`, \`smbstatus\`, \`net use\` with Windows system errors. Simplified: NTLMv2 only (no Kerberos or AD membership); protocol, signing, encryption, interfaces, vfs objects and inherit permissions are accepted but not enforced; smbclient runs with -c only, Windows does not browse mapped drives, no mount.cifs, no NetBIOS (nmbd).
+> Lab: **fs01** (10.0.20.60) runs Samba next to its NFS server: [office] is /srv/office (read-write for the Unix group staff), [software] is /srv/software (read-only). alice and dana have Samba passwords; **ws01** uses smbclient, **win01** maps drives with \`net use\`. Simulated: smb.conf share options, \`smbpasswd\`, \`pdbedit\`, the SMB2 connection steps with their NT_STATUS and Windows system errors, per-client logs, \`testparm\`, \`smbstatus\`. Not simulated: Kerberos and AD membership (NTLMv2 only), signing and encryption, interactive smbclient (-c only), mount.cifs, NetBIOS (nmbd).
 
 :::practice
 Q: Which two layers both have to allow a user to write a file through Samba?

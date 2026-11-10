@@ -164,7 +164,7 @@ export function Reference({ initialTab }: { initialTab?: Tab }) {
   return (
     <div className="page">
       <h1>Reference library</h1>
-      <p className="muted">Commands, files and logs, and recovery procedures across Linux, Windows, Docker and pfSense. Lessons, guides and case studies link here. Filter by OS, service, protocol or symptom.</p>
+      <p className="muted">Commands, files, logs and recovery procedures. Filter by OS, service, protocol or symptom.</p>
       <TabBar
         label="Reference sections"
         items={TABS.map(([t, label]) => ({ id: t, label: <>{label}{t !== 'practice' && <span className="n">{REF_ENTRIES.filter((e) => e.kind === t).length}</span>}</> }))}
@@ -173,7 +173,7 @@ export function Reference({ initialTab }: { initialTab?: Tab }) {
       />
       {tab === 'practice' ? (
         <>
-          <p className="muted">You are not told which command to use. For "Which command?", type the full command line you would run; it is checked for the right tool and the arguments that make it answer the question.</p>
+          <p className="muted">For "Which command?", type the full command line you would run. It is checked for the right tool and arguments.</p>
           {COMMAND_EXERCISES.map((ex) => <Exercise key={ex.id} ex={ex} />)}
         </>
       ) : (
