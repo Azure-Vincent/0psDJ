@@ -51,11 +51,7 @@ export function TroubleshootList() {
   return (
     <div className="page">
       <h1>Troubleshooting lab</h1>
-      <p className="muted">
-        Each ticket starts from a working network (switch sw01 with VLAN 10 office: ws01/ws02, VLAN 20 servers: srv01, VLAN 30 development: dev01 with IPv6; router rtr01 with an Internet uplink; DNS/DHCP on ns1) with one or more realistic faults injected through the same commands an
-        administrator would have run. The environment is a deterministic simulation: changing a firewall rule, route, file, permission or service changes logs,
-        packets and connection results consistently. Nothing is pre-recorded.
-      </p>
+      <p className="muted">Each ticket breaks the lab network in one realistic way. Find the cause from evidence, fix it, and verify.</p>
       <div className="tabs" role="tablist" style={{ margin: '10px 0' }}>
         <button type="button" role="tab" aria-selected={tier === 1} className={tier === 1 ? 'active' : ''} onClick={() => choose(1)}>Tier 1: single faults ({count(SCENARIO_SETS)})</button>
         <button type="button" role="tab" aria-selected={tier === 2} className={tier === 2 ? 'active' : ''} onClick={() => choose(2)}>Tier 2: chained incidents ({count(TIER2_SETS)})</button>
@@ -67,9 +63,7 @@ export function TroubleshootList() {
         </div>
       ) : (
         <div className="callout small">
-          <strong>Chained incidents.</strong> Each Tier 2 ticket combines faults from Tier 1 tickets of the same area, introduced one after the other. The first symptom hides the next:
-          fixing one fault <strong>changes the symptom</strong> instead of ending the outage. Keep the method for every fault (symptom → evidence → cause → fix → re-test), note how the
-          error message changes after each fix, and name <strong>every</strong> root cause in the diagnosis. Solving the Tier 1 tickets of the same area first is recommended.
+          Two related faults, one hiding the other: fixing the first <strong>changes the symptom</strong>. Re-test after each fix and name <strong>every</strong> root cause.
         </div>
       )}
       {sets.map((set) => (
@@ -308,7 +302,7 @@ export function TroubleshootWorkspace({ id }: { id: string }) {
             </div>
             <div className="card">
               <div className="spread"><h3>Verify the repair</h3><button className="primary" disabled={verifying} onClick={verify}>{verifying ? 'Verifying…' : 'Verify'}</button></div>
-              <p className="small muted">Runs the goal connection now, reboots every host (runtime state rebuilt from files) and runs it again, then checks the security policy.</p>
+              <p className="small muted">Checks the goal now, again after rebooting every host, and against the security policy.</p>
               {verification && (
                 <>
                   {verification.now.map((g, i) => <GoalLine key={`n${i}`} label={`Now: ${goalLabel(g.goal)}`} ok={g.ok} lines={g.lines} />)}

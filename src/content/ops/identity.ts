@@ -173,12 +173,12 @@ export const IDENTITY_LESSON: Lesson = {
   summary: 'Use Active Directory from applications and network devices: the LDAP tree, DNs, binds and searches, service accounts, LDAPS, StartTLS and the DC\'s signing policy, AD\'s error codes and lockouts; then RADIUS: NAS and server, shared secrets, FreeRADIUS with an LDAP back end and a group policy, pam_radius_auth, and a break-glass account.',
   concepts: ['id.ldap', 'id.radius', 'tls.pki', 'fw.path'],
   what: `
-A company has one list of its people: who they are, their mail address, their phone number, which team they are in, their password. That list is the **directory**. In most companies it is **Active Directory** (AD), the directory of a Windows domain (see [Active Directory and Kerberos](#/lesson/ad-kerberos/what)). Windows logons use it through Kerberos. Everything else (a Linux web application, a phone book, a VPN gateway, a router) reads it through two protocols: **LDAP** and **RADIUS**.
+In most companies the **directory** is **Active Directory** (AD), the directory of a Windows domain (see [Active Directory and Kerberos](#/lesson/ad-kerberos/what)). It holds each person's mail address, phone number, team and password. Windows logons use it through Kerberos; everything else (a Linux web application, a phone book, a VPN gateway, a router) uses **LDAP** or **RADIUS**.
 
 ### Directories and LDAP
-**LDAP** (Lightweight Directory Access Protocol) is how a program asks a directory questions: "find the entry whose login name is bob and give me his mail address", "is this alice's password?", "which groups is dana in?". It runs over TCP 389, or **LDAPS** on 636, which is LDAP inside **TLS** (encrypted, with the server proving its identity by a certificate; see [TLS](#/lesson/tls/what)).
+With **LDAP** (Lightweight Directory Access Protocol) a program asks a directory questions: "what is the mail address of the entry with login name bob?", "is this alice's password?", "which groups is dana in?". It runs over TCP 389, or as **LDAPS** on 636: LDAP inside **TLS**, encrypted and with the server proving its identity by a certificate (see [TLS](#/lesson/tls/what)).
 
-Applications use the directory instead of keeping their own user lists, so a person has **one** password, and disabling one account in AD locks the person out everywhere.
+Applications that use the directory need no user lists of their own: a person has **one** password, and disabling one account in AD locks the person out everywhere.
 
 :::practice
 Q: Why should an intranet application look people up in AD instead of keeping its own user table?
@@ -188,7 +188,7 @@ A: **389** for LDAP (clear text, or StartTLS) and **636** for LDAPS.
 :::
 
 ### RADIUS and network devices
-Routers, switches, VPN gateways and Wi-Fi access points are not part of the domain and do not speak LDAP well. They use **RADIUS** (Remote Authentication Dial-In User Service): the device, called the **NAS** (network access server), sends the user name and password to a **RADIUS server** in one UDP packet and gets back **accept** or **reject**. The RADIUS server does the real work: it asks the directory, applies a policy ("only the network team"), and answers.
+Routers, switches, VPN gateways and Wi-Fi access points are not part of the domain and do not speak LDAP well. They use **RADIUS** (Remote Authentication Dial-In User Service): the device, called the **NAS** (network access server), sends the user name and password to a **RADIUS server** in one UDP packet and gets back **accept** or **reject**. The server asks the directory and applies a policy ("only the network team").
 
 :::practice
 Q: In RADIUS, what is the NAS?
@@ -203,7 +203,7 @@ Three questions, often called **AAA**:
 - **Authorisation**: may alice do this, here? (she is in Network-Admins, so she may log in to routers)
 - **Accounting**: what did she do, and when? (session start and stop records)
 
-A login can fail at either of the first two: dana's password is right (authentication succeeds), but she is not in the group (authorisation fails). Telling them apart is half of troubleshooting.
+A login can fail at either of the first two.
 
 :::practice
 Q: Dana's password works on her PC but the router refuses her. Which of the three A's is the likely problem?
@@ -213,7 +213,14 @@ A: **Accounting**.
 :::
 
 ### In the lab
-> **dc01** (10.0.20.5) is the domain controller of **ad.corp.lab** (NetBIOS name CORP). It answers LDAP on 389, LDAPS on 636 and the global catalog on 3268. Its LDAPS certificate is for **dc01.ad.corp.lab**, issued by **Corp Lab Issuing CA 1** (root: Corp Lab Root CA); ns1 has the record for that name. **OU=Service Accounts** holds **svc-ldap** (the phone book) and **svc-radius** (RADIUS); the group **Network-Admins** has alice as its member; users include alice, bob and dana. **srv01** runs the intranet phone book: \`/usr/local/bin/phonebook NAME\` runs ldapsearch as svc-ldap with the password in /etc/phonebook/bind.pw. **rad01** (10.0.20.65) runs **FreeRADIUS 3.2.1** with the ldap module (svc-radius, LDAPS) and a policy that admits Network-Admins only. **rtr01** is the NAS: its sshd asks rad01 first (pam_radius_auth) and keeps the local account **netadmin** for emergencies. **Lab 10** builds the RADIUS side from Debian's defaults. Simulated: OpenLDAP 2.5 ldapsearch and ldapwhoami (simple binds with -x, -H, -D, -w/-W/-y, -b, -s, -LLL, -Z/-ZZ, ldap.conf with BASE, URI, TLS_CACERT, TLS_REQCERT), AD's answers (rootDSE without a bind, "Operations error" for anonymous searches, bind errors 49 with data 52e/775/533/532, the signing policy LDAPServerIntegrity, referrals, the lockout threshold with events 4625 and 4740), certificate checks for LDAPS and StartTLS, FreeRADIUS (clients.conf read at start, ldap and files modules re-read on reload, radius.log, freeradius -C/-XC), radtest with a Message-Authenticator, pam_radius_auth in sshd's PAM stack with timeouts, verification of replies and fallback to local accounts. Simplified: no writes to the directory (ldapmodify), no SASL/Kerberos binds, no OpenLDAP server, no RADIUS accounting, EAP/802.1X, CHAP or vendor attributes, no NPS.
+- **dc01** (10.0.20.5) is the domain controller of **ad.corp.lab** (NetBIOS name CORP): LDAP on 389, LDAPS on 636, the global catalog on 3268. Its LDAPS certificate is for **dc01.ad.corp.lab**, issued by **Corp Lab Issuing CA 1** (root: Corp Lab Root CA); ns1 has the record for that name.
+- **OU=Service Accounts** holds **svc-ldap** (the phone book) and **svc-radius** (RADIUS). The group **Network-Admins** has alice as its member; users include alice, bob and dana.
+- **srv01** runs the intranet phone book: \`/usr/local/bin/phonebook NAME\` runs ldapsearch as svc-ldap with the password in /etc/phonebook/bind.pw.
+- **rad01** (10.0.20.65) runs **FreeRADIUS 3.2.1** with the ldap module (svc-radius, LDAPS) and a policy that admits Network-Admins only.
+- **rtr01** is the NAS: its sshd asks rad01 first (pam_radius_auth) and keeps the local account **netadmin** for emergencies.
+- **Lab 10** builds the RADIUS side from Debian's defaults.
+
+> Simulated: OpenLDAP 2.5 ldapsearch and ldapwhoami (simple binds, ldap.conf), AD's answers (bind errors 49 with data 52e/775/533/532, the signing policy, lockout with events 4625 and 4740), certificate checks for LDAPS and StartTLS, FreeRADIUS (clients.conf, ldap and files modules, radius.log, freeradius -C/-XC), radtest, pam_radius_auth with fallback to local accounts. Not simulated: ldapmodify, SASL/Kerberos binds, an OpenLDAP server, RADIUS accounting, EAP/802.1X, CHAP, NPS.
 
 :::practice
 Q: In the lab, which account does the phone book bind as, and where is its password?

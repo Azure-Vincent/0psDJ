@@ -468,3 +468,5 @@ span.meter { display: block; }
 .road-steps li.started .road-mark { border-color: var(--accent); color: var(--accent); }
 .road-body { min-width: 0; }
 @media (max-width: 560px) { .road-steps li { grid-template-columns: 24px minmax(0, 1fr); } .road-steps li > button { grid-column: 2; justify-self: start; } }
+.primer-analogy > summary { cursor: pointer; font-weight: 600; color: var(--h3); }
+.primer-analogy[open] > summary { margin-bottom: 6px; }

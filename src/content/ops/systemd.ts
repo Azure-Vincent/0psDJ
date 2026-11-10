@@ -179,22 +179,15 @@ export const SYSTEMD_LESSON: Lesson = {
   caseStudyIds: ['ssh-refused', 'shared-dependency'],
 
   what: `
-Most of the important programs on a Linux server run in the background without anyone logged in: the SSH server, the web server, the DNS server, the firewall loader. These background programs are called **services** (or **daemons**). Something has to start them at boot, in the right order, restart them if they crash, and keep their logs. On almost every current Linux distribution (Debian, Ubuntu, RHEL, Rocky, Alma, SUSE, Fedora), that something is **systemd**.
 
-systemd is the **init system** and **service manager**. The kernel starts it as **process 1**, the very first process (\`/sbin/init\` is a link to it), and from then on it starts, supervises and stops everything else. Every service you administer in this lab (sshd, nginx, named, isc-dhcp-server, nftables, networking) is started by systemd, logs through systemd's journal, and is controlled with \`systemctl\`.
-
-### Problems it solves
-- **Ordered, parallel boot.** Services declare what they need and in which order; systemd starts independent services in parallel.
-- **Supervision.** systemd knows every process of a service (through cgroups), notices when it dies, records the exit code and can restart it.
-- **One way to manage everything.** Start, stop, enable at boot and read logs the same way for every service.
-- **Central logging.** journald stores messages from the kernel, from systemd and from every service with metadata (unit, PID, priority, boot ID), so \`journalctl -u ssh -b\` finds exactly the lines you need.
+**systemd** is the **init system** and **service manager** on almost every current Linux distribution (Debian, Ubuntu, RHEL, Rocky, Alma, SUSE, Fedora). The kernel starts it as **process 1** (\`/sbin/init\` is a link to it), and it starts, supervises and stops the background **services** (or **daemons**). Services declare what they need and in which order; independent services start in parallel.
 
 ### Units: what systemd manages
 A **unit** is anything systemd manages, described by a small INI-style file. The suffix is the type:
 - \`.service\`: a process or a one-shot command (\`ssh.service\`, \`nftables.service\`).
-- \`.socket\`: a listening socket that starts a service on the first connection (**socket activation**; Ubuntu 22.10+ ships \`ssh.socket\`, so the port is held by systemd until someone connects).
+- \`.socket\`: a listening socket that starts a service on the first connection (**socket activation**; Ubuntu 22.10+ ships \`ssh.socket\`, so systemd holds the port until someone connects).
 - \`.target\`: a named group of units, used as a synchronisation point (\`multi-user.target\`, \`network-online.target\`). Targets replace SysV runlevels.
-- \`.timer\`: runs a service on a schedule (the systemd answer to cron: \`apt-daily.timer\`, \`logrotate.timer\`).
+- \`.timer\`: runs a service on a schedule, like cron (\`apt-daily.timer\`, \`logrotate.timer\`).
 - \`.mount\`: a mounted filesystem, usually generated from \`/etc/fstab\`.
 - \`.path\`: starts a service when a file or directory changes.
 
@@ -206,7 +199,7 @@ A: No. **ssh.socket** holds the port (socket activation) and starts sshd when th
 :::
 
 ### Processes vs units, and cgroups
-A unit is a *definition*; when it runs it has one or more *processes*. systemd puts all processes of a service in one **control group** (e.g. \`/system.slice/ssh.service\`, shown on the \`CGroup:\` line of \`systemctl status\`). That is how systemd can stop a service completely even if it forked many children, and why \`KillMode=process\` on ssh.service matters: it tells systemd to kill only the listener, so your existing SSH sessions survive a restart.
+A unit is a *definition*; when it runs it has one or more *processes*. systemd puts all processes of a service in one **control group** (e.g. \`/system.slice/ssh.service\`, shown on the \`CGroup:\` line of \`systemctl status\`), so it can stop a service completely even if it forked many children. \`KillMode=process\` on ssh.service tells systemd to kill only the listener, so existing SSH sessions survive a restart.
 
 :::practice
 Q: Why can systemd stop a service completely even if it forked many child processes?
@@ -217,10 +210,10 @@ A: ssh.service has \`KillMode=process\`: systemd kills only the listener process
 
 ### Targets and the boot sequence
 At boot systemd activates \`default.target\`, a symlink to \`multi-user.target\` on servers (\`graphical.target\` on desktops). That target *wants* everything enabled for it, which in turn needs:
-- \`sysinit.target\`: early system setup: mounts, swap, udev, journald, kernel parameters (systemd-sysctl), and on Debian also \`nftables.service\` (its unit says \`WantedBy=sysinit.target\`), so the firewall is up before any interface.
-- \`basic.target\`: sockets, timers, paths and everything basic is ready.
-- \`network.target\`: the network management service has been **started**. It says nothing about addresses being configured. Services that only need to bind to 0.0.0.0 use \`After=network.target\` (sshd does).
-- \`network-online.target\`: a *wait-online* service has confirmed that the network is **configured** (an address and route exist). Only units that must reach another host at start (NFS mounts, a DHCP server that must bind to a configured address, a service connecting to a remote database) should use \`Wants=\` + \`After=network-online.target\`, because it can delay the boot.
+- \`sysinit.target\`: early setup: mounts, swap, udev, journald, kernel parameters (systemd-sysctl), and on Debian also \`nftables.service\` (\`WantedBy=sysinit.target\`), so the firewall is up before any interface.
+- \`basic.target\`: sockets, timers and paths are ready.
+- \`network.target\`: the network management service has been **started**; addresses may not be configured yet. \`After=network.target\` is enough for services that bind to 0.0.0.0 (sshd).
+- \`network-online.target\`: a *wait-online* service has confirmed that the network is **configured** (an address and route exist). Use \`Wants=\` + \`After=network-online.target\` only for units that must reach another host at start (NFS mounts, a DHCP server that must bind to a configured address, a service connecting to a remote database), because it can delay the boot.
 
 :::practice
 Q: A web server only needs to bind to 0.0.0.0:80 at start. Should its unit use network.target or network-online.target?
@@ -230,10 +223,10 @@ A: \`network-online.target\`, with both \`Wants=\` and \`After=\`: it needs the 
 :::
 
 ### Dependencies: requirement and ordering are different
-- **Requirement** says *what else must be started*: \`Wants=\` (start it too, but continue if it fails), \`Requires=\` (start it too, and fail/stop if it fails), \`BindsTo=\` (like Requires, and also stop when the other unit stops, e.g. a device disappears).
-- **Ordering** says *in which order*: \`After=\` and \`Before=\`. They do not start anything.
+- **Requirement** (what else must be started): \`Wants=\` (start it too, continue if it fails), \`Requires=\` (start it too, fail/stop if it fails), \`BindsTo=\` (like Requires, and also stop when the other unit stops, e.g. a device disappears).
+- **Ordering**: \`After=\` and \`Before=\`. They do not start anything.
 - You almost always need both: \`Wants=network-online.target\` *and* \`After=network-online.target\`. With only \`After=\`, the target might not be part of the boot at all; with only \`Wants=\`, both start in parallel.
-- \`[Install] WantedBy=multi-user.target\` is not a dependency at runtime: it tells \`systemctl enable\` where to create the symlink.
+- \`[Install] WantedBy=multi-user.target\` is not a runtime dependency: it tells \`systemctl enable\` where to create the symlink.
 
 :::practice
 Q: A unit says \`Requires=postgresql.service\` but no After=. postgresql takes 10 seconds to start. What can go wrong?
@@ -244,8 +237,8 @@ A: With Wants=, this unit **continues**; with Requires=, it fails (and stops if 
 
 ### enable vs start, and masks
 - \`start\` / \`stop\`: affects **now**.
-- \`enable\` / \`disable\`: affects the **next boot** (creates or removes the \`WantedBy\` symlink). \`enable --now\` does both.
-- A service can be running but disabled (it will not come back after a reboot: the ssh-monday-reboot ticket) or enabled but failed.
+- \`enable\` / \`disable\`: affects the **next boot** (creates or removes the \`WantedBy\` symlink).
+- A service can be running but disabled (the ssh-monday-reboot ticket) or enabled but failed.
 - \`mask\` makes a unit impossible to start (symlink to \`/dev/null\`); \`unmask\` removes that.
 
 :::practice
@@ -256,9 +249,9 @@ A: systemd will **try to start it** (it is enabled), and it will probably fail a
 :::
 
 ### The journal
-\`systemd-journald\` collects kernel messages, the stdout/stderr of every service, and anything sent to syslog. Each entry carries the unit, PID, priority (0 emerg … 3 err … 4 warning … 6 info … 7 debug, the syslog severities) and boot ID, which is what makes \`journalctl -u ssh -b -p err\` possible. **rsyslog**, when installed, copies messages into the classic text files in \`/var/log\`.
+\`systemd-journald\` collects kernel messages, the stdout/stderr of every service, and anything sent to syslog. Each entry carries the unit, PID, priority (0 emerg … 3 err … 4 warning … 6 info … 7 debug, the syslog severities) and boot ID, which makes \`journalctl -u ssh -b -p err\` possible. **rsyslog**, when installed, copies messages into the classic text files in \`/var/log\`.
 
-> The lab hosts are Debian 12 (systemd 252). The simulator models \`systemctl\` (status, start, stop, restart, reload, enable, disable, is-active, is-enabled, is-failed, list-units, --failed, cat, list-dependencies, show, daemon-reload, mask, unmask) and \`journalctl\` for the lab's services. \`systemctl edit\` and \`get-default\` are explained here but not simulated.
+> Simulated (Debian 12, systemd 252): \`systemctl\` (status, start, stop, restart, reload, enable, disable, is-active, is-enabled, is-failed, list-units, --failed, cat, list-dependencies, show, daemon-reload, mask, unmask) and \`journalctl\` for the lab's services. Not simulated: \`systemctl edit\` and \`get-default\`.
 
 :::practice
 Q: Which priority numbers does \`journalctl -p warning\` show?
@@ -266,7 +259,6 @@ A: 0 to 4: emerg, alert, crit, err and **warning**.
 Q: Where does the output a service prints on stdout end up?
 A: In the **journal** (journald collects every service's stdout/stderr), readable with \`journalctl -u UNIT\`.
 :::
-
 `,
 
   internals: `

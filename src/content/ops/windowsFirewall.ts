@@ -129,21 +129,21 @@ export const WINDOWS_FIREWALL_LESSON: Lesson = {
   concepts: ['win.firewall', 'fw.stateful', 'ad.gpo'],
 
   what: `
-**Windows Defender Firewall** is the firewall built into Windows. It runs on every Windows machine, servers included, and decides for each packet the machine receives or sends whether it may pass. It does the same job as [nftables](#/lesson/nftables/what) on a Linux server: it protects this one machine, not a whole network (that is the job of a perimeter firewall such as [pfSense](#/lesson/pfsense/what)).
+**Windows Defender Firewall** is the host firewall on every Windows machine, servers included. Like [nftables](#/lesson/nftables/what) on Linux, it protects one machine, not a whole network (the job of a perimeter firewall such as [pfSense](#/lesson/pfsense/what)).
 
-Out of the box it **blocks every incoming connection** that no rule allows, and **allows every outgoing connection**. Installing a role (IIS, File Server, Remote Desktop) adds and enables the rules that role needs. Most firewall tickets are about one of those rules: a rule that is off, that matches less than it seems to, that is beaten by another rule, or that does not count at all.
+Installing a role (IIS, File Server, Remote Desktop) adds and enables the rules it needs. Most firewall tickets are about one such rule: off, matching less than it seems to, beaten by another rule, or not counting at all.
 
 ### Problems it solves
-- **Exposure**: a server offers many services (RPC, SMB, WinRM, management agents). The firewall lets the network reach only the ones its role needs, from the clients that need them.
-- **Untrusted networks**: a laptop or server on an unknown network (the Public profile) closes almost everything automatically.
+- **Exposure**: of a server's many services (RPC, SMB, WinRM, management agents), the network reaches only those its role needs, from the clients that need them.
+- **Untrusted networks**: on an unknown network (the Public profile) almost everything closes automatically.
 - **Containment**: outbound filtering limits what a compromised server can connect to.
 
 ### The pieces
-- **Profiles**: Domain, Private and Public. Each network adapter is in one of them, chosen by the network it is connected to. Each profile has its own on/off switch, default actions and logging.
-- **Rules**: inbound or outbound, Allow or Block, with **conditions** (protocol, local port, remote address, program, profile). A rule acts on a packet only when all its conditions match.
-- **Default actions**: what happens when no rule matches: Block inbound, Allow outbound.
-- **The log** (pfirewall.log): which packets were dropped (and, if you ask, which connections were allowed). Off by default.
-- **Group Policy**: in a domain, rules and settings can come from GPOs, and can switch local rules off altogether.
+- **Profiles**: Domain, Private and Public. Each network adapter is in one, chosen by the network it is connected to. Each profile has its own on/off switch, default actions and logging.
+- **Rules**: inbound or outbound, Allow or Block, with **conditions** (protocol, local port, remote address, program, profile).
+- **Default actions** when no rule matches: Block inbound, Allow outbound.
+- **The log** (pfirewall.log): dropped packets (and, if you ask, allowed connections). Off by default.
+- **Group Policy**: in a domain, rules and settings can come from GPOs, which can switch local rules off altogether.
 
 :::practice
 Q: A new Windows Server has IIS installed and nothing else changed. A client connects to port 80 and to port 8080 (where a test application listens). What happens to each, and why?
@@ -153,8 +153,11 @@ A: The **default action** of the active profile: Block for inbound, Allow for ou
 :::
 
 ### In the lab
-> **win01** (10.0.20.30) is a Windows Server 2022 member of the server VLAN with IIS, Remote Desktop, SMB and WinRM, in a workgroup; its adapter Ethernet0 is in the **Private** profile. **ws01** (10.0.10.25) is the admin workstation and the monitoring host. The tickets run on win01's PowerShell console; one of them uses **dc01** (10.0.20.5) and Group Policy. Simulated: profiles and network categories, rules with protocol, local and remote ports, remote and local addresses (IPv4 addresses, prefixes, ranges and LocalSubnet), ICMP types, program for inbound rules (owner of the listening socket), Block over Allow, default actions in both directions, pfirewall.log (LogBlocked, LogAllowed), the Firewall event log, -PolicyStore (PersistentStore, ActiveStore, RSOP, a GPO), AllowLocalFirewallRules from Group Policy, netsh advfirewall. Not simulated: program conditions on outbound rules (such a rule matches nothing here), address keywords other than LocalSubnet, IPv6 addresses in rules, IPsec and connection security rules, edge traversal, service-name conditions, interface-type conditions, wf.msc.
+- **win01** (10.0.20.30): Windows Server 2022 in the server VLAN with IIS, Remote Desktop, SMB and WinRM, in a workgroup; adapter Ethernet0 is in the **Private** profile.
+- **ws01** (10.0.10.25): admin workstation and monitoring host.
+- The tickets run on win01's PowerShell console; one uses **dc01** (10.0.20.5) and Group Policy.
 
+> Simulated: profiles and network categories; rules with protocol, local and remote ports, addresses (IPv4 addresses, prefixes, ranges, LocalSubnet), ICMP types and program for inbound rules (owner of the listening socket); Block over Allow; default actions; pfirewall.log (LogBlocked, LogAllowed); the Firewall event log; -PolicyStore (PersistentStore, ActiveStore, RSOP, a GPO); AllowLocalFirewallRules from Group Policy; netsh advfirewall. Not simulated: program conditions on outbound rules (such a rule matches nothing here), other address keywords, IPv6 addresses in rules, IPsec and connection security rules, edge traversal, service-name and interface-type conditions, wf.msc.
 `,
 
   internals: `

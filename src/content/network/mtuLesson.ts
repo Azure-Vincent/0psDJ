@@ -10,17 +10,24 @@ export const MTU_LESSON: Lesson = {
   mode: 'simulated',
 
   what: `
-The **MTU (maximum transmission unit)** is the largest IP packet a network link can carry in one frame. Think of it as the size of the envelopes a link accepts: anything bigger must be split up or sent back. On standard Ethernet the MTU is **1500 bytes** of IP packet; the Ethernet frame around it adds 14 bytes of header and a 4-byte checksum (FCS), plus 4 more bytes when it carries an 802.1Q [VLAN](#/lesson/vlan/internals) tag. Links with extra encapsulation carry less: PPPoE 1492, WireGuard 1420, GRE 1476, IPsec around 1400; data-centre links with **jumbo frames** carry 9000.
+The **MTU (maximum transmission unit)** is the largest IP packet a link can carry in one frame.
+- Standard Ethernet: **1500 bytes**. The frame adds 14 bytes of header and a 4-byte checksum (FCS), plus 4 bytes for an 802.1Q [VLAN](#/lesson/vlan/internals) tag.
+- Extra encapsulation carries less: PPPoE 1492, GRE 1476, WireGuard 1420, IPsec around 1400.
+- Data-centre links with **jumbo frames**: 9000.
 
-When a packet is larger than the MTU of the next link on its path, something has to give:
+When a packet is larger than the next link's MTU:
 - **IPv4 without DF**: the router **fragments** it; the receiver reassembles.
-- **IPv4 with DF (Don't Fragment)**, which is what TCP uses on Linux, Windows and macOS: the router **drops** it and sends back **ICMP "fragmentation needed"** with the next-hop MTU. The sender lowers its packet size for that destination. This is **path MTU discovery (PMTUD)**.
+- **IPv4 with DF (Don't Fragment)**, which TCP uses on Linux, Windows and macOS: the router **drops** it and returns **ICMP "fragmentation needed"** with the next-hop MTU. This is **path MTU discovery (PMTUD)**.
 - **IPv6**: routers never fragment; they send **ICMPv6 "packet too big"**.
 
 ### Why this is a troubleshooting topic
-MTU problems have a signature that confuses people: **small things work, big things hang**. Most "is it up?" tests only send small packets, so everything looks healthy. ping works, DNS works, the SSH login works, \`curl -I\` returns headers, but file downloads stop at 0 bytes, TLS handshakes never finish (the certificate message fills full-size packets), \`git clone\` or \`apt update\` hang, a web page loads half. Two causes:
+The signature: **small things work, big things hang**. Most "is it up?" tests only send small packets.
+- **Works**: ping, DNS, the SSH login, \`curl -I\` (headers).
+- **Hangs**: file downloads (stuck at 0 bytes), TLS handshakes (the certificate message fills full-size packets), \`git clone\`, \`apt update\`, half-loaded web pages.
+
+Two causes:
 1. **MTU mismatch on a link**: the two ends disagree (1500 vs 1492, 9000 vs 1500). Frames larger than the receiver's MTU are dropped **silently**: there is no ICMP for this.
-2. **PMTUD black hole**: a router with a smaller MTU sends "fragmentation needed", but a firewall somewhere drops ICMP, so the sender never learns and keeps retransmitting full-size packets.
+2. **PMTUD black hole**: a firewall drops the ICMP "fragmentation needed", so the sender keeps retransmitting full-size packets.
 
 :::practice
 Q: After a VPN was introduced, users report that intranet pages load half and then stop, while logins work. Why is this an MTU symptom rather than a server problem?
@@ -30,9 +37,9 @@ A: An **MTU mismatch on one link**: the receiving interface drops the oversized 
 :::
 
 ### In the lab
-Every link uses MTU 1500 in the baseline. rtr01's **eth2** is the Internet uplink to ext01 (203.0.113.80), which offers a 4.5 MB download (\`http://203.0.113.80/downloads/tools-2.4.1.tar.gz\`) and an HTTPS site. Change MTUs with \`ip link set dev X mtu N\` (runtime) or \`mtu N\` in /etc/network/interfaces (persistent) and watch the effects.
+Every link uses MTU 1500 in the baseline. rtr01's **eth2** is the Internet uplink to ext01 (203.0.113.80), which offers a 4.5 MB download (\`http://203.0.113.80/downloads/tools-2.4.1.tar.gz\`) and an HTTPS site. Change MTUs with \`ip link set dev X mtu N\` (runtime) or \`mtu N\` in /etc/network/interfaces (persistent).
 
-> The simulator implements per-interface MTU, packet sizes from headers and payload, the DF bit (set for TCP and for \`ping -M do\`), router-generated ICMP "fragmentation needed" / ICMPv6 "packet too big" with the next-hop MTU, the per-destination PMTU cache (\`ip route get\` shows it), silent drops of frames larger than the receiving interface's MTU, TCP MSS in SYNs, segmentation, retransmission with exponential backoff (tcp_retries2), \`ping -s/-M\`, \`tracepath\`, and nftables MSS clamping (\`tcp option maxseg size set rt mtu\`). Simplified: IPv4 fragments are not shown as separate packets, no PLPMTUD (RFC 8899) probing, large HTTP bodies beyond 64 KiB are accounted for in time rather than sent segment by segment.
+> Simulated: per-interface MTU, the DF bit (TCP and \`ping -M do\`), ICMP "fragmentation needed" / ICMPv6 "packet too big" with the next-hop MTU, the per-destination PMTU cache (\`ip route get\` shows it), silent drops of oversized frames, TCP MSS in SYNs, segmentation, retransmission with exponential backoff (tcp_retries2), \`ping -s/-M\`, \`tracepath\`, nftables MSS clamping (\`tcp option maxseg size set rt mtu\`). Not simulated: IPv4 fragments as separate packets, PLPMTUD (RFC 8899) probing, segment-by-segment sending of HTTP bodies beyond 64 KiB.
 `,
 
   internals: `

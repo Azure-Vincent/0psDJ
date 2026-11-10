@@ -9,12 +9,15 @@ export const NAT_LESSON: Lesson = {
   concepts: ['net.nat', 'net.routing', 'fw.stateful', 'fw.path'],
 
   what: `
-**Network Address Translation (NAT)** means a router rewrites the addresses (and often the ports) in packets as they pass through it. You have almost certainly used it: your home router does it for every phone and laptop in the house.
+**Network Address Translation (NAT)** means a router rewrites the addresses (and often the ports) in packets as they pass through it. It builds on routing ([IP networking](#/lesson/ipnet/what)) and ports ([Transport and DNS](#/lesson/transport/what)).
 
 ### Why NAT exists
-There are only about four billion IPv4 addresses, far too few for every device in the world. So organisations number their internal networks from the **private ranges** defined in RFC 1918: 10.0.0.0/8, 172.16.0.0/12 and 192.168.0.0/16. These addresses are not routed on the Internet; anyone can reuse them inside their own network. Only these three ranges are "private" in the RFC 1918 sense. Other special ranges look similar but are something else: **169.254.0.0/16** is *link-local* (an address a computer gives itself when DHCP fails, valid only on its own network segment), **127.0.0.0/8** is loopback, and **192.0.2.0/24, 198.51.100.0/24 and 203.0.113.0/24** are reserved for documentation and examples. When an inside device talks to the Internet, the router replaces the private address with one of the organisation's few **public addresses**, and reverses the change on the replies.
+There are only about four billion IPv4 addresses, too few for every device, so internal networks use the reusable **private ranges** of RFC 1918, which are not routed on the Internet, and share a few **public addresses** through NAT.
 
-This builds on the [IP networking lesson](#/lesson/ipnet/what) (routing, gateways) and on ports from [Transport and DNS](#/lesson/transport/what): NAT changes exactly those addresses and ports.
+- **Private** (RFC 1918), only these three: 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16.
+- *Link-local*: **169.254.0.0/16**, an address a computer gives itself when DHCP fails, valid only on its own network segment.
+- Loopback: **127.0.0.0/8**.
+- Documentation and examples: **192.0.2.0/24, 198.51.100.0/24 and 203.0.113.0/24**.
 
 :::practice
 Q: Which of these are RFC 1918 private addresses: 172.20.1.5, 172.32.1.5, 192.168.100.1, 100.64.0.1?
@@ -24,10 +27,10 @@ A: Private addresses are **not routed** on the Internet: the reply would have no
 :::
 
 ### Two directions
-- **Source NAT (SNAT), often as masquerade**: for connections that start **inside** and go out. They leave with the router's public address as the source, so the outside world only ever sees the router. *Masquerade* is SNAT that automatically uses whatever address the outgoing interface has, which is handy when that address comes from DHCP and may change. Choose between the two like this:
-  - The uplink address is **dynamic** (DHCP, PPPoE): use \`masquerade\`. It looks up the interface address for every new connection, and it forgets its translations when the interface goes down, so a new address works straight away.
-  - The uplink address is **fixed**: \`snat to 203.0.113.2\` does the same job with a fixed address and slightly less work per connection.
-- **Destination NAT (DNAT), also called port forwarding**: for connections that start **outside** and come in. A connection to the public address (on a given port) is redirected to a server inside. This is how a web server with a private address is **published** on the Internet.
+- **Source NAT (SNAT), often as masquerade**: for connections that start **inside** and go out.
+  - **Dynamic** uplink address (DHCP, PPPoE): use \`masquerade\`. It looks up the interface address for every new connection and forgets its translations when the interface goes down, so a new address works straight away.
+  - **Fixed** uplink address: \`snat to 203.0.113.2\` does the same job with slightly less work per connection.
+- **Destination NAT (DNAT), also called port forwarding**: for connections that start **outside** and come in. This is how a server with a private address is **published** on the Internet.
 
 :::practice
 Q: Which kind of NAT do you need so that staff can browse the web, and which so that customers can reach the company's web server inside?
@@ -37,13 +40,11 @@ A: **masquerade**: it uses the interface's current address for each new connecti
 :::
 
 ### In the lab
-rtr01 has a third interface, **eth2**, on the "Internet" network 203.0.113.0/24, with the address **203.0.113.2**. (203.0.113.0/24 is a range reserved for documentation, standing in here for real public addresses.) Its firewall ruleset contains a \`table ip nat\` with two rules:
-- \`oifname "eth2" masquerade\`: everything leaving through eth2 gets rtr01's public address as source;
-- \`iifname "eth2" tcp dport 80 dnat to 10.0.20.10:80\`: web requests arriving on eth2 are sent on to srv01.
+- **rtr01** has a third interface, **eth2**, with the address **203.0.113.2** on the "Internet" network 203.0.113.0/24, which stands in for real public addresses.
+- Its ruleset has a \`table ip nat\` with two rules: \`oifname "eth2" masquerade\` and \`iifname "eth2" tcp dport 80 dnat to 10.0.20.10:80\` (web requests go to srv01).
+- **ext01** (203.0.113.80) is a host on that "Internet" with no route to any private network.
 
-**ext01** (203.0.113.80) is a host on that "Internet" with no route to any private network, just like a real Internet host.
-
-> What the simulator models: nftables NAT chains (prerouting and postrouting, masquerade, snat and dnat with an optional port), translation entries per connection that reverse replies automatically, the conntrack listing, the correct order relative to the filter hooks, and notes on each hop that show every rewrite. It does not reverse-translate ICMP error messages, and it does not model masquerade port collisions.
+> Simulated: nftables NAT chains (prerouting, postrouting, masquerade, snat, dnat with an optional port), per-connection translations that reverse replies, the conntrack listing, the order relative to the filter hooks, and per-hop notes showing every rewrite. Not simulated: reverse translation of ICMP error messages, masquerade port collisions.
 `,
 
   internals: `

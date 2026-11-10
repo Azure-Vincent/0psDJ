@@ -145,25 +145,20 @@ export const EMAIL_LESSON: Lesson = {
   summary: 'How a message travels: the MX record, the SMTP dialogue on ports 25 and 587, relay rules and logins, the queue, aliases and local delivery, and reading it back over IMAP. With Postfix\'s and Dovecot\'s logs, and the six classic ways it breaks.',
   concepts: ['mail.smtp', 'mail.imap', 'tls.pki', 'dns.zone'],
   what: `
-**Email** moves a message from a sender to a mailbox, possibly through several servers, and lets the owner read it later. Two kinds of server do the work:
-- a **mail transfer agent** (MTA, here **Postfix**) receives messages over **SMTP**, keeps them in a **queue** on disk, and delivers them: into a mailbox on the same machine, or onward to the next server;
+Two kinds of server handle **email**:
+- a **mail transfer agent** (MTA, here **Postfix**) receives messages over **SMTP**, keeps them in a **queue** on disk, and delivers them into a local mailbox or onward to the next server;
 - a **mail store** (here **Dovecot**) lets people read their mailbox over **IMAP**.
 
-Which server receives mail for a domain is published in DNS as an **MX record** ([DNS zones](#/lesson/transport/internals) work the same way for every record type). Everything is TCP, so the [ports and firewalls](#/lesson/transport/what) you already know decide who can talk to whom, and the [TLS lesson](#/lesson/tls/what) explains the certificates.
-
-### Problems it solves
-- **Store and forward.** A message is accepted, written to disk, and retried until it is delivered: a server that is down for an hour only delays mail.
-- **One address, many people.** Aliases (sales@ → dana and alice) without extra accounts.
-- **Reading from anywhere.** IMAP keeps the mailbox on the server; every device sees the same folders.
+The server that receives mail for a domain is published in DNS as an **MX record** ([DNS zones](#/lesson/transport/internals)). Everything is TCP ([ports and firewalls](#/lesson/transport/what)); certificates are covered in the [TLS lesson](#/lesson/tls/what).
 
 ### The pieces
-- **MX record**: \`corp.lab. IN MX 10 mail01.corp.lab.\`, where mail for corp.lab is delivered.
+- **MX record**: \`corp.lab. IN MX 10 mail01.corp.lab.\`
 - **Ports**: 25 (server to server), 587 (users send, after TLS and a login), 993 (users read, IMAP over TLS).
-- **Postfix**: main.cf (the settings), master.cf (the services on 25 and 587), the queue, /etc/aliases.
-- **Dovecot**: IMAP, and the password check Postfix borrows for logins on 587.
+- **Postfix**: main.cf (the settings), master.cf (the services on 25 and 587), the queue, /etc/aliases. Queued mail is retried, so a server that is down for an hour only delays mail. Aliases give one address to several people (sales@ → dana and alice).
+- **Dovecot**: IMAP, and the password check Postfix borrows for logins on 587. The mailbox stays on the server: every device sees the same folders.
 - **The mailbox**: ~/Maildir (one file per message) or /var/mail/USER (mbox, one file per user).
 
-> In the lab, **mail01** (10.0.20.25) is the corp.lab mail server: the MX record points at it. Postfix delivers into ~/Maildir/ and sends outside mail through the provider's relay, **ext01** (203.0.113.80), which also receives mail for example.net. Dovecot serves the Maildirs over IMAP. **ws01** sends with \`swaks\` and reads with \`curl imaps://\`. Simulated: main.cf (with \$name expansion) and master.cf (-o overrides), the SMTP dialogue with real replies (EHLO, STARTTLS, AUTH through Dovecot's socket, relay and recipient checks, DATA), the queue (mailq, postqueue -f, postsuper -d), aliases.db (newaliases), Maildir and mbox delivery, relaying to the relayhost or the MX, deferred mail and bounces, mail.log lines, Dovecot's configuration (!include, sections, doveconf -n), PAM logins, IMAP over TLS and STARTTLS (curl), openssl s_client -starttls smtp|imap. Simplified: no DKIM/SPF/DMARC, spam filters, milters, virtual domains, quotas or POP3; one INBOX per user; Postfix applies configuration on reload only (real smtpd processes also pick up changes when they are recycled).
+> Lab: **mail01** (10.0.20.25) is the corp.lab mail server. Postfix delivers into ~/Maildir/ and sends outside mail through the provider's relay, **ext01** (203.0.113.80), which also receives mail for example.net; Dovecot serves the Maildirs over IMAP. **ws01** sends with \`swaks\` and reads with \`curl imaps://\`. Simulated: main.cf and master.cf, the SMTP dialogue (STARTTLS, AUTH, relay and recipient checks), the queue (mailq, postqueue -f, postsuper -d), newaliases, Maildir and mbox delivery, relaying, deferred mail and bounces, mail.log, Dovecot (doveconf -n, IMAP over TLS), openssl s_client -starttls. Not simulated: DKIM/SPF/DMARC, spam filters, milters, virtual domains, quotas, POP3; Postfix applies configuration on reload only.
 
 :::practice
 Q: Which DNS record tells other servers where to deliver mail for corp.lab?

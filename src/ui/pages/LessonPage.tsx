@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ASSESSMENTS, getLesson } from '../../content/lessons';
 import { CURRICULUM } from '../../content/curriculum';
-import type { Lesson, Section } from '../../content/types';
+import type { Lesson } from '../../content/types';
 import { SECTIONS } from '../sections';
 import { DHCP_RUNS, FIREWALL_RUNS, IP_RUNS, IPV6_RUNS, KRB_RUNS, MTU_RUNS, NAT_RUNS, TLS_RUNS, TRANSPORT_RUNS, VLAN_RUNS } from '../../engine/lab/visualRuns';
 import { OUTCOME_LABELS, SSH_DEPENDENCIES, freshLab, runWithFault } from '../../engine/lab/dependencies';
@@ -76,7 +76,7 @@ function Sandbox({ specs, build = freshLab }: { specs: TermSpec[]; build?: () =>
         <h3>Sandbox (working baseline lab)</h3>
         <button onClick={() => { worldRef.current = build(); setKey((k) => k + 1); }}>Reset sandbox</button>
       </div>
-      <p className="small muted">Try the steps marked "simulated" here. alice's password on ws01 (for sudo) is <code>ws01-alice</code>. Changes only affect this sandbox.</p>
+      <p className="small muted">Try the steps marked "simulated" here. sudo password for alice on ws01: <code>ws01-alice</code>.</p>
       <LabTerminals key={key} getWorld={() => worldRef.current!} setWorld={(w) => (worldRef.current = w)} height={380}
         specs={specs} />
     </div>
@@ -191,10 +191,10 @@ function Troubleshoot({ L }: { L: Lesson }) {
         </>
       )}
       {L.scenarioIds.length === 0 ? (
-        <p className="callout small">This technology is not modelled by the simulator, so there are no interactive tickets for it. Work through the diagnostic workflow and the case studies above on a real lab VM.</p>
+        <p className="callout small">Not simulated: no interactive tickets. Use the workflow and case studies above on a real lab VM.</p>
       ) : <>
       <h2>Practice scenarios</h2>
-      <p className="muted small">Each scenario breaks the lab in a realistic way. You investigate with real commands, record a diagnosis, repair it, and the engine verifies the fix now, after a reboot of every host, and against the security policy.</p>
+      <p className="muted small">Each ticket breaks the lab. Diagnose it, fix it, and verify (now, after a reboot, and against the security policy).</p>
       <div className="grid3">
         {L.scenarioIds.map((id) => {
           const s = ALL_SCENARIOS.find((x) => x.id === id)!;
@@ -518,36 +518,9 @@ function Visualize({ L, sim }: { L: Lesson; sim?: ReactNode }) {
   return (
     <div>
       {sim}
-      {!sim && L.mode === 'reference' && <p className="callout small">The simulator does not model this technology, so these diagrams are drawn from documentation rather than generated from a running lab.</p>}
+      {!sim && L.mode === 'reference' && <p className="callout small">Not simulated: these diagrams are drawn from documentation.</p>}
       {L.guide && <ServiceDiagrams g={L.guide} />}
     </div>
-  );
-}
-
-/** What each tab answers, so the reader knows where to look. */
-const TAB_QUESTIONS: Record<Section['id'], string> = {
-  what: 'What is it, why does it matter, where will I meet it?',
-  internals: 'What happens step by step? Which components, ports and processes are involved?',
-  visualize: 'What does it look like on the wire, and what does it depend on?',
-  deploy: 'How do I install and set it up on each platform?',
-  config: 'Which files and settings control it, and what do bad values break?',
-  operate: 'How do I check, change, reload or restart it safely, and confirm it is healthy?',
-  troubleshoot: 'It is broken: where do I start, what does this error mean, and how do I tell the causes apart?',
-  assess: 'Do I understand it?',
-};
-
-function LessonMap({ L, sections }: { L: Lesson; sections: Section[] }) {
-  return (
-    <>
-      <h2>In this lesson</h2>
-      <div className="table-scroll"><table className="lesson-map">
-        <tbody>
-          {sections.filter((s) => s.id !== 'what').map((s) => (
-            <tr key={s.id}><th><a href={`#/lesson/${L.id}/${s.id}`}>{s.title}</a></th><td>{TAB_QUESTIONS[s.id]}</td></tr>
-          ))}
-        </tbody>
-      </table></div>
-    </>
   );
 }
 
@@ -575,7 +548,7 @@ export function LessonPage({ lessonId, section }: { lessonId: string; section: s
         <div className="muted small">Module {L.moduleId} · {mod?.title} · {L.level}</div>
         <h1>{L.title}</h1>
         <div className="muted">{L.summary}</div>
-        {L.mode === 'reference' && <div className="callout small" style={{ marginTop: 8 }}><strong>Reference lesson.</strong> The simulator runs Debian-style Linux hosts and the lab network only; this technology is taught from documentation and representative output from the named real platforms. Practise it on your own lab VMs.</div>}
+        {L.mode === 'reference' && <div className="callout small" style={{ marginTop: 8 }}><strong>Reference lesson.</strong> Not simulated: taught from documentation and representative output. Practise on your own lab VMs.</div>}
         {(() => {
           const labs = INTEGRATED_LABS.filter((x) => x.integrated!.after.includes(L.id));
           return labs.length ? (
@@ -597,7 +570,6 @@ export function LessonPage({ lessonId, section }: { lessonId: string; section: s
           {L.primer && <PrimerIntro p={L.primer} />}
           {L.primer && <h2 className="indepth-head">In depth</h2>}
           <Markdown text={L.what} />
-          <LessonMap L={L} sections={sections} />
         </>
       )}
       {sec === 'internals' && (
@@ -609,7 +581,7 @@ export function LessonPage({ lessonId, section }: { lessonId: string; section: s
           {L.guide && <GuideArchitecture g={L.guide} />}
           <h2>References</h2>
           <ul>{L.references.map((r) => <li key={r.url}><a href={r.url} target="_blank" rel="noreferrer">{r.title}</a></li>)}</ul>
-          <p className="small muted">Links open in your browser and need internet access; everything else in the app works offline.</p>
+          <p className="small muted">External links need internet access.</p>
         </>
       )}
       {sec === 'visualize' && <Visualize L={L} sim={w.visualize} />}

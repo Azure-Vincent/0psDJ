@@ -147,22 +147,20 @@ export const NTP_LESSON: Lesson = {
   concepts: ['ntp.sync', 'fw.path', 'svc.systemd', 'ad.kerberos'],
 
   what: `
-**NTP** (Network Time Protocol) keeps computer clocks correct. Every computer has a clock that drifts: a few milliseconds to a few seconds per day, and often worse in virtual machines. NTP clients regularly ask a time server for the time and gently correct their own clock.
 
-It may seem like a small thing, but many other services silently depend on correct time: [Kerberos](#/lesson/kerberos/what) refuses logons when clocks differ by more than 5 minutes, [TLS](#/lesson/tls/what) certificates are only valid between two dates, and logs from different machines are useless if their timestamps disagree. NTP itself is a simple UDP exchange on port 123, so it needs a route and open firewalls like any other service.
+**NTP** (Network Time Protocol) keeps computer clocks correct. A clock drifts a few milliseconds to a few seconds per day, often worse in virtual machines; NTP clients correct it gently. The exchange is UDP on port 123, so it needs a route and open firewalls like any other service.
 
 ### Problems it solves
-- **Authentication works.** Kerberos (and Active Directory logons) refuse clocks more than 5 minutes apart.
-- **Certificates validate.** A clock in the past makes new certificates "not yet valid"; one in the future makes valid ones "expired".
-- **Logs line up.** Following one request across a proxy, an application and a database is only possible if their timestamps agree.
+- **Authentication works.** [Kerberos](#/lesson/kerberos/what) (and Active Directory logons) refuse clocks more than 5 minutes apart.
+- **Certificates validate.** [TLS](#/lesson/tls/what) certificates are valid between two dates: a clock in the past makes new ones "not yet valid"; one in the future makes valid ones "expired".
+- **Logs line up.** Following one request across machines needs matching timestamps.
 - **Scheduled work and replication behave.** Cron, backups, caches, databases and directory replication assume time moves forward together everywhere.
 
 ### The pieces
-- **Time servers** arranged in **strata**: stratum 1 servers have a reference clock (GPS, atomic); a server that follows a stratum-1 server is stratum 2, and so on. In the lab, ext01 is stratum 1, rtr01 stratum 2, the clients stratum 3.
+- **Time servers** in **strata**: stratum 1 has a reference clock (GPS, atomic), a server that follows it is stratum 2, and so on. In the lab, ext01 is stratum 1, rtr01 stratum 2, the clients stratum 3.
 - **Clients**: \`systemd-timesyncd\` (simple client, Debian/Ubuntu default), \`chronyd\` (client and server, RHEL default), Windows Time (W32Time).
-- **The path**: UDP port 123 from client to server and back, through routers and firewalls.
 
-> In the lab: **ext01** (203.0.113.80) stands in for the provider's stratum-1 server, **rtr01** runs chrony 4.3 and serves the office, server and VLAN 30 networks, and every Debian machine runs systemd-timesyncd with \`NTP=rtr01.corp.lab\`. Simulated: real NTP request/reply datagrams through routing, firewalls and NAT; chrony.conf (\`server\`, \`allow\`/\`deny\`, \`local stratum\`, \`refclock\`, \`makestep\`); chronyd as client and server (selection, leap/stratum in replies, silent drops, "Can't synchronise"); timesyncd (servers in order, timeouts, rejecting unsynchronized servers); \`chronyc\` and \`timedatectl timesync-status\`; Kerberos depending on the result. Simplified: one sample per poll (no filtering, frequency estimation or falseticker detection), corrections are applied at once (except a large error without makestep), and daemons poll at start and "a few minutes later" (before a check and after reboots) rather than on a timer.
+> Lab: **ext01** (203.0.113.80) is the provider's stratum-1 server, **rtr01** (chrony 4.3) serves the office, server and VLAN 30 networks, and every Debian machine runs systemd-timesyncd with \`NTP=rtr01.corp.lab\`. Simulated: real NTP request/reply datagrams through routing, firewalls and NAT; chrony.conf (\`server\`, \`allow\`/\`deny\`, \`local stratum\`, \`refclock\`, \`makestep\`); chronyd as client and server (selection, leap/stratum in replies, silent drops, "Can't synchronise"); timesyncd (servers in order, timeouts, rejecting unsynchronized servers); \`chronyc\` and \`timedatectl timesync-status\`; Kerberos depending on the result. Simplified: one sample per poll (no filtering, frequency estimation or falseticker detection), corrections applied at once (except a large error without makestep), and daemons poll at start and "a few minutes later" (before a check and after reboots) rather than on a timer.
 
 :::practice
 Q: rtr01 follows ext01, which has a GPS clock. Which strata do ext01, rtr01 and the office clients have?
@@ -170,7 +168,6 @@ A: ext01 is stratum **1**, rtr01 stratum **2**, the clients stratum **3**.
 Q: Which NTP program is the Debian and Ubuntu default client, and which program does RHEL use?
 A: **systemd-timesyncd** on Debian/Ubuntu; **chronyd** on RHEL (it can also serve time to others).
 :::
-
 `,
 
   internals: `

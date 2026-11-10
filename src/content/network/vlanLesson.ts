@@ -9,16 +9,12 @@ export const VLAN_LESSON: Lesson = {
   concepts: ['net.vlan', 'net.arp', 'net.routing'],
 
   what: `
-A **switch** connects the computers of a local network. Normally, every port on a switch belongs to the same network: a broadcast sent by one computer, such as an ARP request ("who has 10.0.10.1?"), reaches every other port. All the devices a broadcast can reach together form one **broadcast domain**.
-
-A **VLAN** (virtual LAN) splits one physical switch into several separate broadcast domains. Computers in VLAN 10 and VLAN 20 can be plugged into the same switch, yet an ARP broadcast from VLAN 10 never reaches VLAN 20. At layer 2 they behave like two separate switches. To get from one VLAN to another, traffic has to be **routed**, by a router or a layer-3 switch, exactly like traffic between any two networks in the [IP networking lesson](#/lesson/ipnet/what). That router is also the natural place to put firewall rules between the VLANs.
-
-Think of an office building with one big open floor. VLANs are like putting up glass walls: everyone still sits on the same floor (the same switch), but each team only hears its own conversations, and to talk to another team you have to go through a door (the router).
+All the devices a broadcast (such as an ARP request) can reach form one **broadcast domain**: normally every port of a switch. A **VLAN** (virtual LAN) splits one switch into several broadcast domains. Traffic between VLANs has to be **routed**, by a router or a layer-3 switch ([IP networking](#/lesson/ipnet/what)), which is also the place for firewall rules between them.
 
 ### Why VLANs are used
-- **Separation and security**: servers, office PCs, guests, phones and management interfaces each get their own VLAN and subnet, with firewall rules controlling what may pass between them.
-- **Smaller broadcast domains**: less broadcast noise (ARP, DHCP), and a problem in one VLAN, such as a broadcast storm, stays in that VLAN.
-- **Flexibility**: which VLAN a port belongs to is configuration, not cabling. Moving a desk to another department means changing one port setting.
+- **Separation and security**: servers, office PCs, guests, phones and management interfaces each get their own VLAN and subnet, with firewall rules between them.
+- **Smaller broadcast domains**: less broadcast noise (ARP, DHCP), and a broadcast storm stays in its VLAN.
+- **Flexibility**: a port's VLAN is configuration, not cabling.
 
 :::practice
 Q: A guest Wi-Fi and the office PCs share the same switches. How do VLANs keep guests away from office servers?
@@ -28,8 +24,8 @@ A: **None.** A broadcast stays inside its own VLAN.
 :::
 
 ### Two kinds of switch ports
-- **Access port**: belongs to one VLAN. Frames go in and out **untagged** (unchanged), so the connected computer does not need to know VLANs exist. Used for PCs, printers and most servers.
-- **Trunk port**: carries several VLANs over one cable. Each frame carries an **802.1Q tag**, a small label with the VLAN number, so the device at the other end can tell the VLANs apart. Used between switches, and towards routers or hypervisors that serve several VLANs. One VLAN per trunk may travel **untagged**; it is called the *native VLAN* (or PVID on Linux).
+- **Access port**: belongs to one VLAN. Frames go in and out **untagged**. Used for PCs, printers and most servers.
+- **Trunk port**: carries several VLANs over one cable, each frame marked with an **802.1Q tag**. Used between switches, and towards routers or hypervisors that serve several VLANs. One VLAN per trunk may travel **untagged**: the *native VLAN* (or PVID on Linux).
 
 :::practice
 Q: Which port type do you use for a desktop PC, and which for the link to a hypervisor that runs VMs in VLANs 10, 20 and 30?
@@ -39,9 +35,11 @@ A: **No.** The native VLAN (PVID) travels untagged; all other VLANs on the trunk
 :::
 
 ### In the lab
-**sw01** is a Debian machine acting as a switch, using a **VLAN-aware Linux bridge** called br0, configured with ifupdown2 (the same way as Cumulus Linux or Debian). It has three VLANs: VLAN 10 for the office (ws01, ws02, ns1), VLAN 20 for servers (srv01) and VLAN 30 for development (dev01). rtr01 connects to VLANs 10 and 20 through two access ports, and to VLAN 30 through a **trunk** (its port eth3, tagged with VLAN 30), using the sub-interface **eth3.30**. A router serving VLANs over a trunk like this is called *router-on-a-stick*.
+- **sw01** is a Debian machine acting as a switch: a **VLAN-aware Linux bridge** called br0, configured with ifupdown2 (the same way as Cumulus Linux or Debian).
+- **VLANs**: 10 office (ws01, ws02, ns1), 20 servers (srv01), 30 development (dev01).
+- **rtr01** connects to VLANs 10 and 20 through two access ports, and to VLAN 30 through a **trunk** (its port eth3, tagged with VLAN 30) using the sub-interface **eth3.30**: a *router-on-a-stick*.
 
-> What the simulator models: access and trunk ports (bridge-access, bridge-vids, bridge-pvid), untagged and tagged membership, VLAN sub-interfaces on hosts (eth3.30, \`ip link add … type vlan\`), MAC learning per VLAN (bridge fdb), 802.1Q tags in \`tcpdump -e\` and in PCAP export, and the difference between runtime and saved switch configuration. Spanning tree, Q-in-Q, LACP and VLAN-unaware bridges are not modelled, and membership is treated as symmetric.
+> Simulated: access and trunk ports (bridge-access, bridge-vids, bridge-pvid), untagged and tagged membership, VLAN sub-interfaces (eth3.30, \`ip link add … type vlan\`), MAC learning per VLAN (bridge fdb), 802.1Q tags in \`tcpdump -e\` and PCAP export, runtime versus saved switch configuration. Not simulated: spanning tree, Q-in-Q, LACP, VLAN-unaware bridges; membership is treated as symmetric.
 `,
 
   internals: `

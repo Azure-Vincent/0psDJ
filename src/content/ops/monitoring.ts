@@ -153,9 +153,9 @@ export const MONITORING_LESSON: Lesson = {
   summary: 'Watch servers and network devices and get told when something is wrong: metrics and exporters, Prometheus scrapes and PromQL, alert rules, Alertmanager routing, silences and notifications, SNMP v2c and v3, baselines and alert fatigue, and the failures of each link.',
   concepts: ['mon.metrics', 'mon.alerting', 'mon.snmp', 'fw.path'],
   what: `
-A **monitoring system** keeps an eye on every machine and service, all the time, and tells a person when something needs attention. It answers questions like "is srv01 up?", "how full is bak01's backup disk, and when will it be full?", "did last night's backups run?", "which router interface went down?". Good monitoring finds problems **before** the users do, and keeps the **history** needed to understand an incident afterwards.
+A **monitoring system** answers questions such as "is srv01 up?", "when will bak01's backup disk be full?" and "did last night's backups run?". It should find problems **before** the users do, and it keeps the **history** needed to understand an incident afterwards.
 
-Monitoring reads the same things you would check by hand: services ([systemd](#/lesson/systemd/what)), disks, interfaces, logs ([central logging](#/lesson/logging/what) is its neighbour), backups ([restic](#/lesson/backup/what)). It just does it every few seconds, everywhere, and remembers the results.
+It reads what you would check by hand: services ([systemd](#/lesson/systemd/what)), disks, interfaces, logs ([central logging](#/lesson/logging/what)), backups ([restic](#/lesson/backup/what)).
 
 ### Metrics, logs and checks
 - **Metrics**: numbers over time (free disk space, requests per second, a service's state). Cheap to collect and store, good for trends, thresholds and graphs.
@@ -170,7 +170,8 @@ A: Users notice late, report vaguely, and nobody tells you about problems that h
 :::
 
 ### Pull and push
-**Prometheus pulls**: it connects to every target and fetches (**scrapes**) its metrics. **SNMP** polling also pulls; **SNMP traps**, syslog and many agents **push** to a central server. Pulling means the monitoring server knows when a target stops answering (up = 0); pushing works through firewalls that only allow outgoing connections.
+- **Pull**: **Prometheus** connects to every target (node_exporter on TCP 9100) and fetches (**scrapes**) its metrics; **SNMP** polling also pulls. The server knows when a target stops answering (up = 0).
+- **Push**: **SNMP traps**, syslog and many agents send to a central server. Works through firewalls that only allow outgoing connections.
 
 :::practice
 Q: A target stops answering. Which model notices this directly: pull or push?
@@ -180,13 +181,20 @@ A: TCP **9100**.
 :::
 
 ### The pieces
-- **Exporters** on the targets: node_exporter serves a machine's metrics on :9100.
+- **Exporters**: node_exporter serves a machine's metrics on :9100.
 - **Prometheus**: scrapes, stores time series, evaluates **rules**.
 - **Alertmanager**: turns firing alerts into notifications (group, silence, route, send).
 - **SNMP** agents (snmpd) on devices, polled by a manager.
 - **Dashboards** (Grafana) draw the time series; this lab uses PromQL from the command line.
 
-> In the lab, **mon01** (10.0.20.55) runs **Prometheus** (:9090) and **Alertmanager** (:9093). **node_exporter** runs on srv01, db01, fs01, mail01, bak01, log01 and mon01; each server's firewall lets only mon01 reach TCP 9100. Six alert rules watch availability, disks, load, time, failed units and backup age (the backup jobs publish their last success through the textfile collector). Pages (severity=page) go to **oncall@corp.lab**, tickets to **ops-tickets@corp.lab**, both delivered by **mail01** into the ops mailbox. mon01 polls **rtr01** by **SNMP** (community corp-mon, or the v3 user monitor). **Lab 9** brings a new server under monitoring. Simulated: node_exporter 1.5 (cpu, meminfo, loadavg, filesystem with the backup disk, netdev, time, timex, uname, systemd with unit-include, textfile, flags from /etc/default), Prometheus 2.42 (prometheus.yml with global/scrape_configs/rule_files/alerting validated like the real loader, scrapes over the simulated network with Go's error texts, up and scrape_duration_seconds, external labels, reload versus restart, the HTTP API for query, targets, alerts, rules), a PromQL subset (selectors, offset, arithmetic and comparison with bool and on/ignoring, and/or/unless, sum/avg/min/max/count/topk by/without, rate, increase, irate, *_over_time, predict_linear, absent, time, label_replace, ALERTS), rules with for, labels and templated annotations, Alertmanager 0.25 (routes with matchers, group_by/group_wait/group_interval/repeat_interval, inhibit rules, silences kept across restarts, email through the smarthost with STARTTLS, logged failures), promtool and amtool, net-snmp 5.9.3 snmpd (agentaddress, views, rocommunity with source, createUser/rouser with security levels) with the system, IF-MIB and HOST-RESOURCES trees, snmpget/snmpwalk/snmpbulkwalk with Debian's MIB setting. Simplified: Prometheus keeps only the last few samples per series (range functions see minutes, not days); no Grafana, remote storage, service discovery, recording-rule chains or SNMP traps; SNMP values beyond the listed tables are absent.
+In the lab:
+- **mon01** (10.0.20.55) runs **Prometheus** (:9090) and **Alertmanager** (:9093).
+- **node_exporter** runs on srv01, db01, fs01, mail01, bak01, log01 and mon01; each server's firewall lets only mon01 reach TCP 9100.
+- Six alert rules watch availability, disks, load, time, failed units and backup age (the backup jobs publish their last success through the textfile collector).
+- Pages (severity=page) go to **oncall@corp.lab**, tickets to **ops-tickets@corp.lab**, both delivered by **mail01** into the ops mailbox.
+- mon01 polls **rtr01** by **SNMP** (community corp-mon, or the v3 user monitor). **Lab 9** brings a new server under monitoring.
+
+> Simulated: node_exporter 1.5 (including the systemd and textfile collectors), Prometheus 2.42 (prometheus.yml validation, scrapes, reload versus restart, the HTTP API), a PromQL subset (selectors, operators, aggregations, rate, increase, *_over_time, predict_linear, absent), alert rules, Alertmanager 0.25 (routes, grouping, inhibit rules, silences, email), promtool and amtool, net-snmp 5.9.3 (snmpd with v2c communities and v3 users, snmpget/snmpwalk/snmpbulkwalk). Not simulated: long history (only the last few samples per series are kept), Grafana, remote storage, service discovery, SNMP traps.
 
 :::practice
 Q: In the lab, where does a page for "srv01 is down" end up?

@@ -9,17 +9,16 @@ export const DHCP_LESSON: Lesson = {
   concepts: ['net.dhcp', 'net.arp', 'net.routing', 'dns.resolution'],
 
   what: `
-In the [IP networking lesson](#/lesson/ipnet/what) you saw that every computer needs an address, a prefix, a default gateway and, to use names, a DNS server. Typing these in by hand works for a few servers, but not for hundreds of laptops, phones and printers that come and go. **DHCP** (Dynamic Host Configuration Protocol, RFC 2131) solves this: a computer that has no network settings asks the network for them, and a **DHCP server** answers.
-
-The server hands out:
-- an **address**, either from a **pool** (a range of addresses it may give away) or from a **reservation** (a fixed address kept for one particular device, recognised by its MAC address);
-- **options**: the subnet mask, the default **router** (gateway), the **DNS servers**, the domain name;
-- a **lease time**: how long the client may keep the address before it has to ask again (**renew**).
-
-Think of it as a hotel reception: you arrive with nothing, ask at the desk, and get a room number (the address), directions to the lift (the gateway) and the phone number of the concierge (DNS), for a fixed number of nights (the lease).
+A **DHCP** server (Dynamic Host Configuration Protocol, RFC 2131) hands out:
+- an **address**, from a **pool** (a range it may give away) or a **reservation** (a fixed address for one device, recognised by its MAC address);
+- **options**: subnet mask, default **router** (gateway), **DNS servers**, domain name;
+- a **lease time**, after which the client must **renew**.
 
 ### Why it matters
-Nearly every laptop, phone, printer and virtual machine uses DHCP. When it fails, the symptoms rarely mention DHCP. The client ends up with **no address**, with a **169.254.x.x** address (a "link-local" address that Windows and some Linux systems give themselves when nobody answers), or with an address but a **wrong gateway or DNS server**. That last case looks exactly like a routing or DNS problem, which is why it helps to know what DHCP hands out.
+A DHCP failure rarely mentions DHCP. The client ends up with:
+- **no address**;
+- a **169.254.x.x** "link-local" address, which Windows and some Linux systems give themselves when nobody answers;
+- an address but a **wrong gateway or DNS server**, which looks like a routing or DNS problem.
 
 :::practice
 Q: A laptop has an address in the right network and can reach local printers, but no web sites by name or by address. DHCP is used. Which handed-out setting is most likely wrong?
@@ -31,7 +30,7 @@ A: **169.254.x.x**: the link-local address a client gives itself when no server 
 ### Where it runs
 - **Client**: dhclient (ISC, used by Debian's ifupdown), systemd-networkd or NetworkManager on Linux; the DHCP Client service on Windows.
 - **Server**: ISC dhcpd (the package \`isc-dhcp-server\`, used in this lab), its successor **Kea**, dnsmasq, the Windows Server DHCP role, and most routers and firewalls.
-- DHCP travels over **UDP** (see [Transport and DNS](#/lesson/transport/what)): the server listens on port **67**, the client on port **68**.
+- **Transport**: [UDP](#/lesson/transport/what). The server listens on port **67**, the client on port **68**.
 
 :::practice
 Q: Which ports must a firewall allow for a DHCP server that uses ordinary UDP sockets, and in which direction?
@@ -41,11 +40,11 @@ A: **dhclient** (started by ifupdown).
 :::
 
 ### In the lab
-ns1 (10.0.10.53) runs isc-dhcp-server for the office network 10.0.10.0/24. It hands out 10.0.10.100–150, with router 10.0.10.1 and DNS server 10.0.10.53. The laptop **ws02** is configured with \`iface eth0 inet dhcp\` and gets its address at boot.
+- **Office (10.0.10.0/24)**: ns1 (10.0.10.53) runs isc-dhcp-server and hands out 10.0.10.100–150, router 10.0.10.1, DNS server 10.0.10.53. The laptop **ws02** (\`iface eth0 inet dhcp\`) gets its address at boot.
+- **Development (VLAN 30)**: no DHCP server. **rtr01** runs a **DHCP relay agent** (isc-dhcp-relay) that passes requests to ns1. The hot-desk laptop **dev02** gets an address in 10.0.30.100–150, router 10.0.30.1.
+- Leases last only 600 seconds, so you can watch renewals (\`sleep 300\` lets simulated time pass).
 
-The development network, VLAN 30, has no DHCP server of its own. Instead, **rtr01** runs a **DHCP relay agent** (isc-dhcp-relay), which passes requests from VLAN 30 on to ns1. That is how the hot-desk laptop **dev02** gets an address in 10.0.30.100–150 with router 10.0.30.1. Leases in the lab last only 600 seconds, so you can watch renewals happen (\`sleep 300\` lets simulated time pass).
-
-> What the simulator models: DISCOVER, OFFER, REQUEST, ACK and NAK with real BOOTP encoding (exportable as PCAP); the relay agent (giaddr, hops, forwarding to the server and back, \`-id\`/\`-iu\`); lease timers (renewal by unicast at T1, rebinding by broadcast at T2, expiry, retries every 5 minutes); INIT-REBOOT with a remembered lease; DHCPRELEASE; packet sockets that bypass host firewalls; dhcpd.conf parsing (subnets, ranges, router/DNS/domain options, host reservations, lease times, authoritative); the dhcpd.leases file; and dhclient applying the lease (address with lifetime, default route, resolv.conf). Not modelled: DECLINE/INFORM, the broadcast flag, relay agent information (option 82), failover. DHCPv6 is taught and simulated in the [IPv6 lesson](#/lesson/ipv6/what).
+> Simulated: DISCOVER, OFFER, REQUEST, ACK and NAK with real BOOTP encoding (PCAP export); the relay agent (giaddr, hops, \`-id\`/\`-iu\`); lease timers (T1 renewal, T2 rebinding, expiry, retries every 5 minutes); INIT-REBOOT; DHCPRELEASE; packet sockets that bypass host firewalls; dhcpd.conf (subnets, ranges, options, reservations, lease times, authoritative); dhcpd.leases; dhclient applying the lease. Not simulated: DECLINE/INFORM, the broadcast flag, option 82, failover; DHCPv6 is in the [IPv6 lesson](#/lesson/ipv6/what).
 `,
 
   internals: `

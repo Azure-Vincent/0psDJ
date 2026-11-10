@@ -11,10 +11,10 @@ export function PrimerIntro({ p }: { p: Primer }) {
   return (
     <div className="primer">
       <div className="callout primer-oneliner"><strong>In short.</strong> <Inline text={p.oneLiner} /></div>
-      <div className="card primer-analogy">
-        <h3>Think of it like this</h3>
+      <details className="card primer-analogy">
+        <summary>Analogy</summary>
         <Markdown text={p.analogy} />
-      </div>
+      </details>
       <h2>Key ideas</h2>
       <ol className="primer-ideas">
         {p.ideas.map((idea, i) => (
@@ -67,7 +67,7 @@ export function PrimerChecks({ p }: { p: Primer }) {
   return (
     <div className="primer">
       <h2>Check yourself</h2>
-      <p className="small muted">Answer in your head first, then reveal. These are not graded; the Assessment tab is.</p>
+      <p className="small muted">Answer first, then reveal. Not graded.</p>
       {p.checks.map((c, i) => (
         <div key={i} className="card primer-check">
           <div><strong>Q{i + 1}.</strong> <Inline text={c.q} /></div>

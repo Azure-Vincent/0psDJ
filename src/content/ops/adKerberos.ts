@@ -189,15 +189,13 @@ export const AD_KERBEROS_LESSON: Lesson = {
   concepts: ['ad.dns', 'ad.kerberos', 'ad.gpo', 'win.services', 'dns.resolution', 'dns.zone', 'tcp.handshake', 'ops.recovery'],
 
   what: `
-In a small office, each computer can keep its own list of users and passwords. With hundreds of computers that becomes impossible: every new employee, password change or departure would have to be repeated everywhere. **Active Directory Domain Services (AD DS)** solves this with one central directory.
+**Active Directory Domain Services (AD DS)** is Microsoft's **directory service**: one central database of users, groups, computers, service accounts and Group Policy Objects, instead of a user list on every computer. **Domain controllers (DCs)** hold it and replicate it between them. A **joined** computer trusts the DCs to check users' passwords; the DCs trust the computer through its **machine password**.
 
-AD DS is Microsoft's **directory service**: a database of users, groups, computers, service accounts and Group Policy Objects, kept on servers called **domain controllers (DCs)** and copied (replicated) between them. A Windows computer that is **joined** to the domain trusts the DCs to check users' passwords, and the DCs trust the computer through a password of its own, the **machine password**.
-
-Active Directory is built on technologies from earlier lessons: [DNS](#/lesson/transport/what) (clients find domain controllers through special DNS records), [Kerberos](#/lesson/kerberos/what) (for logons and single sign-on), [time synchronisation](#/lesson/ntp/what) (Kerberos refuses clocks more than 5 minutes apart), and plain network reachability to the DC's ports. When any of these breaks, domain logons break with it.
+AD depends on [DNS](#/lesson/transport/what) (to find DCs), [Kerberos](#/lesson/kerberos/what) (logons and single sign-on), [time synchronisation](#/lesson/ntp/what) (Kerberos refuses clocks more than 5 minutes apart) and network reachability to the DC's ports. If any of these breaks, domain logons break.
 
 ### What a domain gives you
-- **One identity everywhere.** \`CORP\\dana\` logs on to any joined PC, opens file shares, intranet sites and RDP sessions without typing her password again (single sign-on through Kerberos).
-- **Central authorisation.** Security groups end up in the user's access token and are checked by every server's ACLs and user rights.
+- **One identity everywhere.** \`CORP\\dana\` logs on to any joined PC and opens file shares, intranet sites and RDP sessions without typing her password again (single sign-on through Kerberos).
+- **Central authorisation.** Security groups end up in the user's access token, which every server's ACLs and user rights check.
 - **Central configuration.** Group Policy pushes security baselines, drive mappings, firewall rules and software settings to thousands of machines.
 
 :::practice
@@ -209,7 +207,7 @@ A: **Group Policy**: GPOs linked to the domain or OUs push the settings to every
 
 ### The services on a domain controller
 - **AD DS** (service \`NTDS\`): the database \`ntds.dit\`, LDAP on 389/636, Global Catalog on 3268/3269, multi-master replication.
-- **DNS Server** (service \`DNS\`): usually installed on every DC, hosting **AD-integrated zones** (\`corp.lab\` and \`_msdcs.corp.lab\`) stored in the directory and replicated with it.
+- **DNS Server** (service \`DNS\`): usually on every DC, hosting **AD-integrated zones** (\`corp.lab\` and \`_msdcs.corp.lab\`) stored in the directory and replicated with it.
 - **Kerberos Key Distribution Center** (service \`Kdc\`): issues tickets on port 88.
 - **Netlogon**: registers the DC's DNS records, answers DC-locator pings, maintains secure channels and handles NTLM pass-through.
 - **DFS Replication** (\`DFSR\`): replicates the **SYSVOL** folder that holds GPO files and logon scripts.
@@ -225,7 +223,9 @@ A: **DFS Replication (DFSR)**, which replicates SYSVOL separately from the AD da
 ### Where you meet it
 Almost every organisation with Windows clients: logons, file servers, Exchange/SQL/IIS with integrated authentication, RDP to servers, VPN and Wi-Fi (RADIUS/NPS) authentication, and Linux servers joined with SSSD.
 
-> Example output in this lesson is representative of **Windows Server 2022** DCs (\`dc01\` 10.0.20.5 holds the FSMO roles, \`dc02\` 10.0.20.6), **Windows 11 23H2** clients, and Ubuntu 24.04 / RHEL 9 members, in the lab plan's domain \`corp.lab\` (NetBIOS name \`CORP\`). Windows Server 2019 behaves the same for everything shown.\n>\n> **In the simulator** the domain is **ad.corp.lab** (NetBIOS \`CORP\`) with one DC, **dc01** (10.0.20.5, AD DS and DNS forwarding to ns1), and the member server **win01**. The sandbox below, the domain tickets and **Lab 2** use it: DC location through SRV records, domain join and the secure channel, Remote Desktop logons (NLA with NTLM pass-through, then the logon with Kerberos tickets from dc01's KDC, falling back to NTLM when no KDC answers), the 5-minute clock skew and the Windows Time service synchronising members from the DC, SPNs, lockout, and the tools (\`Get-ADUser\`, \`Get-DnsServerResourceRecord\`, \`nltest\`, \`Test-ComputerSecureChannel\`, \`klist\` with \`-li 0x3e7\`, \`get\` and \`purge\`, \`setspn\`, \`w32tm /query\`, \`/resync\` and \`/stripchart\`; Security events 4768/4769/4771 on the DC). Replication between DCs, constrained delegation, Kerberos armoring, RC4/DES and sssd members are not simulated.
+> Example output: **Windows Server 2022** DCs (\`dc01\` 10.0.20.5 holds the FSMO roles, \`dc02\` 10.0.20.6), **Windows 11 23H2** clients and Ubuntu 24.04 / RHEL 9 members in \`corp.lab\` (NetBIOS name \`CORP\`); Windows Server 2019 behaves the same.
+>
+> Simulated (sandbox, domain tickets, **Lab 2**): the domain **ad.corp.lab** (NetBIOS \`CORP\`) with one DC, **dc01** (10.0.20.5, AD DS and DNS forwarding to ns1), and the member server **win01**; DC location through SRV records, domain join and the secure channel, Remote Desktop logons (NLA with NTLM pass-through, then Kerberos tickets from dc01's KDC, falling back to NTLM when no KDC answers), the 5-minute clock skew, Windows Time synchronising members from the DC, SPNs, lockout, and the tools (\`Get-ADUser\`, \`Get-DnsServerResourceRecord\`, \`nltest\`, \`Test-ComputerSecureChannel\`, \`klist\` with \`-li 0x3e7\`, \`get\` and \`purge\`, \`setspn\`, \`w32tm /query\`, \`/resync\` and \`/stripchart\`; Security events 4768/4769/4771 on the DC). Not simulated: replication between DCs, constrained delegation, Kerberos armoring, RC4/DES, sssd members.
 `,
 
   internals: `

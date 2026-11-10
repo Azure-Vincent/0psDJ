@@ -155,22 +155,20 @@ export const WEBPROXY_LESSON: Lesson = {
   concepts: ['web.proxy', 'tcp.handshake', 'dns.resolution', 'svc.listening', 'fw.path', 'svc.systemd'],
 
   what: `
-A **web server** answers HTTP requests, either from files on disk (static content) or by handing the request to an application. A **reverse proxy** is a web server placed **in front of** other servers: clients only ever talk to the proxy, and the proxy forwards each request to the right server behind it (the **backend**, or **upstream**) and passes the answer back.
 
-Think of a hotel reception desk: guests only talk to the receptionist, who passes each request to the right department and brings back the answer. The guest never needs to know where the kitchen is.
+A **web server** answers HTTP requests from files on disk (static content) or by handing the request to an application. A **reverse proxy** is a web server placed **in front of** other servers: it forwards each request to the right server behind it (the **backend**, or **upstream**) and passes the answer back.
 
-Every request through a proxy is really two separate connections: client to proxy, and proxy to backend. Each one needs DNS, a route, open firewalls and a listening service ([Transport and DNS](#/lesson/transport/what)), and with HTTPS also a valid certificate ([TLS](#/lesson/tls/what)). Most proxy troubleshooting comes down to finding out which of the two connections is broken.
+Each of the two connections (client to proxy, proxy to backend) needs DNS, a route, open firewalls and a listening service ([Transport and DNS](#/lesson/transport/what)), and with HTTPS also a valid certificate ([TLS](#/lesson/tls/what)).
 
 ### Problems it solves
 - **One name, many applications.** \`apps.corp.lab/inventory/\`, \`/wiki/\`, \`/grafana/\` can live on different machines and ports, behind one host name and one TLS certificate.
-- **Backends stay private.** Only the proxy needs to reach the application servers; their firewalls can allow the proxy and nothing else.
+- **Backends stay private.** Their firewalls can allow the proxy and nothing else.
 - **One place for HTTP policy.** TLS, redirects, access logs, rate limits, maintenance pages, client authentication.
 - **Load balancing and maintenance.** An \`upstream\` group spreads requests over several backends and skips one that refuses connections.
 
-### Where you meet it
-In front of almost every internal web application, container platform and API: nginx, Apache \`mod_proxy\`, HAProxy, Traefik, IIS with ARR, cloud load balancers. When "the website is down", the question is always **which hop**: the client to the proxy, or the proxy to the backend.
+Common implementations: nginx, Apache \`mod_proxy\`, HAProxy, Traefik, IIS with ARR, cloud load balancers.
 
-> In the lab, **srv01** (10.0.20.10, nginx 1.22.1 on Debian 12) serves the intranet site and, as \`apps.corp.lab\` (a CNAME for srv01), proxies \`/inventory/\` to the inventory API on **dock01** (10.0.20.40:8000, a Docker Compose project). The sandbox and the five tickets run there. Simulated: server and location selection (exact and prefix locations), \`proxy_pass\` with and without a URI, \`upstream\` groups (tried in order), \`proxy_set_header Host\`, \`proxy_connect_timeout\`, load-time resolution of upstream names, the proxy's own TCP connection (so firewalls, routes and refusals apply to it), 502/504 pages and nginx's error.log lines. Not simulated: regex locations, \`proxy_read_timeout\` and slow backends, buffering, caching, WebSockets, HTTP/2, \`sites-enabled\` includes and SELinux.
+> Lab: **srv01** (10.0.20.10, nginx 1.22.1 on Debian 12) serves the intranet site and, as \`apps.corp.lab\` (a CNAME for srv01), proxies \`/inventory/\` to **dock01** (10.0.20.40:8000, a Docker Compose project). Simulated: server and location selection (exact and prefix locations), \`proxy_pass\` with and without a URI, \`upstream\` groups (tried in order), \`proxy_set_header Host\`, \`proxy_connect_timeout\`, load-time resolution of upstream names, the proxy's own TCP connection (so firewalls, routes and refusals apply to it), 502/504 pages and nginx's error.log lines. Not simulated: regex locations, \`proxy_read_timeout\` and slow backends, buffering, caching, WebSockets, HTTP/2, \`sites-enabled\` includes and SELinux.
 `,
 
   internals: `

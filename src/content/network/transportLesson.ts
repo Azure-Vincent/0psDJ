@@ -9,16 +9,13 @@ export const TRANSPORT_LESSON: Lesson = {
   concepts: ['tcp.handshake', 'svc.listening', 'dns.resolution', 'dns.zone', 'net.icmp'],
 
   what: `
-The [IP networking lesson](#/lesson/ipnet/what) showed how a packet finds its way to the right **computer**. But a server runs many programs at once: an SSH server, a web server, perhaps a DNS server. Something has to deliver the data to the right **program** on that computer. That is the job of the **transport layer**, with its two protocols, **TCP** and **UDP**.
-
-People also do not type IP addresses; they type names like srv01.corp.lab. **DNS** (the Domain Name System) turns those names into the addresses IP needs. This lesson covers both, because almost every "cannot connect" problem is either a name that does not resolve or a connection that does not get through, and you need to tell the two apart quickly.
+The **transport layer** (**TCP** and **UDP**) sits on top of [IP](#/lesson/ipnet/what); **DNS** is the Domain Name System. Almost every "cannot connect" problem is either a name that does not resolve or a connection that does not get through.
 
 ### Ports and sockets
-A **port** is a number from 0 to 65535 that identifies one program's "door" on a computer. Some numbers are conventions everyone uses: 22 for SSH, 53 for DNS, 80 and 443 for web (HTTP and HTTPS), 3389 for Remote Desktop.
-
-A server program **listens** on a port: it asks the operating system to hand it any connection that arrives for that port. The combination of protocol, IP address and port is called a **socket**. For example, the SSH server (sshd) listens on the socket TCP 0.0.0.0:22. The address 0.0.0.0 means "every address this computer has".
-
-The client needs a port too, so the replies can find their way back to it. Its kernel picks a temporary one, called an **ephemeral port** (on Linux, a number between 32768 and 60999). One connection is then identified by five values, the **5-tuple**: protocol, source IP, source port, destination IP and destination port. Because each client uses a different source port, thousands of clients can talk to the same server port at the same time without mixing up their data.
+- **Port**: a number from 0 to 65535. Conventions: 22 SSH, 53 DNS, 80 and 443 web (HTTP and HTTPS), 3389 Remote Desktop.
+- **Socket**: protocol, IP address and port together. sshd listens on TCP 0.0.0.0:22; 0.0.0.0 means "every address this computer has".
+- **Ephemeral port**: the client's temporary source port (on Linux, 32768 to 60999).
+- **5-tuple**: protocol, source IP, source port, destination IP and destination port. It identifies one connection; each gets its own source port.
 
 :::practice
 Q: \`ss -tln\` shows a line with \`0.0.0.0:443\`. What does it mean, and from where can clients reach it?
@@ -28,8 +25,6 @@ A: Their **source ports**: each connection gets its own ephemeral port, so the 5
 :::
 
 ### TCP and UDP
-The two transport protocols make very different promises:
-
 | | TCP | UDP |
 |---|---|---|
 | Starting a conversation | a 3-way handshake first; an explicit close at the end | none: just send |
@@ -37,8 +32,6 @@ The two transport protocols make very different promises:
 | Order and flow control | delivers bytes in order; the receiver's window limits the pace | no ordering, no flow control |
 | Typical uses | SSH, HTTP, SMB, LDAP, RDP | DNS queries, NTP, DHCP, syslog, voice |
 | If nothing listens on the port | the server answers with a reset (RST): "Connection refused" | ICMP port unreachable (or no answer at all) |
-
-Think of TCP as a phone call: you dial, the other side picks up, you talk, and you notice when the line drops. UDP is more like a postcard: quick and cheap, but nobody tells you if it got lost.
 
 :::practice
 Q: Which transport protocol do NTP, DHCP and syslog over port 514 normally use, and what does the application have to do about lost packets?
@@ -48,9 +41,12 @@ A: Just a **timeout**: UDP has no RST. Without the ICMP port unreachable message
 :::
 
 ### DNS in a nutshell
-When a program needs an address for a name, it calls a standard library function, \`getaddrinfo()\`. That function, called the **stub resolver**, first checks the local file \`/etc/hosts\`. If the name is not there, it asks the DNS servers listed in \`/etc/resolv.conf\`, usually over UDP port 53 (TCP for large answers). For short names like "srv01" it also tries adding the **search domains** from that file, so "srv01" becomes "srv01.corp.lab".
+Programs resolve names through the library function \`getaddrinfo()\`, the **stub resolver**:
+1. It checks \`/etc/hosts\`.
+2. If the name is not there, it asks the DNS servers in \`/etc/resolv.conf\`, usually over UDP port 53 (TCP for large answers).
+3. To short names it adds the **search domains** from that file: "srv01" becomes "srv01.corp.lab".
 
-> What the simulator models: the TCP handshake, resets, SYN retransmission with growing waits, data segments with sequence and acknowledgement numbers, and the FIN close; UDP; ICMP port unreachable; and a glibc-style resolver talking to a BIND-style DNS server. It does not model TCP congestion control or window behaviour.
+> Simulated: TCP handshake, resets, SYN retransmission with growing waits, sequence and acknowledgement numbers, FIN close; UDP; ICMP port unreachable; a glibc-style resolver and a BIND-style DNS server. Not simulated: TCP congestion control and window behaviour.
 
 :::practice
 Q: Which file does the stub resolver check before asking any DNS server?

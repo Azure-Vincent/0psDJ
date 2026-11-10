@@ -9,18 +9,16 @@ export const NFTABLES_LESSON: Lesson = {
   concepts: ['fw.stateful', 'fw.path', 'fw.persistence', 'net.cidr', 'net.icmp', 'tcp.handshake', 'svc.listening'],
 
   what: `
-A **firewall** decides, packet by packet, what network traffic is allowed. **nftables** is the firewall built into the Linux kernel (since version 3.13), and the default on Debian 10+, RHEL 8+ and Ubuntu 21.10+. It replaces the older tools iptables, ip6tables, arptables and ebtables with one rule language and one command, \`nft\`.
+**nftables** is the firewall built into the Linux kernel (since version 3.13) and the default on Debian 10+, RHEL 8+ and Ubuntu 21.10+. It replaces iptables, ip6tables, arptables and ebtables with one rule language and one command, \`nft\`.
 
-A host firewall answers one question for every packet: **should this packet be allowed to reach this machine, leave it, or pass through it?** You write **rules**, grouped into **chains** (lists checked in order), and each rule says what to match (an address, a port, a protocol) and what to do with a match: **accept**, **drop** (discard silently) or **reject** (discard and tell the sender). Whatever no rule matched gets the chain's **policy**, its default verdict.
-
-It builds on what you learned about [addresses and routing](#/lesson/ipnet/what) and [ports and TCP](#/lesson/transport/what): rules match exactly those fields. A firewall is used to:
+Each rule matches fields you know from [addresses and routing](#/lesson/ipnet/what) and [ports and TCP](#/lesson/transport/what) (an address, a port, a protocol) and gives a verdict: **accept**, **drop** or **reject**. A firewall is used to:
 - Expose only the services a server is meant to offer (default-deny inbound).
 - Separate networks on a Linux router or firewall (what may cross from the LAN to the servers).
 - Rate-limit, log and count traffic, and translate addresses (NAT).
 
 ### Where you meet it
 - Directly, as \`/etc/nftables.conf\` on Debian servers and routers.
-- Underneath **firewalld** (RHEL, Fedora), **UFW** (Ubuntu, through iptables-nft), Docker and Kubernetes networking, and appliances such as OPNsense-like Linux firewalls.
+- Underneath **firewalld** (RHEL, Fedora), **UFW** (Ubuntu, through iptables-nft), Docker and Kubernetes networking, and Linux firewall appliances.
 - Through \`iptables\` commands that are really **iptables-nft**: a compatibility front-end writing nftables rules.
 
 :::practice
@@ -32,10 +30,10 @@ A: **firewalld**.
 
 ### What it is not
 - It does not make a closed service reachable: if nothing listens on a port, the kernel answers RST regardless of the firewall.
-- It only sees packets that reach the machine. Traffic blocked on a router never arrives, so the server's firewall counters stay at zero.
+- It only sees packets that reach the machine. Traffic blocked on a router never arrives, so the server's counters stay at zero.
 - It is not the only filter on the path: the client's output chain, every router's forward chain and the server's input chain all have a say.
 
-> The lab uses nftables 1.0.6 on Debian 12. The simulator implements the tables/chains/rules model, the ip and inet families, conntrack states, counters, log, accept/drop/reject/jump/return verdicts and the text formats of \`nft list ruleset\` and \`/etc/nftables.conf\`.
+> Simulated (nftables 1.0.6 on Debian 12): tables/chains/rules, the ip and inet families, conntrack states, counters, log, accept/drop/reject/jump/return verdicts and the text formats of \`nft list ruleset\` and \`/etc/nftables.conf\`.
 
 :::practice
 Q: A port is allowed in the input chain, but clients get "Connection refused". Can the firewall be the cause?
@@ -43,7 +41,6 @@ A: Not if it has no reject rule for it: "refused" with an allowing rule means **
 Q: A server's input chain counters for port 443 stay at 0 while a client tests. What does that tell you?
 A: Either the packets never **reached** the server (a router's forward chain, the client's output chain or routing stopped them on the way), or an **earlier rule** in the same input chain dropped them before the port 443 rule. tcpdump on the server tells the two apart; \`nft -a list ruleset\` shows which counter moved.
 :::
-
 `,
 
   internals: `

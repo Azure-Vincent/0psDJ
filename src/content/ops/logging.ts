@@ -143,14 +143,12 @@ export const LOGGING_LESSON: Lesson = {
   concepts: ['logs.central', 'logs.journal', 'fw.path', 'svc.listening'],
 
   what: `
-**Central logging** sends a copy of every server's log messages to a dedicated **log server** as they are written.
 
-Each server already keeps its own logs (in the systemd journal and in files under /var/log, see the [systemd lesson](#/lesson/systemd/what)). Central logging adds a copy elsewhere, sent over the network with the **syslog** protocol on port 514. So it depends on the same things as any network service: a route, open firewalls and a listening receiver ([Transport and DNS](#/lesson/transport/what)), and on synchronized [clocks](#/lesson/ntp/what) so that timestamps from different machines can be compared.
+**Central logging** adds a network copy of each server's local logs (the systemd journal and files under /var/log, see the [systemd lesson](#/lesson/systemd/what)) on a dedicated **log server**. It depends on a route, open firewalls and a listening receiver ([Transport and DNS](#/lesson/transport/what)), and on synchronized [clocks](#/lesson/ntp/what) so that timestamps from different machines can be compared.
 
 ### Problems it solves
-- **Evidence survives.** A crashed, rebuilt or compromised server loses or alters its local logs; the copy on the log server stays.
-- **One place to look.** Searching "who logged in where last night" across 20 servers is one grep (or one SIEM query), not 20 SSH sessions.
-- **Correlation.** Following an incident across a firewall, a proxy, an application and a database needs their logs side by side (and synchronized clocks).
+- **One place to look.** "Who logged in where last night" across 20 servers is one grep (or one SIEM query), not 20 SSH sessions.
+- **Correlation.** An incident across a firewall, a proxy, an application and a database needs their logs side by side.
 - **Alerting.** A SIEM can only alert on what it receives: brute-force attempts, sudo use, service failures.
 
 ### The pieces
@@ -159,7 +157,7 @@ Each server already keeps its own logs (in the systemd journal and in files unde
 - **The log server**: rsyslog with an **input** (imudp/imtcp on port 514) that files incoming messages per host.
 - **Transport**: syslog over UDP or TCP 514 (TLS 6514, RELP 2514).
 
-> In the lab, **log01** (10.0.20.50) is the log server: rsyslog receives on TCP and UDP 514 and writes /var/log/remote/HOST/PROGRAM.log. **rtr01, ns1, srv01 and dock01** run rsyslog with Debian's default rules plus /etc/rsyslog.d/50-central.conf, which forwards everything over TCP with a memory queue. Simulated: rsyslog.conf and its includes (module/input, legacy $ directives, selectors with ;, none, =, !, files, @/@@ and action(type="omfwd"), templates with %HOSTNAME%/%PROGRAMNAME%, property filters, & stop), facilities derived from the program (sshd: auth, sudo/PAM: authpriv), real syslog traffic on UDP/TCP 514 through routers and firewalls, suspended/resumed actions and queues, \`logger\` and \`rsyslogd -N1\`. Simplified: forwarding happens between commands (in the background) rather than continuously, one TCP connection per batch, no TLS/RELP, no rate limiting, no log rotation.
+> Lab: **log01** (10.0.20.50) receives on TCP and UDP 514. **rtr01, ns1, srv01 and dock01** run rsyslog with Debian's default rules plus /etc/rsyslog.d/50-central.conf, which forwards everything over TCP with a memory queue. Simulated: rsyslog.conf and its includes (module/input, legacy $ directives, selectors with ;, none, =, !, files, @/@@ and action(type="omfwd"), templates with %HOSTNAME%/%PROGRAMNAME%, property filters, & stop), facilities derived from the program (sshd: auth, sudo/PAM: authpriv), real syslog traffic on UDP/TCP 514 through routers and firewalls, suspended/resumed actions and queues, \`logger\` and \`rsyslogd -N1\`. Simplified: forwarding happens between commands (in the background) rather than continuously, one TCP connection per batch, no TLS/RELP, no rate limiting, no log rotation.
 
 :::practice
 Q: Which component on a log server decides that messages from srv01 end up in /var/log/remote/srv01/?
@@ -167,7 +165,6 @@ A: A **template** used by a rule on the receiver (for example with %HOSTNAME% in
 Q: Which ports are used for syslog over plain UDP/TCP, over TLS, and with RELP?
 A: **514** (UDP or TCP), **6514** (TLS), **2514** (RELP, commonly).
 :::
-
 `,
 
   internals: `
